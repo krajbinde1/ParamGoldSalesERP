@@ -18,11 +18,23 @@ class DealerInfolist
                 TextEntry::make('mobile'),
                 TextEntry::make('alternate_mobile')
                     ->placeholder('-'),
+                TextEntry::make('whatsapp')
+                    ->label('WhatsApp Number')
+                    ->placeholder('-'),
                 TextEntry::make('email')
                     ->label('Email address')
                     ->placeholder('-'),
                 TextEntry::make('gst_no')
+                    ->label('GSTIN')
                     ->placeholder('-'),
+                TextEntry::make('pan_no')
+                    ->label('PAN Number')
+                    ->placeholder('-'),
+                TextEntry::make('fertilizer_license_no')
+                    ->label('Fertilizer License Number')
+                    ->placeholder('-'),
+                TextEntry::make('dealer_type')
+                    ->badge(),
                 TextEntry::make('address')
                     ->columnSpanFull(),
                 TextEntry::make('state'),

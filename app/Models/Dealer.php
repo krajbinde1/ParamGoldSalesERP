@@ -9,6 +9,26 @@ class Dealer extends Model
 {
     use SoftDeletes;
 
+    protected static function booted(): void
+    {
+        static::creating(function (Dealer $dealer): void {
+            if (filled($dealer->dealer_code)) {
+                return;
+            }
+
+            $lastCode = static::withTrashed()
+                ->where('dealer_code', 'like', 'DLR%')
+                ->orderByDesc('dealer_code')
+                ->value('dealer_code');
+
+            $nextNumber = $lastCode === null
+                ? 1
+                : ((int) substr($lastCode, 3)) + 1;
+
+            $dealer->dealer_code = 'DLR'.str_pad((string) $nextNumber, 6, '0', STR_PAD_LEFT);
+        });
+    }
+
     protected $fillable = [
         'dealer_code',
         'firm_name',
