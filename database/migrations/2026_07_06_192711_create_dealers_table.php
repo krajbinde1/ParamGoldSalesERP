@@ -6,51 +6,53 @@ use Illuminate\Support\Facades\Schema;
 
 return new class extends Migration
 {
-    /**
-     * Run the migrations.
-     */
     public function up(): void
     {
-        
-{
-    Schema::create('dealers', function (Blueprint $table) {
-        $table->id();
+        Schema::create('dealers', function (Blueprint $table) {
+            $table->id();
 
-        $table->string('dealer_code')->unique();
-        $table->string('firm_name');
-        $table->string('owner_name');
+            $table->string('dealer_code')->unique();
 
-        $table->string('mobile',20);
-        $table->string('alternate_mobile',20)->nullable();
+            $table->string('firm_name');
+            $table->string('owner_name');
 
-        $table->string('email')->nullable();
+            $table->string('mobile', 20);
+            $table->string('alternate_mobile', 20)->nullable();
+            $table->string('whatsapp', 20)->nullable();
 
-        $table->string('gst_no')->nullable();
+            $table->string('email')->nullable();
 
-        $table->text('address');
+            $table->string('gst_no', 20)->nullable();
+            $table->string('fertilizer_license_no')->nullable();
+            $table->string('pan_no', 20)->nullable();
 
-        $table->string('state');
-        $table->string('district');
-        $table->string('taluka');
-        $table->string('village')->nullable();
-        $table->string('pincode',10);
+            $table->text('address');
 
-        $table->decimal('credit_limit',12,2)->default(0);
-        $table->decimal('outstanding',12,2)->default(0);
+            $table->string('village')->nullable();
+            $table->string('taluka');
+            $table->string('district');
+            $table->string('state');
+            $table->string('pincode', 10);
 
-        $table->decimal('latitude',10,7)->nullable();
-        $table->decimal('longitude',10,7)->nullable();
+            $table->decimal('latitude', 10, 7)->nullable();
+            $table->decimal('longitude', 10, 7)->nullable();
 
-        $table->boolean('status')->default(true);
+            $table->decimal('credit_limit', 12, 2)->default(0);
+            $table->decimal('outstanding', 12, 2)->default(0);
 
-        $table->timestamps();
-    });
-}
+            $table->enum('dealer_type', [
+                'Distributor',
+                'Retailer',
+                'Wholesaler',
+            ])->default('Retailer');
+
+            $table->boolean('status')->default(true);
+
+            $table->softDeletes();
+            $table->timestamps();
+        });
     }
 
-    /**
-     * Reverse the migrations.
-     */
     public function down(): void
     {
         Schema::dropIfExists('dealers');
