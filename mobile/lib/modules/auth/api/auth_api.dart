@@ -1,0 +1,89 @@
+import 'package:dio/dio.dart';
+
+import '../../../core/api/api_errors.dart';
+import '../models/auth_session.dart';
+
+class AuthApiException implements Exception {
+  const AuthApiException(this.message);
+  final String message;
+  @override
+  String toString() => message;
+}
+
+class AuthApi {
+  const AuthApi(this._dio);
+  final Dio _dio;
+
+  Future<AuthSession> login(String loginId, String password) async {
+    try {
+      final response = await _dio.post(
+        '/login',
+        data: {'login_id': loginId, 'password': password},
+      );
+      return AuthSession.fromJson(Map<String, dynamic>.from(response.data));
+    } on DioException catch (error) {
+      throw _exception(error);
+    }
+  }
+
+  Future<AuthSession> me(String token) async {
+    try {
+      final response = await _dio.get('/me');
+      final body = Map<String, dynamic>.from(response.data);
+      return AuthSession.fromJson({...body, 'token': token});
+    } on DioException catch (error) {
+      throw _exception(error);
+    }
+  }
+
+  Future<AuthUser> changePassword({
+    required String currentPassword,
+    required String password,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/change-password',
+        data: {
+          'current_password': currentPassword,
+          'password': password,
+          'password_confirmation': password,
+        },
+      );
+      return AuthUser.fromJson(
+        Map<String, dynamic>.from(response.data['user'] as Map),
+      );
+    } on DioException catch (error) {
+      throw _exception(error);
+    }
+  }
+
+  Future<void> logout() async {
+    try {
+      await _dio.post('/logout');
+    } on DioException catch (error) {
+      if (error.response?.statusCode != 401) throw _exception(error);
+    }
+  }
+
+  AuthApiException _exception(DioException error) {
+    final body = error.response?.data;
+    final message = body is Map ? body['message']?.toString() : null;
+    if (error.type == DioExceptionType.connectionTimeout ||
+        error.type == DioExceptionType.sendTimeout ||
+        error.type == DioExceptionType.receiveTimeout) {
+      return AuthApiException(
+        connectionFailureMessage(prefix: 'Request timed out connecting to server'),
+      );
+    }
+    if (isConnectionFailure(error)) {
+      return AuthApiException(connectionFailureMessage());
+    }
+    if (error.response?.statusCode == 403) {
+      return const AuthApiException('Employee account is inactive');
+    }
+    if (error.response?.statusCode == 422) {
+      return const AuthApiException('Invalid mobile number or password');
+    }
+    return AuthApiException(message ?? connectionFailureMessage());
+  }
+}
