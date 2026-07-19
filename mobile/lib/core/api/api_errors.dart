@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import 'api_config.dart';
 
@@ -25,6 +26,11 @@ bool isConnectionFailure(DioException error) {
 }
 
 String connectionFailureMessage({String prefix = 'Unable to connect to server'}) {
+  if (kReleaseMode) {
+    return '$prefix at ${ApiConfig.baseUrl}. '
+        'Please check your internet connection and try again.';
+  }
+
   return '$prefix at ${ApiConfig.baseUrl}. '
       'Ensure the backend is running and your device is on the same Wi‑Fi network.';
 }

@@ -12,17 +12,17 @@ class ApiConfig {
   /// Resolves the API base URL for the current build.
   ///
   /// Priority:
-  /// 1. `--dart-define=API_BASE_URL=https://example.com/api`
-  /// 2. Release builds → [productionApiBaseUrl]
-  /// 3. Debug builds → `--dart-define=API_HOST=<host>` or platform dev defaults
+  /// 1. Release builds → always [productionApiBaseUrl]
+  /// 2. Debug `--dart-define=API_BASE_URL=https://example.com/api`
+  /// 3. Debug `--dart-define=API_HOST=<host>` or platform dev defaults
   static String get baseUrl {
+    if (kReleaseMode) {
+      return productionApiBaseUrl;
+    }
+
     const fullOverride = String.fromEnvironment('API_BASE_URL');
     if (fullOverride.isNotEmpty) {
       return fullOverride;
-    }
-
-    if (kReleaseMode) {
-      return productionApiBaseUrl;
     }
 
     const hostOverride = String.fromEnvironment('API_HOST');

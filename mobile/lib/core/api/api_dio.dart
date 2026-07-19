@@ -27,9 +27,6 @@ class ApiDio {
               '→ ${options.method} ${options.uri}',
               name: logTag,
             );
-            if (options.data != null) {
-              developer.log('  Request body: ${options.data}', name: logTag);
-            }
             handler.next(options);
           },
           onResponse: (response, handler) {
@@ -37,21 +34,16 @@ class ApiDio {
               '← ${response.statusCode} ${response.requestOptions.uri}',
               name: logTag,
             );
-            developer.log('  Response body: ${response.data}', name: logTag);
             handler.next(response);
           },
           onError: (error, handler) {
+            final statusCode = error.response?.statusCode;
             developer.log(
-              '✗ ${error.requestOptions.uri} [${error.type}] ${error.message}',
+              statusCode == null
+                  ? '✗ ${error.requestOptions.uri}'
+                  : '✗ $statusCode ${error.requestOptions.uri}',
               name: logTag,
             );
-            final response = error.response;
-            if (response != null) {
-              developer.log(
-                '  Status: ${response.statusCode}\n  Response body: ${response.data}',
-                name: logTag,
-              );
-            }
             handler.next(error);
           },
         ),
