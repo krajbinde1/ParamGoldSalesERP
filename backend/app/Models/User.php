@@ -6,13 +6,15 @@ use App\Enums\FilamentJobRole;
 use App\Enums\UserRole;
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Database\Factories\UserFactory;
+use Filament\Models\Contracts\FilamentUser;
+use Filament\Panel;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
-class User extends Authenticatable
+class User extends Authenticatable implements FilamentUser
 {
     /** @use HasFactory<UserFactory> */
     use HasApiTokens, HasFactory, Notifiable;
@@ -206,5 +208,28 @@ class User extends Authenticatable
         }
 
         return $this->resolvedJobRole() ?? UserRole::tryFromMixed($this->role)->label();
+    }
+
+    public function canAccessPanel(Panel $panel): bool
+    {
+        if ($panel->getId() !== 'admin') {
+            return false;
+        }
+
+        if ($this->employee_id === null) {
+            return $this->isAdminUser()
+                || $this->isDirectorUser()
+                || $this->isManagerUser()
+                || $this->hasRole(UserRole::ProductionSupervisor);
+        }
+
+        if ($this->employee === null || $this->employee->status !== true) {
+            return false;
+        }
+
+        return $this->usesAdminDirectorDashboard()
+            || $this->isManagerUser()
+            || $this->hasRole(UserRole::ProductionSupervisor)
+            || $this->hasOrdersOnlyFilamentAccess();
     }
 }
