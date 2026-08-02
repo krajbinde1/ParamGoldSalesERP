@@ -25,7 +25,8 @@ class _PunchOutScreenState extends ConsumerState<PunchOutScreen> {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              trackingStatus == 'Route tracking stopped'
+              trackingStatus == 'Punch out complete' ||
+                      trackingStatus == 'No active attendance found'
                   ? 'Punch out recorded successfully. Route tracking stopped.'
                   : 'Punch out recorded successfully.',
             ),

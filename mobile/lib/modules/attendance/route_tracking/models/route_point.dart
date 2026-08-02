@@ -86,20 +86,26 @@ class RouteTrackingSession {
     required this.attendanceId,
     required this.isActive,
     this.employeeId,
+    this.punchInAt,
     this.lastLatitude,
     this.lastLongitude,
     this.lastRecordedAt,
-    this.statusMessage = 'Route tracking stopped',
+    this.lastSyncedAt,
+    this.apiBaseUrl,
+    this.statusMessage = 'No active attendance found',
     this.gpsStatus = 'unknown',
     this.permissionStatus = 'unknown',
   });
 
   final int attendanceId;
   final int? employeeId;
+  final String? punchInAt;
   final bool isActive;
   final double? lastLatitude;
   final double? lastLongitude;
   final String? lastRecordedAt;
+  final String? lastSyncedAt;
+  final String? apiBaseUrl;
   final String statusMessage;
   final String gpsStatus;
   final String permissionStatus;
@@ -107,10 +113,13 @@ class RouteTrackingSession {
   Map<String, dynamic> toJson() => {
     'attendance_id': attendanceId,
     'employee_id': employeeId,
+    'punch_in_at': punchInAt,
     'is_active': isActive,
     'last_latitude': lastLatitude,
     'last_longitude': lastLongitude,
     'last_recorded_at': lastRecordedAt,
+    'last_synced_at': lastSyncedAt,
+    'api_base_url': apiBaseUrl,
     'status_message': statusMessage,
     'gps_status': gpsStatus,
     'permission_status': permissionStatus,
@@ -122,6 +131,7 @@ class RouteTrackingSession {
         employeeId: json['employee_id'] == null
             ? null
             : int.tryParse('${json['employee_id']}'),
+        punchInAt: json['punch_in_at']?.toString(),
         isActive: json['is_active'] == true,
         lastLatitude: json['last_latitude'] == null
             ? null
@@ -130,8 +140,10 @@ class RouteTrackingSession {
             ? null
             : double.tryParse('${json['last_longitude']}'),
         lastRecordedAt: json['last_recorded_at']?.toString(),
+        lastSyncedAt: json['last_synced_at']?.toString(),
+        apiBaseUrl: json['api_base_url']?.toString(),
         statusMessage:
-            json['status_message']?.toString() ?? 'Route tracking stopped',
+            json['status_message']?.toString() ?? 'No active attendance found',
         gpsStatus: json['gps_status']?.toString() ?? 'unknown',
         permissionStatus: json['permission_status']?.toString() ?? 'unknown',
       );
@@ -139,20 +151,26 @@ class RouteTrackingSession {
   RouteTrackingSession copyWith({
     int? attendanceId,
     int? employeeId,
+    String? punchInAt,
     bool? isActive,
     double? lastLatitude,
     double? lastLongitude,
     String? lastRecordedAt,
+    String? lastSyncedAt,
+    String? apiBaseUrl,
     String? statusMessage,
     String? gpsStatus,
     String? permissionStatus,
   }) => RouteTrackingSession(
     attendanceId: attendanceId ?? this.attendanceId,
     employeeId: employeeId ?? this.employeeId,
+    punchInAt: punchInAt ?? this.punchInAt,
     isActive: isActive ?? this.isActive,
     lastLatitude: lastLatitude ?? this.lastLatitude,
     lastLongitude: lastLongitude ?? this.lastLongitude,
     lastRecordedAt: lastRecordedAt ?? this.lastRecordedAt,
+    lastSyncedAt: lastSyncedAt ?? this.lastSyncedAt,
+    apiBaseUrl: apiBaseUrl ?? this.apiBaseUrl,
     statusMessage: statusMessage ?? this.statusMessage,
     gpsStatus: gpsStatus ?? this.gpsStatus,
     permissionStatus: permissionStatus ?? this.permissionStatus,

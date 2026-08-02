@@ -121,6 +121,20 @@ class RouteCaptureRules {
       return false;
     }
 
+    // Reject impossible jumps (e.g. teleport / bad GPS spike).
+    if (elapsed != null && elapsed.inSeconds > 0) {
+      final metersPerSecond = distance / elapsed.inSeconds;
+      // ~180 km/h ceiling for field travel; anything faster is discarded.
+      if (distance >= 400 && metersPerSecond > 50) {
+        routeTrackingLog(
+          'Location rejected: impossible jump '
+          '${distance.toStringAsFixed(1)}m in ${elapsed.inSeconds}s '
+          '(${metersPerSecond.toStringAsFixed(1)} m/s)',
+        );
+        return false;
+      }
+    }
+
     if (distance >= movementThresholdMeters) {
       routeTrackingLog(
         'Capture allowed: moved ${distance.toStringAsFixed(1)}m '
@@ -186,14 +200,14 @@ class RouteCaptureRules {
   static LocationSettings locationSettings() {
     if (Platform.isAndroid) {
       return AndroidSettings(
-        accuracy: LocationAccuracy.bestForNavigation,
+        accuracy: LocationAccuracy.high,
         distanceFilter: 0,
-        intervalDuration: const Duration(seconds: 5),
+        intervalDuration: const Duration(seconds: 10),
         forceLocationManager: false,
       );
     }
     return const LocationSettings(
-      accuracy: LocationAccuracy.bestForNavigation,
+      accuracy: LocationAccuracy.high,
       timeLimit: Duration(seconds: 25),
     );
   }
@@ -205,9 +219,9 @@ class RouteCaptureRules {
   }) {
     if (Platform.isAndroid) {
       return AndroidSettings(
-        accuracy: LocationAccuracy.bestForNavigation,
-        distanceFilter: 10,
-        intervalDuration: const Duration(seconds: 10),
+        accuracy: LocationAccuracy.high,
+        distanceFilter: routeMovementThresholdMeters.round(),
+        intervalDuration: routeCaptureInterval,
         forceLocationManager: false,
         foregroundNotificationConfig: withGeolocatorNotification
             ? const ForegroundNotificationConfig(
@@ -221,8 +235,8 @@ class RouteCaptureRules {
       );
     }
     return AppleSettings(
-      accuracy: LocationAccuracy.bestForNavigation,
-      distanceFilter: 10,
+      accuracy: LocationAccuracy.high,
+      distanceFilter: routeMovementThresholdMeters.round(),
       activityType: ActivityType.otherNavigation,
       pauseLocationUpdatesAutomatically: false,
       allowBackgroundLocationUpdates: true,

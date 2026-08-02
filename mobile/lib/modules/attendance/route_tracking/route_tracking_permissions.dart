@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:permission_handler/permission_handler.dart' as ph;
+import 'package:shared_preferences/shared_preferences.dart';
 
 class RouteTrackingPermissionResult {
   const RouteTrackingPermissionResult({
@@ -24,11 +25,15 @@ class RouteTrackingPermissions {
       'enable Precise location, set Battery usage to Unrestricted, and allow '
       'Background activity for ParamGold.';
 
+  static const _batteryPromptedKey = 'route_tracking_battery_opt_prompted';
+
+  /// Punch-in permission flow. Requests runtime permissions once as needed.
+  /// Does not open app settings repeatedly.
   static Future<RouteTrackingPermissionResult> ensureForTracking() async {
     if (!await Geolocator.isLocationServiceEnabled()) {
       return const RouteTrackingPermissionResult(
         granted: false,
-        message: 'Please enable GPS to start route tracking.',
+        message: 'GPS disabled',
         permissionStatus: 'gps_disabled',
         guidance: setupGuidance,
       );
@@ -42,21 +47,28 @@ class RouteTrackingPermissions {
         permission == LocationPermission.deniedForever) {
       return const RouteTrackingPermissionResult(
         granted: false,
-        message:
-            'Location permission is required for route tracking. Enable it in app settings.',
+        message: 'Location permission denied',
         permissionStatus: 'location_denied',
         guidance: setupGuidance,
       );
     }
 
-    final notificationPermission =
-        await FlutterForegroundTask.checkNotificationPermission();
-    if (notificationPermission != NotificationPermission.granted) {
-      await FlutterForegroundTask.requestNotificationPermission();
-    }
-
-    if (await ph.Permission.notification.isDenied) {
-      await ph.Permission.notification.request();
+    if (Platform.isAndroid) {
+      final notificationPermission =
+          await FlutterForegroundTask.checkNotificationPermission();
+      if (notificationPermission != NotificationPermission.granted) {
+        await FlutterForegroundTask.requestNotificationPermission();
+      }
+      final afterNotify =
+          await FlutterForegroundTask.checkNotificationPermission();
+      if (afterNotify != NotificationPermission.granted) {
+        return const RouteTrackingPermissionResult(
+          granted: false,
+          message: 'Notification permission denied',
+          permissionStatus: 'notification_denied',
+          guidance: setupGuidance,
+        );
+      }
     }
 
     final background = await ph.Permission.locationAlways.status;
@@ -65,8 +77,7 @@ class RouteTrackingPermissions {
       if (!requested.isGranted) {
         return const RouteTrackingPermissionResult(
           granted: false,
-          message:
-              'Background location ("Allow all the time") is required to track your route while the screen is locked.',
+          message: 'Background permission denied',
           permissionStatus: 'background_denied',
           guidance: setupGuidance,
         );
@@ -79,14 +90,20 @@ class RouteTrackingPermissions {
         return const RouteTrackingPermissionResult(
           granted: false,
           message:
-              'Precise location is required for field route tracking. Enable Precise location in app settings.',
+              'Precise location is required. Enable Precise location in app settings.',
           permissionStatus: 'approximate_only',
           guidance: setupGuidance,
         );
       }
 
+      // Prompt battery exemption at most once unless already unrestricted.
       if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
-        await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+        final prefs = await SharedPreferences.getInstance();
+        final prompted = prefs.getBool(_batteryPromptedKey) ?? false;
+        if (!prompted) {
+          await FlutterForegroundTask.requestIgnoreBatteryOptimization();
+          await prefs.setBool(_batteryPromptedKey, true);
+        }
       }
     }
 
@@ -96,6 +113,53 @@ class RouteTrackingPermissions {
       permissionStatus: 'granted',
       guidance: setupGuidance,
     );
+  }
+
+  /// Diagnose why tracking may be stopped without opening settings.
+  static Future<String> diagnoseStoppedReason({
+    required bool sessionActive,
+    required bool serviceRunning,
+    required bool hasToken,
+  }) async {
+    if (!sessionActive) {
+      return 'No active attendance found';
+    }
+    if (!hasToken) {
+      return 'Authentication token unavailable';
+    }
+    if (!await Geolocator.isLocationServiceEnabled()) {
+      return 'GPS disabled';
+    }
+    final permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied ||
+        permission == LocationPermission.deniedForever) {
+      return 'Location permission denied';
+    }
+    final always = await ph.Permission.locationAlways.status;
+    if (!always.isGranted) {
+      return 'Background permission denied';
+    }
+    if (Platform.isAndroid) {
+      final notificationPermission =
+          await FlutterForegroundTask.checkNotificationPermission();
+      if (notificationPermission != NotificationPermission.granted) {
+        return 'Notification permission denied';
+      }
+      final accuracy = await Geolocator.getLocationAccuracy();
+      if (accuracy == LocationAccuracyStatus.reduced) {
+        return 'Precise location disabled';
+      }
+      if (!await FlutterForegroundTask.isIgnoringBatteryOptimizations) {
+        return 'Battery restriction detected';
+      }
+      if (!serviceRunning) {
+        return 'Service killed by Android';
+      }
+    }
+    if (!serviceRunning) {
+      return 'Foreground service failed to start';
+    }
+    return 'Route tracking stopped';
   }
 
   static Future<String> currentPermissionLabel() async {

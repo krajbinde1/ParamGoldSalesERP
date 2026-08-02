@@ -23,12 +23,28 @@ class RouteTrackingTaskHandler extends TaskHandler {
   RoutePointStore? _store;
   RoutePointSync? _sync;
   bool _handlingPosition = false;
-  bool _ready = false;
 
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
-    routeTrackingLog('FGS onStart starter=${starter.name}');
+    routeTrackingLog(
+      'FGS onStart starter=${starter.name} (service recreated=${starter == TaskStarter.system})',
+    );
     await _ensureReady();
+
+    final session = _store?.session;
+    if (session?.isActive != true || (session?.attendanceId ?? 0) <= 0) {
+      routeTrackingLog(
+        'FGS onStart: no active attendance — stopping service '
+        '(starter=${starter.name})',
+      );
+      await FlutterForegroundTask.stopService();
+      return;
+    }
+
+    routeTrackingLog(
+      'Foreground service started attendanceId=${session!.attendanceId} '
+      'employeeId=${session.employeeId}',
+    );
     await _startPositionStream();
     await _captureOnce(source: '${routeTrackingSource}_fgs_start');
     await _syncPendingQuietly();
@@ -45,9 +61,8 @@ class RouteTrackingTaskHandler extends TaskHandler {
       await _ensureReady();
       final session = _store?.session;
       if (session?.isActive != true) {
-        routeTrackingLog('FGS repeat: session inactive — skipping capture');
-        await _syncPendingQuietly();
-        _publishStatus();
+        routeTrackingLog('FGS repeat: session inactive — stopping service');
+        await FlutterForegroundTask.stopService();
         return;
       }
       await _captureOnce(source: '${routeTrackingSource}_fgs_poll');
@@ -60,7 +75,7 @@ class RouteTrackingTaskHandler extends TaskHandler {
 
   @override
   Future<void> onDestroy(DateTime timestamp, bool isTimeout) async {
-    routeTrackingLog('FGS onDestroy isTimeout=$isTimeout');
+    routeTrackingLog('Service destroyed isTimeout=$isTimeout');
     await _positionSubscription?.cancel();
     _positionSubscription = null;
   }
@@ -74,12 +89,12 @@ class RouteTrackingTaskHandler extends TaskHandler {
   }
 
   Future<void> _ensureReady() async {
-    if (_ready) return;
+    // Always reload prefs so system-recreated FGS sees latest session writes.
     final prefs = await SharedPreferences.getInstance();
+    await prefs.reload();
     _store = RoutePointStore(prefs);
     final api = await RoutePointApi.create();
     _sync = RoutePointSync(_store!, api);
-    _ready = true;
   }
 
   Future<void> _startPositionStream() async {
@@ -105,12 +120,17 @@ class RouteTrackingTaskHandler extends TaskHandler {
       await _ensureReady();
       final store = _store;
       if (store == null || store.session?.isActive != true) return;
+      routeTrackingLog(
+        'Location received: (${position.latitude}, ${position.longitude}) '
+        'accuracy=${position.accuracy}m',
+      );
       final point = await RouteCaptureRules.captureFromPosition(
         store: store,
         position: position,
         source: routeTrackingSource,
       );
       if (point != null) {
+        routeTrackingLog('Location saved locally uuid=${point.localUuid}');
         await _syncPendingQuietly();
         _publishStatus();
       }
@@ -133,10 +153,20 @@ class RouteTrackingTaskHandler extends TaskHandler {
       final sync = _sync;
       if (store == null || sync == null) return;
       final attendanceId = store.session?.attendanceId;
+      final pendingBefore = store.pendingPoints().length;
+      routeTrackingLog('Pending sync count=$pendingBefore');
       await sync.syncPending(
         activeAttendanceId: attendanceId,
         allowClosedAttendance: true,
       );
+      final pendingAfter = store.pendingPoints().length;
+      if (pendingAfter < pendingBefore) {
+        routeTrackingLog(
+          'Location uploaded; pending sync count=$pendingAfter',
+        );
+      } else if (pendingBefore > 0 && pendingAfter == pendingBefore) {
+        routeTrackingLog('Upload failed or deferred; pending=$pendingAfter');
+      }
     } catch (error) {
       routeTrackingLog('FGS sync failed (will retry): $error');
     }
@@ -157,7 +187,7 @@ class RouteTrackingTaskHandler extends TaskHandler {
       'permission_status': session?.permissionStatus ?? 'unknown',
       'message': session?.isActive == true
           ? 'Route Tracking Active'
-          : (session?.statusMessage ?? 'Route tracking stopped'),
+          : (session?.statusMessage ?? 'No active attendance found'),
     });
     unawaited(
       FlutterForegroundTask.updateService(
@@ -192,19 +222,24 @@ class RouteTrackingForeground {
         eventAction: ForegroundTaskEventAction.repeat(
           routeForegroundTaskIntervalMs,
         ),
-        // Never auto-start on boot/update — tracking starts only after punch-in.
-        autoRunOnBoot: false,
-        autoRunOnMyPackageReplaced: false,
+        // Restart after reboot / app update only when FGS was previously running
+        // (plugin + task handler no-op / stop when session is inactive).
+        autoRunOnBoot: true,
+        autoRunOnMyPackageReplaced: true,
         allowWakeLock: true,
         allowWifiLock: true,
+        allowAutoRestart: true,
+        // Keep tracking after swipe-away from recents (START_STICKY path).
+        stopWithTask: false,
       ),
     );
     _initialized = true;
-    routeTrackingLog('Foreground task initialized');
+    routeTrackingLog('Foreground task initialized (notification channel ready)');
   }
 
   static Future<bool> start() async {
     await init();
+    routeTrackingLog('Foreground service start request');
     if (await FlutterForegroundTask.isRunningService) {
       final result = await FlutterForegroundTask.restartService();
       routeTrackingLog('FGS restart result=$result');
@@ -220,14 +255,16 @@ class RouteTrackingForeground {
           ? [ForegroundServiceTypes.location]
           : null,
     );
-    routeTrackingLog('FGS start result=$result');
+    routeTrackingLog(
+      'FGS start result=$result notification="$routeTrackingNotificationText"',
+    );
     return result is ServiceRequestSuccess;
   }
 
   static Future<void> stop() async {
     if (await FlutterForegroundTask.isRunningService) {
       final result = await FlutterForegroundTask.stopService();
-      routeTrackingLog('FGS stop result=$result');
+      routeTrackingLog('Foreground service stopped result=$result');
     }
   }
 

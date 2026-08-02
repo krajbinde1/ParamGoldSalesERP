@@ -2,10 +2,10 @@
 const bool routeTrackingRuntimeEnabled = true;
 
 /// Minimum time between route point captures.
-const Duration routeCaptureInterval = Duration(seconds: 60);
+const Duration routeCaptureInterval = Duration(seconds: 15);
 
 /// Minimum movement before capturing a new point (meters).
-const double routeMovementThresholdMeters = 20.0;
+const double routeMovementThresholdMeters = 25.0;
 
 /// Maximum acceptable GPS accuracy (meters).
 const double routeMaxAccuracyMeters = 100.0;
@@ -17,13 +17,13 @@ const Duration routeDuplicateCoordWindow = Duration(seconds: 8);
 const String routeTrackingSource = 'foreground_location';
 
 const String routeTrackingNotificationTitle =
-    'ParamGold Route Tracking is Active';
+    'ParamGold route tracking is active';
 const String routeTrackingNotificationText =
-    'ParamGold Route Tracking is Active';
+    'ParamGold route tracking is active';
 const String routeTrackingNotificationChannelName = 'ParamGold Route Tracking';
 const String routeTrackingNotificationChannelId = 'paramgold_route_tracking';
 
-/// Foreground task polling interval (seconds).
+/// Foreground task polling interval.
 const int routeForegroundTaskIntervalMs = 15000;
 
 const int routeForegroundServiceId = 2567;

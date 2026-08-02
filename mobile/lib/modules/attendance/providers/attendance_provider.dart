@@ -76,8 +76,10 @@ class TodayAttendanceNotifier extends AsyncNotifier<Attendance?> {
         );
       }
     } else if (action == 'punch-out') {
+      // Only stop FGS / clear local tracking after punch-out API succeeded.
       try {
         await RouteTrackingService.instance.stop();
+        routeTrackingLog('Punch Out success — tracking cleared');
       } catch (error, stackTrace) {
         routeTrackingLog(
           'Route tracking stop failed after punch-out (non-blocking): '

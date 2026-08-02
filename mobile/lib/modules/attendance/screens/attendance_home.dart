@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -9,6 +11,7 @@ import '../models/attendance_format.dart';
 import '../providers/attendance_provider.dart';
 import '../route_tracking/debug/route_simulator_panel.dart';
 import '../route_tracking/route_tracking_provider.dart';
+import '../route_tracking/route_tracking_service.dart';
 import '../widgets/attendance_widgets.dart';
 
 class AttendanceHome extends ConsumerStatefulWidget {
@@ -18,6 +21,8 @@ class AttendanceHome extends ConsumerStatefulWidget {
 }
 
 class _AttendanceHomeState extends ConsumerState<AttendanceHome> {
+  bool _didRecoverFromAttendance = false;
+
   @override
   void initState() {
     super.initState();
@@ -30,6 +35,18 @@ class _AttendanceHomeState extends ConsumerState<AttendanceHome> {
   Widget build(BuildContext context) {
     final state = ref.watch(todayAttendanceProvider);
     final routeStatus = ref.watch(routeTrackingStatusProvider);
+    ref.listen(todayAttendanceProvider, (previous, next) {
+      next.whenData((a) {
+        if (_didRecoverFromAttendance || a?.canPunchOut != true) return;
+        _didRecoverFromAttendance = true;
+        unawaited(() async {
+          await RouteTrackingService.instance.recoverFromAttendance(a);
+          if (mounted) {
+            await refreshRouteTrackingStatus(ref);
+          }
+        }());
+      });
+    });
     return PgPageScaffold(
       title: 'Attendance',
       showBack: true,

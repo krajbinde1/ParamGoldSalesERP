@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -12,7 +13,7 @@ import '../route_tracking/route_tracking_permissions.dart';
 
 String timeText(DateTime? value) => AttendanceFormat.time(value);
 
-class StatusCard extends StatelessWidget {
+class StatusCard extends StatefulWidget {
   const StatusCard({
     super.key,
     required this.attendance,
@@ -22,15 +23,77 @@ class StatusCard extends StatelessWidget {
   final RouteTrackingUiStatus? routeTrackingStatus;
 
   @override
+  State<StatusCard> createState() => _StatusCardState();
+}
+
+class _StatusCardState extends State<StatusCard> {
+  Timer? _workingTimer;
+  String _workingLabel = '—';
+
+  @override
+  void initState() {
+    super.initState();
+    _syncWorkingTimer();
+  }
+
+  @override
+  void didUpdateWidget(covariant StatusCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.attendance?.punchIn != widget.attendance?.punchIn ||
+        oldWidget.attendance?.punchOut != widget.attendance?.punchOut ||
+        oldWidget.attendance?.workingHours != widget.attendance?.workingHours) {
+      _syncWorkingTimer();
+    }
+  }
+
+  @override
+  void dispose() {
+    _workingTimer?.cancel();
+    super.dispose();
+  }
+
+  void _syncWorkingTimer() {
+    _workingTimer?.cancel();
+    final a = widget.attendance;
+    if (a?.punchIn != null && a?.punchOut == null) {
+      _workingLabel = _formatLiveWorking(a!.punchIn!);
+      _workingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
+        if (!mounted) return;
+        setState(() {
+          _workingLabel = _formatLiveWorking(a.punchIn!);
+        });
+      });
+    } else {
+      _workingLabel = a?.workingHours ?? '—';
+      if (mounted) setState(() {});
+    }
+  }
+
+  String _formatLiveWorking(DateTime punchIn) {
+    final now = AttendanceFormat.istNow();
+    final elapsed = now.difference(punchIn);
+    final totalSeconds = elapsed.isNegative ? 0 : elapsed.inSeconds;
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(hours)}:${two(minutes)}:${two(seconds)}';
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final a = attendance;
-    final tracking = routeTrackingStatus;
+    final a = widget.attendance;
+    final tracking = widget.routeTrackingStatus;
     final isPresent = a != null && !a.status.toLowerCase().contains('absent');
     final trackingActive = tracking?.isActive == true;
     final showTracking =
         tracking != null &&
         tracking.message.isNotEmpty &&
         (a?.canPunchOut == true || tracking.pendingSyncCount > 0);
+    final showGuidance =
+        showTracking &&
+        (!trackingActive || tracking.permissionStatus != 'OK') &&
+        tracking.message != 'No active attendance found';
 
     return PgCard(
       child: Column(
@@ -88,8 +151,7 @@ class StatusCard extends StatelessWidget {
                           color: AppColors.textMuted,
                         ),
                       ),
-                      if (!trackingActive ||
-                          tracking.permissionStatus != 'OK') ...[
+                      if (showGuidance) ...[
                         const SizedBox(height: 6),
                         Text(
                           RouteTrackingPermissions.setupGuidance,
@@ -123,7 +185,7 @@ class StatusCard extends StatelessWidget {
               Expanded(
                 child: _Metric(
                   'Working',
-                  a?.workingHours ?? '—',
+                  _workingLabel,
                   const Icon(Icons.schedule_rounded),
                 ),
               ),
