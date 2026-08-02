@@ -4,11 +4,16 @@ namespace App\Http\Controllers\Api\Production;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Services\Inventory\InventoryDashboardService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class ProductionDashboardController extends Controller
 {
+    public function __construct(
+        private readonly InventoryDashboardService $inventoryDashboardService,
+    ) {}
+
     public function __invoke(Request $request): JsonResponse
     {
         $approvedOrders = Order::query()
@@ -36,6 +41,11 @@ class ProductionDashboardController extends Controller
             ],
             'approved_orders' => $approvedOrders,
             'recent_dispatched' => $recentDispatched,
+            // Inventory/production summary embedded so the mobile dashboard can
+            // show both order and manufacturing widgets from a single call.
+            // Mobile may also call GET /production/inventory/dashboard directly
+            // for the full inventory-only payload.
+            'inventory' => InventoryDashboardApiController::buildPayload($this->inventoryDashboardService, $request->user()),
         ]);
     }
 

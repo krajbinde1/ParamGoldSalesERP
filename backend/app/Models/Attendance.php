@@ -54,7 +54,7 @@ class Attendance extends Model
     protected $fillable = [
         'employee_id', 'attendance_date', 'punch_in_time', 'punch_out_time', 'attendance_status', 'working_hours',
         'punch_in_location', 'punch_out_location', 'punch_in_latitude', 'punch_in_longitude', 'punch_out_latitude', 'punch_out_longitude',
-        'remarks', 'approved_by', 'approval_status', 'punch_in_photo', 'punch_out_photo', 'rejection_reason', 'approved_at', 'rejected_by', 'rejected_at', 'total_working_minutes',
+        'remarks', 'approved_by', 'approval_status', 'punch_in_photo', 'punch_out_photo', 'rejection_reason', 'approved_at', 'rejected_by', 'rejected_at', 'total_working_minutes', 'total_route_distance_km',
     ];
 
     protected function casts(): array
@@ -64,6 +64,7 @@ class Attendance extends Model
             'punch_in_latitude' => 'decimal:7', 'punch_in_longitude' => 'decimal:7',
             'punch_out_latitude' => 'decimal:7', 'punch_out_longitude' => 'decimal:7',
             'approved_at' => 'datetime', 'rejected_at' => 'datetime', 'total_working_minutes' => 'integer',
+            'total_route_distance_km' => 'decimal:2',
         ];
     }
 

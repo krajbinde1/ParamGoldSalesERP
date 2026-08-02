@@ -119,7 +119,11 @@ class AttendanceController extends Controller
             'total_working_minutes' => $attendance->punchInAt()?->diffInMinutes($now),
         ]);
 
-        return $this->ok('Punch out recorded.', $this->formatAttendance($attendance->fresh()));
+        $fresh = $attendance->fresh();
+        app(\App\Services\EmployeeRouteAnalysisService::class)
+            ->recalculateAndPersistDistance($fresh);
+
+        return $this->ok('Punch out recorded.', $this->formatAttendance($fresh->fresh()));
     }
 
     public function today(Request $request): JsonResponse

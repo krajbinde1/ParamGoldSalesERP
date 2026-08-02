@@ -29,6 +29,17 @@ class RouteCaptureRules {
     return accuracy > 0 && accuracy <= maxAccuracyMeters;
   }
 
+  static bool isValidTimestamp(DateTime recordedAtUtc) {
+    final now = DateTime.now().toUtc();
+    if (recordedAtUtc.isAfter(now.add(const Duration(minutes: 5)))) {
+      return false;
+    }
+    if (recordedAtUtc.isBefore(now.subtract(const Duration(days: 2)))) {
+      return false;
+    }
+    return true;
+  }
+
   static DateTime? parseRecordedAt(String value) {
     final parsed = DateTime.tryParse(value);
     if (parsed != null) return parsed.toUtc();
@@ -69,6 +80,12 @@ class RouteCaptureRules {
       return false;
     }
 
+    final recordedAt = _positionTimestampUtc(position);
+    if (!isValidTimestamp(recordedAt)) {
+      routeTrackingLog('Skip capture: invalid timestamp $recordedAt');
+      return false;
+    }
+
     final lastLat = session.lastLatitude;
     final lastLng = session.lastLongitude;
     final lastRecordedAt = session.lastRecordedAt;
@@ -93,11 +110,15 @@ class RouteCaptureRules {
       'last=($lastLat, $lastLng)',
     );
 
-    if (elapsed != null && elapsed >= captureInterval) {
+    // Reject near-duplicate coordinates within a short window.
+    if (distance <= duplicateDistanceMeters &&
+        elapsed != null &&
+        elapsed < routeDuplicateCoordWindow) {
       routeTrackingLog(
-        'Capture allowed: ${captureInterval.inSeconds}s interval reached',
+        'Skip capture: duplicate coord within '
+        '${routeDuplicateCoordWindow.inSeconds}s',
       );
-      return true;
+      return false;
     }
 
     if (distance >= movementThresholdMeters) {
@@ -108,9 +129,21 @@ class RouteCaptureRules {
       return true;
     }
 
+    // Heartbeat: max 60s since last saved point, but skip pure stationary.
+    if (elapsed != null &&
+        elapsed >= captureInterval &&
+        distance > duplicateDistanceMeters) {
+      routeTrackingLog(
+        'Capture allowed: ${captureInterval.inSeconds}s interval with '
+        '${distance.toStringAsFixed(1)}m movement',
+      );
+      return true;
+    }
+
     if (distance <= duplicateDistanceMeters) {
       routeTrackingLog(
-        'Skip capture: unchanged coordinates within ${duplicateDistanceMeters}m',
+        'Skip capture: stationary within ${duplicateDistanceMeters}m '
+        '(avoid unnecessary stationary points)',
       );
       return false;
     }
@@ -121,25 +154,31 @@ class RouteCaptureRules {
     return false;
   }
 
+  static DateTime _positionTimestampUtc(Position position) {
+    final ts = position.timestamp.toUtc();
+    if (ts.isBefore(DateTime.fromMillisecondsSinceEpoch(0))) {
+      return DateTime.now().toUtc();
+    }
+    return ts;
+  }
+
   static RoutePoint buildPoint({
     required int attendanceId,
     required Position position,
     required String source,
+    int? employeeId,
   }) {
+    final heading = position.heading;
     return RoutePoint(
       localUuid: const Uuid().v4(),
       attendanceId: attendanceId,
+      employeeId: employeeId,
       latitude: position.latitude,
       longitude: position.longitude,
       accuracy: position.accuracy,
       speed: position.speed >= 0 ? position.speed : null,
-      recordedAt: RoutePoint.formatRecordedAt(
-        position.timestamp.toUtc().isBefore(
-              DateTime.fromMillisecondsSinceEpoch(0),
-            )
-            ? DateTime.now().toUtc()
-            : position.timestamp.toUtc(),
-      ),
+      heading: heading >= 0 && heading <= 360 ? heading : null,
+      recordedAt: RoutePoint.formatRecordedAt(_positionTimestampUtc(position)),
       source: source,
     );
   }
@@ -147,38 +186,47 @@ class RouteCaptureRules {
   static LocationSettings locationSettings() {
     if (Platform.isAndroid) {
       return AndroidSettings(
-        accuracy: LocationAccuracy.high,
+        accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: 0,
         intervalDuration: const Duration(seconds: 5),
         forceLocationManager: false,
       );
     }
     return const LocationSettings(
-      accuracy: LocationAccuracy.high,
+      accuracy: LocationAccuracy.bestForNavigation,
       timeLimit: Duration(seconds: 25),
     );
   }
 
-  static LocationSettings streamLocationSettings() {
+  /// Stream settings used inside the Android foreground task isolate.
+  /// Notification is owned by flutter_foreground_task, not geolocator.
+  static LocationSettings streamLocationSettings({
+    bool withGeolocatorNotification = false,
+  }) {
     if (Platform.isAndroid) {
       return AndroidSettings(
-        accuracy: LocationAccuracy.high,
+        accuracy: LocationAccuracy.bestForNavigation,
         distanceFilter: 10,
         intervalDuration: const Duration(seconds: 10),
         forceLocationManager: false,
-        foregroundNotificationConfig: const ForegroundNotificationConfig(
-          notificationTitle: routeTrackingNotificationTitle,
-          notificationText: routeTrackingNotificationText,
-          notificationChannelName: routeTrackingNotificationChannelName,
-          setOngoing: true,
-        ),
+        foregroundNotificationConfig: withGeolocatorNotification
+            ? const ForegroundNotificationConfig(
+                notificationTitle: routeTrackingNotificationTitle,
+                notificationText: routeTrackingNotificationText,
+                notificationChannelName: routeTrackingNotificationChannelName,
+                setOngoing: true,
+                enableWakeLock: true,
+              )
+            : null,
       );
     }
     return AppleSettings(
-      accuracy: LocationAccuracy.high,
+      accuracy: LocationAccuracy.bestForNavigation,
       distanceFilter: 10,
       activityType: ActivityType.otherNavigation,
       pauseLocationUpdatesAutomatically: false,
+      allowBackgroundLocationUpdates: true,
+      showBackgroundLocationIndicator: true,
     );
   }
 
@@ -214,6 +262,7 @@ class RouteCaptureRules {
 
     final point = buildPoint(
       attendanceId: session.attendanceId,
+      employeeId: session.employeeId,
       position: position,
       source: source,
     );
@@ -223,6 +272,7 @@ class RouteCaptureRules {
         lastLatitude: point.latitude,
         lastLongitude: point.longitude,
         lastRecordedAt: point.recordedAt,
+        gpsStatus: 'ok',
       ),
     );
     routeTrackingLog(

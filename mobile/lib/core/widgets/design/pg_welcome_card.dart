@@ -77,10 +77,12 @@ class PgWelcomeCard extends StatelessWidget {
               const SizedBox(height: 6),
               Row(
                 children: [
-                  Icon(
-                    Icons.calendar_today_rounded,
-                    size: 14,
-                    color: Colors.white.withValues(alpha: 0.8),
+                  IconTheme(
+                    data: IconThemeData(
+                      size: 14,
+                      color: Colors.white.withValues(alpha: 0.8),
+                    ),
+                    child: const Icon(Icons.calendar_today_rounded),
                   ),
                   const SizedBox(width: 6),
                   Text(

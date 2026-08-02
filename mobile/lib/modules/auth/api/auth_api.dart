@@ -71,12 +71,13 @@ class AuthApi {
     if (error.type == DioExceptionType.connectionTimeout ||
         error.type == DioExceptionType.sendTimeout ||
         error.type == DioExceptionType.receiveTimeout) {
-      return AuthApiException(
-        connectionFailureMessage(prefix: 'Request timed out connecting to server'),
-      );
+      return AuthApiException(connectionFailureMessage());
     }
     if (isConnectionFailure(error)) {
       return AuthApiException(connectionFailureMessage());
+    }
+    if (error.response?.statusCode == 401) {
+      return const AuthApiException('Session expired. Please login again.');
     }
     if (error.response?.statusCode == 403) {
       return const AuthApiException('Employee account is inactive');

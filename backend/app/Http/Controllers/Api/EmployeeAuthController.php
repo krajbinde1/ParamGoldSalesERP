@@ -49,7 +49,7 @@ class EmployeeAuthController extends Controller
             'token' => $token,
             'user' => $this->userData($user),
             'employee' => $this->employeeData($user->employee),
-            'permissions' => $user->roleEnum()->mobilePermissions(),
+            'permissions' => $this->mobilePermissions($user),
         ]);
     }
 
@@ -70,7 +70,7 @@ class EmployeeAuthController extends Controller
             'success' => true,
             'user' => $this->userData($user),
             'employee' => $this->employeeData($user->employee),
-            'permissions' => $user->roleEnum()->mobilePermissions(),
+            'permissions' => $this->mobilePermissions($user),
         ]);
     }
 
@@ -125,7 +125,22 @@ class EmployeeAuthController extends Controller
             'role' => $user->role,
             'role_label' => $user->roleEnum()->label(),
             'must_change_password' => $user->must_change_password,
+            'can_view_production_costs' => $user->canViewProductionCosts(),
         ];
+    }
+
+    /**
+     * @return list<string>
+     */
+    private function mobilePermissions(User $user): array
+    {
+        $permissions = $user->roleEnum()->mobilePermissions();
+
+        if ($user->canViewProductionCosts() && ! in_array('production_cost_view', $permissions, true)) {
+            $permissions[] = 'production_cost_view';
+        }
+
+        return array_values($permissions);
     }
 
     private function employeeData(Employee $employee): array

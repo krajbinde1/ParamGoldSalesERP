@@ -40,7 +40,7 @@ class ApiConfig {
 
     if (Platform.isAndroid) {
       // Android emulator alias for the host machine.
-      return '10.0.2.2';
+      return '192.168.1.7';
     }
 
     // iOS simulator / desktop.

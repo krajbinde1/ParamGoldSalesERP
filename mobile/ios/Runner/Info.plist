@@ -5,7 +5,20 @@
 	<key>NSCameraUsageDescription</key>
 	<string>A live selfie is required to record attendance.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Your location is required to verify attendance.</string>
+	<string>Your location is required to verify attendance and track field routes.</string>
+	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
+	<string>ParamGold needs always-on location to track your field route while the app is in the background.</string>
+	<key>NSLocationAlwaysUsageDescription</key>
+	<string>ParamGold needs always-on location to track your field route while the app is in the background.</string>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>location</string>
+		<string>fetch</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.pravera.flutter_foreground_task.refresh</string>
+	</array>
 	<key>CADisableMinimumFrameDurationOnPhone</key>
 	<true/>
 	<key>CFBundleDevelopmentRegion</key>

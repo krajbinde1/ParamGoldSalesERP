@@ -7,6 +7,7 @@ class AuthUser {
     required this.roleLabel,
     required this.mustChangePassword,
     required this.permissions,
+    this.canViewProductionCosts = false,
   });
 
   final int id;
@@ -16,28 +17,37 @@ class AuthUser {
   final String roleLabel;
   final bool mustChangePassword;
   final List<String> permissions;
+  final bool canViewProductionCosts;
 
-  factory AuthUser.fromJson(Map<String, dynamic> json) => AuthUser(
-    id: json['id'] as int,
-    employeeId: json['employee_id'] as int,
-    loginId: json['login_id'] as String,
-    role: json['role'] as String? ?? 'employee',
-    roleLabel: json['role_label'] as String? ?? 'Employee',
-    mustChangePassword: json['must_change_password'] == true,
-    permissions:
+  factory AuthUser.fromJson(Map<String, dynamic> json) {
+    final permissions =
         (json['permissions'] as List?)?.map((item) => '$item').toList() ??
-        const [],
-  );
+            const [];
+    final canViewCosts = json['can_view_production_costs'] == true ||
+        permissions.contains('production_cost_view');
+
+    return AuthUser(
+      id: json['id'] as int,
+      employeeId: json['employee_id'] as int,
+      loginId: json['login_id'] as String,
+      role: json['role'] as String? ?? 'employee',
+      roleLabel: json['role_label'] as String? ?? 'Employee',
+      mustChangePassword: json['must_change_password'] == true,
+      permissions: permissions,
+      canViewProductionCosts: canViewCosts,
+    );
+  }
 
   Map<String, dynamic> toJson() => {
-    'id': id,
-    'employee_id': employeeId,
-    'login_id': loginId,
-    'role': role,
-    'role_label': roleLabel,
-    'must_change_password': mustChangePassword,
-    'permissions': permissions,
-  };
+        'id': id,
+        'employee_id': employeeId,
+        'login_id': loginId,
+        'role': role,
+        'role_label': roleLabel,
+        'must_change_password': mustChangePassword,
+        'permissions': permissions,
+        'can_view_production_costs': canViewProductionCosts,
+      };
 }
 
 class EmployeeProfile {

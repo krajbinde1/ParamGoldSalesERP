@@ -43,14 +43,6 @@ class PgFloatingBottomNav extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final items = <(EmployeeNavTab, IconData, String)>[
-      (EmployeeNavTab.dashboard, Icons.dashboard_rounded, 'Dashboard'),
-      (EmployeeNavTab.orders, Icons.receipt_long_rounded, 'Orders'),
-      (EmployeeNavTab.activities, Icons.route_rounded, 'Activities'),
-      (EmployeeNavTab.collections, Icons.payments_rounded, 'Collections'),
-      (EmployeeNavTab.profile, Icons.person_rounded, 'Profile'),
-    ];
-
     return SafeArea(
       minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
       child: Container(
@@ -68,49 +60,105 @@ class PgFloatingBottomNav extends StatelessWidget {
           ],
         ),
         child: Row(
-          children: items.map((item) {
-            final selected = item.$1 == current;
-            return Expanded(
-              child: InkWell(
-                borderRadius: BorderRadius.circular(20),
-                onTap: () => onTap(item.$1),
-                child: AnimatedContainer(
-                  duration: const Duration(milliseconds: 220),
-                  curve: Curves.easeOutCubic,
-                  margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
-                  decoration: BoxDecoration(
-                    color: selected
-                        ? AppColors.primary.withValues(alpha: 0.1)
-                        : Colors.transparent,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      AnimatedScale(
-                        scale: selected ? 1.1 : 1,
-                        duration: const Duration(milliseconds: 220),
-                        child: Icon(
-                          item.$2,
-                          size: 22,
-                          color: selected ? AppColors.primary : AppColors.textMuted,
-                        ),
-                      ),
-                      const SizedBox(height: 2),
-                      Text(
-                        item.$3,
-                        style: TextStyle(
-                          fontSize: 10,
-                          fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
-                          color: selected ? AppColors.primary : AppColors.textMuted,
-                        ),
-                      ),
-                    ],
-                  ),
+          children: [
+            _NavItem(
+              tab: EmployeeNavTab.dashboard,
+              label: 'Dashboard',
+              selected: current == EmployeeNavTab.dashboard,
+              onTap: onTap,
+            ),
+            _NavItem(
+              tab: EmployeeNavTab.orders,
+              label: 'Orders',
+              selected: current == EmployeeNavTab.orders,
+              onTap: onTap,
+            ),
+            _NavItem(
+              tab: EmployeeNavTab.activities,
+              label: 'Activities',
+              selected: current == EmployeeNavTab.activities,
+              onTap: onTap,
+            ),
+            _NavItem(
+              tab: EmployeeNavTab.collections,
+              label: 'Collections',
+              selected: current == EmployeeNavTab.collections,
+              onTap: onTap,
+            ),
+            _NavItem(
+              tab: EmployeeNavTab.profile,
+              label: 'Profile',
+              selected: current == EmployeeNavTab.profile,
+              onTap: onTap,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NavItem extends StatelessWidget {
+  const _NavItem({
+    required this.tab,
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final EmployeeNavTab tab;
+  final String label;
+  final bool selected;
+  final ValueChanged<EmployeeNavTab> onTap;
+
+  /// Const [Icon] per tab so Flutter 3.44 tree-shaking keeps each glyph.
+  Widget _constIcon() => switch (tab) {
+    EmployeeNavTab.dashboard => const Icon(Icons.dashboard_rounded),
+    EmployeeNavTab.orders => const Icon(Icons.receipt_long_rounded),
+    EmployeeNavTab.activities => const Icon(Icons.route_rounded),
+    EmployeeNavTab.collections => const Icon(Icons.payments_rounded),
+    EmployeeNavTab.profile => const Icon(Icons.person_rounded),
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final color = selected ? AppColors.primary : AppColors.textMuted;
+    return Expanded(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(20),
+        onTap: () => onTap(tab),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 220),
+          curve: Curves.easeOutCubic,
+          margin: const EdgeInsets.symmetric(horizontal: 4, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected
+                ? AppColors.primary.withValues(alpha: 0.1)
+                : Colors.transparent,
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              AnimatedScale(
+                scale: selected ? 1.1 : 1,
+                duration: const Duration(milliseconds: 220),
+                child: IconTheme(
+                  data: IconThemeData(size: 22, color: color),
+                  child: _constIcon(),
                 ),
               ),
-            );
-          }).toList(),
+              const SizedBox(height: 2),
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10,
+                  fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+                  color: color,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

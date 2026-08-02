@@ -11,8 +11,6 @@ class RouteDistanceCalculator
 
     public const MAX_SPEED_KMH = 150;
 
-    public const MAX_SEGMENT_DISTANCE_METERS = 3000;
-
     public const DUPLICATE_DISTANCE_METERS = 5;
 
     /**
@@ -20,8 +18,12 @@ class RouteDistanceCalculator
      * @return array{
      *     total_distance_km: float,
      *     valid_point_count: int,
+     *     rejected_point_count: int,
      *     ignored_segment_count: int,
-     *     valid_points: array<int, array<string, mixed>>
+     *     valid_points: array<int, array<string, mixed>>,
+     *     first_recorded_at: ?Carbon,
+     *     last_recorded_at: ?Carbon,
+     *     duration_minutes: ?int
      * }
      */
     public function calculate(Collection $points): array
@@ -33,10 +35,12 @@ class RouteDistanceCalculator
             ])
             ->values();
 
+        $rawCount = $orderedPoints->count();
         $validPoints = $this->filterValidPoints($orderedPoints);
 
         $totalDistanceMeters = 0.0;
         $ignoredSegmentCount = 0;
+        $segmentDistances = [];
 
         for ($index = 1; $index < count($validPoints); $index++) {
             $previous = $validPoints[$index - 1];
@@ -51,18 +55,30 @@ class RouteDistanceCalculator
 
             if ($this->shouldIgnoreSegment($previous, $current, $segmentDistance)) {
                 $ignoredSegmentCount++;
+                $segmentDistances[$index] = null;
 
                 continue;
             }
 
             $totalDistanceMeters += $segmentDistance;
+            $segmentDistances[$index] = $segmentDistance;
         }
+
+        $first = $validPoints[0]['recorded_at'] ?? null;
+        $last = $validPoints !== [] ? $validPoints[array_key_last($validPoints)]['recorded_at'] : null;
 
         return [
             'total_distance_km' => round($totalDistanceMeters / 1000, 2),
             'valid_point_count' => count($validPoints),
+            'rejected_point_count' => max(0, $rawCount - count($validPoints)),
             'ignored_segment_count' => $ignoredSegmentCount,
             'valid_points' => $validPoints,
+            'segment_distances_meters' => $segmentDistances,
+            'first_recorded_at' => $first,
+            'last_recorded_at' => $last,
+            'duration_minutes' => ($first instanceof Carbon && $last instanceof Carbon)
+                ? max(0, $first->diffInMinutes($last))
+                : null,
         ];
     }
 
@@ -75,6 +91,10 @@ class RouteDistanceCalculator
         $validPoints = [];
 
         foreach ($points as $point) {
+            if (! $this->hasValidCoordinates($point)) {
+                continue;
+            }
+
             if (! $this->hasAcceptableAccuracy($point)) {
                 continue;
             }
@@ -93,6 +113,19 @@ class RouteDistanceCalculator
         }
 
         return $validPoints;
+    }
+
+    private function hasValidCoordinates(object $point): bool
+    {
+        $latitude = (float) $point->latitude;
+        $longitude = (float) $point->longitude;
+
+        if (abs($latitude) < 0.000001 && abs($longitude) < 0.000001) {
+            return false;
+        }
+
+        return $latitude >= -90 && $latitude <= 90
+            && $longitude >= -180 && $longitude <= 180;
     }
 
     private function hasAcceptableAccuracy(object $point): bool
@@ -116,6 +149,7 @@ class RouteDistanceCalculator
             'longitude' => (float) $point->longitude,
             'accuracy' => $point->accuracy !== null ? (float) $point->accuracy : null,
             'speed' => $point->speed !== null ? (float) $point->speed : null,
+            'heading' => isset($point->heading) && $point->heading !== null ? (float) $point->heading : null,
             'recorded_at' => Carbon::parse($point->recorded_at),
             'source' => $point->source,
         ];
@@ -127,12 +161,9 @@ class RouteDistanceCalculator
      */
     private function shouldIgnoreSegment(array $previous, array $current, float $segmentDistance): bool
     {
+        // Keep small legitimate gaps; only drop impossible teleports by speed.
         if ($segmentDistance <= self::DUPLICATE_DISTANCE_METERS) {
             return false;
-        }
-
-        if ($segmentDistance > self::MAX_SEGMENT_DISTANCE_METERS) {
-            return true;
         }
 
         $elapsedSeconds = max(
@@ -142,29 +173,7 @@ class RouteDistanceCalculator
 
         $impliedSpeedKmh = ($segmentDistance / 1000) / ($elapsedSeconds / 3600);
 
-        if ($impliedSpeedKmh > self::MAX_SPEED_KMH) {
-            return true;
-        }
-
-        if ($this->reportedSpeedExceedsLimit($previous['speed'])) {
-            return true;
-        }
-
-        if ($this->reportedSpeedExceedsLimit($current['speed'])) {
-            return true;
-        }
-
-        return false;
-    }
-
-    private function reportedSpeedExceedsLimit(mixed $speed): bool
-    {
-        if ($speed === null) {
-            return false;
-        }
-
-        // Mobile clients store Geolocator speed in meters/second.
-        return ((float) $speed * 3.6) > self::MAX_SPEED_KMH;
+        return $impliedSpeedKmh > self::MAX_SPEED_KMH;
     }
 
     /**

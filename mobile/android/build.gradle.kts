@@ -19,6 +19,15 @@ subprojects {
     project.evaluationDependsOn(":app")
 }
 
+// Skip broken AGP lintVital on Flutter plugins (blocks release APK; not app code).
+subprojects {
+    tasks.configureEach {
+        if (name.contains("lintVital", ignoreCase = true)) {
+            enabled = false
+        }
+    }
+}
+
 tasks.register<Delete>("clean") {
     delete(rootProject.layout.buildDirectory)
 }

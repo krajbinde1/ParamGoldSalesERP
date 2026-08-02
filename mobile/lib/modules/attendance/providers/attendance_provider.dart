@@ -64,7 +64,10 @@ class TodayAttendanceNotifier extends AsyncNotifier<Attendance?> {
       try {
         final attendanceId = attendance.id;
         if (attendanceId != null) {
-          await RouteTrackingService.instance.start(attendanceId);
+          await RouteTrackingService.instance.start(
+            attendanceId,
+            employeeId: attendance.employeeId,
+          );
         }
       } catch (error, stackTrace) {
         routeTrackingLog(
@@ -83,7 +86,7 @@ class TodayAttendanceNotifier extends AsyncNotifier<Attendance?> {
       }
     }
 
-    refreshRouteTrackingStatusFromRef(ref);
+    await refreshRouteTrackingStatusFromRef(ref);
     return attendance;
   }
 

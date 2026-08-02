@@ -1,3 +1,6 @@
+import 'dart:async';
+
+import '../../../core/api/api_errors.dart';
 import '../../../core/storage/session_store.dart';
 import '../api/auth_api.dart';
 import '../models/auth_session.dart';
@@ -7,18 +10,51 @@ class AuthRepository {
   final AuthApi api;
   final SessionStore store;
 
-  Future<AuthSession?> restore() async {
+  static const restoreTimeout = Duration(seconds: 10);
+
+  /// Restores a session from secure storage and validates it with `/me`.
+  ///
+  /// On connection failure, returns the cached session (if any) and attaches
+  /// [AuthApiException] via [restoreConnectionError] so the UI can show
+  /// "Unable to connect to server" without freezing.
+  Future<AuthRestoreResult> restore() async {
     final stored = await store.read();
-    if (stored == null) return null;
-    final fresh = await api.me(stored.token);
-    await store.write(fresh);
-    return fresh;
+    if (stored == null) {
+      return const AuthRestoreResult(session: null);
+    }
+
+    try {
+      final fresh = await api.me(stored.token).timeout(restoreTimeout);
+      await store.write(fresh);
+      return AuthRestoreResult(session: fresh);
+    } on TimeoutException {
+      return AuthRestoreResult(
+        session: stored,
+        connectionError: AuthApiException(connectionFailureMessage()),
+      );
+    } on AuthApiException catch (error) {
+      if (_isConnectionMessage(error.message)) {
+        return AuthRestoreResult(session: stored, connectionError: error);
+      }
+      // Auth rejected (401/403/etc.) — clear stale credentials.
+      await store.clear();
+      return AuthRestoreResult(session: null, connectionError: error);
+    } catch (_) {
+      return AuthRestoreResult(
+        session: stored,
+        connectionError: AuthApiException(connectionFailureMessage()),
+      );
+    }
   }
 
   Future<AuthSession> login(String loginId, String password) async {
-    final session = await api.login(loginId, password);
-    await store.write(session);
-    return session;
+    try {
+      final session = await api.login(loginId, password).timeout(restoreTimeout);
+      await store.write(session);
+      return session;
+    } on TimeoutException {
+      throw AuthApiException(connectionFailureMessage());
+    }
   }
 
   Future<AuthSession> changePassword(
@@ -37,9 +73,23 @@ class AuthRepository {
 
   Future<void> logout() async {
     try {
-      await api.logout();
+      await api.logout().timeout(restoreTimeout);
     } finally {
       await store.clear();
     }
   }
+
+  bool _isConnectionMessage(String message) {
+    final lower = message.toLowerCase();
+    return lower.contains('unable to connect') ||
+        lower.contains('timed out') ||
+        lower.contains('timeout');
+  }
+}
+
+class AuthRestoreResult {
+  const AuthRestoreResult({required this.session, this.connectionError});
+
+  final AuthSession? session;
+  final AuthApiException? connectionError;
 }

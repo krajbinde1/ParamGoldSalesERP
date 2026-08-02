@@ -2,15 +2,33 @@
 
 namespace App\Providers;
 
+use App\Models\Bom;
 use App\Models\Dealer;
 use App\Models\Employee;
 use App\Models\Order;
+use App\Models\PackagingMaterial;
+use App\Models\PackagingMaterialInward;
 use App\Models\Product;
+use App\Models\ProductionBatch;
+use App\Models\RawMaterial;
+use App\Models\RawMaterialInward;
+use App\Models\SemiFinishedMaterial;
+use App\Models\StockAdjustment;
+use App\Models\StockLedger;
 use App\Models\TaDaClaim;
+use App\Policies\BomPolicy;
 use App\Policies\DealerPolicy;
 use App\Policies\EmployeeLoginAccessPolicy;
 use App\Policies\OrderPolicy;
+use App\Policies\PackagingMaterialInwardPolicy;
+use App\Policies\PackagingMaterialPolicy;
 use App\Policies\ProductPolicy;
+use App\Policies\ProductionBatchPolicy;
+use App\Policies\RawMaterialInwardPolicy;
+use App\Policies\RawMaterialPolicy;
+use App\Policies\SemiFinishedMaterialPolicy;
+use App\Policies\StockAdjustmentPolicy;
+use App\Policies\StockLedgerPolicy;
 use App\Policies\TaDaClaimPolicy;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
@@ -35,5 +53,14 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Product::class, ProductPolicy::class);
         Gate::policy(Order::class, OrderPolicy::class);
         Gate::policy(TaDaClaim::class, TaDaClaimPolicy::class);
+        Gate::policy(RawMaterial::class, RawMaterialPolicy::class);
+        Gate::policy(RawMaterialInward::class, RawMaterialInwardPolicy::class);
+        Gate::policy(PackagingMaterialInward::class, PackagingMaterialInwardPolicy::class);
+        Gate::policy(PackagingMaterial::class, PackagingMaterialPolicy::class);
+        Gate::policy(SemiFinishedMaterial::class, SemiFinishedMaterialPolicy::class);
+        Gate::policy(Bom::class, BomPolicy::class);
+        Gate::policy(ProductionBatch::class, ProductionBatchPolicy::class);
+        Gate::policy(StockLedger::class, StockLedgerPolicy::class);
+        Gate::policy(StockAdjustment::class, StockAdjustmentPolicy::class);
     }
 }

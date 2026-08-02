@@ -31,6 +31,7 @@ class User extends Authenticatable implements FilamentUser
         'must_change_password',
         'role',
         'job_role',
+        'can_view_production_costs',
         'password_reset_by',
         'password_reset_at',
         'login_id_changed_by',
@@ -51,6 +52,7 @@ class User extends Authenticatable implements FilamentUser
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
             'must_change_password' => 'boolean',
+            'can_view_production_costs' => 'boolean',
             'password_reset_at' => 'datetime',
             'login_id_changed_at' => 'datetime',
         ];
@@ -195,6 +197,116 @@ class User extends Authenticatable implements FilamentUser
     public function usesAdminDirectorDashboard(): bool
     {
         return $this->isDirectorUser() || $this->isAdminUser();
+    }
+
+    public function canAccessInventoryModule(): bool
+    {
+        if ($this->isProductionManagerOnlyInFilament()) {
+            return false;
+        }
+
+        if ($this->hasRole(UserRole::Employee)
+            && ! $this->isAdminUser()
+            && ! $this->isDirectorUser()
+            && ! $this->canActAsProductionSupervisor()
+            && ! $this->isManagerUser()) {
+            return false;
+        }
+
+        return $this->usesAdminDirectorDashboard()
+            || $this->canActAsProductionSupervisor()
+            || $this->isManagerUser()
+            || $this->isAdminUser();
+    }
+
+    public function canManageInventoryMasters(): bool
+    {
+        return $this->usesAdminDirectorDashboard() || $this->isAdminUser();
+    }
+
+    public function canManageBom(): bool
+    {
+        return $this->usesAdminDirectorDashboard() || $this->isAdminUser();
+    }
+
+    public function canPostProduction(): bool
+    {
+        return $this->canActAsProductionSupervisor()
+            || $this->usesAdminDirectorDashboard()
+            || $this->isAdminUser();
+    }
+
+    public function canAdjustStock(): bool
+    {
+        return $this->usesAdminDirectorDashboard() || $this->isAdminUser();
+    }
+
+    public function canReverseProductionBatch(): bool
+    {
+        return $this->isDirectorUser() || $this->isAdminUser();
+    }
+
+    public function canViewPurchaseRates(): bool
+    {
+        return $this->usesAdminDirectorDashboard() || $this->isAdminUser();
+    }
+
+    public function canCreateRawMaterialInward(): bool
+    {
+        return $this->canActAsProductionSupervisor()
+            || $this->usesAdminDirectorDashboard()
+            || $this->isAdminUser();
+    }
+
+    public function canApproveRawMaterialInward(): bool
+    {
+        return $this->usesAdminDirectorDashboard() || $this->isAdminUser();
+    }
+
+    public function canPostRawMaterialInward(): bool
+    {
+        return $this->canCreateRawMaterialInward();
+    }
+
+    public function canPostRawMaterialInwardDirectly(): bool
+    {
+        return $this->canPostRawMaterialInward();
+    }
+
+    public function canCancelRawMaterialInward(): bool
+    {
+        return $this->usesAdminDirectorDashboard() || $this->isAdminUser();
+    }
+
+    /**
+     * Admin/Director Filament edit of raw material inwards (draft or safe posted reverse-repost).
+     * Production Supervisor (including mobile) must not update inwards.
+     */
+    public function canUpdateRawMaterialInward(): bool
+    {
+        return $this->usesAdminDirectorDashboard() || $this->isAdminUser();
+    }
+
+    public function canViewInwardRates(): bool
+    {
+        return $this->usesAdminDirectorDashboard()
+            || $this->isAdminUser()
+            || $this->isManagerUser()
+            || $this->canViewProductionCosts();
+    }
+
+    public function canViewProductionCosts(): bool
+    {
+        if ($this->usesAdminDirectorDashboard() || $this->isAdminUser()) {
+            return true;
+        }
+
+        return (bool) $this->can_view_production_costs;
+    }
+
+    public function canViewInventoryValuation(): bool
+    {
+        return $this->usesAdminDirectorDashboard() || $this->isAdminUser();
     }
 
     public function adminDirectorRoleLabel(): string

@@ -4,6 +4,7 @@ namespace App\Providers\Filament;
 
 use App\Filament\Auth\LoginResponse;
 use App\Filament\Pages\Dashboard;
+use App\Filament\Pages\StockItemLedger;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Widgets\AccountWidget;
 use App\Filament\Widgets\FilamentInfoWidget;
@@ -23,6 +24,7 @@ use Illuminate\Cookie\Middleware\EncryptCookies;
 use Illuminate\Foundation\Http\Middleware\VerifyCsrfToken;
 use Illuminate\Routing\Middleware\SubstituteBindings;
 use Illuminate\Session\Middleware\StartSession;
+use Illuminate\Support\Facades\Route;
 use Illuminate\View\Middleware\ShareErrorsFromSession;
 
 class AdminPanelProvider extends PanelProvider
@@ -45,6 +47,7 @@ class AdminPanelProvider extends PanelProvider
             ->navigationGroups([
                 'Sales Operations',
                 'Employee Management',
+                'Inventory & Manufacturing',
             ])
             ->homeUrl(function (): string {
                 if (auth()->user()?->usesProductionSupervisorDashboard()) {
@@ -62,6 +65,12 @@ class AdminPanelProvider extends PanelProvider
             ->pages([
                 Dashboard::class,
             ])
+            ->authenticatedRoutes(function (): void {
+                Route::get('/inventory-reports/ledger/{itemType}/{itemId}', StockItemLedger::class)
+                    ->whereNumber('itemId')
+                    ->whereIn('itemType', ['raw-material', 'packaging-material', 'finished-product'])
+                    ->name('inventory-reports.ledger');
+            })
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\Filament\Widgets')
             ->widgets([
                 ProductionOrderStatsWidget::class,

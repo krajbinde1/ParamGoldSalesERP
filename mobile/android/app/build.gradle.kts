@@ -1,3 +1,5 @@
+import com.flutter.gradle.tasks.FlutterTask
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
@@ -19,7 +21,7 @@ android {
         applicationId = "com.example.mobile"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = flutter.minSdkVersion
+        minSdk = maxOf(21, flutter.minSdkVersion)
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -30,7 +32,18 @@ android {
             // TODO: Add your own signing config for the release build.
             // Signing with the debug keys for now, so `flutter run --release` works.
             signingConfig = signingConfigs.getByName("debug")
+            // Keep R8 off unless a release keystore + keep rules are configured.
+            // Current ANR was caused by startup GPS/FGS recovery, not minify.
+            isMinifyEnabled = false
+            isShrinkResources = false
         }
+    }
+
+    // Avoid AGP lintVital crash on plugin sources (e.g. shared_preferences_android)
+    // that blocks release APK assembly; does not change app logic.
+    lint {
+        checkReleaseBuilds = false
+        abortOnError = false
     }
 }
 
@@ -42,4 +55,16 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+// Flutter 3.44 release icon tree-shaking drops Material glyphs used through
+// shared widgets (IconData fields / IconTheme), which made dashboard and
+// bottom-nav icons appear as empty squares. Keep the full MaterialIcons font
+// so `flutter build apk --release` works without `--no-tree-shake-icons`.
+//
+// Force this at task-graph time so it wins over Flutter's -Ptree-shake-icons.
+gradle.taskGraph.whenReady {
+    allTasks.filterIsInstance<FlutterTask>().forEach { task ->
+        task.treeShakeIcons = false
+    }
 }

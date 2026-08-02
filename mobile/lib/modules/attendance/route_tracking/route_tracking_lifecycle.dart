@@ -16,17 +16,29 @@ class RouteTrackingLifecycle extends StatefulWidget {
 
 class _RouteTrackingLifecycleState extends State<RouteTrackingLifecycle>
     with WidgetsBindingObserver {
-  bool _recoveryScheduled = false;
+  bool _startupGuardScheduled = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    if (routeTrackingRuntimeEnabled && !_recoveryScheduled) {
-      _recoveryScheduled = true;
+    // Do NOT recover/start GPS or FGS on launch. Only stop orphaned services
+    // left by older builds (autoRunOnBoot). Tracking starts after punch-in.
+    if (routeTrackingRuntimeEnabled && !_startupGuardScheduled) {
+      _startupGuardScheduled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        unawaited(RouteTrackingService.instance.recoverOnAppStart());
+        unawaited(_runColdStartGuard());
       });
+    }
+  }
+
+  Future<void> _runColdStartGuard() async {
+    try {
+      await RouteTrackingService.instance.ensureStoppedOnColdStart().timeout(
+        const Duration(seconds: 8),
+      );
+    } catch (_) {
+      // Ignore housekeeping failures — UI must remain responsive.
     }
   }
 
@@ -40,7 +52,13 @@ class _RouteTrackingLifecycleState extends State<RouteTrackingLifecycle>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (!routeTrackingRuntimeEnabled) return;
     if (state == AppLifecycleState.resumed) {
-      unawaited(RouteTrackingService.instance.onAppResumed());
+      // Soft sync only — never start engines from resume/server attendance.
+      unawaited(
+        RouteTrackingService.instance.onAppResumed().timeout(
+          const Duration(seconds: 12),
+          onTimeout: () {},
+        ),
+      );
     }
   }
 

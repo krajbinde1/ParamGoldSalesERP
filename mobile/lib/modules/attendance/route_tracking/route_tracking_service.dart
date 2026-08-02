@@ -1,18 +1,22 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:flutter_foreground_task/flutter_foreground_task.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/storage/session_store.dart';
 import '../api/attendance_api_service.dart';
 import '../models/attendance.dart';
+import 'models/route_point.dart';
 import 'route_capture_rules.dart';
 import 'route_point_api.dart';
 import 'route_point_store.dart';
 import 'route_point_sync.dart';
 import 'route_tracking_config.dart';
+import 'route_tracking_foreground.dart';
 import 'route_tracking_log.dart';
 import 'route_tracking_permissions.dart';
-import 'models/route_point.dart';
 
 class RouteTrackingService {
   RouteTrackingService._();
@@ -26,20 +30,24 @@ class RouteTrackingService {
   bool _storeReady = false;
   bool _runtimeDisabledCleanupDone = false;
   bool _handlingPosition = false;
+  bool _taskDataCallbackBound = false;
 
   static const _activeStatus = 'Route Tracking Active';
   static const _stoppedStatus = 'Route tracking stopped';
 
   String statusMessage = _stoppedStatus;
+  RouteTrackingUiStatus uiStatus = RouteTrackingUiStatus.empty;
 
   /// Clears active session flags when runtime is disabled.
   Future<void> disableRuntimeCleanup() async {
     if (routeTrackingRuntimeEnabled || _runtimeDisabledCleanupDone) return;
     _runtimeDisabledCleanupDone = true;
     statusMessage = '';
+    uiStatus = RouteTrackingUiStatus.empty;
 
     try {
-      await _cancelPositionStream();
+      await _cancelLocalStream();
+      await RouteTrackingForeground.stop();
       final prefs = await SharedPreferences.getInstance();
       await RoutePointStore(prefs).clearSession();
       routeTrackingLog('Route tracking runtime disabled: session cleared');
@@ -56,9 +64,13 @@ class RouteTrackingService {
       return;
     }
     if (_storeReady) return;
-    final prefs = await SharedPreferences.getInstance();
+    await RouteTrackingForeground.init().timeout(const Duration(seconds: 3));
+    _bindTaskDataCallback();
+    final prefs = await SharedPreferences.getInstance().timeout(
+      const Duration(seconds: 3),
+    );
     _store = RoutePointStore(prefs);
-    final api = await RoutePointApi.create();
+    final api = await RoutePointApi.create().timeout(const Duration(seconds: 5));
     _sync = RoutePointSync(
       _store!,
       api,
@@ -67,11 +79,48 @@ class RouteTrackingService {
     statusMessage = _store!.session?.isActive == true
         ? _activeStatus
         : (_store!.session?.statusMessage ?? _stoppedStatus);
+    // Avoid GPS/permission platform calls during store bootstrap (ANR risk).
+    uiStatus = RouteTrackingUiStatus(
+      message: statusMessage,
+      isActive: _store!.session?.isActive == true,
+      lastLocationAt: _store!.session?.lastRecordedAt,
+      pendingSyncCount: _store!.pendingPoints().length,
+      gpsStatus: _store!.session?.gpsStatus ?? 'unknown',
+      permissionStatus: _store!.session?.permissionStatus ?? 'unknown',
+    );
     _storeReady = true;
+  }
+
+  void _bindTaskDataCallback() {
+    if (_taskDataCallbackBound) return;
+    FlutterForegroundTask.addTaskDataCallback(_onTaskData);
+    _taskDataCallbackBound = true;
+  }
+
+  void _onTaskData(Object data) {
+    if (data is! Map) return;
+    if (data['type'] != 'route_tracking_status') return;
+    statusMessage = data['message']?.toString() ?? statusMessage;
+    uiStatus = RouteTrackingUiStatus(
+      message: statusMessage,
+      isActive: data['is_active'] == true,
+      lastLocationAt: data['last_recorded_at']?.toString(),
+      pendingSyncCount:
+          int.tryParse('${data['pending_sync_count'] ?? 0}') ?? 0,
+      gpsStatus: data['gps_status']?.toString() ?? 'unknown',
+      permissionStatus: data['permission_status']?.toString() ?? 'unknown',
+    );
   }
 
   Future<void> _ensureReady() async {
     await ensureStoreReady();
+  }
+
+  Future<int?> _resolveEmployeeId() async {
+    final session = await SessionStore().read();
+    return session?.user.employeeId ??
+        session?.employee.id ??
+        _store?.session?.employeeId;
   }
 
   Future<Attendance?> _fetchServerToday() async {
@@ -105,22 +154,21 @@ class RouteTrackingService {
         attendance.punchOut == null;
   }
 
-  Future<void> _cancelPositionStream() async {
+  Future<void> _cancelLocalStream() async {
     final subscription = _positionSubscription;
     _positionSubscription = null;
     if (subscription != null) {
       await subscription.cancel();
-      routeTrackingLog('Position stream cancelled');
+      routeTrackingLog('Local position stream cancelled');
     }
   }
 
-  Future<void> _startPositionStream() async {
-    if (_positionSubscription != null) {
-      routeTrackingLog('Position stream already active — skipping duplicate');
-      return;
-    }
-
-    final settings = RouteCaptureRules.streamLocationSettings();
+  /// iOS / fallback stream when FGS package is limited.
+  Future<void> _startLocalStreamFallback() async {
+    if (_positionSubscription != null) return;
+    final settings = RouteCaptureRules.streamLocationSettings(
+      withGeolocatorNotification: Platform.isAndroid,
+    );
     _positionSubscription =
         Geolocator.getPositionStream(locationSettings: settings).listen(
           _onPositionUpdate,
@@ -129,7 +177,7 @@ class RouteTrackingService {
           },
           cancelOnError: false,
         );
-    routeTrackingLog('Position stream started with foreground notification');
+    routeTrackingLog('Local position stream started');
   }
 
   Future<void> _onPositionUpdate(Position position) async {
@@ -146,11 +194,22 @@ class RouteTrackingService {
       );
       if (point != null) {
         await _syncValidated();
+        await _refreshUiStatus();
       }
     } catch (error, stackTrace) {
       routeTrackingLog('Position update handling failed: $error\n$stackTrace');
     } finally {
       _handlingPosition = false;
+    }
+  }
+
+  Future<void> _startTrackingEngines() async {
+    final started = await RouteTrackingForeground.start();
+    if (!started || Platform.isIOS) {
+      await _startLocalStreamFallback();
+    } else {
+      // Android FGS owns GPS; keep local stream off to avoid duplicate points.
+      await _cancelLocalStream();
     }
   }
 
@@ -163,10 +222,12 @@ class RouteTrackingService {
       'Handling invalid attendance: attendanceId=$attendanceId message=$message',
     );
     await _store!.clearPointsForAttendance(attendanceId);
-    await _cancelPositionStream();
+    await _cancelLocalStream();
+    await RouteTrackingForeground.stop();
     await _store!.clearSession();
     statusMessage =
         'Route tracking paused. Please punch in again to resume tracking.';
+    await _refreshUiStatus();
     routeTrackingLog('Route tracking invalidated: $statusMessage');
   }
 
@@ -176,13 +237,12 @@ class RouteTrackingService {
     _logAttendanceContext(stage: 'Sync validation', attendance: attendance);
 
     if (!_isActiveServerAttendance(attendance)) {
-      final staleId = activeAttendanceId;
-      if (staleId != null) {
-        await _handleInvalidAttendance(
-          staleId,
-          'Today\'s attendance is no longer active on the server.',
-        );
-      }
+      // Still flush any queued points for a closed attendance.
+      final staleId = activeAttendanceId ?? attendance?.id;
+      await _sync!.syncPending(
+        activeAttendanceId: staleId,
+        allowClosedAttendance: true,
+      );
       return;
     }
 
@@ -201,6 +261,40 @@ class RouteTrackingService {
     await _sync!.syncPending(activeAttendanceId: backendId);
   }
 
+  Future<void> _refreshUiStatus() async {
+    await _ensureReady();
+    final session = _store?.session;
+    final pending = _store?.pendingPoints().length ?? 0;
+    String gps = session?.gpsStatus ?? 'unknown';
+    String permission = session?.permissionStatus ?? 'unknown';
+    try {
+      gps = await RouteTrackingPermissions.currentGpsLabel().timeout(
+        const Duration(seconds: 2),
+      );
+      permission = await RouteTrackingPermissions.currentPermissionLabel()
+          .timeout(const Duration(seconds: 3));
+    } catch (_) {
+      // Keep cached labels — never block UI on GPS/permission queries.
+    }
+    final active = session?.isActive == true;
+    statusMessage = active
+        ? _activeStatus
+        : (session?.statusMessage ?? statusMessage);
+    uiStatus = RouteTrackingUiStatus(
+      message: statusMessage,
+      isActive: active,
+      lastLocationAt: session?.lastRecordedAt,
+      pendingSyncCount: pending,
+      gpsStatus: gps,
+      permissionStatus: permission,
+    );
+  }
+
+  Future<RouteTrackingUiStatus> refreshStatus() async {
+    await _refreshUiStatus();
+    return uiStatus;
+  }
+
   bool get isActive =>
       routeTrackingRuntimeEnabled && _store?.session?.isActive == true;
 
@@ -210,7 +304,10 @@ class RouteTrackingService {
     return id != null && id > 0 ? id : null;
   }
 
-  Future<void> resumeActiveSession(int attendanceId) async {
+  Future<void> resumeActiveSession(
+    int attendanceId, {
+    int? employeeId,
+  }) async {
     if (!routeTrackingRuntimeEnabled) {
       await disableRuntimeCleanup();
       return;
@@ -221,6 +318,10 @@ class RouteTrackingService {
 
       final store = _store!;
       final session = store.session;
+      final resolvedEmployeeId = employeeId ?? await _resolveEmployeeId();
+      final permissionLabel =
+          await RouteTrackingPermissions.currentPermissionLabel();
+      final gpsLabel = await RouteTrackingPermissions.currentGpsLabel();
 
       if (session?.attendanceId != null &&
           session!.attendanceId != attendanceId) {
@@ -230,6 +331,7 @@ class RouteTrackingService {
       await store.saveSession(
         RouteTrackingSession(
           attendanceId: attendanceId,
+          employeeId: resolvedEmployeeId,
           isActive: true,
           lastLatitude: session?.attendanceId == attendanceId
               ? session?.lastLatitude
@@ -241,18 +343,21 @@ class RouteTrackingService {
               ? session?.lastRecordedAt
               : null,
           statusMessage: _activeStatus,
+          gpsStatus: gpsLabel,
+          permissionStatus: permissionLabel,
         ),
       );
       statusMessage = _activeStatus;
       routeTrackingLog('Resumed active session for attendance=$attendanceId');
 
-      await _startPositionStream();
+      await _startTrackingEngines();
+      await _refreshUiStatus();
     } catch (error, stackTrace) {
       routeTrackingLog('Resume service failed: $error\n$stackTrace');
     }
   }
 
-  Future<String> start(int attendanceId) async {
+  Future<String> start(int attendanceId, {int? employeeId}) async {
     if (!routeTrackingRuntimeEnabled) {
       await disableRuntimeCleanup();
       return '';
@@ -260,6 +365,7 @@ class RouteTrackingService {
     try {
       await ensureStoreReady();
       final store = _store!;
+      final resolvedEmployeeId = employeeId ?? await _resolveEmployeeId();
 
       final current = store.session;
       if (current?.isActive == true && current!.attendanceId == attendanceId) {
@@ -267,10 +373,9 @@ class RouteTrackingService {
         routeTrackingLog(
           'Route tracking already active for attendance=$attendanceId',
         );
-        if (_positionSubscription == null) {
-          await _startPositionStream();
-        }
+        await _startTrackingEngines();
         await store.retainOnlyAttendance(attendanceId);
+        await _refreshUiStatus();
         return statusMessage;
       }
       if (current?.isActive == true) {
@@ -280,6 +385,16 @@ class RouteTrackingService {
       final permission = await RouteTrackingPermissions.ensureForTracking();
       if (!permission.granted) {
         statusMessage = permission.message;
+        await store.saveSession(
+          RouteTrackingSession(
+            attendanceId: attendanceId,
+            employeeId: resolvedEmployeeId,
+            isActive: false,
+            statusMessage: permission.message,
+            permissionStatus: permission.permissionStatus,
+          ),
+        );
+        await _refreshUiStatus();
         routeTrackingLog('Route tracking not started: ${permission.message}');
         return permission.message;
       }
@@ -296,8 +411,11 @@ class RouteTrackingService {
       await store.saveSession(
         RouteTrackingSession(
           attendanceId: attendanceId,
+          employeeId: resolvedEmployeeId,
           isActive: true,
           statusMessage: _activeStatus,
+          gpsStatus: await RouteTrackingPermissions.currentGpsLabel(),
+          permissionStatus: permission.permissionStatus,
         ),
       );
       await store.retainOnlyAttendance(attendanceId);
@@ -306,19 +424,24 @@ class RouteTrackingService {
         'Route tracking started: activeAttendanceId=$attendanceId',
       );
 
-      await _startPositionStream();
+      await _startTrackingEngines();
+      // Seed first point immediately after punch-in.
+      await RouteCaptureRules.captureIfNeeded(store: store);
       await _syncValidated(
         serverAttendance: Attendance(
           id: attendanceId,
+          employeeId: resolvedEmployeeId,
           date: DateTime.now(),
           punchIn: DateTime.now(),
         ),
       );
+      await _refreshUiStatus();
 
       return statusMessage;
     } catch (error, stackTrace) {
       routeTrackingLog('Route tracking start failed: $error\n$stackTrace');
       statusMessage = 'Route tracking unavailable. Attendance saved.';
+      await _refreshUiStatus();
       return statusMessage;
     }
   }
@@ -353,6 +476,7 @@ class RouteTrackingService {
     }
 
     await _syncValidated();
+    await _refreshUiStatus();
   }
 
   Future<String> stop({bool captureFinalPoint = true}) async {
@@ -384,6 +508,7 @@ class RouteTrackingService {
               RouteCaptureRules.hasAcceptableAccuracy(position.accuracy)) {
             final point = RouteCaptureRules.buildPoint(
               attendanceId: session.attendanceId,
+              employeeId: session.employeeId,
               position: position,
               source: routeTrackingSource,
             );
@@ -397,38 +522,77 @@ class RouteTrackingService {
         }
       }
 
+      // Sync while points are still queued; keep queue if offline.
       if (attendanceId != null && attendanceId > 0) {
-        await _sync!.syncPending(activeAttendanceId: attendanceId);
+        try {
+          await _sync!.syncPending(
+            activeAttendanceId: attendanceId,
+            allowClosedAttendance: true,
+          );
+        } catch (error) {
+          routeTrackingLog(
+            'Stop sync deferred — points remain queued: $error',
+          );
+        }
       }
 
-      await _cancelPositionStream();
+      // Stop FGS only after final point captured and sync attempted/queued.
+      await _cancelLocalStream();
+      await RouteTrackingForeground.stop();
       await store.clearSession();
       statusMessage = _stoppedStatus;
+      await _refreshUiStatus();
       routeTrackingLog('Route tracking stopped');
       return statusMessage;
     } catch (error, stackTrace) {
       routeTrackingLog('Route tracking stop failed: $error\n$stackTrace');
-      await _cancelPositionStream();
+      await _cancelLocalStream();
+      await RouteTrackingForeground.stop();
       statusMessage = _stoppedStatus;
+      await _refreshUiStatus();
       return statusMessage;
     }
   }
 
-  Future<void> recoverOnAppStart() async {
+  /// Cold-start housekeeping: never start GPS/FGS here.
+  ///
+  /// Older builds used `autoRunOnBoot` + server recovery which could ANR the
+  /// release APK. Tracking must start only after punch-in.
+  Future<void> ensureStoppedOnColdStart() async {
     if (!routeTrackingRuntimeEnabled) {
       await disableRuntimeCleanup();
       return;
     }
     try {
-      await _ensureReady();
-      if (_store == null) return;
+      await RouteTrackingForeground.init().timeout(const Duration(seconds: 3));
+      await _cancelLocalStream();
+      await RouteTrackingForeground.stop();
 
-      final attendance = await _fetchServerToday();
-      await recoverFromAttendance(attendance);
-    } catch (error, stackTrace) {
-      routeTrackingLog('recoverOnAppStart failed: $error\n$stackTrace');
+      // Clear stale "active" flags so launch never resumes engines.
+      final prefs = await SharedPreferences.getInstance().timeout(
+        const Duration(seconds: 3),
+      );
+      final store = RoutePointStore(prefs);
+      if (store.session?.isActive == true) {
+        await store.saveSession(
+          store.session!.copyWith(
+            isActive: false,
+            statusMessage: _stoppedStatus,
+          ),
+        );
+      }
       statusMessage = _stoppedStatus;
+      routeTrackingLog(
+        'Cold start: route tracking forced stopped (starts only after punch-in)',
+      );
+    } catch (error, stackTrace) {
+      routeTrackingLog('ensureStoppedOnColdStart failed: $error\n$stackTrace');
     }
+  }
+
+  @Deprecated('Use ensureStoppedOnColdStart — launch must not resume tracking')
+  Future<void> recoverOnAppStart() async {
+    await ensureStoppedOnColdStart();
   }
 
   Future<void> recoverFromAttendance(Attendance? attendance) async {
@@ -447,21 +611,28 @@ class RouteTrackingService {
 
       if (attendance == null) {
         if (isActive) {
-          await _cancelPositionStream();
+          await _cancelLocalStream();
+          await RouteTrackingForeground.stop();
           await _store!.clearSession();
           statusMessage = _stoppedStatus;
         }
+        await _refreshUiStatus();
         return;
       }
 
       if (attendance.punchOut != null || !attendance.canPunchOut) {
-        await _cancelPositionStream();
+        await _cancelLocalStream();
         final staleId = activeAttendanceId ?? attendance.id;
         if (staleId != null && staleId > 0) {
-          await _store!.clearPointsForAttendance(staleId);
+          await _sync!.syncPending(
+            activeAttendanceId: staleId,
+            allowClosedAttendance: true,
+          );
         }
+        await RouteTrackingForeground.stop();
         await _store!.clearSession();
         statusMessage = _stoppedStatus;
+        await _refreshUiStatus();
         return;
       }
 
@@ -475,21 +646,28 @@ class RouteTrackingService {
           );
           await _store!.clearPointsForAttendance(session.attendanceId);
         }
-        await resumeActiveSession(attendance.id!);
+        await resumeActiveSession(
+          attendance.id!,
+          employeeId: attendance.employeeId,
+        );
         await _syncValidated(serverAttendance: attendance);
+        await _refreshUiStatus();
         return;
       }
 
       if (isActive) {
         await stop(captureFinalPoint: false);
       } else {
-        await _cancelPositionStream();
+        await _cancelLocalStream();
+        await RouteTrackingForeground.stop();
         await _store!.clearSession();
         statusMessage = _stoppedStatus;
       }
+      await _refreshUiStatus();
     } catch (error, stackTrace) {
       routeTrackingLog('recoverFromAttendance failed: $error\n$stackTrace');
       statusMessage = _stoppedStatus;
+      await _refreshUiStatus();
     }
   }
 
@@ -498,35 +676,16 @@ class RouteTrackingService {
       await disableRuntimeCleanup();
       return;
     }
-    await _ensureReady();
-    routeTrackingLog('App resumed — validating session and syncing');
-    final attendance = await _fetchServerToday();
-    _logAttendanceContext(stage: 'App resumed', attendance: attendance);
-
-    if (!_isActiveServerAttendance(attendance)) {
-      final staleId = activeAttendanceId;
-      if (staleId != null) {
-        await _handleInvalidAttendance(
-          staleId,
-          'Today\'s attendance is no longer active.',
-        );
-      }
-      return;
+    try {
+      // Only soft-sync offline queue. Do not start FGS/GPS from resume.
+      await ensureStoreReady().timeout(const Duration(seconds: 5));
+      routeTrackingLog('App resumed — soft sync only (no auto engine start)');
+      await _sync?.syncPending(allowClosedAttendance: true).timeout(
+        const Duration(seconds: 8),
+      );
+    } catch (error, stackTrace) {
+      routeTrackingLog('onAppResumed soft sync failed: $error\n$stackTrace');
     }
-
-    final session = _store!.session;
-    if (session?.isActive == true) {
-      if (session!.attendanceId != attendance!.id) {
-        await _store!.clearPointsForAttendance(session.attendanceId);
-        await _store!.saveSession(
-          session.copyWith(attendanceId: attendance.id!),
-        );
-      }
-      if (_positionSubscription == null) {
-        await _startPositionStream();
-      }
-    }
-    await _syncValidated(serverAttendance: attendance);
   }
 
   // TEST ONLY - REMOVE BEFORE PRODUCTION
@@ -540,13 +699,15 @@ class RouteTrackingService {
     final sessionAttendanceId = store.session?.attendanceId;
     final targetId = deletedAttendanceId ?? sessionAttendanceId;
 
-    await _cancelPositionStream();
+    await _cancelLocalStream();
+    await RouteTrackingForeground.stop();
 
     if (targetId != null && targetId > 0) {
       await store.clearPointsForAttendance(targetId);
     }
     await store.clearSession();
     statusMessage = _stoppedStatus;
+    await _refreshUiStatus();
     routeTrackingLog('TEST reset cleared attendance_id=$targetId');
   }
 }

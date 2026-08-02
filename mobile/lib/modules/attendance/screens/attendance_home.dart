@@ -42,7 +42,7 @@ class _AttendanceHomeState extends ConsumerState<AttendanceHome> {
       body: RefreshIndicator(
         onRefresh: () async {
           await ref.read(todayAttendanceProvider.notifier).refresh();
-          refreshRouteTrackingStatus(ref);
+          await refreshRouteTrackingStatus(ref);
         },
         child: ListView(
           padding: const EdgeInsets.all(AppSpacing.screenPadding),

@@ -15,6 +15,7 @@ class EmployeeRoutePoint extends Model
         'longitude',
         'accuracy',
         'speed',
+        'heading',
         'recorded_at',
         'source',
     ];
@@ -26,6 +27,7 @@ class EmployeeRoutePoint extends Model
             'longitude' => 'decimal:7',
             'accuracy' => 'decimal:2',
             'speed' => 'decimal:2',
+            'heading' => 'decimal:2',
             'recorded_at' => 'datetime',
         ];
     }

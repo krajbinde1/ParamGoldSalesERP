@@ -18,9 +18,15 @@ class RoutePointSync {
   final InvalidAttendanceHandler? onInvalidAttendance;
   Future<void>? _inFlight;
 
-  Future<void> syncPending({int? activeAttendanceId}) async {
+  Future<void> syncPending({
+    int? activeAttendanceId,
+    bool allowClosedAttendance = false,
+  }) async {
     if (_inFlight != null) return _inFlight!;
-    _inFlight = _syncPendingInternal(activeAttendanceId: activeAttendanceId);
+    _inFlight = _syncPendingInternal(
+      activeAttendanceId: activeAttendanceId,
+      allowClosedAttendance: allowClosedAttendance,
+    );
     try {
       await _inFlight;
     } finally {
@@ -32,10 +38,15 @@ class RoutePointSync {
     final lower = message.toLowerCase();
     return lower.contains('active punch-in session') ||
         lower.contains('does not belong to you') ||
-        lower.contains('not configured');
+        lower.contains('not configured') ||
+        lower.contains('outside the attendance session') ||
+        lower.contains('no punch-in');
   }
 
-  Future<void> _syncPendingInternal({int? activeAttendanceId}) async {
+  Future<void> _syncPendingInternal({
+    int? activeAttendanceId,
+    bool allowClosedAttendance = false,
+  }) async {
     var pending = _store.pendingPoints();
     if (pending.isEmpty) {
       routeTrackingLog('Sync skipped: no pending route points');
@@ -44,10 +55,13 @@ class RoutePointSync {
 
     routeTrackingLog(
       'Sync starting: ${pending.length} pending point(s), '
-      'activeAttendanceId=$activeAttendanceId',
+      'activeAttendanceId=$activeAttendanceId '
+      'allowClosed=$allowClosedAttendance',
     );
 
-    if (activeAttendanceId != null && activeAttendanceId > 0) {
+    if (activeAttendanceId != null &&
+        activeAttendanceId > 0 &&
+        !allowClosedAttendance) {
       final stale = pending
           .where((point) => point.attendanceId != activeAttendanceId)
           .map((point) => point.attendanceId)
@@ -81,7 +95,8 @@ class RoutePointSync {
         'activeAttendanceId=$activeAttendanceId',
       );
 
-      if (activeAttendanceId != null &&
+      if (!allowClosedAttendance &&
+          activeAttendanceId != null &&
           activeAttendanceId > 0 &&
           uploadAttendanceId != activeAttendanceId) {
         routeTrackingLog(
@@ -119,7 +134,16 @@ class RoutePointSync {
             await onInvalidAttendance?.call(uploadAttendanceId, error.message);
             break;
           }
-          rethrow;
+          // Keep points queued for auto-retry when offline / transient errors.
+          routeTrackingLog(
+            'Upload failed — keeping points queued: ${error.message}',
+          );
+          break;
+        } catch (error) {
+          routeTrackingLog(
+            'Upload failed — keeping points queued: $error',
+          );
+          break;
         }
         offset += batch.length;
       }

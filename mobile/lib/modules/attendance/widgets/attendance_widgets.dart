@@ -7,6 +7,8 @@ import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_status_badge.dart';
 import '../models/attendance.dart';
 import '../models/attendance_format.dart';
+import '../route_tracking/models/route_point.dart';
+import '../route_tracking/route_tracking_permissions.dart';
 
 String timeText(DateTime? value) => AttendanceFormat.time(value);
 
@@ -17,13 +19,18 @@ class StatusCard extends StatelessWidget {
     this.routeTrackingStatus,
   });
   final Attendance? attendance;
-  final String? routeTrackingStatus;
+  final RouteTrackingUiStatus? routeTrackingStatus;
 
   @override
   Widget build(BuildContext context) {
     final a = attendance;
-    final trackingStatus = routeTrackingStatus;
+    final tracking = routeTrackingStatus;
     final isPresent = a != null && !a.status.toLowerCase().contains('absent');
+    final trackingActive = tracking?.isActive == true;
+    final showTracking =
+        tracking != null &&
+        tracking.message.isNotEmpty &&
+        (a?.canPunchOut == true || tracking.pendingSyncCount > 0);
 
     return PgCard(
       child: Column(
@@ -49,28 +56,48 @@ class StatusCard extends StatelessWidget {
                 ),
             ],
           ),
-          if (trackingStatus != null &&
-              trackingStatus.isNotEmpty &&
-              a?.canPunchOut == true) ...[
+          if (showTracking) ...[
             const SizedBox(height: AppSpacing.sm),
             Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Icon(
-                  trackingStatus == 'Route Tracking Active'
+                  trackingActive
                       ? Icons.route_rounded
                       : Icons.location_off_outlined,
                   size: 18,
-                  color: trackingStatus == 'Route Tracking Active'
+                  color: trackingActive
                       ? AppColors.approvedFg
                       : AppColors.textMuted,
                 ),
                 const SizedBox(width: AppSpacing.sm),
                 Expanded(
-                  child: Text(
-                    trackingStatus == 'Route Tracking Active'
-                        ? 'Route Tracking Active'
-                        : trackingStatus,
-                    style: Theme.of(context).textTheme.bodyMedium,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        trackingActive
+                            ? 'Route Tracking Active'
+                            : tracking.message,
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        _trackingDetails(tracking),
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.textMuted,
+                        ),
+                      ),
+                      if (!trackingActive ||
+                          tracking.permissionStatus != 'OK') ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          RouteTrackingPermissions.setupGuidance,
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(color: AppColors.textMuted),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],
@@ -80,20 +107,24 @@ class StatusCard extends StatelessWidget {
           Row(
             children: [
               Expanded(
-                child: _Metric('Punch In', timeText(a?.punchIn), Icons.login_rounded),
+                child: _Metric(
+                  'Punch In',
+                  timeText(a?.punchIn),
+                  const Icon(Icons.login_rounded),
+                ),
               ),
               Expanded(
                 child: _Metric(
                   'Punch Out',
                   timeText(a?.punchOut),
-                  Icons.logout_rounded,
+                  const Icon(Icons.logout_rounded),
                 ),
               ),
               Expanded(
                 child: _Metric(
                   'Working',
                   a?.workingHours ?? '—',
-                  Icons.schedule_rounded,
+                  const Icon(Icons.schedule_rounded),
                 ),
               ),
             ],
@@ -102,16 +133,32 @@ class StatusCard extends StatelessWidget {
       ),
     );
   }
+
+  String _trackingDetails(RouteTrackingUiStatus tracking) {
+    final last = tracking.lastLocationAt;
+    String lastLabel = 'Last location: —';
+    if (last != null && last.isNotEmpty) {
+      final parsed = DateTime.tryParse(last);
+      lastLabel = parsed != null
+          ? 'Last location: ${AttendanceFormat.time(parsed)}'
+          : 'Last location: $last';
+    }
+    return '$lastLabel · Pending sync: ${tracking.pendingSyncCount} · '
+        'GPS: ${tracking.gpsStatus} · Permission: ${tracking.permissionStatus}';
+  }
 }
 
 class _Metric extends StatelessWidget {
   const _Metric(this.label, this.value, this.icon);
   final String label, value;
-  final IconData icon;
+  final Widget icon;
   @override
   Widget build(BuildContext context) => Column(
     children: [
-      Icon(icon, color: AppColors.primary),
+      IconTheme(
+        data: const IconThemeData(color: AppColors.primary),
+        child: icon,
+      ),
       const SizedBox(height: 6),
       Text(value, style: Theme.of(context).textTheme.titleMedium),
       Text(label, style: Theme.of(context).textTheme.bodySmall),

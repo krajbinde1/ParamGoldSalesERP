@@ -216,7 +216,7 @@ class _TaDaClaimDashboardScreenState extends State<TaDaClaimDashboardScreen> {
                 if (data.recentClaims.isEmpty)
                   const PgEmptyState(
                     message: 'No TA/DA claims submitted yet.',
-                    icon: Icons.receipt_long_outlined,
+                    icon: const Icon(Icons.receipt_long_outlined),
                   )
                 else
                   ...data.recentClaims.map(

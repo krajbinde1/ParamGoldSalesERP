@@ -106,28 +106,28 @@ class _OrderDashboardScreenState extends State<OrderDashboardScreen> {
                         label: 'Total Orders',
                         value: '${data.totalOrders}',
                         color: AppColors.primary,
-                        icon: Icons.receipt_long_rounded,
+                        icon: const Icon(Icons.receipt_long_rounded),
                         onTap: () => _openFilter(OrderFilter.all),
                       ),
                       OrderSummaryCard(
                         label: 'Pending Orders',
                         value: '${data.pendingOrders}',
                         color: AppColors.warning,
-                        icon: Icons.pending_actions_rounded,
+                        icon: const Icon(Icons.pending_actions_rounded),
                         onTap: () => _openFilter(OrderFilter.pending),
                       ),
                       OrderSummaryCard(
                         label: 'Dispatched Orders',
                         value: '${data.dispatchedOrders}',
                         color: AppColors.info,
-                        icon: Icons.local_shipping_rounded,
+                        icon: const Icon(Icons.local_shipping_rounded),
                         onTap: () => _openFilter(OrderFilter.dispatched),
                       ),
                       OrderSummaryCard(
                         label: 'Rejected Orders',
                         value: '${data.rejectedOrders}',
                         color: AppColors.error,
-                        icon: Icons.cancel_outlined,
+                        icon: const Icon(Icons.cancel_outlined),
                         onTap: () => _openFilter(OrderFilter.rejected),
                       ),
                     ],
@@ -138,7 +138,7 @@ class _OrderDashboardScreenState extends State<OrderDashboardScreen> {
                 if (data.recentOrders.isEmpty)
                   const PgEmptyState(
                     message: 'No recent orders found.',
-                    icon: Icons.receipt_long_outlined,
+                    icon: const Icon(Icons.receipt_long_outlined),
                   )
                 else
                   ...data.recentOrders.map(

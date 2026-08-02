@@ -19,6 +19,23 @@ class _LoginScreenState extends State<LoginScreen> {
   final _mobile = TextEditingController();
   final _password = TextEditingController();
   bool _obscure = true;
+  bool _startupMessageShown = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _showStartupMessage());
+  }
+
+  void _showStartupMessage() {
+    if (!mounted || _startupMessageShown) return;
+    final message = widget.auth.message;
+    if (message == null || message.isEmpty) return;
+    _startupMessageShown = true;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
+  }
 
   @override
   void dispose() {

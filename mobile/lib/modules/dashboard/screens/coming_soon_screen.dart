@@ -12,7 +12,7 @@ class ComingSoonScreen extends StatelessWidget {
     showBack: true,
     body: PgEmptyState(
       message: 'Module coming next',
-      icon: Icons.construction_rounded,
+      icon: const Icon(Icons.construction_rounded),
     ),
   );
 }

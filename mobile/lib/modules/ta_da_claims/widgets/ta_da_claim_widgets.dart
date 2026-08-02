@@ -13,13 +13,13 @@ class TaDaClaimSummaryCard extends StatelessWidget {
     required this.label,
     required this.value,
     required this.color,
-    this.icon = Icons.receipt_long_rounded,
+    this.icon = const Icon(Icons.receipt_long_rounded),
   });
 
   final String label;
   final String value;
   final Color color;
-  final IconData icon;
+  final Widget icon;
 
   @override
   Widget build(BuildContext context) => SizedBox(

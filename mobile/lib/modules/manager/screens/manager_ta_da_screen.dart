@@ -55,7 +55,7 @@ class _ManagerTaDaClaimsScreenState extends State<ManagerTaDaClaimsScreen> {
           if (claims.isEmpty) {
             return const PgEmptyState(
               message: 'No pending TA/DA claims.',
-              icon: Icons.receipt_long_outlined,
+              icon: const Icon(Icons.receipt_long_outlined),
             );
           }
           return ListView.builder(

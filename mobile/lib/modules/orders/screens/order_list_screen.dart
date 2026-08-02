@@ -148,7 +148,7 @@ class _OrderListScreenState extends State<OrderListScreen> {
                       children: const [
                         PgEmptyState(
                           message: 'No orders found.',
-                          icon: Icons.receipt_long_outlined,
+                          icon: const Icon(Icons.receipt_long_outlined),
                         ),
                       ],
                     );

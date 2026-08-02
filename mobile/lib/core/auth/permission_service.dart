@@ -20,6 +20,30 @@ class PermissionService {
   bool get canViewManagerDashboard => has('manager_dashboard');
   bool get canViewProductionDashboard => has('production_dashboard');
   bool get canViewDirectorDashboard => has('director_dashboard');
-  bool get canViewAllOrders => has('orders_view_all') || has('orders_view_production');
+  bool get canViewAllOrders =>
+      has('orders_view_all') || has('orders_view_production');
   bool get canViewEmployeePerformance => has('employee_performance_view_all');
+
+  /// Inventory & Manufacturing module (Production Supervisor).
+  bool get canViewInventory => has('inventory_view');
+  bool get canAccessInventoryManufacturing => canViewInventory;
+  bool get canViewActiveBom => has('bom_view_active');
+  bool get canCreateProduction => has('production_create');
+  bool get canCompleteProduction => has('production_complete');
+  bool get canViewProductionHistory => has('production_history_view');
+  bool get canViewShortageReport => has('shortage_report_view');
+  bool get canViewStockReport =>
+      has('stock_report_view') || has('inventory_view');
+  bool get canCreateRawMaterialInward => has('raw_material_inward_create');
+  bool get canCreatePackagingMaterialInward =>
+      has('packaging_material_inward_create') ||
+      has('raw_material_inward_create');
+  bool get canViewProductionCosts => has('production_cost_view');
+
+  /// Stock adjustment — Director/Admin only unless explicitly granted.
+  bool get canAdjustStock => has('stock_adjustment');
+
+  /// Director/Admin inventory master CRUD (matches Laravel canManageInventoryMasters).
+  bool get canManageInventoryMasters =>
+      has('inventory_full_access') || has('bom_manage');
 }

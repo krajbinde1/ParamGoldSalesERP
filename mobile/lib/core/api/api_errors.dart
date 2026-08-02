@@ -26,12 +26,13 @@ bool isConnectionFailure(DioException error) {
 }
 
 String connectionFailureMessage({String prefix = 'Unable to connect to server'}) {
+  // Keep the user-facing copy short so offline / ANR-recovery paths stay clear.
+  // Debug builds append the resolved base URL to help local development.
   if (kReleaseMode) {
-    return '$prefix at ${ApiConfig.baseUrl}. '
-        'Please check your internet connection and try again.';
+    return prefix;
   }
 
-  return '$prefix at ${ApiConfig.baseUrl}. '
+  return '$prefix (${ApiConfig.baseUrl}). '
       'Ensure the backend is running and your device is on the same Wi‑Fi network.';
 }
 

@@ -105,11 +105,16 @@ enum UserRole: string
             ],
             self::ProductionSupervisor => [
                 'production_dashboard', 'orders_dispatch', 'orders_view_production',
+                'inventory_view', 'bom_view_active', 'production_create', 'production_complete',
+                'production_history_view', 'shortage_report_view', 'stock_report_view',
             ],
             self::Director => [
                 'director_dashboard', 'orders_view_all', 'ta_da_view_all',
                 'attendance_view_all', 'collections_view_all', 'dealer_visits_view_all',
                 'field_activities_view_all', 'employee_performance_view_all',
+                'inventory_full_access', 'bom_manage', 'inventory_valuation_view',
+                'stock_adjustment', 'production_batch_reverse', 'production_cost_view',
+                'production_deviation_approve',
             ],
         };
     }

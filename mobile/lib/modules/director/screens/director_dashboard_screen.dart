@@ -160,7 +160,7 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                 const PgSectionHeader(title: 'Modules'),
                 const SizedBox(height: AppSpacing.sm),
                 ModuleTile(
-                  icon: Icons.people_outline,
+                  icon: const Icon(Icons.people_outline),
                   label: 'Employee Performance',
                   subtitle: '${data.employeePerformance.length} employees',
                   onTap: () => context.push(
@@ -169,12 +169,12 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                   ),
                 ),
                 ModuleTile(
-                  icon: Icons.shopping_cart_outlined,
+                  icon: const Icon(Icons.shopping_cart_outlined),
                   label: 'All Orders',
                   onTap: () => context.push('/director/orders'),
                 ),
                 ModuleTile(
-                  icon: Icons.receipt_long_outlined,
+                  icon: const Icon(Icons.receipt_long_outlined),
                   label: 'All TA/DA Claims',
                   onTap: () => context.push('/director/ta-da-claims'),
                 ),

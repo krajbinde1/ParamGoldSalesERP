@@ -146,13 +146,13 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                 const PgSectionHeader(title: 'Modules'),
                 const SizedBox(height: AppSpacing.sm),
                 ModuleTile(
-                  icon: Icons.people_outline,
+                  icon: const Icon(Icons.people_outline),
                   label: 'Employee Performance',
                   subtitle: '${data.employeePerformance.length} employees',
                   onTap: () => context.push('/manager/employees'),
                 ),
                 ModuleTile(
-                  icon: Icons.shopping_cart_checkout_outlined,
+                  icon: const Icon(Icons.shopping_cart_checkout_outlined),
                   label: 'Order Approvals',
                   subtitle: '${data.pendingOrders} pending approval',
                   onTap: () async {
@@ -162,7 +162,7 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                   },
                 ),
                 ModuleTile(
-                  icon: Icons.receipt_long_outlined,
+                  icon: const Icon(Icons.receipt_long_outlined),
                   label: 'TA/DA Approvals',
                   subtitle: '${data.pendingClaims} pending',
                   onTap: () => context.push('/manager/ta-da-claims'),

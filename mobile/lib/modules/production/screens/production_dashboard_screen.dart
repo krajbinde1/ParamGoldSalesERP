@@ -6,107 +6,12 @@ import '../../../core/design/app_spacing.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
-import '../../../core/widgets/design/pg_quick_action.dart';
 import '../../../core/widgets/role_shell_widgets.dart';
 import '../../auth/providers/auth_controller.dart';
 import '../api/production_api.dart';
 
-class ProductionDashboardScreen extends StatefulWidget {
-  const ProductionDashboardScreen({super.key, required this.auth});
-  final AuthController auth;
-
-  @override
-  State<ProductionDashboardScreen> createState() =>
-      _ProductionDashboardScreenState();
-}
-
-class _ProductionDashboardScreenState extends State<ProductionDashboardScreen> {
-  late Future<ProductionDashboardData> _future;
-
-  @override
-  void initState() {
-    super.initState();
-    _future = ProductionApi(
-      ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired)
-          .dio,
-    ).loadDashboard();
-  }
-
-  Future<void> _reload() async {
-    setState(() {
-      _future = ProductionApi(
-        ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired)
-            .dio,
-      ).loadDashboard();
-    });
-    await _future;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: RoleAppBar(title: 'Production Dashboard', auth: widget.auth),
-      body: RefreshIndicator(
-        onRefresh: _reload,
-        child: FutureBuilder<ProductionDashboardData>(
-          future: _future,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting &&
-                !snapshot.hasData) {
-              return const PgLoadingState();
-            }
-            if (snapshot.hasError) {
-              return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(AppSpacing.screenPadding),
-                children: [
-                  PgErrorState(
-                    message: errorMessage(snapshot.error),
-                    onRetry: _reload,
-                  ),
-                ],
-              );
-            }
-            final data = snapshot.data!;
-            return ListView(
-              padding: const EdgeInsets.all(AppSpacing.screenPadding),
-              children: [
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    DashboardMetricCard(
-                      label: 'Approved Orders',
-                      value: '${data.approvedOrders}',
-                    ),
-                    DashboardMetricCard(
-                      label: 'Ready for Dispatch',
-                      value: '${data.readyForDispatch}',
-                    ),
-                    DashboardMetricCard(
-                      label: 'Dispatched',
-                      value: '${data.dispatchedOrders}',
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                const PgSectionHeader(title: 'Modules'),
-                const SizedBox(height: AppSpacing.sm),
-                ModuleTile(
-                  icon: Icons.local_shipping_outlined,
-                  label: 'Production Orders',
-                  subtitle: 'Approved and dispatched orders',
-                  onTap: () => context.push('/production/orders'),
-                ),
-              ],
-            );
-          },
-        ),
-      ),
-    );
-  }
-}
-
+/// Existing Orders screen for Production Supervisor (Approved / Dispatched).
+/// Kept as-is for order list/filters/details — only account menu wired in AppBar.
 class ProductionOrdersScreen extends StatefulWidget {
   const ProductionOrdersScreen({super.key, required this.auth});
   final AuthController auth;
@@ -136,8 +41,9 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Production Orders'),
+      appBar: RoleAppBar(
+        title: 'Orders',
+        auth: widget.auth,
         bottom: TabBar(
           controller: _tabController,
           tabs: const [

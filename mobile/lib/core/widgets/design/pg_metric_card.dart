@@ -16,7 +16,8 @@ class PgMetricCard extends StatelessWidget {
 
   final String title;
   final String value;
-  final IconData icon;
+  /// Prefer `const Icon(Icons.xxx)` so release icon tree-shaking keeps glyphs.
+  final Widget icon;
   final List<Color> gradient;
   final String? subtitle;
   final VoidCallback? onTap;
@@ -46,7 +47,10 @@ class PgMetricCard extends StatelessWidget {
               ),
             ],
           ),
-          child: Icon(icon, color: Colors.white, size: 20),
+          child: IconTheme(
+            data: const IconThemeData(color: Colors.white, size: 20),
+            child: Center(child: icon),
+          ),
         ),
         const Spacer(),
         FittedBox(

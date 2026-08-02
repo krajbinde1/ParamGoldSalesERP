@@ -43,6 +43,9 @@ class AdminEmployeeRouteController extends Controller
                 'approval_status' => $attendance->approval_status,
                 'working_hours' => $attendance->working_hours,
                 'total_working_minutes' => $attendance->total_working_minutes,
+                'total_route_distance_km' => $attendance->total_route_distance_km !== null
+                    ? (float) $attendance->total_route_distance_km
+                    : $analysis['summary']['total_distance_km'],
                 'punch_in' => [
                     'time' => $this->formatIstDateTime($attendance->punchInAt()),
                     'location' => $attendance->punch_in_location,
@@ -57,6 +60,8 @@ class AdminEmployeeRouteController extends Controller
                 ],
             ],
             'summary' => $analysis['summary'],
+            'diagnostics' => $analysis['diagnostics'],
+            'timeline' => $analysis['timeline'],
             'route_points' => $this->routeAnalysisService->formatRoutePointsForResponse($attendance),
             'stops' => $analysis['stops'],
         ]);

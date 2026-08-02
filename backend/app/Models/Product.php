@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Product extends Model
@@ -13,6 +15,15 @@ class Product extends Model
         'category' => 'General',
         'uom' => 'Piece',
         'nos_per_case' => 1,
+        'manufacturing_enabled' => false,
+        'current_finished_stock' => 0,
+        'opening_finished_stock' => 0,
+        'minimum_finished_stock' => 0,
+        'standard_production_cost' => 0,
+        'latest_production_cost' => 0,
+        'weighted_average_cost' => 0,
+        'batch_tracking_enabled' => true,
+        'expiry_tracking_enabled' => false,
     ];
 
     protected static function booted(): void
@@ -51,6 +62,19 @@ class Product extends Model
         'retail_price',
         'minimum_stock',
         'status',
+        'manufacturing_enabled',
+        'production_unit',
+        'standard_batch_size',
+        'current_finished_stock',
+        'opening_finished_stock',
+        'minimum_finished_stock',
+        'standard_production_cost',
+        'latest_production_cost',
+        'weighted_average_cost',
+        'shelf_life_days',
+        'batch_tracking_enabled',
+        'expiry_tracking_enabled',
+        'remarks',
     ];
 
     protected function casts(): array
@@ -64,6 +88,142 @@ class Product extends Model
             'minimum_stock' => 'decimal:2',
             'nos_per_case' => 'integer',
             'status' => 'boolean',
+            'manufacturing_enabled' => 'boolean',
+            'standard_batch_size' => 'decimal:3',
+            'current_finished_stock' => 'decimal:3',
+            'opening_finished_stock' => 'decimal:3',
+            'minimum_finished_stock' => 'decimal:3',
+            'standard_production_cost' => 'decimal:4',
+            'latest_production_cost' => 'decimal:4',
+            'weighted_average_cost' => 'decimal:4',
+            'shelf_life_days' => 'integer',
+            'batch_tracking_enabled' => 'boolean',
+            'expiry_tracking_enabled' => 'boolean',
         ];
+    }
+
+    public function variants(): HasMany
+    {
+        return $this->hasMany(ProductVariant::class);
+    }
+
+    public function finishedProduct(): HasOne
+    {
+        return $this->hasOne(FinishedProduct::class);
+    }
+
+    public function stockLedgers(): HasMany
+    {
+        return $this->hasMany(StockLedger::class, 'product_id');
+    }
+
+    public function activeVariants(): HasMany
+    {
+        return $this->hasMany(ProductVariant::class)
+            ->where('status', true)
+            ->where('manufacturing_enabled', true)
+            ->orderBy('pack_size');
+    }
+
+    public function boms(): HasMany
+    {
+        return $this->hasMany(Bom::class);
+    }
+
+    public function activeBom(): HasOne
+    {
+        return $this->hasOne(Bom::class)->where('status', 'active');
+    }
+
+    public function productionBatches(): HasMany
+    {
+        return $this->hasMany(ProductionBatch::class);
+    }
+
+    public function displayLabel(): string
+    {
+        $name = $this->product_name ?? $this->name ?? '';
+
+        return trim(
+            ($this->product_code ? $this->product_code.' — ' : '')
+            .$name
+        );
+    }
+
+    public function isConfiguredBulkProduct(): bool
+    {
+        $configured = config('inventory.bulk_product_ids', []);
+
+        return in_array($this->id, array_map('intval', $configured), true);
+    }
+
+    public function isLowFinishedStock(): bool
+    {
+        return (float) $this->current_finished_stock > 0
+            && (float) $this->current_finished_stock <= (float) $this->minimum_finished_stock;
+    }
+
+    public function isOutOfFinishedStock(): bool
+    {
+        return (float) $this->current_finished_stock <= 0;
+    }
+
+    public function hasFinishedStockTransactions(): bool
+    {
+        return $this->stockLedgers()->exists();
+    }
+
+    /**
+     * Products eligible for Finished Product inventory (report / FG stock lists).
+     * Includes manufacturing-enabled masters and any product that already holds FG stock
+     * (e.g. produced before manufacturing_enabled was flipped on).
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<static>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<static>
+     */
+    public function scopeInFinishedInventory($query)
+    {
+        return $query->where(function ($inner): void {
+            $inner->where('manufacturing_enabled', true)
+                ->orWhere('current_finished_stock', '>', 0);
+        });
+    }
+
+    /**
+     * Sales products that are not yet Finished Product Masters (1:1 link candidates).
+     *
+     * @param  \Illuminate\Database\Eloquent\Builder<static>  $query
+     * @return \Illuminate\Database\Eloquent\Builder<static>
+     */
+    public function scopeAvailableForFinishedProductLink($query)
+    {
+        return $query
+            ->whereDoesntHave('finishedProduct')
+            ->where('manufacturing_enabled', false)
+            ->where('current_finished_stock', '<=', 0)
+            ->where('status', true);
+    }
+
+    /**
+     * Finished-product stock aliases (Products module records ARE finished products).
+     * Canonical columns remain current_finished_stock / weighted_average_cost.
+     */
+    public function getAverageProductionCostAttribute(): float
+    {
+        return (float) ($this->attributes['weighted_average_cost'] ?? 0);
+    }
+
+    public function getCurrentStockValueAttribute(): float
+    {
+        $stock = (float) ($this->attributes['current_finished_stock'] ?? 0);
+        $avg = (float) ($this->attributes['weighted_average_cost'] ?? 0);
+
+        return round($stock * $avg, 2);
+    }
+
+    /** @deprecated Prefer current_finished_stock; alias for finished-product inventory. */
+    public function finishedCurrentStock(): float
+    {
+        return (float) ($this->attributes['current_finished_stock'] ?? 0);
     }
 }

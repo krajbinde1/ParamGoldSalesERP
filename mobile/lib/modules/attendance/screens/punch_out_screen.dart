@@ -47,7 +47,7 @@ class _PunchOutScreenState extends ConsumerState<PunchOutScreen> {
   @override
   Widget build(BuildContext context) => PunchScreen(
     title: 'Punch Out',
-    icon: Icons.logout_rounded,
+    icon: const Icon(Icons.logout_rounded),
     message:
         'We will capture your location and selfie again, then calculate your working hours.',
     busy: busy,

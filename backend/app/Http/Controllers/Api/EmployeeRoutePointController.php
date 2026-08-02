@@ -5,6 +5,8 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
 use App\Models\EmployeeRoutePoint;
+use App\Services\EmployeeRouteAnalysisService;
+use App\Support\AttendanceCalendar;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -14,6 +16,10 @@ use Illuminate\Validation\ValidationException;
 
 class EmployeeRoutePointController extends Controller
 {
+    public function __construct(
+        private readonly EmployeeRouteAnalysisService $routeAnalysisService,
+    ) {}
+
     public function storeBatch(Request $request): JsonResponse
     {
         $employee = $request->user()->employee;
@@ -32,6 +38,7 @@ class EmployeeRoutePointController extends Controller
             'points.*.longitude' => ['required', 'numeric', 'between:-180,180'],
             'points.*.accuracy' => ['nullable', 'numeric', 'min:0'],
             'points.*.speed' => ['nullable', 'numeric', 'min:0'],
+            'points.*.heading' => ['nullable', 'numeric', 'between:0,360'],
             'points.*.recorded_at' => ['required', 'date'],
             'points.*.source' => ['nullable', 'string', 'max:50'],
         ]);
@@ -55,27 +62,61 @@ class EmployeeRoutePointController extends Controller
             ]);
         }
 
-        if (! $attendance->isRouteTrackingActive()) {
+        if (blank($attendance->punch_in_time)) {
             throw ValidationException::withMessages([
-                'attendance_id' => ['Route points can only be submitted for an active punch-in session that has not been punched out.'],
+                'attendance_id' => ['Route points require an attendance record with punch-in.'],
             ]);
         }
 
+        $sessionStart = $attendance->punchInAt()?->copy()->subMinutes(5);
+        $sessionEnd = $attendance->isRouteTrackingActive()
+            ? AttendanceCalendar::now()->copy()->addMinutes(15)
+            : ($attendance->punchOutAt()?->copy()->addMinutes(30) ?? AttendanceCalendar::now()->copy()->addMinutes(15));
+
         $inserted = 0;
         $skipped = 0;
+        $rejected = 0;
 
-        DB::transaction(function () use ($validated, $attendance, $employee, &$inserted, &$skipped): void {
+        DB::transaction(function () use (
+            $validated,
+            $attendance,
+            $employee,
+            $sessionStart,
+            $sessionEnd,
+            &$inserted,
+            &$skipped,
+            &$rejected,
+        ): void {
             foreach ($validated['points'] as $point) {
+                $latitude = (float) $point['latitude'];
+                $longitude = (float) $point['longitude'];
+
+                if (abs($latitude) < 0.000001 && abs($longitude) < 0.000001) {
+                    $rejected++;
+
+                    continue;
+                }
+
+                $recordedAt = Carbon::parse($point['recorded_at'])->timezone(AttendanceCalendar::TIMEZONE);
+
+                if (($sessionStart !== null && $recordedAt->lt($sessionStart))
+                    || ($sessionEnd !== null && $recordedAt->gt($sessionEnd))) {
+                    $rejected++;
+
+                    continue;
+                }
+
                 $created = EmployeeRoutePoint::query()->firstOrCreate(
                     ['local_uuid' => $point['local_uuid']],
                     [
                         'attendance_id' => $attendance->id,
                         'employee_id' => $employee->id,
-                        'latitude' => $point['latitude'],
-                        'longitude' => $point['longitude'],
+                        'latitude' => $latitude,
+                        'longitude' => $longitude,
                         'accuracy' => $point['accuracy'] ?? null,
                         'speed' => $point['speed'] ?? null,
-                        'recorded_at' => Carbon::parse($point['recorded_at']),
+                        'heading' => $point['heading'] ?? null,
+                        'recorded_at' => $recordedAt,
                         'source' => filled($point['source'] ?? null) ? $point['source'] : null,
                     ],
                 );
@@ -88,10 +129,14 @@ class EmployeeRoutePointController extends Controller
             }
         });
 
+        $distanceKm = $this->routeAnalysisService->recalculateAndPersistDistance($attendance->fresh());
+
         return response()->json([
             'message' => 'Route points processed successfully.',
             'inserted' => $inserted,
             'skipped' => $skipped,
+            'rejected' => $rejected,
+            'total_route_distance_km' => $distanceKm,
         ], 201);
     }
 }

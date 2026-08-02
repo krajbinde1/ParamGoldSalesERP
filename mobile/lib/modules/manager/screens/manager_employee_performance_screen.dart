@@ -203,7 +203,7 @@ class _ManagerEmployeePerformanceScreenState
                           height: MediaQuery.sizeOf(context).height * 0.4,
                           child: const PgEmptyState(
                             message: 'No employees found',
-                            icon: Icons.people_outline,
+                            icon: const Icon(Icons.people_outline),
                           ),
                         ),
                       ],
@@ -574,7 +574,7 @@ class _EmployeeOrdersTab extends StatelessWidget {
           const Center(
             child: PgEmptyState(
               message: 'No orders in this period.',
-              icon: Icons.shopping_cart_outlined,
+              icon: const Icon(Icons.shopping_cart_outlined),
             ),
           ),
         ],

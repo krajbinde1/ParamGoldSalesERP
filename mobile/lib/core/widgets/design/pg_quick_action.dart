@@ -10,7 +10,8 @@ class PgQuickAction extends StatelessWidget {
     required this.onTap,
   });
 
-  final IconData icon;
+  /// Prefer `const Icon(Icons.xxx)` so release icon tree-shaking keeps glyphs.
+  final Widget icon;
   final String label;
   final Color color;
   final VoidCallback onTap;
@@ -28,7 +29,10 @@ class PgQuickAction extends StatelessWidget {
           child: SizedBox(
             width: 56,
             height: 56,
-            child: Icon(icon, color: color, size: 26),
+            child: IconTheme(
+              data: IconThemeData(color: color, size: 26),
+              child: Center(child: icon),
+            ),
           ),
         ),
       ),

@@ -1,4 +1,3 @@
-import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../auth/user_role.dart';
 import 'route_permissions.dart';
@@ -11,6 +10,7 @@ import '../../modules/attendance/screens/punch_out_screen.dart';
 import '../../modules/auth/providers/auth_controller.dart';
 import '../../modules/auth/screens/change_password_screen.dart';
 import '../../modules/auth/screens/login_screen.dart';
+import '../../modules/auth/screens/splash_screen.dart';
 import '../../modules/collections/screens/collection_dashboard_screen.dart';
 import '../../modules/collections/screens/collection_detail_screen.dart';
 import '../../modules/collections/screens/new_collection_screen.dart';
@@ -38,6 +38,21 @@ import '../../modules/manager/screens/manager_orders_screen.dart';
 import '../../modules/manager/screens/manager_ta_da_screen.dart';
 import '../../modules/production/screens/production_dashboard_screen.dart';
 import '../../modules/production/screens/production_order_detail_screen.dart';
+import '../../modules/production/screens/inventory/inventory_dashboard_screen.dart';
+import '../../modules/production/screens/inventory/inventory_hub_screens.dart';
+import '../../modules/production/screens/inventory/raw_material_form_screen.dart';
+import '../../modules/production/screens/inventory/raw_material_master_screen.dart';
+import '../../modules/production/screens/inventory/stock_list_screen.dart';
+import '../../modules/production/screens/inventory/production_batches_screen.dart';
+import '../../modules/production/screens/inventory/production_batch_detail_screen.dart';
+import '../../modules/production/screens/inventory/bom_shortage_history_screens.dart';
+import '../../modules/production/screens/inventory/bom_screens.dart';
+import '../../modules/production/screens/inventory/stock_report_screens.dart';
+import '../../modules/production/screens/inventory/stock_item_ledger_screen.dart';
+import '../../modules/production/screens/inventory/stock_ledger_browse_screen.dart';
+import '../../modules/production/screens/inventory/raw_material_inward_screens.dart';
+import '../../modules/production/screens/inventory/packaging_material_inward_screens.dart';
+import '../../modules/production/screens/production_entry/production_entry_wizard_screen.dart';
 import '../../modules/profile/screens/profile_screen.dart';
 
 GoRouter createRouter(AuthController auth) => GoRouter(
@@ -66,8 +81,7 @@ GoRouter createRouter(AuthController auth) => GoRouter(
   routes: [
     GoRoute(
       path: '/splash',
-      builder: (_, _) =>
-          const Scaffold(body: Center(child: CircularProgressIndicator())),
+      builder: (_, _) => SplashScreen(auth: auth),
     ),
     GoRoute(
       path: '/login',
@@ -286,6 +300,158 @@ GoRouter createRouter(AuthController auth) => GoRouter(
           builder: (_, state) => ProductionOrderDetailScreen(
             auth: auth,
             orderId: int.parse(state.pathParameters['orderId']!),
+          ),
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/production/inventory-manufacturing',
+      builder: (_, _) => InventoryManufacturingHubScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/production/material-masters',
+      builder: (_, _) => MaterialMastersHubScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/production/material-inward',
+      builder: (_, _) => MaterialInwardHubScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/production/production-hub',
+      builder: (_, _) => ProductionModuleHubScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/production/inventory',
+      builder: (_, _) => InventoryDashboardScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/production/raw-materials',
+      builder: (_, _) => RawMaterialMasterScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: 'create',
+          builder: (_, _) => RawMaterialFormScreen(auth: auth),
+        ),
+        GoRoute(
+          path: ':id/edit',
+          builder: (_, state) => RawMaterialFormScreen(
+            auth: auth,
+            materialId: int.tryParse(state.pathParameters['id'] ?? ''),
+          ),
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/production/packaging-materials',
+      builder: (_, _) =>
+          StockListScreen(auth: auth, type: StockListType.packaging),
+    ),
+    GoRoute(
+      path: '/production/semi-finished',
+      builder: (_, _) =>
+          StockListScreen(auth: auth, type: StockListType.semiFinished),
+    ),
+    GoRoute(
+      path: '/production/finished-goods',
+      builder: (_, _) =>
+          StockListScreen(auth: auth, type: StockListType.finished),
+    ),
+    GoRoute(
+      path: '/production/bom',
+      builder: (_, _) => BomListScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':bomId',
+          builder: (_, state) => BomDetailScreen(
+            auth: auth,
+            bomId: int.parse(state.pathParameters['bomId']!),
+          ),
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/production/entry',
+      builder: (_, _) => ProductionEntryWizardScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/production/batches',
+      builder: (_, _) => ProductionBatchesScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':batchId',
+          builder: (_, state) => ProductionBatchDetailScreen(
+            auth: auth,
+            batchId: int.parse(state.pathParameters['batchId']!),
+          ),
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/production/shortages',
+      builder: (_, _) => MaterialShortageScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/production/history',
+      builder: (_, state) => ProductionHistoryScreen(
+        auth: auth,
+        initialFrom: state.uri.queryParameters['from'],
+        initialTo: state.uri.queryParameters['to'],
+      ),
+    ),
+    GoRoute(
+      path: '/production/stock-report',
+      builder: (_, state) => StockReportScreen(
+        auth: auth,
+        initialStatus: state.uri.queryParameters['status'],
+        initialType: state.uri.queryParameters['type'],
+      ),
+    ),
+    GoRoute(
+      path: '/production/ledger',
+      builder: (_, state) => StockItemLedgerScreen(
+        auth: auth,
+        itemType: state.uri.queryParameters['type'] ?? 'raw_material',
+        itemId: int.tryParse(state.uri.queryParameters['id'] ?? '') ?? 0,
+      ),
+    ),
+    GoRoute(
+      path: '/production/stock-ledger',
+      builder: (_, state) => StockLedgerBrowseScreen(
+        auth: auth,
+        initialItemType: state.uri.queryParameters['type'],
+        initialTxnType: state.uri.queryParameters['txn'],
+      ),
+    ),
+    GoRoute(
+      path: '/production/inwards',
+      builder: (_, _) => RawMaterialInwardHubScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: 'new',
+          builder: (_, _) => NewRawMaterialInwardScreen(auth: auth),
+        ),
+        GoRoute(
+          path: ':inwardId',
+          builder: (_, state) => RawMaterialInwardDetailScreen(
+            auth: auth,
+            inwardId: int.parse(state.pathParameters['inwardId']!),
+          ),
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/production/packaging-inwards',
+      builder: (_, _) => PackagingMaterialInwardHubScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: 'new',
+          builder: (_, _) => NewPackagingMaterialInwardScreen(auth: auth),
+        ),
+        GoRoute(
+          path: ':inwardId',
+          builder: (_, state) => PackagingMaterialInwardDetailScreen(
+            auth: auth,
+            inwardId: int.parse(state.pathParameters['inwardId']!),
           ),
         ),
       ],

@@ -35,6 +35,21 @@ class ProductInfolist
                         TextEntry::make('retail_price')->money('INR'),
                         TextEntry::make('minimum_stock')->numeric(),
                     ]),
+                Section::make('Manufacturing')
+                    ->columns(2)
+                    ->visible(fn ($record): bool => (bool) $record->manufacturing_enabled)
+                    ->schema([
+                        IconEntry::make('manufacturing_enabled')->label('Manufacturing Enabled')->boolean(),
+                        TextEntry::make('production_unit')->label('Production Unit')->placeholder('-'),
+                        TextEntry::make('standard_batch_size')->label('Standard Batch Size')->numeric(3)->placeholder('-'),
+                        TextEntry::make('current_finished_stock')->label('Current Finished Stock')->numeric(3),
+                        TextEntry::make('minimum_finished_stock')->label('Minimum Finished Stock')->numeric(3),
+                        TextEntry::make('shelf_life_days')->label('Shelf Life (Days)')->placeholder('-'),
+                        IconEntry::make('batch_tracking_enabled')->label('Batch Tracking')->boolean(),
+                        TextEntry::make('standard_production_cost')->label('Standard Production Cost')->money('INR'),
+                        TextEntry::make('latest_production_cost')->label('Latest Production Cost')->money('INR'),
+                        TextEntry::make('weighted_average_cost')->label('Weighted Average Cost')->money('INR'),
+                    ]),
             ]);
     }
 }

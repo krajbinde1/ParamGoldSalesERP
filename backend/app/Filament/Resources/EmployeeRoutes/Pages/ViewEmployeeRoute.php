@@ -35,13 +35,16 @@ class ViewEmployeeRoute extends ViewRecord
         /** @var Attendance $record */
         $record = $this->getRecord();
 
-        $analysis = app(EmployeeRouteAnalysisService::class)->analyze($record);
-        $validPoints = app(EmployeeRouteAnalysisService::class)->formatValidPointsForMap($analysis['valid_points']);
+        $service = app(EmployeeRouteAnalysisService::class);
+        $analysis = $service->analyze($record);
+        $validPoints = $service->formatValidPointsForMap($analysis['valid_points']);
 
         return [
             'summary' => $analysis['summary'],
+            'diagnostics' => $analysis['diagnostics'],
             'valid_points' => $validPoints,
-            'route_points' => app(EmployeeRouteAnalysisService::class)->formatRoutePointsForResponse($record),
+            'route_points' => $service->formatRoutePointsForResponse($record),
+            'timeline' => $analysis['timeline'],
             'stops' => $analysis['stops'],
             'punch_in' => [
                 'time' => $record->punchInAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('d M Y h:i A'),

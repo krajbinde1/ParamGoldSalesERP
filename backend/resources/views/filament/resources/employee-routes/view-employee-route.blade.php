@@ -2,6 +2,9 @@
     $routeData = $this->getRouteMapData();
     $hasEnoughPoints = ($routeData['summary']['valid_point_count'] ?? 0) >= 2;
     $mapElementId = 'employee-route-map-'.$this->getRecord()->getKey();
+    $diagnostics = $routeData['diagnostics'] ?? [];
+    $sparseWarning = $diagnostics['sparse_warning'] ?? null;
+    $timeline = $routeData['timeline'] ?? $routeData['route_points'] ?? [];
 @endphp
 
 @if ($hasEnoughPoints)
@@ -40,6 +43,12 @@
 
 <x-filament-panels::page>
     <div class="space-y-6">
+        @if (filled($sparseWarning))
+            <div class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
+                {{ $sparseWarning }}
+            </div>
+        @endif
+
         <div class="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
             <x-filament::section>
                 <div class="text-sm text-gray-500 dark:text-gray-400">Employee</div>
@@ -72,19 +81,63 @@
             </x-filament::section>
         </div>
 
+        <x-filament::section heading="Route Diagnostics">
+            <div class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4 text-sm">
+                <div>
+                    <div class="text-gray-500 dark:text-gray-400">Total GPS points</div>
+                    <div class="font-semibold">{{ $diagnostics['total_points'] ?? 0 }}</div>
+                </div>
+                <div>
+                    <div class="text-gray-500 dark:text-gray-400">Valid points used</div>
+                    <div class="font-semibold">{{ $diagnostics['valid_points_used'] ?? 0 }}</div>
+                </div>
+                <div>
+                    <div class="text-gray-500 dark:text-gray-400">Rejected points</div>
+                    <div class="font-semibold">{{ $diagnostics['rejected_count'] ?? 0 }}</div>
+                </div>
+                <div>
+                    <div class="text-gray-500 dark:text-gray-400">Ignored segments</div>
+                    <div class="font-semibold">{{ $diagnostics['ignored_segment_count'] ?? 0 }}</div>
+                </div>
+                <div>
+                    <div class="text-gray-500 dark:text-gray-400">First point</div>
+                    <div class="font-semibold">
+                        {{ filled($diagnostics['first_recorded_at'] ?? null) ? \Illuminate\Support\Carbon::parse($diagnostics['first_recorded_at'])->timezone('Asia/Kolkata')->format('d M Y h:i A') : '-' }}
+                    </div>
+                </div>
+                <div>
+                    <div class="text-gray-500 dark:text-gray-400">Last point</div>
+                    <div class="font-semibold">
+                        {{ filled($diagnostics['last_recorded_at'] ?? null) ? \Illuminate\Support\Carbon::parse($diagnostics['last_recorded_at'])->timezone('Asia/Kolkata')->format('d M Y h:i A') : '-' }}
+                    </div>
+                </div>
+                <div>
+                    <div class="text-gray-500 dark:text-gray-400">Duration</div>
+                    <div class="font-semibold">
+                        {{ isset($diagnostics['duration_minutes']) ? $diagnostics['duration_minutes'].' min' : '-' }}
+                    </div>
+                </div>
+            </div>
+        </x-filament::section>
+
         <x-filament::section heading="Route Map">
             @if ($hasEnoughPoints)
                 <div id="{{ $mapElementId }}"></div>
 
                 <div class="mt-3 flex flex-wrap gap-4 text-sm text-gray-600 dark:text-gray-300">
                     <span><span class="inline-block h-3 w-3 rounded-full bg-green-500"></span> Punch In</span>
+                    <span><span class="inline-block h-3 w-3 rounded-full bg-blue-500"></span> Route Point</span>
                     <span><span class="inline-block h-3 w-3 rounded-full bg-red-500"></span> Punch Out</span>
-                    <span><span class="inline-block h-3 w-3 rounded-full bg-blue-500"></span> Route</span>
                     <span><span class="inline-block h-3 w-3 rounded-full bg-orange-500"></span> Stop</span>
                 </div>
             @else
                 <div class="rounded-xl border border-dashed border-gray-300 px-6 py-10 text-center text-gray-500 dark:border-gray-700 dark:text-gray-400">
                     Not enough valid route points to draw a map. At least 2 valid points are required.
+                    @if (($diagnostics['total_points'] ?? 0) > 0)
+                        <div class="mt-2 text-amber-700 dark:text-amber-300">
+                            Incomplete route data – only {{ $diagnostics['total_points'] }} GPS points were received from the mobile device.
+                        </div>
+                    @endif
                 </div>
             @endif
         </x-filament::section>
@@ -96,24 +149,37 @@
                         <thead class="bg-gray-50 dark:bg-gray-900">
                             <tr>
                                 <th class="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Time</th>
-                                <th class="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Latitude</th>
-                                <th class="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Longitude</th>
+                                <th class="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Lat</th>
+                                <th class="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Lng</th>
                                 <th class="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Accuracy</th>
+                                <th class="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Distance from Previous</th>
+                                <th class="px-3 py-2 text-left font-medium text-gray-600 dark:text-gray-300">Point Type</th>
                             </tr>
                         </thead>
                         <tbody class="divide-y divide-gray-200 dark:divide-gray-800">
-                            @forelse ($routeData['route_points'] as $point)
+                            @forelse ($timeline as $point)
                                 <tr>
                                     <td class="px-3 py-2 whitespace-nowrap">{{ \Illuminate\Support\Carbon::parse($point['recorded_at'])->timezone('Asia/Kolkata')->format('d M Y h:i A') }}</td>
                                     <td class="px-3 py-2 whitespace-nowrap">{{ number_format($point['latitude'], 6) }}</td>
                                     <td class="px-3 py-2 whitespace-nowrap">{{ number_format($point['longitude'], 6) }}</td>
                                     <td class="px-3 py-2 whitespace-nowrap">
-                                        {{ $point['accuracy'] !== null ? number_format($point['accuracy'], 1).' m' : '-' }}
+                                        {{ isset($point['accuracy']) && $point['accuracy'] !== null ? number_format($point['accuracy'], 1).' m' : '-' }}
+                                    </td>
+                                    <td class="px-3 py-2 whitespace-nowrap">
+                                        @if (isset($point['distance_from_previous_m']) && $point['distance_from_previous_m'] !== null)
+                                            {{ number_format($point['distance_from_previous_m'], 1) }} m
+                                            ({{ number_format($point['distance_from_previous_km'] ?? ($point['distance_from_previous_m'] / 1000), 3) }} km)
+                                        @else
+                                            —
+                                        @endif
+                                    </td>
+                                    <td class="px-3 py-2 whitespace-nowrap">
+                                        {{ $point['point_type'] ?? 'Route Point' }}
                                     </td>
                                 </tr>
                             @empty
                                 <tr>
-                                    <td colspan="4" class="px-3 py-6 text-center text-gray-500 dark:text-gray-400">No route points recorded.</td>
+                                    <td colspan="6" class="px-3 py-6 text-center text-gray-500 dark:text-gray-400">No route points recorded.</td>
                                 </tr>
                             @endforelse
                         </tbody>
@@ -236,7 +302,7 @@
 
                         const bounds = [];
 
-                        const addMarker = (latitude, longitude, color, label) => {
+                        const addMarker = (latitude, longitude, color, label, radius = 8) => {
                             const latLng = toLatLng(latitude, longitude);
 
                             if (!latLng) {
@@ -244,7 +310,7 @@
                             }
 
                             const marker = window.L.circleMarker(latLng, {
-                                radius: 8,
+                                radius,
                                 color,
                                 fillColor: color,
                                 fillOpacity: 0.9,
@@ -255,50 +321,19 @@
                             bounds.push(latLng);
                         };
 
-                        const validPoints = (routeData.valid_points || [])
+                        const timeline = (routeData.timeline || [])
                             .map((point) => ({
+                                type: point.point_type || 'Route Point',
                                 latitude: toNumber(point.latitude),
                                 longitude: toNumber(point.longitude),
                                 recorded_at: point.recorded_at,
                             }))
-                            .filter((point) => point.latitude !== null && point.longitude !== null);
+                            .filter((point) => point.latitude !== null && point.longitude !== null)
+                            .sort((a, b) => String(a.recorded_at).localeCompare(String(b.recorded_at)));
 
-                        const punchInLatLng = toLatLng(
-                            routeData.punch_in?.latitude,
-                            routeData.punch_in?.longitude,
-                        ) ?? (validPoints.length > 0
-                            ? [validPoints[0].latitude, validPoints[0].longitude]
-                            : null);
-
-                        const punchOutLatLng = toLatLng(
-                            routeData.punch_out?.latitude,
-                            routeData.punch_out?.longitude,
-                        ) ?? (validPoints.length > 0
-                            ? [validPoints[validPoints.length - 1].latitude, validPoints[validPoints.length - 1].longitude]
-                            : null);
-
-                        if (punchInLatLng) {
-                            addMarker(
-                                punchInLatLng[0],
-                                punchInLatLng[1],
-                                '#22c55e',
-                                `<strong>Punch In</strong><br>${routeData.punch_in?.time ?? '-'}<br>${routeData.punch_in?.location ?? ''}`,
-                            );
-                        }
-
-                        if (punchOutLatLng) {
-                            addMarker(
-                                punchOutLatLng[0],
-                                punchOutLatLng[1],
-                                '#ef4444',
-                                `<strong>Punch Out</strong><br>${routeData.punch_out?.time ?? '-'}<br>${routeData.punch_out?.location ?? ''}`,
-                            );
-                        }
-
-                        const polylinePoints = validPoints.map((point) => {
+                        const polylinePoints = timeline.map((point) => {
                             const latLng = [point.latitude, point.longitude];
                             bounds.push(latLng);
-
                             return latLng;
                         });
 
@@ -310,16 +345,32 @@
                             }).addTo(map);
                         }
 
-                        validPoints.forEach((point) => {
-                            const marker = window.L.circleMarker([point.latitude, point.longitude], {
-                                radius: 4,
-                                color: '#3b82f6',
-                                fillColor: '#3b82f6',
-                                fillOpacity: 0.7,
-                                weight: 1,
-                            }).addTo(map);
-
-                            marker.bindPopup(`<strong>Route Point</strong><br>${point.recorded_at ?? '-'}`);
+                        timeline.forEach((point) => {
+                            if (point.type === 'Punch In') {
+                                addMarker(
+                                    point.latitude,
+                                    point.longitude,
+                                    '#22c55e',
+                                    `<strong>Punch In</strong><br>${point.recorded_at ?? '-'}`,
+                                    9,
+                                );
+                            } else if (point.type === 'Punch Out') {
+                                addMarker(
+                                    point.latitude,
+                                    point.longitude,
+                                    '#ef4444',
+                                    `<strong>Punch Out</strong><br>${point.recorded_at ?? '-'}`,
+                                    9,
+                                );
+                            } else {
+                                addMarker(
+                                    point.latitude,
+                                    point.longitude,
+                                    '#3b82f6',
+                                    `<strong>Route Point</strong><br>${point.recorded_at ?? '-'}`,
+                                    4,
+                                );
+                            }
                         });
 
                         (routeData.stops || []).forEach((stop, index) => {

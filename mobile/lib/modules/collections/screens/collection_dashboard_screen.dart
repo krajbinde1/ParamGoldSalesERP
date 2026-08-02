@@ -129,7 +129,7 @@ class _CollectionDashboardScreenState extends State<CollectionDashboardScreen> {
                         label: 'Total Entries',
                         value: '${summary.totalEntries}',
                         color: AppColors.accent,
-                        icon: Icons.list_alt_rounded,
+                        icon: const Icon(Icons.list_alt_rounded),
                       ),
                     ],
                   ),
@@ -139,7 +139,7 @@ class _CollectionDashboardScreenState extends State<CollectionDashboardScreen> {
                 if (data.recentCollections.isEmpty)
                   const PgEmptyState(
                     message: 'No collections submitted yet.',
-                    icon: Icons.payments_outlined,
+                    icon: const Icon(Icons.payments_outlined),
                   )
                 else
                   ...data.recentCollections.map(

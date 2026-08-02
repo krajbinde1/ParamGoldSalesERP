@@ -127,7 +127,7 @@ class _DealerVisitDashboardScreenState
                 if (data.recentVisits.isEmpty)
                   const PgEmptyState(
                     message: 'No dealer visits submitted yet.',
-                    icon: Icons.storefront_outlined,
+                    icon: const Icon(Icons.storefront_outlined),
                   )
                 else
                   ...data.recentVisits.map(

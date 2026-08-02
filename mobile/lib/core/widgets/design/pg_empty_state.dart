@@ -6,13 +6,14 @@ class PgEmptyState extends StatelessWidget {
   const PgEmptyState({
     super.key,
     required this.message,
-    this.icon = Icons.inbox_rounded,
+    this.icon = const Icon(Icons.inbox_rounded),
     this.actionLabel,
     this.onAction,
   });
 
   final String message;
-  final IconData icon;
+  /// Prefer `const Icon(Icons.xxx)` so release icon tree-shaking keeps glyphs.
+  final Widget icon;
   final String? actionLabel;
   final VoidCallback? onAction;
 
@@ -30,7 +31,10 @@ class PgEmptyState extends StatelessWidget {
               color: AppColors.primary.withValues(alpha: 0.08),
               shape: BoxShape.circle,
             ),
-            child: Icon(icon, size: 36, color: AppColors.primary),
+            child: IconTheme(
+              data: const IconThemeData(size: 36, color: AppColors.primary),
+              child: Center(child: icon),
+            ),
           ),
           const SizedBox(height: AppSpacing.md),
           Text(
@@ -65,7 +69,11 @@ class PgErrorState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.cloud_off_rounded, size: 48, color: AppColors.textMuted),
+          const Icon(
+            Icons.cloud_off_rounded,
+            size: 48,
+            color: AppColors.textMuted,
+          ),
           const SizedBox(height: AppSpacing.md),
           Text(
             message,

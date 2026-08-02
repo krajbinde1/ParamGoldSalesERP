@@ -17,5 +17,9 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        //
+        // API clients (including Accept: application/pdf) must get JSON errors,
+        // never login HTML redirects that could be saved as a fake .pdf.
+        $exceptions->shouldRenderJsonWhen(function ($request, \Throwable $e) {
+            return $request->is('api/*') || $request->expectsJson();
+        });
     })->create();

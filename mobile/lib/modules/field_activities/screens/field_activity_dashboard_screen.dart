@@ -108,9 +108,11 @@ class _FieldActivityDashboardScreenState
                               .withValues(alpha: 0.12),
                           borderRadius: BorderRadius.circular(12),
                         ),
-                        child: Icon(
-                          Icons.storefront_rounded,
-                          color: AppColors.violetGradient.first,
+                        child: IconTheme(
+                          data: IconThemeData(
+                            color: AppColors.violetGradient.first,
+                          ),
+                          child: const Icon(Icons.storefront_rounded),
                         ),
                       ),
                       const SizedBox(width: AppSpacing.md),
@@ -164,7 +166,7 @@ class _FieldActivityDashboardScreenState
                         label: "Today",
                         value: '${summary.todayActivities}',
                         color: AppColors.accent,
-                        icon: Icons.today_rounded,
+                        icon: const Icon(Icons.today_rounded),
                       ),
                     ],
                   ),
@@ -174,7 +176,7 @@ class _FieldActivityDashboardScreenState
                 if (data.recentActivities.isEmpty)
                   const PgEmptyState(
                     message: 'No field activities submitted yet.',
-                    icon: Icons.route_outlined,
+                    icon: const Icon(Icons.route_outlined),
                   )
                 else
                   ...data.recentActivities.map(

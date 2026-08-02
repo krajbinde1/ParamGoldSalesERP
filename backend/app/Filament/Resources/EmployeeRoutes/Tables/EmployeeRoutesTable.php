@@ -44,6 +44,10 @@ class EmployeeRoutesTable
                 TextColumn::make('total_distance_km')
                     ->label('Total KM')
                     ->state(function (Attendance $record): string {
+                        if ($record->total_route_distance_km !== null) {
+                            return number_format((float) $record->total_route_distance_km, 2);
+                        }
+
                         $analysis = app(EmployeeRouteAnalysisService::class)->analyze($record);
 
                         return number_format($analysis['summary']['total_distance_km'], 2);

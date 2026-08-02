@@ -46,6 +46,13 @@ dependencies:
   cached_network_image: ^3.4.1
   flutter_secure_storage: ^10.0.0
   uuid: ^4.5.1
+  path_provider: ^2.1.5
+  open_filex: ^4.7.0
+  webview_flutter: ^4.13.0
+  # In-app PDF via Android PdfRenderer / iOS PDFKit (no PDFium native assets).
+  flutter_pdfview: ^1.4.4
+  share_plus: ^13.3.0
+  flutter_foreground_task: ^10.0.0
 
 dev_dependencies:
   flutter_test:

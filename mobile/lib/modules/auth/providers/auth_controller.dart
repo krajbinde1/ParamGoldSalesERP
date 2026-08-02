@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import '../../../core/api/api_errors.dart';
@@ -14,7 +16,7 @@ class AuthController extends ChangeNotifier {
     final store = SessionStore();
     final client = ApiClient(store, onUnauthorized: sessionExpired);
     _repository = AuthRepository(AuthApi(client.dio), store);
-    initialize();
+    unawaited(initialize());
   }
 
   late final AuthRepository _repository;
@@ -52,11 +54,40 @@ class AuthController extends ChangeNotifier {
 
   Future<void> initialize() async {
     initializing = true;
+    message = null;
     _notify();
     try {
-      session = await _repository.restore();
-    } catch (_) {
-      session = null;
+      final result = await _repository.restore().timeout(
+        const Duration(seconds: 12),
+        onTimeout: () async {
+          AuthSession? cached;
+          try {
+            cached = await SessionStore().read().timeout(
+              const Duration(seconds: 3),
+            );
+          } catch (_) {
+            cached = null;
+          }
+          return AuthRestoreResult(
+            session: cached,
+            connectionError: AuthApiException(connectionFailureMessage()),
+          );
+        },
+      );
+
+      // Prefer cached/validated session so cold start always reaches a screen.
+      session = result.session;
+      if (result.connectionError != null) {
+        message = _shortConnectionMessage(result.connectionError!.message);
+      }
+    } catch (error) {
+      debugPrint('Auth initialize failed: $error');
+      try {
+        session = await SessionStore().read().timeout(const Duration(seconds: 3));
+      } catch (_) {
+        session = null;
+      }
+      message = connectionFailureMessage();
     } finally {
       initializing = false;
       _notify();
@@ -74,8 +105,8 @@ class AuthController extends ChangeNotifier {
       return true;
     } catch (error) {
       message = error is AuthApiException
-          ? error.message
-          : errorMessage(error);
+          ? _shortConnectionMessage(error.message)
+          : _shortConnectionMessage(errorMessage(error));
       return false;
     } finally {
       loading = false;
@@ -99,8 +130,8 @@ class AuthController extends ChangeNotifier {
       return true;
     } catch (error) {
       message = error is AuthApiException
-          ? error.message
-          : errorMessage(error);
+          ? _shortConnectionMessage(error.message)
+          : _shortConnectionMessage(errorMessage(error));
       return false;
     } finally {
       loading = false;
@@ -129,6 +160,24 @@ class AuthController extends ChangeNotifier {
     loading = false;
     message = 'Session expired. Please login again.';
     _notify();
+  }
+
+  void clearMessage() {
+    if (message == null) return;
+    message = null;
+    _notify();
+  }
+
+  String _shortConnectionMessage(String raw) {
+    final lower = raw.toLowerCase();
+    if (lower.contains('unable to connect') ||
+        lower.contains('timed out') ||
+        lower.contains('timeout') ||
+        lower.contains('socket') ||
+        lower.contains('network')) {
+      return connectionFailureMessage();
+    }
+    return raw;
   }
 }
 

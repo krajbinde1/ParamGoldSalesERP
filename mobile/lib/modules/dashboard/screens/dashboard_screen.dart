@@ -146,7 +146,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                     value: _attendanceLabel(
                                       data.attendanceStatus,
                                     ),
-                                    icon: Icons.fingerprint_rounded,
+                                    icon: const Icon(Icons.fingerprint_rounded),
                                     gradient: AppColors.tealGradient,
                                     onTap: _openAttendance,
                                   ),
@@ -158,7 +158,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                     value: currency.format(
                                       data.weeklySalesAchieved,
                                     ),
-                                    icon: Icons.trending_up_rounded,
+                                    icon: const Icon(Icons.trending_up_rounded),
                                     gradient: AppColors.greenGradient,
                                     subtitle:
                                         'Target ${currency.format(data.weeklySalesTarget)}',
@@ -172,7 +172,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                     value: currency.format(
                                       data.weeklyCollectionAchieved,
                                     ),
-                                    icon: Icons.payments_rounded,
+                                    icon: const Icon(Icons.payments_rounded),
                                     gradient: AppColors.amberGradient,
                                     subtitle:
                                         'Target ${currency.format(data.weeklyCollectionTarget)}',
@@ -184,7 +184,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   child: PgMetricCard(
                                     title: 'Pending Orders',
                                     value: '$pendingOrders',
-                                    icon: Icons.pending_actions_rounded,
+                                    icon: const Icon(Icons.pending_actions_rounded),
                                     gradient: AppColors.blueGradient,
                                     onTap: () => context.push('/orders'),
                                   ),
@@ -211,7 +211,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   child: PgMetricCard(
                                     title: 'Dealer Visits Today',
                                     value: '${data.todayDealerVisits}',
-                                    icon: Icons.storefront_rounded,
+                                    icon: const Icon(Icons.storefront_rounded),
                                     gradient: AppColors.violetGradient,
                                     onTap: () =>
                                         context.push('/dealer-visits'),
@@ -222,7 +222,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   child: PgMetricCard(
                                     title: 'Field Activities Today',
                                     value: '${data.todayFieldActivities}',
-                                    icon: Icons.route_rounded,
+                                    icon: const Icon(Icons.route_rounded),
                                     gradient: AppColors.cyanGradient,
                                     onTap: () =>
                                         context.push('/field-activities'),
@@ -233,7 +233,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   child: PgMetricCard(
                                     title: 'TA/DA Claims',
                                     value: 'View',
-                                    icon: Icons.receipt_long_rounded,
+                                    icon: const Icon(Icons.receipt_long_rounded),
                                     gradient: AppColors.indigoGradient,
                                     onTap: () =>
                                         context.push('/ta-da-claims'),
@@ -245,7 +245,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                     title: 'Sales Target %',
                                     value:
                                         '${data.weeklySalesPercentage.toStringAsFixed(0)}%',
-                                    icon: Icons.flag_rounded,
+                                    icon: const Icon(Icons.flag_rounded),
                                     gradient: AppColors.roseGradient,
                                   ),
                                 ),
@@ -297,13 +297,13 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               alignment: WrapAlignment.spaceEvenly,
               children: [
                 PgQuickAction(
-                  icon: Icons.fingerprint_rounded,
+                  icon: const Icon(Icons.fingerprint_rounded),
                   label: 'Attendance',
                   color: AppColors.primary,
                   onTap: _openAttendance,
                 ),
                 PgQuickAction(
-                  icon: Icons.shopping_cart_outlined,
+                  icon: const Icon(Icons.shopping_cart_outlined),
                   label: 'Order',
                   color: AppColors.secondary,
                   onTap: () async {
@@ -312,25 +312,25 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                   },
                 ),
                 PgQuickAction(
-                  icon: Icons.storefront_outlined,
+                  icon: const Icon(Icons.storefront_outlined),
                   label: 'Dealer Visit',
                   color: AppColors.violetGradient.first,
                   onTap: () => context.push('/dealer-visits'),
                 ),
                 PgQuickAction(
-                  icon: Icons.route_outlined,
+                  icon: const Icon(Icons.route_outlined),
                   label: 'Field Activity',
                   color: AppColors.info,
                   onTap: () => context.push('/field-activities'),
                 ),
                 PgQuickAction(
-                  icon: Icons.receipt_long_outlined,
+                  icon: const Icon(Icons.receipt_long_outlined),
                   label: 'TA/DA',
                   color: AppColors.indigoGradient.first,
                   onTap: () => context.push('/ta-da-claims'),
                 ),
                 PgQuickAction(
-                  icon: Icons.payments_outlined,
+                  icon: const Icon(Icons.payments_outlined),
                   label: 'Collection',
                   color: AppColors.accent,
                   onTap: () => context.push('/collections'),
@@ -350,7 +350,7 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                 if (orders.isEmpty) {
                   return const PgEmptyState(
                     message: 'No recent orders found.',
-                    icon: Icons.receipt_long_outlined,
+                    icon: Icon(Icons.receipt_long_outlined),
                   );
                 }
                 return Column(
