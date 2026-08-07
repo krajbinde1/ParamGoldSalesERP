@@ -30,36 +30,35 @@ class FinishedProductForm
         bool $unitLocked = false,
         array|int|string|null $columnSpan = null,
     ): array {
-        $section = Section::make('Product Details')
+        $section = Section::make($forEdit ? 'Inventory Details' : 'Sales Product')
             ->columns(2)
             ->schema([
-                TextInput::make('finished_product_code')
-                    ->label('Finished Product Code')
-                    ->placeholder('Generated automatically when saved')
-                    ->readOnly()
-                    ->dehydrated(false)
-                    ->visible($forEdit),
-                TextInput::make('product_code')
-                    ->label('Product Code')
-                    ->placeholder('Generated automatically when saved')
-                    ->readOnly()
-                    ->dehydrated(false),
-                TextInput::make('product_name')
-                    ->label('Product Name')
-                    ->required()
-                    ->maxLength(255),
                 ...($forEdit
                     ? [
+                        TextInput::make('product_code')
+                            ->label('Product Code')
+                            ->readOnly()
+                            ->dehydrated(false),
+                        TextInput::make('product_name')
+                            ->label('Product Name')
+                            ->readOnly()
+                            ->dehydrated(false),
+                        TextInput::make('finished_product_code')
+                            ->label('FP Code (legacy)')
+                            ->placeholder('—')
+                            ->readOnly()
+                            ->dehydrated(false)
+                            ->visible(fn (?Product $record): bool => filled($record?->finishedProduct?->finished_product_code)),
                         Placeholder::make('linked_sales_product_display')
-                            ->label('Linked Sales Product')
+                            ->label('Sales Product')
                             ->content(fn (?Product $record): string => $record?->displayLabel() ?? '—')
-                            ->helperText('Sales product identity (1:1 with Finished Product Inventory).')
+                            ->helperText('Identity is managed under Sales Operations → Products.')
                             ->columnSpanFull(),
                     ]
                     : [
                         Select::make('linked_product_id')
-                            ->label('Link Existing Sales Product')
-                            ->helperText('Optional. Select an existing sales product to manage as finished inventory. Each sales product can be linked only once.')
+                            ->label('Sales Product')
+                            ->helperText('Required. Select an existing Sales Product. Inventory cannot create new products — use Sales Operations → Products.')
                             ->options(fn (): array => Product::query()
                                 ->availableForFinishedProductLink()
                                 ->orderBy('product_name')
@@ -70,11 +69,13 @@ class FinishedProductForm
                                 ->all())
                             ->searchable()
                             ->preload()
-                            ->nullable()
+                            ->required()
                             ->live()
                             ->afterStateUpdated(function ($state, Set $set): void {
                                 if (blank($state)) {
                                     $set('product_code', null);
+                                    $set('product_name', null);
+                                    $set('unit', null);
 
                                     return;
                                 }
@@ -87,8 +88,17 @@ class FinishedProductForm
                                 $set('product_code', $product->product_code);
                                 $set('product_name', $product->product_name);
                                 $set('unit', $product->production_unit ?: $product->uom);
+                                $set('minimum_finished_stock', $product->minimum_finished_stock ?? 0);
                             })
                             ->columnSpanFull(),
+                        TextInput::make('product_code')
+                            ->label('Product Code')
+                            ->readOnly()
+                            ->dehydrated(false),
+                        TextInput::make('product_name')
+                            ->label('Product Name')
+                            ->readOnly()
+                            ->dehydrated(false),
                     ]),
                 Select::make('unit')
                     ->label('Unit')
@@ -115,7 +125,10 @@ class FinishedProductForm
                 Toggle::make('status')
                     ->label('Active')
                     ->default(true)
-                    ->inline(false),
+                    ->inline(false)
+                    ->helperText($forEdit
+                        ? 'Product active flag (same as Sales Product).'
+                        : null),
                 Textarea::make('remarks')
                     ->label('Remarks')
                     ->rows(2)
@@ -137,10 +150,9 @@ class FinishedProductForm
         bool $readOnly = false,
         array|int|string|null $columnSpan = null,
     ): array {
-        // Create description kept concise so it wraps less in the ~40% side column.
         $description = $readOnly
-            ? 'As entered at create. Opening stock is not changed on Edit (no duplicate Opening Stock ledger). Use Production Entry or Stock Adjustment for later inventory changes.'
-            : 'Optional. Qty > 0 posts opening stock, updates finished inventory and average cost, and creates an Opening Stock ledger on Create. Leave 0 for no stock. Later output uses Production Entry.';
+            ? 'As entered at create/import. Opening stock is not changed on Edit (no duplicate Opening Stock ledger). Use Production Entry or Stock Adjustment for later inventory changes.'
+            : 'Optional. Qty > 0 posts opening stock, updates finished inventory and average cost, and creates an Opening Stock ledger. Prefer Finished Goods Opening Stock Import for bulk. Leave 0 for inventory settings only.';
 
         $section = Section::make('Opening Stock')
             ->description($description)
@@ -160,7 +172,7 @@ class FinishedProductForm
                         ? null
                         : (filled($get('unit'))
                             ? null
-                            : 'Select Unit in Product Details before entering quantity.'))
+                            : 'Select Unit before entering quantity.'))
                     ->rules($readOnly ? [] : [
                         fn (Get $get): \Closure => function (string $attribute, mixed $value, \Closure $fail) use ($get): void {
                             $qty = (float) ($value ?? 0);
@@ -226,7 +238,6 @@ class FinishedProductForm
 
     public static function configureCreate(Schema $schema): Schema
     {
-        // Desktop ~60% / ~40% (3+2 of 5 cols); stack on smaller breakpoints.
         return $schema
             ->columns(1)
             ->components([

@@ -17,22 +17,21 @@ class FinishedProductInfolist
     {
         return $schema
             ->components([
-                Section::make('Product Details')
+                Section::make('Sales Product')
                     ->columns(2)
                     ->schema([
-                        TextEntry::make('finished_product_code')
-                            ->label('Finished Product Code')
-                            ->state(fn (Product $record): string => (string) ($record->finishedProduct?->finished_product_code ?? '—')),
                         TextEntry::make('product_code')->label('Product Code'),
                         TextEntry::make('product_name')->label('Product Name'),
-                        TextEntry::make('linked_sales_product')
-                            ->label('Linked Sales Product')
-                            ->state(fn (Product $record): string => $record->displayLabel()),
+                        TextEntry::make('finished_product_code')
+                            ->label('FP Code (legacy)')
+                            ->state(fn (Product $record): string => (string) ($record->finishedProduct?->finished_product_code ?? '—'))
+                            ->visible(fn (Product $record): bool => filled($record->finishedProduct?->finished_product_code)),
                         TextEntry::make('unit')
                             ->label('Unit')
                             ->state(fn (Product $record): string => (string) (
-                                $record->finishedProduct?->unit
-                                ?: ($record->production_unit ?: $record->uom)
+                                $record->production_unit
+                                ?: $record->uom
+                                ?: ($record->finishedProduct?->unit ?? '')
                             )),
                         TextEntry::make('minimum_finished_stock')->label('Minimum Stock')->numeric(3),
                         IconEntry::make('batch_tracking_enabled')->label('Batch Tracking')->boolean(),
@@ -41,7 +40,7 @@ class FinishedProductInfolist
                         TextEntry::make('remarks')->label('Remarks')->placeholder('—')->columnSpanFull(),
                     ]),
                 Section::make('Opening Stock')
-                    ->description('As entered when the finished product master was created. Current stock and ledger live under Inventory Stock Report.')
+                    ->description('As entered via Set Opening Stock or Finished Goods Opening Stock Import. Current stock and ledger live under Inventory Stock Report.')
                     ->columns(2)
                     ->schema([
                         TextEntry::make('opening_finished_stock')
@@ -60,14 +59,14 @@ class FinishedProductInfolist
                 Section::make('Stock Summary')
                     ->columns(3)
                     ->schema([
-                        TextEntry::make('current_finished_stock')->label('Current Stock')->numeric(3),
+                        TextEntry::make('current_finished_stock')->label('Available Quantity')->numeric(3),
                         TextEntry::make('current_stock_value')
-                            ->label('Stock Value')
+                            ->label('Inventory Value')
                             ->state(fn (Product $record): float => $record->current_stock_value)
                             ->money('INR')
                             ->visible(fn (): bool => FinishedProductResource::canViewCosts()),
                         TextEntry::make('weighted_average_cost')
-                            ->label('Avg Production Cost')
+                            ->label('Avg / Effective Rate')
                             ->money('INR')
                             ->visible(fn (): bool => FinishedProductResource::canViewCosts()),
                     ]),

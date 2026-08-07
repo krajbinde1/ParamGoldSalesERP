@@ -25,6 +25,12 @@ final class InventoryBulkImportTemplate
             InventoryBulkImportType::FinishedProduct => [
                 'existing_product',
             ],
+            InventoryBulkImportType::FinishedGoodsOpeningStock => [
+                'product_code',
+                'opening_quantity',
+                'opening_value',
+                'opening_date',
+            ],
             InventoryBulkImportType::Bom => [
                 'finished_product_code',
                 'material_type',
@@ -75,6 +81,13 @@ final class InventoryBulkImportTemplate
                 'opening_value',
                 'opening_date',
                 'remarks',
+            ],
+            InventoryBulkImportType::FinishedGoodsOpeningStock => [
+                'product_code',
+                'product_name',
+                'opening_quantity',
+                'opening_value',
+                'opening_date',
             ],
             InventoryBulkImportType::Bom => [
                 'finished_product_code',
@@ -127,6 +140,13 @@ final class InventoryBulkImportTemplate
                 'opening_value' => 'Opening Stock Value',
                 'opening_date' => 'Opening Stock Date',
                 'remarks' => 'Remarks',
+            ],
+            InventoryBulkImportType::FinishedGoodsOpeningStock => [
+                'product_code' => 'Product Code',
+                'product_name' => 'Product Name',
+                'opening_quantity' => 'Opening Stock Quantity',
+                'opening_value' => 'Opening Stock Value',
+                'opening_date' => 'Opening Stock Date',
             ],
             InventoryBulkImportType::Bom => [
                 'finished_product_code' => 'Finished Product Code *',
@@ -182,6 +202,13 @@ final class InventoryBulkImportTemplate
                 now('Asia/Kolkata')->toDateString(),
                 'Opening migration',
             ],
+            InventoryBulkImportType::FinishedGoodsOpeningStock => [
+                'PRD000001',
+                'Sample Sales Product',
+                '100',
+                '50000',
+                now('Asia/Kolkata')->toDateString(),
+            ],
             InventoryBulkImportType::Bom => [
                 'FP000001',
                 'Raw Material',
@@ -198,7 +225,7 @@ final class InventoryBulkImportTemplate
      */
     public static function headerAliases(InventoryBulkImportType $type): array
     {
-        return [
+        $aliases = [
             'material_name' => 'material_name',
             'materialname' => 'material_name',
             'name' => 'material_name',
@@ -234,6 +261,11 @@ final class InventoryBulkImportTemplate
             'finished_product_code' => 'finished_product_code',
             'finishedproductcode' => 'finished_product_code',
             'fp_code' => 'finished_product_code',
+            'finished_product_name' => 'finished_product_name',
+            'finishedproductname' => 'finished_product_name',
+            'opening_stock_quantity' => 'opening_quantity',
+            'opening_stock_value' => 'opening_value',
+            'opening_stock_date' => 'opening_date',
             'material_type' => 'material_type',
             'materialtype' => 'material_type',
             'material_code' => 'material_code',
@@ -242,6 +274,21 @@ final class InventoryBulkImportTemplate
             'quantity' => 'quantity',
             'qty' => 'quantity',
         ];
+
+        // FG Opening Stock uses Sales Product codes/names (ProductResource source).
+        if ($type === InventoryBulkImportType::FinishedGoodsOpeningStock) {
+            $aliases['product_code'] = 'product_code';
+            $aliases['product_name'] = 'product_name';
+            $aliases['product'] = 'product_code';
+            $aliases['name'] = 'product_name';
+            $aliases['code'] = 'product_code';
+            $aliases['finished_product_code'] = 'product_code';
+            $aliases['finished_product_name'] = 'product_name';
+            $aliases['finishedproductcode'] = 'product_code';
+            $aliases['finishedproductname'] = 'product_name';
+        }
+
+        return $aliases;
     }
 
     public static function downloadFilename(InventoryBulkImportType $type): string
@@ -251,6 +298,7 @@ final class InventoryBulkImportTemplate
             InventoryBulkImportType::PackagingMaterial => 'packaging-material-import-template.xlsx',
             InventoryBulkImportType::SemiFinished => 'semi-finished-material-import-template.xlsx',
             InventoryBulkImportType::FinishedProduct => 'finished-product-import-template.xlsx',
+            InventoryBulkImportType::FinishedGoodsOpeningStock => 'finished-goods-opening-stock-template.xlsx',
             InventoryBulkImportType::Bom => 'bom-import-template.xlsx',
         };
     }
@@ -285,6 +333,14 @@ final class InventoryBulkImportTemplate
                 'product_name',
                 'unit',
                 'current_stock',
+            ],
+            InventoryBulkImportType::FinishedGoodsOpeningStock => [
+                'product_code',
+                'product_name',
+                'opening_quantity',
+                'opening_value',
+                'opening_rate',
+                'status',
             ],
             InventoryBulkImportType::Bom => [
                 'finished_product_code',
@@ -327,6 +383,14 @@ final class InventoryBulkImportTemplate
                 'product_name' => 'Existing Product Name',
                 'unit' => 'Unit',
                 'current_stock' => 'Current Stock',
+            ],
+            InventoryBulkImportType::FinishedGoodsOpeningStock => [
+                'product_code' => 'Product Code',
+                'product_name' => 'Product Name',
+                'opening_quantity' => 'Opening Quantity',
+                'opening_value' => 'Opening Value',
+                'opening_rate' => 'Opening Rate',
+                'status' => 'Status',
             ],
             InventoryBulkImportType::Bom => [
                 'finished_product_code' => 'Finished Product Code',

@@ -41,7 +41,15 @@ abstract class AbstractMaterialBulkImporter implements InventoryBulkImporter
         $invalid = 0;
         $duplicate = 0;
 
+        $ignored = 0;
+
         foreach ($rows as $row) {
+            if ($this->shouldIgnoreRow($row['data'])) {
+                $ignored++;
+
+                continue;
+            }
+
             $error = $this->validateRow($row['data'], $seenNames);
             $isValid = $error === null;
             $isDuplicate = $error !== null && (
@@ -74,13 +82,16 @@ abstract class AbstractMaterialBulkImporter implements InventoryBulkImporter
             ];
         }
 
+        $considered = count($rows) - $ignored;
+
         return new InventoryBulkImportPreview(
             rows: $previewRows,
             counts: [
-                'total' => count($rows),
+                'total' => $considered,
                 'valid' => $valid,
                 'invalid' => $invalid,
                 'duplicate' => $duplicate,
+                'ignored' => $ignored,
                 'to_import' => $valid,
                 'to_skip' => $invalid,
             ],
@@ -100,8 +111,15 @@ abstract class AbstractMaterialBulkImporter implements InventoryBulkImporter
         $errors = [];
         $mappings = [];
 
+        $consideredRows = 0;
+
         foreach (array_chunk($rows, $this->chunkSize) as $chunk) {
             foreach ($chunk as $row) {
+                if ($this->shouldIgnoreRow($row['data'])) {
+                    continue;
+                }
+
+                $consideredRows++;
                 $error = $this->validateRow($row['data'], $seenNames);
 
                 if ($error !== null) {
@@ -153,7 +171,7 @@ abstract class AbstractMaterialBulkImporter implements InventoryBulkImporter
         }
 
         return new InventoryBulkImportResult(
-            totalRows: count($rows),
+            totalRows: $consideredRows,
             imported: $imported,
             skipped: $skipped,
             failed: count($errors),
@@ -162,6 +180,16 @@ abstract class AbstractMaterialBulkImporter implements InventoryBulkImporter
             errors: $errors,
             mappings: $mappings,
         );
+    }
+
+    /**
+     * Rows ignored entirely (e.g. pre-filled template lines with no opening values).
+     *
+     * @param  array<string, mixed>  $data
+     */
+    protected function shouldIgnoreRow(array $data): bool
+    {
+        return false;
     }
 
     /**

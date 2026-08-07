@@ -71,6 +71,7 @@ final class InventoryCodeMappingExport implements FromArray, WithHeadings, WithT
             InventoryBulkImportType::PackagingMaterial => 'PM Code Mapping',
             InventoryBulkImportType::SemiFinished => 'SF Code Mapping',
             InventoryBulkImportType::FinishedProduct => 'FP Code Mapping',
+            InventoryBulkImportType::FinishedGoodsOpeningStock => 'FG Opening Stock Result',
             InventoryBulkImportType::Bom => 'BOM Mapping',
         };
     }
@@ -123,6 +124,7 @@ final class InventoryCodeMappingExport implements FromArray, WithHeadings, WithT
                     'current_stock' => number_format($fp->currentStock(), 3, '.', ''),
                 ])
                 ->all(),
+            InventoryBulkImportType::FinishedGoodsOpeningStock => [],
             InventoryBulkImportType::Bom => [],
         };
     }

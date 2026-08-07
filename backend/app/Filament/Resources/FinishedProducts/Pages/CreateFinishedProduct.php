@@ -17,7 +17,7 @@ class CreateFinishedProduct extends CreateRecord
 {
     protected static string $resource = FinishedProductResource::class;
 
-    protected static ?string $title = 'Create Finished Product';
+    protected static ?string $title = 'Set Opening Stock';
 
     protected Width|string|null $maxContentWidth = Width::Full;
 
@@ -34,14 +34,14 @@ class CreateFinishedProduct extends CreateRecord
     protected function getFormActions(): array
     {
         return [
-            $this->getCreateFormAction()->label('Create'),
+            $this->getCreateFormAction()->label('Save'),
             $this->getCancelFormAction()->label('Cancel'),
         ];
     }
 
     protected function getRedirectUrl(): string
     {
-        return FinishedProductResource::getUrl('create');
+        return FinishedProductResource::getUrl('index');
     }
 
     /**
@@ -61,6 +61,7 @@ class CreateFinishedProduct extends CreateRecord
             $data['opening_date'],
             $data['opening_effective_rate'],
             $data['product_code'],
+            $data['product_name'],
             $data['current_finished_stock'],
             $data['weighted_average_cost'],
             $data['opening_finished_stock'],
@@ -84,11 +85,11 @@ class CreateFinishedProduct extends CreateRecord
 
         Notification::make()
             ->title($qty > 0
-                ? 'Finished product created with opening stock'
-                : 'Finished product created')
+                ? 'Opening stock posted'
+                : 'Inventory settings saved')
             ->body($qty > 0
                 ? 'Opening stock ledger entry posted and finished inventory updated.'
-                : 'Finished product master created without opening stock.')
+                : 'Finished goods inventory settings updated without opening stock. Prefer Finished Goods Opening Stock Import for bulk opening balances.')
             ->success()
             ->send();
 

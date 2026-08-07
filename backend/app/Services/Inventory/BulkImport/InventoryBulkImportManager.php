@@ -20,6 +20,7 @@ final class InventoryBulkImportManager
             InventoryBulkImportType::PackagingMaterial => app(PackagingMaterialBulkImporter::class),
             InventoryBulkImportType::SemiFinished => app(SemiFinishedMaterialBulkImporter::class),
             InventoryBulkImportType::FinishedProduct => app(FinishedProductBulkImporter::class),
+            InventoryBulkImportType::FinishedGoodsOpeningStock => app(FinishedGoodsOpeningStockBulkImporter::class),
             InventoryBulkImportType::Bom => app(BomBulkImporter::class),
         };
     }

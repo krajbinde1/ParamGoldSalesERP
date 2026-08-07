@@ -5,6 +5,7 @@ namespace App\Services\Inventory\BulkImport;
 use App\Enums\InventoryBulkImportType;
 use App\Models\FinishedProduct;
 use App\Models\PackagingMaterial;
+use App\Models\Product;
 use App\Models\RawMaterial;
 use App\Models\SemiFinishedMaterial;
 
@@ -38,7 +39,7 @@ final class InventoryBulkImportReadiness
                 $missing[] = 'at least one Raw / Packaging / Semi-Finished master';
             }
             if ($finished === 0) {
-                $missing[] = 'at least one Finished Product Master';
+                $missing[] = 'at least one Finished Product (FP) code linked to a Sales Product';
             }
             $reason = 'BOM import is blocked until '.$this->joinList($missing).' exist.';
         }
@@ -56,6 +57,10 @@ final class InventoryBulkImportReadiness
 
     public function canRun(InventoryBulkImportType $type): bool
     {
+        if ($type === InventoryBulkImportType::FinishedGoodsOpeningStock) {
+            return Product::query()->count() > 0;
+        }
+
         if ($type !== InventoryBulkImportType::Bom) {
             return true;
         }
@@ -67,6 +72,10 @@ final class InventoryBulkImportReadiness
     {
         if ($this->canRun($type)) {
             return null;
+        }
+
+        if ($type === InventoryBulkImportType::FinishedGoodsOpeningStock) {
+            return 'Finished Goods Opening Stock import requires at least one product under Sales Operations → Products.';
         }
 
         return $this->snapshot()['bom_block_reason'];

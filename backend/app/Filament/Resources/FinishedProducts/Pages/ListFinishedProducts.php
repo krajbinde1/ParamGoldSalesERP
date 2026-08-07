@@ -10,13 +10,13 @@ class ListFinishedProducts extends ListRecords
 {
     protected static string $resource = FinishedProductResource::class;
 
-    protected static ?string $title = 'Finished Products';
+    protected static ?string $title = 'Finished Goods Inventory';
 
     protected function getHeaderActions(): array
     {
         return [
             CreateAction::make()
-                ->label('New Finished Product')
+                ->label('Set Opening Stock')
                 ->authorize(fn (): bool => FinishedProductResource::canCreate()),
         ];
     }

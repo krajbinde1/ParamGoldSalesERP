@@ -2,6 +2,8 @@
 
 namespace App\Models;
 
+use App\Enums\StockItemType;
+use App\Enums\StockTransactionType;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -190,7 +192,7 @@ class Product extends Model
     }
 
     /**
-     * Sales products that are not yet Finished Product Masters (1:1 link candidates).
+     * Sales products eligible for Set Opening Stock (no opening balance posted yet).
      *
      * @param  \Illuminate\Database\Eloquent\Builder<static>  $query
      * @return \Illuminate\Database\Eloquent\Builder<static>
@@ -198,10 +200,15 @@ class Product extends Model
     public function scopeAvailableForFinishedProductLink($query)
     {
         return $query
-            ->whereDoesntHave('finishedProduct')
-            ->where('manufacturing_enabled', false)
-            ->where('current_finished_stock', '<=', 0)
-            ->where('status', true);
+            ->where('status', true)
+            ->where(function ($inner): void {
+                $inner->whereNull('opening_finished_stock')
+                    ->orWhere('opening_finished_stock', '<=', 0);
+            })
+            ->whereDoesntHave('stockLedgers', function ($ledger): void {
+                $ledger->where('item_type', StockItemType::FinishedProduct)
+                    ->where('transaction_type', StockTransactionType::OpeningStock);
+            });
     }
 
     /**

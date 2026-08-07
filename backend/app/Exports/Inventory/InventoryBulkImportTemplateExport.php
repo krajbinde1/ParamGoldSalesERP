@@ -45,6 +45,7 @@ final class InventoryBulkImportTemplateExport implements FromArray, WithTitle
             InventoryBulkImportType::PackagingMaterial => 'Packaging',
             InventoryBulkImportType::SemiFinished => 'Semi Finished',
             InventoryBulkImportType::FinishedProduct => 'Finished Products',
+            InventoryBulkImportType::FinishedGoodsOpeningStock => 'FG Opening Stock',
             InventoryBulkImportType::Bom => 'BOM',
         };
     }

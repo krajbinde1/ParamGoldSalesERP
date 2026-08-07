@@ -8,6 +8,7 @@ enum InventoryBulkImportType: string
     case PackagingMaterial = 'packaging_material';
     case SemiFinished = 'semi_finished';
     case FinishedProduct = 'finished_product';
+    case FinishedGoodsOpeningStock = 'finished_goods_opening_stock';
     case Bom = 'bom';
 
     public function label(): string
@@ -17,6 +18,7 @@ enum InventoryBulkImportType: string
             self::PackagingMaterial => 'Import Packaging Materials',
             self::SemiFinished => 'Import Semi-Finished Materials',
             self::FinishedProduct => 'Import Finished Products',
+            self::FinishedGoodsOpeningStock => 'Import Finished Goods Opening Stock',
             self::Bom => 'Import BOM',
         };
     }
@@ -31,6 +33,7 @@ enum InventoryBulkImportType: string
             self::PackagingMaterial => 'Packaging Material',
             self::SemiFinished => 'Semi-Finished Material',
             self::FinishedProduct => 'Finished Product',
+            self::FinishedGoodsOpeningStock => 'FG Opening Stock',
             self::Bom => 'BOM',
         };
     }
@@ -45,6 +48,7 @@ enum InventoryBulkImportType: string
             self::PackagingMaterial => 'PK',
             self::SemiFinished => 'SFM',
             self::FinishedProduct => 'FP',
+            self::FinishedGoodsOpeningStock => 'FP',
             self::Bom => 'BOM',
         };
     }
@@ -55,7 +59,8 @@ enum InventoryBulkImportType: string
             self::RawMaterial => 'Import raw material masters with opening stock. Material codes (RM) are auto-generated. Opening stock posts to inventory / stock ledger only — not Material Inward.',
             self::PackagingMaterial => 'Import packaging material masters with opening stock. Packaging codes (PK) are auto-generated. Opening stock updates inventory and ledger without creating Material Inward.',
             self::SemiFinished => 'Import semi-finished material masters with opening stock. Codes (SFM) are auto-generated. Opening quantity and value post to inventory / stock ledger.',
-            self::FinishedProduct => 'Link finished product masters to existing sales products (1:1). FP codes are auto-generated. Opening stock updates finished goods inventory / ledger — does not create sales products.',
+            self::FinishedProduct => 'Enable Finished Goods Inventory on existing Sales Products. Optional FP codes are auto-generated. Opening stock updates finished goods inventory / ledger — does not create sales products.',
+            self::FinishedGoodsOpeningStock => 'Add opening stock for existing Sales Products. Template is built from Sales Operations → Products. Match by Product Code. Does not create products, production entries, or material inwards.',
             self::Bom => 'Import bill of materials using generated master codes (RM / PK / SFM / FP). Requires finished products and at least one component master.',
         };
     }

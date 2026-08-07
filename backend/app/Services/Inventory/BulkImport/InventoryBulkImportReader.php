@@ -52,6 +52,7 @@ final class InventoryBulkImportReader
     {
         $anchor = match ($type) {
             InventoryBulkImportType::FinishedProduct => 'existing_product',
+            InventoryBulkImportType::FinishedGoodsOpeningStock => 'product_code',
             InventoryBulkImportType::Bom => 'finished_product_code',
             default => 'material_name',
         };

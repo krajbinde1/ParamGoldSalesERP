@@ -19,9 +19,11 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
 /**
- * Finished Product Master — Filament resource over sales Product records that have
- * a linked FinishedProduct inventory row (1:1). FP codes live on finished_products;
- * FG stock quantity / WAC remain on products for production posting.
+ * Finished Goods Inventory — Filament resource over Sales Products.
+ *
+ * Sales Operations → Products is the single product master. This resource manages
+ * FG inventory fields on the same Product rows (stock, WAC, min stock). The
+ * finished_products sidecar remains optional for legacy FP codes.
  */
 class FinishedProductResource extends Resource
 {
@@ -35,11 +37,11 @@ class FinishedProductResource extends Resource
 
     protected static ?int $navigationSort = 4;
 
-    protected static ?string $navigationLabel = 'Finished Product Master';
+    protected static ?string $navigationLabel = 'Finished Goods Inventory';
 
-    protected static ?string $modelLabel = 'Finished Product';
+    protected static ?string $modelLabel = 'Finished Goods Inventory';
 
-    protected static ?string $pluralModelLabel = 'Finished Products';
+    protected static ?string $pluralModelLabel = 'Finished Goods Inventory';
 
     protected static string|BackedEnum|null $navigationIcon = null;
 
@@ -68,12 +70,11 @@ class FinishedProductResource extends Resource
     }
 
     /**
-     * Only products linked as Finished Product inventory masters — never the full sales catalog.
+     * All Sales Products (SoftDeletes default) — same source as Sales Operations → Products.
      */
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()
-            ->whereHas('finishedProduct')
             ->with('finishedProduct');
     }
 

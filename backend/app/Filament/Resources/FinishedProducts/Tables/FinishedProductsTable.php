@@ -24,27 +24,24 @@ class FinishedProductsTable
     {
         return $table
             ->columns([
-                TextColumn::make('finishedProduct.finished_product_code')
-                    ->label('Finished Product Code')
-                    ->searchable()
-                    ->sortable(),
                 TextColumn::make('product_code')
                     ->label('Product Code')
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('product_name')
-                    ->label('Name')
+                    ->label('Product Name')
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('unit')
                     ->label('Unit')
                     ->state(fn (Product $record): string => (string) (
-                        $record->finishedProduct?->unit
-                        ?: ($record->production_unit ?: $record->uom)
+                        $record->production_unit
+                        ?: $record->uom
+                        ?: ($record->finishedProduct?->unit ?? '')
                     ))
                     ->badge(),
                 TextColumn::make('current_finished_stock')
-                    ->label('Current Stock')
+                    ->label('Available Quantity')
                     ->numeric(3)
                     ->sortable()
                     ->color(fn (Product $record): string => match (true) {
@@ -52,17 +49,8 @@ class FinishedProductsTable
                         $record->isLowFinishedStock() => 'warning',
                         default => 'success',
                     }),
-                TextColumn::make('minimum_finished_stock')
-                    ->label('Min Stock')
-                    ->numeric(3)
-                    ->sortable(),
-                TextColumn::make('weighted_average_cost')
-                    ->label('Avg Production Cost')
-                    ->money('INR')
-                    ->sortable()
-                    ->visible(fn (): bool => FinishedProductResource::canViewCosts()),
                 TextColumn::make('current_stock_value')
-                    ->label('Stock Value')
+                    ->label('Inventory Value')
                     ->state(fn (Product $record): float => $record->current_stock_value)
                     ->money('INR')
                     ->sortable(query: function ($query, string $direction): void {
@@ -71,6 +59,24 @@ class FinishedProductsTable
                         );
                     })
                     ->visible(fn (): bool => FinishedProductResource::canViewCosts()),
+                TextColumn::make('weighted_average_cost')
+                    ->label('Avg / Effective Rate')
+                    ->money('INR')
+                    ->sortable()
+                    ->visible(fn (): bool => FinishedProductResource::canViewCosts()),
+                TextColumn::make('minimum_finished_stock')
+                    ->label('Min Stock')
+                    ->numeric(3)
+                    ->sortable(),
+                TextColumn::make('opening_finished_stock')
+                    ->label('Opening Stock')
+                    ->numeric(3)
+                    ->sortable(),
+                TextColumn::make('finishedProduct.finished_product_code')
+                    ->label('FP Code')
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->searchable()
+                    ->placeholder('—'),
                 IconColumn::make('status')
                     ->label('Active')
                     ->boolean()
@@ -107,7 +113,7 @@ class FinishedProductsTable
             ->paginated([10, 25, 50])
             ->defaultPaginationPageOption(25)
             ->defaultSort('product_name')
-            ->emptyStateHeading('No finished products yet')
-            ->emptyStateDescription('Create a Finished Product Master or link an existing sales product to begin FG stock management.');
+            ->emptyStateHeading('No sales products yet')
+            ->emptyStateDescription('Create products under Sales Operations → Products. Use Set Opening Stock or Finished Goods Opening Stock Import to post FG opening balances.');
     }
 }

@@ -6,10 +6,10 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 /**
- * Finished Product Inventory master (1:1 with sales Product).
+ * Optional sidecar for legacy Finished Product (FP) codes (1:1 with sales Product).
  *
- * Codes live here only. FG stock quantity / WAC remain on the linked Product
- * so production posting and sales catalog stay isolated.
+ * Sales Operations → Products is the single product master. FG stock quantity / WAC
+ * live on Product; this row is kept non-destructively for BOM import compatibility.
  */
 class FinishedProduct extends Model
 {

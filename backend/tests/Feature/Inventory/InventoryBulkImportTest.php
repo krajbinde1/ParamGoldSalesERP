@@ -244,9 +244,17 @@ it('blocks bom import until finished products and component masters exist', func
 });
 
 it('imports bom by finished product code and material code; name mismatch warns; invalid code rejects', function (): void {
+    $sales = Product::query()->create([
+        'product_name' => 'BOM FG Output',
+        'category' => 'General',
+        'uom' => 'Nos',
+        'status' => true,
+        'manufacturing_enabled' => false,
+    ]);
+
     $product = app(FinishedProductCreateService::class)->create(
         productData: [
-            'product_name' => 'BOM FG Output',
+            'linked_product_id' => $sales->id,
             'unit' => 'Nos',
             'minimum_finished_stock' => 0,
             'status' => true,
@@ -369,9 +377,17 @@ it('rejects bom when finished product code is missing', function (): void {
         user: $this->director,
     );
 
+    $someFg = Product::query()->create([
+        'product_name' => 'Some FG',
+        'category' => 'General',
+        'uom' => 'Nos',
+        'status' => true,
+        'manufacturing_enabled' => false,
+    ]);
+
     app(FinishedProductCreateService::class)->create(
         productData: [
-            'product_name' => 'Some FG',
+            'linked_product_id' => $someFg->id,
             'unit' => 'Nos',
             'minimum_finished_stock' => 0,
             'status' => true,

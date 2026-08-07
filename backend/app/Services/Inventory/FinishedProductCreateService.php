@@ -2,19 +2,20 @@
 
 namespace App\Services\Inventory;
 
+use App\Enums\StockItemType;
 use App\Enums\StockTransactionType;
 use App\Models\FinishedProduct;
 use App\Models\Product;
+use App\Models\StockLedger;
 use App\Models\User;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 /**
- * Finished Product Master create.
+ * Finished Goods Inventory enablement / opening stock on an existing Sales Product.
  *
- * Creates a FinishedProduct inventory row (FP code) linked 1:1 to a sales Product.
- * Opening stock updates Product.current_finished_stock / weighted_average_cost and
- * writes an Opening Stock ledger (StockItemType::FinishedProduct) only.
+ * Never creates a new Product row. Sales Operations → Products is the single master.
+ * Optionally maintains a finished_products sidecar for legacy FP codes (BOM import).
  */
 final class FinishedProductCreateService
 {
@@ -62,6 +63,16 @@ final class FinishedProductCreateService
                 ]);
             }
 
+            $linkedProductId = isset($productData['linked_product_id']) && filled($productData['linked_product_id'])
+                ? (int) $productData['linked_product_id']
+                : null;
+
+            if ($linkedProductId === null) {
+                throw ValidationException::withMessages([
+                    'linked_product_id' => 'Select an existing Sales Product. Finished Goods Inventory cannot create new products.',
+                ]);
+            }
+
             $unit = (string) ($productData['unit'] ?? $productData['production_unit'] ?? '');
             if ($unit === '') {
                 throw ValidationException::withMessages([
@@ -69,25 +80,19 @@ final class FinishedProductCreateService
                 ]);
             }
 
-            $name = trim((string) ($productData['product_name'] ?? ''));
-            if ($name === '') {
-                throw ValidationException::withMessages([
-                    'product_name' => 'Product Name is required.',
-                ]);
-            }
+            $product = $this->enableInventoryOnExistingProduct($linkedProductId, $productData, $unit);
 
-            $linkedProductId = isset($productData['linked_product_id']) && filled($productData['linked_product_id'])
-                ? (int) $productData['linked_product_id']
-                : null;
-
-            $product = $linkedProductId !== null
-                ? $this->linkExistingSalesProduct($linkedProductId, $productData, $unit, $name)
-                : $this->createNewInventoryProduct($productData, $unit, $name);
-
+            // Optional sidecar for legacy FP codes / BOM import compatibility.
             $this->ensureFinishedProductMaster($product, $unit, $productData, $user);
 
             if ($qty <= 0) {
                 return $product->fresh(['finishedProduct']);
+            }
+
+            if ($this->hasOpeningStock($product)) {
+                throw ValidationException::withMessages([
+                    'opening_stock_quantity' => 'Opening stock already exists for this Finished Product.',
+                ]);
             }
 
             $this->applyOpeningStock($product, $opening, $user);
@@ -99,7 +104,7 @@ final class FinishedProductCreateService
     /**
      * @param  array<string, mixed>  $productData
      */
-    private function linkExistingSalesProduct(int $linkedProductId, array $productData, string $unit, string $name): Product
+    private function enableInventoryOnExistingProduct(int $linkedProductId, array $productData, string $unit): Product
     {
         $product = Product::query()->whereKey($linkedProductId)->lockForUpdate()->first();
 
@@ -109,62 +114,26 @@ final class FinishedProductCreateService
             ]);
         }
 
-        if (
-            $product->finishedProduct()->exists()
-            || $product->manufacturing_enabled
-            || (float) $product->current_finished_stock > 0
-        ) {
-            throw ValidationException::withMessages([
-                'linked_product_id' => 'This sales product is already a Finished Product Master (1:1).',
-            ]);
+        // Sales product_code, name, and pricing are never changed here.
+        $updates = [
+            'minimum_finished_stock' => (float) ($productData['minimum_finished_stock'] ?? $product->minimum_finished_stock ?? 0),
+            'batch_tracking_enabled' => (bool) ($productData['batch_tracking_enabled'] ?? $product->batch_tracking_enabled ?? true),
+            'expiry_tracking_enabled' => (bool) ($productData['expiry_tracking_enabled'] ?? $product->expiry_tracking_enabled ?? false),
+            'status' => (bool) ($productData['status'] ?? $product->status ?? true),
+            'remarks' => array_key_exists('remarks', $productData)
+                ? ($productData['remarks'] ?? null)
+                : $product->remarks,
+            'manufacturing_enabled' => true,
+        ];
+
+        if (! $product->hasFinishedStockTransactions()) {
+            $updates['production_unit'] = $unit;
         }
 
-        // Sales product_code (PRD…) and pricing are never changed here.
-        $product->fill([
-            'product_name' => $name,
-            'production_unit' => $unit,
-            'minimum_finished_stock' => (float) ($productData['minimum_finished_stock'] ?? 0),
-            'batch_tracking_enabled' => (bool) ($productData['batch_tracking_enabled'] ?? true),
-            'expiry_tracking_enabled' => (bool) ($productData['expiry_tracking_enabled'] ?? false),
-            'status' => (bool) ($productData['status'] ?? true),
-            'remarks' => $productData['remarks'] ?? null,
-            'manufacturing_enabled' => true,
-            'opening_finished_stock' => 0,
-        ]);
+        $product->fill($updates);
         $product->save();
 
         return $product;
-    }
-
-    /**
-     * @param  array<string, mixed>  $productData
-     */
-    private function createNewInventoryProduct(array $productData, string $unit, string $name): Product
-    {
-        return Product::query()->create([
-            'product_name' => $name,
-            'category' => filled($productData['category'] ?? null) ? $productData['category'] : 'General',
-            'uom' => $unit,
-            'production_unit' => $unit,
-            'nos_per_case' => 1,
-            'gst_percentage' => 0,
-            'mrp' => 0,
-            'distributor_price' => 0,
-            'dealer_price' => 0,
-            'retail_price' => 0,
-            'minimum_stock' => 0,
-            'minimum_finished_stock' => (float) ($productData['minimum_finished_stock'] ?? 0),
-            'batch_tracking_enabled' => (bool) ($productData['batch_tracking_enabled'] ?? true),
-            'expiry_tracking_enabled' => (bool) ($productData['expiry_tracking_enabled'] ?? false),
-            'status' => (bool) ($productData['status'] ?? true),
-            'remarks' => $productData['remarks'] ?? null,
-            'manufacturing_enabled' => true,
-            'current_finished_stock' => 0,
-            'opening_finished_stock' => 0,
-            'weighted_average_cost' => 0,
-            'standard_production_cost' => 0,
-            'latest_production_cost' => 0,
-        ]);
     }
 
     /**
@@ -190,6 +159,75 @@ final class FinishedProductCreateService
             'remarks' => $productData['remarks'] ?? $product->remarks,
             'created_by' => $user->id,
         ]);
+    }
+
+    /**
+     * Apply opening stock to an existing Sales Product's finished-goods inventory.
+     *
+     * Does not create Product rows. Blocks when opening stock already exists.
+     * Posts Opening Stock ledger via existing FG inventory logic (not production / inward).
+     *
+     * @param  array{
+     *     quantity?: float|int|string|null,
+     *     value?: float|int|string|null,
+     *     purchase_rate?: float|int|string|null,
+     *     gst_percentage?: float|int|string|null,
+     *     freight?: float|int|string|null,
+     *     other_charges?: float|int|string|null,
+     *     date?: string|null,
+     *     remarks?: string|null,
+     * }  $opening
+     */
+    public function applyOpeningStockToExisting(Product $product, array $opening, User $user): Product
+    {
+        return DB::transaction(function () use ($product, $opening, $user): Product {
+            $locked = $this->inventoryService->lockProduct($product->id);
+
+            if ($this->hasOpeningStock($locked)) {
+                throw ValidationException::withMessages([
+                    'opening_stock_quantity' => 'Opening stock already exists for this Finished Product.',
+                ]);
+            }
+
+            $qty = round((float) ($opening['quantity'] ?? 0), 3);
+            $value = round((float) ($opening['value'] ?? 0), 2);
+
+            if ($qty <= 0) {
+                throw ValidationException::withMessages([
+                    'opening_stock_quantity' => 'Opening Stock Quantity must be greater than zero.',
+                ]);
+            }
+
+            if ($value < 0) {
+                throw ValidationException::withMessages([
+                    'opening_stock_value' => 'Opening Stock Value cannot be negative.',
+                ]);
+            }
+
+            $locked->manufacturing_enabled = true;
+            $locked->save();
+
+            $opening['remarks'] = filled($opening['remarks'] ?? null)
+                ? (string) $opening['remarks']
+                : 'Opening Stock';
+
+            $this->applyOpeningStock($locked, $opening, $user);
+
+            return $locked->fresh();
+        });
+    }
+
+    public function hasOpeningStock(Product $product): bool
+    {
+        if ((float) $product->opening_finished_stock > 0) {
+            return true;
+        }
+
+        return StockLedger::query()
+            ->where('product_id', $product->id)
+            ->where('item_type', StockItemType::FinishedProduct)
+            ->where('transaction_type', StockTransactionType::OpeningStock)
+            ->exists();
     }
 
     /**
@@ -228,7 +266,7 @@ final class FinishedProductCreateService
                 'reference_number' => $lockedProduct->product_code,
                 'old_average_rate' => $oldAvg,
                 'new_average_rate' => $newAvg,
-                'remarks' => $remarks !== '' ? $remarks : 'Finished Product Creation',
+                'remarks' => $remarks !== '' ? $remarks : 'Opening Stock',
             ],
             $user,
         );

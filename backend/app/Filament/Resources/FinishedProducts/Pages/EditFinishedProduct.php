@@ -79,7 +79,7 @@ class EditFinishedProduct extends EditRecord
         /** @var Product $record */
         $record = $this->getRecord();
 
-        // Opening stock / calculated stock fields are create-only.
+        // Opening stock / sales identity & pricing are not editable here.
         unset(
             $data['opening_stock_quantity'],
             $data['opening_stock_value'],
@@ -91,12 +91,17 @@ class EditFinishedProduct extends EditRecord
             $data['standard_production_cost'],
             $data['latest_production_cost'],
             $data['product_code'],
+            $data['product_name'],
+            $data['finished_product_code'],
             $data['linked_product_id'],
             $data['mrp'],
             $data['distributor_price'],
             $data['dealer_price'],
             $data['retail_price'],
             $data['gst_percentage'],
+            $data['category'],
+            $data['uom'],
+            $data['nos_per_case'],
         );
 
         if (array_key_exists('unit', $data)) {

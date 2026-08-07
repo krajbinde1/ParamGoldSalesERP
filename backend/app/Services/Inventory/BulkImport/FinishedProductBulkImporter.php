@@ -3,7 +3,6 @@
 namespace App\Services\Inventory\BulkImport;
 
 use App\Enums\InventoryBulkImportType;
-use App\Models\FinishedProduct;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\Inventory\FinishedProductCreateService;
@@ -48,14 +47,6 @@ final class FinishedProductBulkImporter extends AbstractMaterialBulkImporter
             return 'Existing Product not found (match by product name or code).';
         }
 
-        if (
-            FinishedProduct::query()->where('product_id', $product->id)->exists()
-            || $product->manufacturing_enabled
-            || (float) $product->current_finished_stock > 0
-        ) {
-            return 'Product is already linked as Finished Product Master.';
-        }
-
         $minimum = $this->parseDecimal($data['minimum_stock'] ?? null, 0.0);
         if ($minimum === null || $minimum < 0) {
             return 'Minimum Stock must be a non-negative number.';
@@ -68,6 +59,10 @@ final class FinishedProductBulkImporter extends AbstractMaterialBulkImporter
         $opening = $this->resolveOpening($data);
         if (is_string($opening)) {
             return $opening;
+        }
+
+        if ((float) $opening['quantity'] > 0 && $this->createService->hasOpeningStock($product)) {
+            return 'Opening stock already exists for this Finished Product.';
         }
 
         return null;

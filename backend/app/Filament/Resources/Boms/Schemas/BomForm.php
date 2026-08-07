@@ -51,7 +51,8 @@ class BomForm
                                 $set('semi_finished_id', null);
                             }),
                         Select::make('product_id')
-                            ->label('Output Item (Finished Product)')
+                            ->label('Output Item (Sales Product)')
+                            ->helperText('Select a product from Sales Operations → Products.')
                             ->relationship(
                                 name: 'product',
                                 titleAttribute: 'product_name',
