@@ -21,10 +21,24 @@ class ViewEmployeeRoute extends ViewRecord
         $record = $this->getRecord();
 
         return sprintf(
-            'Route: %s — %s',
+            'Employee Route — %s',
             $record->employee?->full_name ?? 'Employee',
-            $record->attendance_date->timezone(AttendanceCalendar::TIMEZONE)->format('d M Y'),
         );
+    }
+
+    public function getHeading(): string|Htmlable
+    {
+        return $this->getTitle();
+    }
+
+    public function getSubheading(): string|Htmlable|null
+    {
+        /** @var Attendance $record */
+        $record = $this->getRecord();
+
+        return $record->attendance_date
+            ->timezone(AttendanceCalendar::TIMEZONE)
+            ->format('d M Y');
     }
 
     /**

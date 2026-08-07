@@ -125,6 +125,8 @@ final class FinishedProductBulkImporter extends AbstractMaterialBulkImporter
                 'product_name' => $linked->product_name,
                 'unit' => $fp?->unit ?: ($linked->production_unit ?: $linked->uom),
                 'current_stock' => number_format((float) $linked->current_finished_stock, 3, '.', ''),
+                'opening_quantity' => $opening['quantity'],
+                'opening_value' => $opening['value'],
             ],
         ];
     }

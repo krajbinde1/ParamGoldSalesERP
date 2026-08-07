@@ -41,7 +41,15 @@ final class InventoryBulkImportTemplate
     public static function allColumns(InventoryBulkImportType $type): array
     {
         return match ($type) {
-            InventoryBulkImportType::RawMaterial,
+            InventoryBulkImportType::RawMaterial => [
+                'material_name',
+                'unit',
+                'minimum_stock',
+                'opening_quantity',
+                'opening_value',
+                'opening_date',
+                'remarks',
+            ],
             InventoryBulkImportType::PackagingMaterial => [
                 'material_name',
                 'unit',
@@ -49,9 +57,6 @@ final class InventoryBulkImportTemplate
                 'opening_quantity',
                 'opening_value',
                 'opening_date',
-                'batch_tracking',
-                'expiry_tracking',
-                'active',
                 'remarks',
             ],
             InventoryBulkImportType::SemiFinished => [
@@ -61,7 +66,6 @@ final class InventoryBulkImportTemplate
                 'opening_quantity',
                 'opening_value',
                 'opening_date',
-                'active',
                 'remarks',
             ],
             InventoryBulkImportType::FinishedProduct => [
@@ -70,7 +74,6 @@ final class InventoryBulkImportTemplate
                 'opening_quantity',
                 'opening_value',
                 'opening_date',
-                'active',
                 'remarks',
             ],
             InventoryBulkImportType::Bom => [
@@ -90,36 +93,39 @@ final class InventoryBulkImportTemplate
     public static function columnLabels(InventoryBulkImportType $type): array
     {
         return match ($type) {
-            InventoryBulkImportType::RawMaterial,
+            InventoryBulkImportType::RawMaterial => [
+                'material_name' => 'Material Name *',
+                'unit' => 'Unit *',
+                'minimum_stock' => 'Minimum Stock',
+                'opening_quantity' => 'Opening Stock Quantity',
+                'opening_value' => 'Opening Stock Value',
+                'opening_date' => 'Opening Stock Date',
+                'remarks' => 'Remarks',
+            ],
             InventoryBulkImportType::PackagingMaterial => [
                 'material_name' => 'Material Name *',
                 'unit' => 'Unit *',
                 'minimum_stock' => 'Minimum Stock',
-                'opening_quantity' => 'Opening Quantity',
-                'opening_value' => 'Opening Value',
-                'opening_date' => 'Opening Date',
-                'batch_tracking' => 'Batch Tracking (Yes/No)',
-                'expiry_tracking' => 'Expiry Tracking (Yes/No)',
-                'active' => 'Active (Yes/No)',
+                'opening_quantity' => 'Opening Stock Quantity',
+                'opening_value' => 'Opening Stock Value',
+                'opening_date' => 'Opening Stock Date',
                 'remarks' => 'Remarks',
             ],
             InventoryBulkImportType::SemiFinished => [
                 'material_name' => 'Material Name *',
                 'unit' => 'Unit *',
                 'minimum_stock' => 'Minimum Stock',
-                'opening_quantity' => 'Opening Quantity',
-                'opening_value' => 'Opening Value',
-                'opening_date' => 'Opening Date',
-                'active' => 'Active (Yes/No)',
+                'opening_quantity' => 'Opening Stock Quantity',
+                'opening_value' => 'Opening Stock Value',
+                'opening_date' => 'Opening Stock Date',
                 'remarks' => 'Remarks',
             ],
             InventoryBulkImportType::FinishedProduct => [
                 'existing_product' => 'Existing Product Code / Name *',
                 'minimum_stock' => 'Minimum Stock',
-                'opening_quantity' => 'Opening Quantity',
-                'opening_value' => 'Opening Value',
-                'opening_date' => 'Opening Date',
-                'active' => 'Active',
+                'opening_quantity' => 'Opening Stock Quantity',
+                'opening_value' => 'Opening Stock Value',
+                'opening_date' => 'Opening Stock Date',
                 'remarks' => 'Remarks',
             ],
             InventoryBulkImportType::Bom => [
@@ -148,9 +154,6 @@ final class InventoryBulkImportTemplate
                 '100',
                 '50000',
                 now('Asia/Kolkata')->toDateString(),
-                'No',
-                'No',
-                'Yes',
                 'Opening migration',
             ],
             InventoryBulkImportType::PackagingMaterial => [
@@ -160,9 +163,6 @@ final class InventoryBulkImportTemplate
                 '200',
                 '4000',
                 now('Asia/Kolkata')->toDateString(),
-                'No',
-                'No',
-                'Yes',
                 'Opening migration',
             ],
             InventoryBulkImportType::SemiFinished => [
@@ -172,7 +172,6 @@ final class InventoryBulkImportTemplate
                 '25',
                 '12500',
                 now('Asia/Kolkata')->toDateString(),
-                'Yes',
                 'Opening migration',
             ],
             InventoryBulkImportType::FinishedProduct => [
@@ -181,7 +180,6 @@ final class InventoryBulkImportTemplate
                 '50',
                 '25000',
                 now('Asia/Kolkata')->toDateString(),
-                'Yes',
                 'Opening migration',
             ],
             InventoryBulkImportType::Bom => [

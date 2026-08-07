@@ -17,22 +17,9 @@
     'url',
 ])
 
-@once
-    <style>
-        .fi-sidebar-item-accordion-chevron.fi-expanded .fi-icon,
-        .fi-sidebar-item-accordion-chevron.fi-expanded svg {
-            transform: rotate(90deg);
-        }
-        .fi-sidebar-item-accordion-chevron .fi-icon,
-        .fi-sidebar-item-accordion-chevron svg {
-            transition: transform 150ms ease;
-        }
-    </style>
-@endonce
-
 @php
     $sidebarCollapsible = $sidebarCollapsible && filament()->isSidebarCollapsibleOnDesktop();
-    // Parents with children use click-to-expand accordion; always collapsed on load (no localStorage).
+    // Parents with children + no leaf URL use accordion (collapsed by default).
     $hasAccordionChildren = filled($childItems) && (! $subGrouped);
     $accordionKey = $hasAccordionChildren
         ? 'fi_nav_accordion_' . \Illuminate\Support\Str::slug(trim(strip_tags($slot->toHtml())))
@@ -43,17 +30,18 @@
     @if ($hasAccordionChildren)
         x-data="{
             storageKey: @js($accordionKey),
+            hasActiveChild: @js((bool) $activeChildItems),
             open: false,
             tooltip: false,
             init() {
-                // Default collapsed. Clear any previously persisted expanded state.
-                this.open = false;
-                try {
-                    localStorage.removeItem(this.storageKey);
-                } catch (e) {}
+                // Default: collapsed. Expand only when a child route is active.
+                this.open = this.hasActiveChild;
             },
             toggle() {
                 this.open = ! this.open;
+                try {
+                    localStorage.setItem(this.storageKey, this.open ? '1' : '0');
+                } catch (e) {}
             },
         }"
         x-effect="
@@ -81,7 +69,7 @@
     @if ($hasAccordionChildren)
         <button
             type="button"
-            x-on:click.stop.prevent="toggle()"
+            x-on:click="toggle()"
             @if ($sidebarCollapsible && (! $subNavigation))
                 x-tooltip.html="tooltip"
             @endif
@@ -135,7 +123,6 @@
                 @endif
                 class="fi-sidebar-item-accordion-chevron"
                 aria-hidden="true"
-                x-bind:class="{ 'fi-expanded': open }"
             >
                 {{
                     \Filament\Support\generate_icon_html(
@@ -149,45 +136,46 @@
             </span>
         </button>
 
-        {{-- template + x-if: children are not visible until the parent is clicked (also before Alpine). --}}
-        <template x-if="open">
-            <ul class="fi-sidebar-sub-group-items fi-sidebar-accordion-items">
-                @foreach ($childItems as $childItem)
-                    @php
-                        $isChildItemChildItemsActive = $childItem->isChildItemsActive();
-                        $isChildActive = (! $isChildItemChildItemsActive) && $childItem->isActive();
-                        $childItemActiveIcon = $childItem->getActiveIcon();
-                        $childItemBadge = $childItem->getBadge();
-                        $childItemBadgeColor = $childItem->getBadgeColor($childItemBadge);
-                        $childItemBadgeTooltip = $childItem->getBadgeTooltip($childItemBadge);
-                        $childItemIcon = $childItem->getIcon();
-                        $shouldChildItemOpenUrlInNewTab = $childItem->shouldOpenUrlInNewTab();
-                        $childItemUrl = $childItem->getUrl();
-                        $childItemExtraAttributes = $childItem->getExtraAttributeBag();
-                    @endphp
+        <ul
+            x-show="open"
+            x-collapse.duration.200ms
+            class="fi-sidebar-sub-group-items fi-sidebar-accordion-items"
+        >
+            @foreach ($childItems as $childItem)
+                @php
+                    $isChildItemChildItemsActive = $childItem->isChildItemsActive();
+                    $isChildActive = (! $isChildItemChildItemsActive) && $childItem->isActive();
+                    $childItemActiveIcon = $childItem->getActiveIcon();
+                    $childItemBadge = $childItem->getBadge();
+                    $childItemBadgeColor = $childItem->getBadgeColor($childItemBadge);
+                    $childItemBadgeTooltip = $childItem->getBadgeTooltip($childItemBadge);
+                    $childItemIcon = $childItem->getIcon();
+                    $shouldChildItemOpenUrlInNewTab = $childItem->shouldOpenUrlInNewTab();
+                    $childItemUrl = $childItem->getUrl();
+                    $childItemExtraAttributes = $childItem->getExtraAttributeBag();
+                @endphp
 
-                    <x-filament-panels::sidebar.item
-                        :active="$isChildActive"
-                        :active-child-items="$isChildItemChildItemsActive"
-                        :active-icon="$childItemActiveIcon"
-                        :badge="$childItemBadge"
-                        :badge-color="$childItemBadgeColor"
-                        :badge-tooltip="$childItemBadgeTooltip"
-                        :first="$loop->first"
-                        grouped
-                        :icon="$childItemIcon"
-                        :last="$loop->last"
-                        :should-open-url-in-new-tab="$shouldChildItemOpenUrlInNewTab"
-                        sub-grouped
-                        :sub-navigation="$subNavigation"
-                        :url="$childItemUrl"
-                        :attributes="\Filament\Support\prepare_inherited_attributes($childItemExtraAttributes)"
-                    >
-                        {{ $childItem->getLabel() }}
-                    </x-filament-panels::sidebar.item>
-                @endforeach
-            </ul>
-        </template>
+                <x-filament-panels::sidebar.item
+                    :active="$isChildActive"
+                    :active-child-items="$isChildItemChildItemsActive"
+                    :active-icon="$childItemActiveIcon"
+                    :badge="$childItemBadge"
+                    :badge-color="$childItemBadgeColor"
+                    :badge-tooltip="$childItemBadgeTooltip"
+                    :first="$loop->first"
+                    grouped
+                    :icon="$childItemIcon"
+                    :last="$loop->last"
+                    :should-open-url-in-new-tab="$shouldChildItemOpenUrlInNewTab"
+                    sub-grouped
+                    :sub-navigation="$subNavigation"
+                    :url="$childItemUrl"
+                    :attributes="\Filament\Support\prepare_inherited_attributes($childItemExtraAttributes)"
+                >
+                    {{ $childItem->getLabel() }}
+                </x-filament-panels::sidebar.item>
+            @endforeach
+        </ul>
     @else
         <a
             {{ \Filament\Support\generate_href_html($url, $shouldOpenUrlInNewTab) }}
@@ -259,7 +247,7 @@
             @endif
         </a>
 
-        {{-- Linked parents only: never auto-show children for blank-URL accordion parents. --}}
+        {{-- Only linked parents with an active child keep Filament's non-accordion nested list. Blank-URL parents use accordion above. --}}
         @if ($childItems && filled($url) && ($active || $activeChildItems))
             <ul class="fi-sidebar-sub-group-items">
                 @foreach ($childItems as $childItem)

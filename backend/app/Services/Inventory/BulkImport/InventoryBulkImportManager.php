@@ -45,7 +45,7 @@ final class InventoryBulkImportManager
         }
 
         throw ValidationException::withMessages([
-            'file' => $this->readiness->blockReason($type) ?? 'This import step is not available yet.',
+            'file' => $this->readiness->blockReason($type) ?? 'This import is not available yet.',
         ]);
     }
 }

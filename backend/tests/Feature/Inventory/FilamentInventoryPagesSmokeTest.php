@@ -1,9 +1,12 @@
 <?php
 
 use App\Enums\UserRole;
-use App\Filament\Pages\InventoryBulkImport;
+use App\Filament\Pages\FinishedGoodsImport;
 use App\Filament\Pages\InventoryDashboard;
 use App\Filament\Pages\InventoryReports;
+use App\Filament\Pages\PackagingMaterialImport;
+use App\Filament\Pages\RawMaterialImport;
+use App\Filament\Pages\SemiFinishedMaterialImport;
 use App\Filament\Resources\Boms\Pages\ListBoms;
 use App\Filament\Resources\PackagingMaterialInwards\Pages\ListPackagingMaterialInwards;
 use App\Filament\Resources\PackagingMaterials\Pages\ListPackagingMaterials;
@@ -40,7 +43,10 @@ it('boots Inventory & Manufacturing menu pages without error', function (string 
     'stock adjustments' => ListStockAdjustments::class,
     'inventory dashboard' => InventoryDashboard::class,
     'inventory reports' => InventoryReports::class,
-    'inventory bulk import' => InventoryBulkImport::class,
+    'raw material import' => RawMaterialImport::class,
+    'packaging material import' => PackagingMaterialImport::class,
+    'semi finished material import' => SemiFinishedMaterialImport::class,
+    'finished goods import' => FinishedGoodsImport::class,
 ]);
 
 it('keeps packaging materials list under a tight query budget', function (): void {

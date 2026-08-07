@@ -13,11 +13,50 @@ enum InventoryBulkImportType: string
     public function label(): string
     {
         return match ($this) {
-            self::RawMaterial => 'Raw Material Master',
-            self::PackagingMaterial => 'Packaging Material Master',
-            self::SemiFinished => 'Semi Finished Material Master',
-            self::FinishedProduct => 'Finished Product Master',
-            self::Bom => 'Bill Of Materials (BOM)',
+            self::RawMaterial => 'Import Raw Materials',
+            self::PackagingMaterial => 'Import Packaging Materials',
+            self::SemiFinished => 'Import Semi-Finished Materials',
+            self::FinishedProduct => 'Import Finished Products',
+            self::Bom => 'Import BOM',
+        };
+    }
+
+    /**
+     * Short card heading used on the Inventory Import hub.
+     */
+    public function cardTitle(): string
+    {
+        return match ($this) {
+            self::RawMaterial => 'Raw Material',
+            self::PackagingMaterial => 'Packaging Material',
+            self::SemiFinished => 'Semi-Finished Material',
+            self::FinishedProduct => 'Finished Product',
+            self::Bom => 'BOM',
+        };
+    }
+
+    /**
+     * Auto-generated code prefix shown in UI (codes are never entered in master templates).
+     */
+    public function codePrefix(): ?string
+    {
+        return match ($this) {
+            self::RawMaterial => 'RM',
+            self::PackagingMaterial => 'PK',
+            self::SemiFinished => 'SFM',
+            self::FinishedProduct => 'FP',
+            self::Bom => 'BOM',
+        };
+    }
+
+    public function description(): string
+    {
+        return match ($this) {
+            self::RawMaterial => 'Import raw material masters with opening stock. Material codes (RM) are auto-generated. Opening stock posts to inventory / stock ledger only — not Material Inward.',
+            self::PackagingMaterial => 'Import packaging material masters with opening stock. Packaging codes (PK) are auto-generated. Opening stock updates inventory and ledger without creating Material Inward.',
+            self::SemiFinished => 'Import semi-finished material masters with opening stock. Codes (SFM) are auto-generated. Opening quantity and value post to inventory / stock ledger.',
+            self::FinishedProduct => 'Link finished product masters to existing sales products (1:1). FP codes are auto-generated. Opening stock updates finished goods inventory / ledger — does not create sales products.',
+            self::Bom => 'Import bill of materials using generated master codes (RM / PK / SFM / FP). Requires finished products and at least one component master.',
         };
     }
 

@@ -9,7 +9,7 @@ use Filament\Pages\Page;
 use Filament\Support\Icons\Heroicon;
 
 /**
- * Navigation parent only — accordion group for inventory bulk import modules.
+ * Navigation parent only — accordion group for inventory bulk upload imports.
  */
 class BulkImportNav extends Page
 {
@@ -17,15 +17,15 @@ class BulkImportNav extends Page
 
     protected static string|\UnitEnum|null $navigationGroup = 'Inventory & Manufacturing';
 
-    protected static ?int $navigationSort = 6;
+    protected static ?int $navigationSort = 7;
 
-    protected static ?string $navigationLabel = 'Bulk Import';
+    protected static ?string $navigationLabel = 'Bulk Upload';
 
     protected static string|BackedEnum|null $navigationIcon = Heroicon::OutlinedArrowUpTray;
 
     protected static ?string $slug = 'bulk-import';
 
-    protected static ?string $title = 'Bulk Import';
+    protected static ?string $title = 'Bulk Upload';
 
     protected string $view = 'filament.pages.inventory-nav-redirect';
 
@@ -45,6 +45,6 @@ class BulkImportNav extends Page
     {
         abort_unless(static::canAccess(), 403);
 
-        $this->redirect(InventoryBulkImport::getUrl());
+        $this->redirect(RawMaterialImport::getUrl());
     }
 }

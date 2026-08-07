@@ -104,6 +104,8 @@ final class RawMaterialBulkImporter extends AbstractMaterialBulkImporter
                 'material_name' => $material->material_name,
                 'unit' => $material->unit,
                 'active' => $material->status ? 'Yes' : 'No',
+                'opening_quantity' => $opening['quantity'],
+                'opening_value' => $opening['value'],
             ],
         ];
     }
