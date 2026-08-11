@@ -9,7 +9,6 @@ use App\Filament\Resources\SemiFinishedMaterials\SemiFinishedMaterialResource;
 use App\Models\SemiFinishedMaterial;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\IconColumn;
@@ -85,7 +84,7 @@ class SemiFinishedMaterialsTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make()
+                    \App\Filament\Actions\SafeDeleteActions::deleteBulkAction()
                         ->authorize(fn (): bool => SemiFinishedMaterialResource::canDeleteAny()),
                 ]),
             ])

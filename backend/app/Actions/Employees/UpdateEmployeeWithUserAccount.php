@@ -29,10 +29,8 @@ final class UpdateEmployeeWithUserAccount
             && $employee->status
             && $employee->assignedDealers()->exists()
         ) {
-            throw ValidationException::withMessages([
-                'status' => 'This employee has '.$employee->assignedDealers()->count()
-                    .' assigned dealer(s). Please reassign them before deactivating.',
-            ]);
+            // Allowed: inactive employees keep historical dealer assignments.
+            // New assignments should use active employees only (assignment selectors already filter by status).
         }
 
         return DB::transaction(function () use ($employee, $employeeData): Employee {

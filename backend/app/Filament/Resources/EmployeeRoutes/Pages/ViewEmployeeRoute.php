@@ -7,6 +7,7 @@ use App\Models\Attendance;
 use App\Services\EmployeeRouteAnalysisService;
 use App\Support\AttendanceCalendar;
 use Filament\Resources\Pages\ViewRecord;
+use Filament\Support\Enums\Width;
 use Illuminate\Contracts\Support\Htmlable;
 
 class ViewEmployeeRoute extends ViewRecord
@@ -14,6 +15,10 @@ class ViewEmployeeRoute extends ViewRecord
     protected static string $resource = EmployeeRouteResource::class;
 
     protected string $view = 'filament.resources.employee-routes.view-employee-route';
+
+    protected Width | string | null $maxContentWidth = Width::Full;
+
+    protected bool $hasTopbar = false;
 
     public function getTitle(): string|Htmlable
     {
@@ -34,6 +39,24 @@ class ViewEmployeeRoute extends ViewRecord
     public function getSubheading(): string|Htmlable|null
     {
         return null;
+    }
+
+    /**
+     * @return array<string>
+     */
+    public function getBreadcrumbs(): array
+    {
+        return [];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function getExtraBodyAttributes(): array
+    {
+        return [
+            'class' => 'er-fullscreen-route',
+        ];
     }
 
     /**

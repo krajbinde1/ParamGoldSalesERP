@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\StockItemType;
 use App\Enums\StockTransactionType;
+use App\Models\Concerns\EnforcesSafeDelete;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -11,6 +12,7 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Product extends Model
 {
+    use EnforcesSafeDelete;
     use SoftDeletes;
 
     protected $attributes = [

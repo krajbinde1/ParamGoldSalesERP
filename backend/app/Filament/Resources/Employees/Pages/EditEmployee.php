@@ -4,15 +4,17 @@ namespace App\Filament\Resources\Employees\Pages;
 
 use App\Actions\Employees\DeleteEmployeeWithUserAccount;
 use App\Actions\Employees\UpdateEmployeeWithUserAccount;
+use App\Filament\Actions\SafeDeleteActions;
 use App\Filament\Resources\Employees\Actions\ReassignDealersAction;
 use App\Filament\Resources\Employees\Actions\ResetEmployeePasswordAction;
 use App\Filament\Resources\Employees\EmployeeResource;
 use App\Models\Employee;
+use App\Services\SafeDelete\SafeDeleteBlockedException;
+use App\Services\SafeDelete\SafeDeleteGuard;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\ForceDeleteAction;
 use Filament\Actions\RestoreAction;
 use Filament\Actions\ViewAction;
-use Filament\Notifications\Notification;
 use Filament\Resources\Pages\EditRecord;
 use Illuminate\Database\Eloquent\Model;
 
@@ -41,34 +43,48 @@ class EditEmployee extends EditRecord
             ViewAction::make(),
             ResetEmployeePasswordAction::make(),
             ReassignDealersAction::make(),
+            SafeDeleteActions::deactivateAction()
+                ->authorize(fn (): bool => EmployeeResource::canEdit($this->getRecord())),
             DeleteAction::make()
-                ->before(function (Employee $record): void {
-                    if ($record->assignedDealers()->exists()) {
-                        Notification::make()
-                            ->danger()
-                            ->title('Cannot delete employee')
-                            ->body('This employee has '.$record->assignedDealers()->count()
-                                .' assigned dealer(s). Use Reassign Dealers first.')
-                            ->send();
+                ->before(function (DeleteAction $action, Employee $record): void {
+                    $assessment = app(SafeDeleteGuard::class)->assess($record);
 
-                        $this->halt();
+                    if ($assessment->blocked()) {
+                        SafeDeleteActions::notifyBlocked($assessment);
+                        $action->cancel();
                     }
                 })
-                ->using(fn (Employee $record) => app(DeleteEmployeeWithUserAccount::class)->execute($record)),
+                ->using(function (Employee $record) {
+                    try {
+                        return app(DeleteEmployeeWithUserAccount::class)->execute($record);
+                    } catch (SafeDeleteBlockedException $exception) {
+                        if ($exception->assessment !== null) {
+                            SafeDeleteActions::notifyBlocked($exception->assessment);
+                        }
+
+                        return null;
+                    }
+                }),
             ForceDeleteAction::make()
-                ->before(function (Employee $record): void {
-                    if ($record->assignedDealers()->exists()) {
-                        Notification::make()
-                            ->danger()
-                            ->title('Cannot delete employee')
-                            ->body('This employee has '.$record->assignedDealers()->count()
-                                .' assigned dealer(s). Use Reassign Dealers first.')
-                            ->send();
+                ->before(function (ForceDeleteAction $action, Employee $record): void {
+                    $assessment = app(SafeDeleteGuard::class)->assess($record);
 
-                        $this->halt();
+                    if ($assessment->blocked()) {
+                        SafeDeleteActions::notifyBlocked($assessment);
+                        $action->cancel();
                     }
                 })
-                ->using(fn (Employee $record) => app(DeleteEmployeeWithUserAccount::class)->execute($record, force: true)),
+                ->using(function (Employee $record) {
+                    try {
+                        return app(DeleteEmployeeWithUserAccount::class)->execute($record, force: true);
+                    } catch (SafeDeleteBlockedException $exception) {
+                        if ($exception->assessment !== null) {
+                            SafeDeleteActions::notifyBlocked($exception->assessment);
+                        }
+
+                        return null;
+                    }
+                }),
             RestoreAction::make(),
         ];
     }

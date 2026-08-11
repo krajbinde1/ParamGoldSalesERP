@@ -4,7 +4,6 @@ namespace App\Filament\Resources\Products\Tables;
 
 use App\Models\Product;
 use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreBulkAction;
@@ -73,10 +72,22 @@ class ProductsTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make()
+                    \App\Filament\Actions\SafeDeleteActions::deleteBulkAction()
                         ->authorize(fn (): bool => auth()->user()?->can('deleteAny', Product::class) ?? false),
                     ForceDeleteBulkAction::make()
-                        ->authorize(fn (): bool => auth()->user()?->can('forceDeleteAny', Product::class) ?? false),
+                        ->authorize(fn (): bool => auth()->user()?->can('forceDeleteAny', Product::class) ?? false)
+                        ->using(function (ForceDeleteBulkAction $action, \Illuminate\Database\Eloquent\Collection $records): void {
+                            $guard = app(\App\Services\SafeDelete\SafeDeleteGuard::class);
+                            $records->each(function (Product $record) use ($action, $guard): void {
+                                try {
+                                    $guard->assertCanDelete($record);
+                                    $record->forceDelete();
+                                } catch (\Throwable $exception) {
+                                    $action->reportBulkProcessingFailure();
+                                    report($exception);
+                                }
+                            });
+                        }),
                     RestoreBulkAction::make()
                         ->authorize(fn (): bool => auth()->user()?->can('restoreAny', Product::class) ?? false),
                 ]),

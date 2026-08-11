@@ -4,7 +4,6 @@ namespace App\Filament\Resources\Dealers\Tables;
 
 use App\Models\Dealer;
 use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreBulkAction;
@@ -108,10 +107,22 @@ class DealersTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make()
+                    \App\Filament\Actions\SafeDeleteActions::deleteBulkAction()
                         ->authorize(fn (): bool => auth()->user()?->can('deleteAny', Dealer::class) ?? false),
                     ForceDeleteBulkAction::make()
-                        ->authorize(fn (): bool => auth()->user()?->can('forceDeleteAny', Dealer::class) ?? false),
+                        ->authorize(fn (): bool => auth()->user()?->can('forceDeleteAny', Dealer::class) ?? false)
+                        ->using(function (ForceDeleteBulkAction $action, \Illuminate\Database\Eloquent\Collection $records): void {
+                            $guard = app(\App\Services\SafeDelete\SafeDeleteGuard::class);
+                            $records->each(function (Dealer $record) use ($action, $guard): void {
+                                try {
+                                    $guard->assertCanDelete($record);
+                                    $record->forceDelete();
+                                } catch (\Throwable $exception) {
+                                    $action->reportBulkProcessingFailure();
+                                    report($exception);
+                                }
+                            });
+                        }),
                     RestoreBulkAction::make()
                         ->authorize(fn (): bool => auth()->user()?->can('restoreAny', Dealer::class) ?? false),
                 ]),

@@ -2,12 +2,14 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\EnforcesSafeDelete;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class SemiFinishedMaterial extends Model
 {
+    use EnforcesSafeDelete;
     protected $attributes = [
         'opening_stock' => 0,
         'current_stock' => 0,

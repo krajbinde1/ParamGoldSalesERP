@@ -3,10 +3,10 @@
 namespace App\Filament\Resources\FinishedProducts\Pages;
 
 use App\Enums\StockTransactionType;
+use App\Filament\Actions\SafeDeleteActions;
 use App\Filament\Resources\FinishedProducts\FinishedProductResource;
 use App\Filament\Resources\FinishedProducts\Schemas\FinishedProductForm;
 use App\Models\Product;
-use Filament\Actions\DeleteAction;
 use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Schema;
@@ -30,7 +30,9 @@ class EditFinishedProduct extends EditRecord
     {
         return [
             ViewAction::make(),
-            DeleteAction::make()
+            SafeDeleteActions::deactivateAction()
+                ->authorize(fn (): bool => FinishedProductResource::canEdit($this->getRecord())),
+            SafeDeleteActions::deleteAction()
                 ->authorize(fn (): bool => FinishedProductResource::canDelete($this->getRecord())),
         ];
     }

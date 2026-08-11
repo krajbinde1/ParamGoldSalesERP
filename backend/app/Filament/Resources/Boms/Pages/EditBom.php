@@ -3,9 +3,9 @@
 namespace App\Filament\Resources\Boms\Pages;
 
 use App\Enums\BomStatus;
+use App\Filament\Actions\SafeDeleteActions;
 use App\Filament\Resources\Boms\BomResource;
 use App\Services\Inventory\BOMCalculationService;
-use Filament\Actions\DeleteAction;
 use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\EditRecord;
 
@@ -17,7 +17,9 @@ class EditBom extends EditRecord
     {
         return [
             ViewAction::make(),
-            DeleteAction::make()
+            SafeDeleteActions::deactivateAction()
+                ->authorize(fn (): bool => BomResource::canEdit($this->getRecord())),
+            SafeDeleteActions::deleteAction()
                 ->authorize(fn (): bool => BomResource::canDelete($this->getRecord())),
         ];
     }

@@ -9,7 +9,6 @@ use App\Filament\Resources\FinishedProducts\FinishedProductResource;
 use App\Models\Product;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\IconColumn;
@@ -106,7 +105,7 @@ class FinishedProductsTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make()
+                    \App\Filament\Actions\SafeDeleteActions::deleteBulkAction()
                         ->authorize(fn (): bool => FinishedProductResource::canDeleteAny()),
                 ]),
             ])

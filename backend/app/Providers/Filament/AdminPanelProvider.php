@@ -49,6 +49,9 @@ class AdminPanelProvider extends PanelProvider
                 'Employee Management',
                 'Inventory & Manufacturing',
             ])
+            ->navigation(fn (): bool => ! request()->routeIs('filament.admin.resources.employee-routes.view'))
+            ->topbar(fn (): bool => ! request()->routeIs('filament.admin.resources.employee-routes.view'))
+            ->breadcrumbs(fn (): bool => ! request()->routeIs('filament.admin.resources.employee-routes.view'))
             ->homeUrl(function (): string {
                 if (auth()->user()?->usesProductionSupervisorDashboard()) {
                     return Dashboard::getUrl();

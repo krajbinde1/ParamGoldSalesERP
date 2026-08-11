@@ -2,13 +2,16 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\EnforcesSafeDelete;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 
 class Dealer extends Model
 {
+    use EnforcesSafeDelete;
     use SoftDeletes;
 
     protected static function booted(): void
@@ -88,5 +91,20 @@ class Dealer extends Model
     public function assignedEmployee(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'assigned_employee_id');
+    }
+
+    public function orders(): HasMany
+    {
+        return $this->hasMany(Order::class);
+    }
+
+    public function collections(): HasMany
+    {
+        return $this->hasMany(Collection::class);
+    }
+
+    public function visits(): HasMany
+    {
+        return $this->hasMany(DealerVisit::class);
     }
 }

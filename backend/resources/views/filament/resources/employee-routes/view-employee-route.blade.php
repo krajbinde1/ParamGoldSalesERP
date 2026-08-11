@@ -29,33 +29,61 @@
         />
     @endif
     <style>
+        /* Full-page shell: hide residual Filament chrome when sidebar/topbar are disabled. */
+        body.er-fullscreen-route .fi-topbar,
+        body.er-fullscreen-route .fi-sidebar,
+        body.er-fullscreen-route .fi-sidebar-close-overlay {
+            display: none !important;
+        }
+
+        body.er-fullscreen-route .fi-main-ctn,
+        body.er-fullscreen-route .fi-main,
+        body.er-fullscreen-route .fi-page,
+        body.er-fullscreen-route .fi-page-content {
+            max-width: 100% !important;
+            width: 100% !important;
+        }
+
+        body.er-fullscreen-route .fi-main {
+            padding: 0 !important;
+        }
+
+        body.er-fullscreen-route .fi-page-header,
+        body.er-fullscreen-route .fi-header,
+        body.er-fullscreen-route .fi-breadcrumbs {
+            display: none !important;
+        }
+
+        body.er-fullscreen-route .fi-page-content {
+            padding: 0.5rem 0.65rem 0.65rem !important;
+        }
+
         .er-page {
             display: flex;
             flex-direction: column;
-            gap: 0.75rem;
+            gap: 0.55rem;
             width: 100%;
             max-width: 100%;
-            min-height: calc(100vh - 10rem);
-            overflow-x: hidden;
+            height: calc(100vh - 1rem);
+            min-height: calc(100vh - 1rem);
+            overflow: hidden;
         }
 
         .er-header {
-            position: sticky;
-            top: 0;
+            flex-shrink: 0;
             z-index: 20;
             display: flex;
             flex-direction: column;
-            gap: 0.75rem;
-            padding: 0.85rem 1rem;
-            border-radius: 0.85rem;
+            gap: 0.55rem;
+            padding: 0.7rem 0.85rem;
+            border-radius: 0.75rem;
             border: 1px solid rgb(229 231 235);
-            background: rgb(255 255 255 / 0.96);
-            backdrop-filter: blur(8px);
+            background: rgb(255 255 255 / 0.98);
         }
 
         .dark .er-header {
             border-color: rgb(55 65 81);
-            background: rgb(17 24 39 / 0.96);
+            background: rgb(17 24 39 / 0.98);
         }
 
         .er-header-top {
@@ -63,7 +91,7 @@
             flex-wrap: wrap;
             align-items: center;
             justify-content: space-between;
-            gap: 0.75rem;
+            gap: 0.65rem;
         }
 
         .er-employee {
@@ -72,10 +100,10 @@
 
         .er-employee-name {
             margin: 0;
-            font-size: 1.125rem;
+            font-size: 1.2rem;
             font-weight: 700;
             color: rgb(17 24 39);
-            line-height: 1.25;
+            line-height: 1.2;
         }
 
         .dark .er-employee-name {
@@ -83,12 +111,28 @@
         }
 
         .er-employee-meta {
-            margin-top: 0.15rem;
+            margin-top: 0.1rem;
             font-size: 0.8125rem;
             color: rgb(107 114 128);
         }
 
         .dark .er-employee-meta {
+            color: rgb(156 163 175);
+        }
+
+        .er-back-link {
+            margin-left: 0.5rem;
+            font-size: 0.75rem;
+            color: rgb(107 114 128);
+            text-decoration: underline;
+            text-underline-offset: 2px;
+        }
+
+        .er-back-link:hover {
+            color: rgb(37 99 235);
+        }
+
+        .dark .er-back-link {
             color: rgb(156 163 175);
         }
 
@@ -103,9 +147,9 @@
             display: inline-flex;
             align-items: center;
             justify-content: center;
-            width: 2.25rem;
-            height: 2.25rem;
-            border-radius: 0.65rem;
+            width: 2.15rem;
+            height: 2.15rem;
+            border-radius: 0.6rem;
             border: 1px solid rgb(209 213 219);
             background: white;
             color: rgb(55 65 81);
@@ -129,7 +173,7 @@
         }
 
         .er-date-label {
-            min-width: 7.5rem;
+            min-width: 7.25rem;
             text-align: center;
             font-size: 0.9375rem;
             font-weight: 600;
@@ -141,8 +185,8 @@
         }
 
         .er-date-input {
-            height: 2.25rem;
-            border-radius: 0.65rem;
+            height: 2.15rem;
+            border-radius: 0.6rem;
             border: 1px solid rgb(209 213 219);
             background: white;
             padding: 0 0.65rem;
@@ -160,7 +204,7 @@
         .er-toggle {
             display: inline-flex;
             align-items: center;
-            gap: 0.55rem;
+            gap: 0.5rem;
             font-size: 0.8125rem;
             font-weight: 500;
             color: rgb(55 65 81);
@@ -181,7 +225,7 @@
         .er-summary {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 0.55rem;
+            gap: 0.45rem;
         }
 
         @media (min-width: 768px) {
@@ -192,10 +236,10 @@
 
         .er-summary-card {
             min-width: 0;
-            border-radius: 0.7rem;
+            border-radius: 0.65rem;
             border: 1px solid rgb(243 244 246);
             background: rgb(249 250 251);
-            padding: 0.55rem 0.7rem;
+            padding: 0.45rem 0.65rem;
         }
 
         .dark .er-summary-card {
@@ -204,7 +248,7 @@
         }
 
         .er-summary-label {
-            font-size: 0.6875rem;
+            font-size: 0.65rem;
             font-weight: 600;
             letter-spacing: 0.02em;
             text-transform: uppercase;
@@ -216,8 +260,8 @@
         }
 
         .er-summary-value {
-            margin-top: 0.15rem;
-            font-size: 0.9375rem;
+            margin-top: 0.1rem;
+            font-size: 0.9rem;
             font-weight: 700;
             color: rgb(17 24 39);
             white-space: nowrap;
@@ -232,16 +276,16 @@
         .er-body {
             display: grid;
             grid-template-columns: 1fr;
-            gap: 0.75rem;
-            flex: 1;
+            gap: 0.55rem;
+            flex: 1 1 auto;
             min-height: 0;
+            overflow: hidden;
         }
 
         @media (min-width: 1024px) {
             .er-body {
-                grid-template-columns: minmax(280px, 30%) minmax(0, 70%);
+                grid-template-columns: minmax(260px, 30%) minmax(0, 70%);
                 align-items: stretch;
-                min-height: calc(100vh - 16rem);
             }
         }
 
@@ -249,7 +293,8 @@
             display: flex;
             flex-direction: column;
             min-height: 0;
-            border-radius: 0.85rem;
+            height: 100%;
+            border-radius: 0.75rem;
             border: 1px solid rgb(229 231 235);
             background: white;
             overflow: hidden;
@@ -265,8 +310,9 @@
             align-items: center;
             justify-content: space-between;
             gap: 0.5rem;
-            padding: 0.75rem 0.9rem;
+            padding: 0.65rem 0.8rem;
             border-bottom: 1px solid rgb(243 244 246);
+            flex-shrink: 0;
         }
 
         .dark .er-panel-head {
@@ -275,7 +321,7 @@
 
         .er-panel-title {
             margin: 0;
-            font-size: 0.8125rem;
+            font-size: 0.75rem;
             font-weight: 700;
             text-transform: uppercase;
             letter-spacing: 0.04em;
@@ -294,14 +340,9 @@
         .er-panel-list {
             flex: 1;
             overflow-y: auto;
-            max-height: min(34rem, 55vh);
-            padding: 0.5rem;
-        }
-
-        @media (min-width: 1024px) {
-            .er-panel-list {
-                max-height: none;
-            }
+            min-height: 0;
+            max-height: none;
+            padding: 0.45rem;
         }
 
         .er-event {
@@ -443,7 +484,8 @@
             display: flex;
             flex-direction: column;
             min-height: 0;
-            border-radius: 0.85rem;
+            height: 100%;
+            border-radius: 0.75rem;
             border: 1px solid rgb(229 231 235);
             background: white;
             overflow: hidden;
@@ -460,8 +502,9 @@
             align-items: center;
             justify-content: space-between;
             gap: 0.5rem;
-            padding: 0.65rem 0.85rem;
+            padding: 0.55rem 0.75rem;
             border-bottom: 1px solid rgb(243 244 246);
+            flex-shrink: 0;
         }
 
         .dark .er-map-toolbar {
@@ -506,15 +549,10 @@
 
         .er-map-shell {
             position: relative;
-            flex: 1;
-            min-height: clamp(320px, 55vh, 720px);
+            flex: 1 1 auto;
+            min-height: 0;
+            height: 100%;
             background: rgb(249 250 251);
-        }
-
-        @media (min-width: 1024px) {
-            .er-map-shell {
-                min-height: 100%;
-            }
         }
 
         .dark .er-map-shell {
@@ -524,15 +562,10 @@
         #{{ $mapElementId }} {
             width: 100%;
             height: 100%;
-            min-height: clamp(320px, 55vh, 720px);
-            position: relative;
+            min-height: 280px;
+            position: absolute;
+            inset: 0;
             z-index: 0;
-        }
-
-        @media (min-width: 1024px) {
-            #{{ $mapElementId }} {
-                min-height: calc(100vh - 18rem);
-            }
         }
 
         #{{ $mapElementId }} .leaflet-container {
@@ -602,11 +635,12 @@
         }
 
         .er-warning {
+            flex-shrink: 0;
             border-radius: 0.75rem;
             border: 1px solid rgb(252 211 77);
             background: rgb(255 251 235);
             color: rgb(120 53 15);
-            padding: 0.65rem 0.85rem;
+            padding: 0.55rem 0.75rem;
             font-size: 0.8125rem;
         }
 
@@ -617,17 +651,41 @@
         }
 
         @media (max-width: 1023px) {
+            .er-page {
+                height: auto;
+                min-height: 100vh;
+                overflow: visible;
+            }
+
             .er-body {
                 display: flex;
                 flex-direction: column;
+                overflow: visible;
             }
 
             .er-map-wrap {
                 order: 1;
+                height: auto;
+                min-height: 55vh;
+            }
+
+            .er-map-shell {
+                min-height: 55vh;
+            }
+
+            #{{ $mapElementId }} {
+                position: relative;
+                min-height: 55vh;
             }
 
             .er-panel {
                 order: 2;
+                height: auto;
+                max-height: none;
+            }
+
+            .er-panel-list {
+                max-height: 28rem;
             }
         }
     </style>
@@ -669,11 +727,14 @@
                     <h1 class="er-employee-name">{{ $employeeName }}</h1>
                     <div class="er-employee-meta">
                         @if (filled($employeeCode))
-                            {{ $employeeCode }} ·
+                            {{ $employeeCode }}
                         @endif
-                        Employee Route
-                        <a href="{{ $navigation['list_url'] ?? '#' }}" class="ml-2 text-primary-600 hover:underline dark:text-primary-400">
-                            Back to list
+                        @if (filled($employeeCode) && filled($attendanceDate))
+                            |
+                        @endif
+                        {{ $attendanceDate }}
+                        <a href="{{ $navigation['list_url'] ?? '#' }}" class="er-back-link">
+                            Back to Employee Routes
                         </a>
                     </div>
                 </div>

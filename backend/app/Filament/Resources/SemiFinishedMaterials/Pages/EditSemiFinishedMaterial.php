@@ -3,10 +3,10 @@
 namespace App\Filament\Resources\SemiFinishedMaterials\Pages;
 
 use App\Enums\StockTransactionType;
+use App\Filament\Actions\SafeDeleteActions;
 use App\Filament\Resources\SemiFinishedMaterials\Schemas\SemiFinishedMaterialForm;
 use App\Filament\Resources\SemiFinishedMaterials\SemiFinishedMaterialResource;
 use App\Models\SemiFinishedMaterial;
-use Filament\Actions\DeleteAction;
 use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Schema;
@@ -24,7 +24,9 @@ class EditSemiFinishedMaterial extends EditRecord
     {
         return [
             ViewAction::make(),
-            DeleteAction::make()
+            SafeDeleteActions::deactivateAction()
+                ->authorize(fn (): bool => SemiFinishedMaterialResource::canEdit($this->getRecord())),
+            SafeDeleteActions::deleteAction()
                 ->authorize(fn (): bool => SemiFinishedMaterialResource::canDelete($this->getRecord())),
         ];
     }

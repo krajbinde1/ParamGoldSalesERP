@@ -123,6 +123,8 @@ class DealerController extends Controller
      */
     public function destroy(Dealer $dealer)
     {
+        app(\App\Services\SafeDelete\SafeDeleteGuard::class)->assertCanDelete($dealer);
+
         $dealer->delete();
 
         return redirect()->route('dealers.index')

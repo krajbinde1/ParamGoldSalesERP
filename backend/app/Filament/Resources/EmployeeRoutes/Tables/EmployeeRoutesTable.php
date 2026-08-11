@@ -8,7 +8,6 @@ use App\Models\Attendance;
 use App\Services\EmployeeRouteAnalysisService;
 use App\Support\AttendanceCalendar;
 use Filament\Actions\Action;
-use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
@@ -23,6 +22,7 @@ class EmployeeRoutesTable
     {
         return $table
             ->defaultSort('attendance_date', 'desc')
+            ->recordUrl(null)
             ->columns([
                 TextColumn::make('employee.full_name')
                     ->label('Employee')
@@ -63,11 +63,6 @@ class EmployeeRoutesTable
 
                         return (string) $analysis['summary']['stop_count'];
                     }),
-                TextColumn::make('view_route')
-                    ->label('View Route')
-                    ->state('View Route')
-                    ->url(fn (Attendance $record): string => EmployeeRouteResource::getUrl('view', ['record' => $record]))
-                    ->color('primary'),
             ])
             ->filters([
                 SelectFilter::make('employee_id')
@@ -110,12 +105,12 @@ class EmployeeRoutesTable
                 TrashedFilter::make(),
             ])
             ->recordActions([
-                ViewAction::make()
-                    ->label('View Route'),
                 Action::make('viewRoute')
                     ->label('View Route')
                     ->icon('heroicon-o-map')
-                    ->url(fn (Attendance $record): string => EmployeeRouteResource::getUrl('view', ['record' => $record])),
+                    ->color('primary')
+                    ->url(fn (Attendance $record): string => EmployeeRouteResource::getUrl('view', ['record' => $record]))
+                    ->openUrlInNewTab(),
             ]);
     }
 

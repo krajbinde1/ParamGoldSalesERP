@@ -6,7 +6,6 @@ use App\Enums\BomStatus;
 use App\Filament\Resources\Boms\BomResource;
 use App\Models\Bom;
 use Filament\Actions\BulkActionGroup;
-use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
@@ -64,7 +63,7 @@ class BomsTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make()
+                    \App\Filament\Actions\SafeDeleteActions::deleteBulkAction()
                         ->authorize(fn (): bool => BomResource::canDeleteAny()),
                 ]),
             ])

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Actions\Employees\ProvisionEmployeeUserAccount;
 use App\Enums\UserRole;
+use App\Models\Concerns\EnforcesSafeDelete;
 use App\Support\EmployeeCodeGenerator;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -17,6 +18,7 @@ use Laravel\Sanctum\HasApiTokens;
 
 class Employee extends Authenticatable
 {
+    use EnforcesSafeDelete;
     use HasApiTokens, SoftDeletes;
 
     protected static function booted(): void

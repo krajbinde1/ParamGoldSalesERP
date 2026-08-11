@@ -4,19 +4,15 @@ namespace App\Actions\Employees;
 
 use App\Models\Employee;
 use App\Models\User;
+use App\Services\SafeDelete\SafeDeleteGuard;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Validation\ValidationException;
 
 final class DeleteEmployeeWithUserAccount
 {
     public function execute(Employee $employee, bool $force = false): ?bool
     {
-        if ($employee->assignedDealers()->exists()) {
-            throw ValidationException::withMessages([
-                'employee' => 'This employee has '.$employee->assignedDealers()->count()
-                    .' assigned dealer(s). Reassign them before deleting.',
-            ]);
-        }
+        // Central Safe Delete policy — blocks when attendance, routes, orders, etc. exist.
+        app(SafeDeleteGuard::class)->assertCanDelete($employee);
 
         return DB::transaction(function () use ($employee, $force): ?bool {
             $mobile = $employee->mobile;
@@ -25,6 +21,7 @@ final class DeleteEmployeeWithUserAccount
             $this->removeLinkedUserAccount($employee);
             $this->releaseUniqueIdentifiers($employee);
 
+            // Events already validated above; avoid double-running cleanup side effects.
             $deleted = Employee::withoutEvents(function () use ($employee, $force): ?bool {
                 return $force ? $employee->forceDelete() : $employee->delete();
             });

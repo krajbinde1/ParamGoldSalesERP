@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Enums\BomOutputType;
 use App\Enums\BomStatus;
+use App\Models\Concerns\EnforcesSafeDelete;
 use App\Services\Inventory\BOMCalculationService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Bom extends Model
 {
+    use EnforcesSafeDelete;
     protected $attributes = [
         'status' => 'active',
         'output_type' => 'finished_product',

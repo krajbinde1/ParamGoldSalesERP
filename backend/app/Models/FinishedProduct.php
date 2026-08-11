@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\EnforcesSafeDelete;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -13,6 +14,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  */
 class FinishedProduct extends Model
 {
+    use EnforcesSafeDelete;
     protected $attributes = [
         'minimum_stock' => 0,
         'status' => true,

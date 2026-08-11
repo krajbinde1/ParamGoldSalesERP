@@ -2,8 +2,8 @@
 
 namespace App\Filament\Resources\Dealers\Pages;
 
+use App\Filament\Actions\SafeDeleteActions;
 use App\Filament\Resources\Dealers\DealerResource;
-use Filament\Actions\DeleteAction;
 use Filament\Actions\ForceDeleteAction;
 use Filament\Actions\RestoreAction;
 use Filament\Actions\ViewAction;
@@ -17,10 +17,19 @@ class EditDealer extends EditRecord
     {
         return [
             ViewAction::make(),
-            DeleteAction::make()
+            SafeDeleteActions::deactivateAction()
+                ->authorize(fn (): bool => DealerResource::canEdit($this->getRecord())),
+            SafeDeleteActions::deleteAction()
                 ->authorize(fn (): bool => DealerResource::canDelete($this->getRecord())),
             ForceDeleteAction::make()
-                ->authorize(fn (): bool => auth()->user()?->can('forceDelete', $this->getRecord()) ?? false),
+                ->authorize(fn (): bool => auth()->user()?->can('forceDelete', $this->getRecord()) ?? false)
+                ->before(function ($action): void {
+                    $assessment = app(\App\Services\SafeDelete\SafeDeleteGuard::class)->assess($this->getRecord());
+                    if ($assessment->blocked()) {
+                        SafeDeleteActions::notifyBlocked($assessment);
+                        $action->cancel();
+                    }
+                }),
             RestoreAction::make()
                 ->authorize(fn (): bool => auth()->user()?->can('restore', $this->getRecord()) ?? false),
         ];
