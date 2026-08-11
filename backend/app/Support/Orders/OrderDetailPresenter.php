@@ -21,6 +21,7 @@ final class OrderDetailPresenter
             'salesEmployee:id,full_name',
             'items.product:id,product_name,product_code,dealer_price',
             'approvedByUser:id,name',
+            'billedByUser:id,name',
             'dispatchedByUser:id,name',
         ]);
 
@@ -43,9 +44,20 @@ final class OrderDetailPresenter
             'approved_by_name' => $order->approvedByUser?->name,
             'approval_remark' => $order->remarks,
             'rejection_remark' => $order->rejection_remark,
+            'billed_at' => $order->billed_at?->toDateTimeString(),
+            'billed_by_name' => $order->billedByUser?->name,
+            'bill_number' => $order->bill_number,
+            'bill_path' => $order->bill_path,
+            'bill_url' => $order->billUrl(),
+            'billing_remark' => $order->billing_remark,
             'dispatched_at' => $order->dispatched_at?->toDateTimeString(),
+            'dispatch_date' => $order->dispatch_date?->toDateString(),
             'dispatched_by_name' => $order->dispatchedByUser?->name,
             'dispatch_remark' => $order->dispatch_remark,
+            'transporter_name' => $order->transporter_name,
+            'vehicle_number' => $order->vehicle_number,
+            'lr_number' => $order->lr_number,
+            'lr_document_path' => $order->lr_document_path,
             'gross_amount' => (float) $order->subtotal,
             'total_discount' => (float) $order->discount_amount,
             'subtotal' => (float) $order->subtotal,
@@ -71,6 +83,7 @@ final class OrderDetailPresenter
             'calculation' => $calculation,
             'items' => $calculation['items'],
             'can_dispatch' => $order->canBeDispatched(),
+            'can_bill' => $order->canBeBilled(),
         ];
     }
 }

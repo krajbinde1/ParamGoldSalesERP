@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Orders\Tables;
 
+use App\Actions\Orders\BillOrderWithDocument;
 use App\Actions\Orders\DispatchOrderWithTransport;
 use App\Enums\TransportType;
 use App\Models\Order;
@@ -12,6 +13,8 @@ use Filament\Actions\EditAction;
 use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreBulkAction;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\DatePicker;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
@@ -78,14 +81,46 @@ class OrdersTable
                         auth()->id(),
                         $data['rejection_remark'],
                     )),
+                Action::make('bill')
+                    ->label('Mark as Billed')
+                    ->color('warning')
+                    ->visible(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('bill', $record))
+                    ->authorize(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('bill', $record))
+                    ->form([
+                        FileUpload::make('bill')
+                            ->label('Upload Bill')
+                            ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])
+                            ->maxSize(10240)
+                            ->required()
+                            ->storeFiles(false),
+                        TextInput::make('bill_number')
+                            ->label('Bill Number')
+                            ->maxLength(100),
+                        Textarea::make('billing_remark')
+                            ->label('Billing Remark')
+                            ->rows(3),
+                    ])
+                    ->action(function (Order $record, array $data): void {
+                        app(BillOrderWithDocument::class)->execute(
+                            order: $record,
+                            actor: auth()->user(),
+                            bill: $data['bill'],
+                            billNumber: $data['bill_number'] ?? null,
+                            remark: $data['billing_remark'] ?? null,
+                        );
+                    }),
                 Action::make('dispatch')
                     ->label('Mark as Dispatched')
                     ->color('info')
-                    ->visible(fn (Order $record): bool => $record->status === 'approved'
+                    ->visible(fn (Order $record): bool => $record->status === Order::STATUS_BILLED
                         && auth()->user()?->canActAsProductionSupervisor()
                         && Gate::forUser(auth()->user())->allows('dispatch', $record))
                     ->authorize(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('dispatch', $record))
                     ->form([
+                        DatePicker::make('dispatch_date')
+                            ->label('Dispatch Date')
+                            ->default(now('Asia/Kolkata')->toDateString())
+                            ->native(false),
                         Select::make('transport_type')
                             ->label('Transport Type')
                             ->options(TransportType::options())
@@ -96,6 +131,15 @@ class OrdersTable
                             ->minValue(0)
                             ->prefix('₹')
                             ->required(),
+                        TextInput::make('transporter_name')
+                            ->label('Transport Name')
+                            ->maxLength(255),
+                        TextInput::make('vehicle_number')
+                            ->label('Vehicle Number')
+                            ->maxLength(50),
+                        TextInput::make('lr_number')
+                            ->label('LR Number')
+                            ->maxLength(100),
                         Textarea::make('dispatch_remark')
                             ->label('Dispatch Remark')
                             ->rows(3),
@@ -107,19 +151,30 @@ class OrdersTable
                             transportType: $data['transport_type'],
                             transportAmount: (float) $data['transport_amount'],
                             remark: $data['dispatch_remark'] ?? null,
+                            dispatchDate: $data['dispatch_date'] ?? null,
+                            transporterName: $data['transporter_name'] ?? null,
+                            vehicleNumber: $data['vehicle_number'] ?? null,
+                            lrNumber: $data['lr_number'] ?? null,
                         );
                     }),
                 Action::make('cancel')
                     ->label('Cancel')
                     ->color('danger')
                     ->requiresConfirmation()
-                    ->visible(fn (Order $record): bool => ! $ordersOnlyUser() && $record->canTransitionTo('cancelled'))
+                    ->visible(fn (Order $record): bool => ! $ordersOnlyUser()
+                        && ! auth()->user()?->isAdminUser()
+                        && ! auth()->user()?->isDirectorUser()
+                        && $record->canTransitionTo('cancelled'))
                     ->action(fn (Order $record) => $record->transitionTo('cancelled')),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    DeleteBulkAction::make()->visible(fn (): bool => ! $ordersOnlyUser()),
-                    ForceDeleteBulkAction::make()->visible(fn (): bool => ! $ordersOnlyUser()),
+                    DeleteBulkAction::make()->visible(fn (): bool => ! $ordersOnlyUser()
+                        && ! (auth()->user()?->isAdminUser() ?? false)
+                        && ! (auth()->user()?->isDirectorUser() ?? false)),
+                    ForceDeleteBulkAction::make()->visible(fn (): bool => ! $ordersOnlyUser()
+                        && ! (auth()->user()?->isAdminUser() ?? false)
+                        && ! (auth()->user()?->isDirectorUser() ?? false)),
                     RestoreBulkAction::make()->visible(fn (): bool => ! $ordersOnlyUser()),
                 ]),
             ]);

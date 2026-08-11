@@ -21,10 +21,19 @@ class ProductionOrderController extends Controller
     {
         $this->authorize('viewAny', Order::class);
 
+        $allowed = [
+            Order::STATUS_APPROVED,
+            Order::STATUS_BILLED,
+            Order::STATUS_DISPATCHED,
+        ];
+
         $orders = Order::query()
-            ->whereIn('status', ['approved', Order::STATUS_DISPATCHED])
+            ->whereIn('status', $allowed)
             ->with(['dealer:id,firm_name,village,address,mobile', 'salesEmployee:id,full_name'])
-            ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
+            ->when(
+                $request->filled('status') && in_array($request->string('status')->toString(), $allowed, true),
+                fn ($q) => $q->where('status', $request->string('status')),
+            )
             ->orderByDesc('order_date')
             ->orderByDesc('id')
             ->paginate(20);
@@ -35,6 +44,7 @@ class ProductionOrderController extends Controller
                 'order_no' => $order->order_no,
                 'order_date' => $order->order_date?->toDateString(),
                 'approved_at' => $order->approved_at?->toDateTimeString(),
+                'billed_at' => $order->billed_at?->toDateTimeString(),
                 'dispatched_at' => $order->dispatched_at?->toDateTimeString(),
                 'dealer_name' => $order->dealer?->firm_name,
                 'dealer_village' => $order->dealer?->village,
@@ -43,11 +53,17 @@ class ProductionOrderController extends Controller
                 'grand_total' => (float) $order->grand_total,
                 'status' => $order->status,
                 'status_label' => Order::statusLabels()[$order->status] ?? ucfirst($order->status),
+                'can_dispatch' => $order->canBeDispatched(),
             ])->values(),
             'meta' => [
                 'current_page' => $orders->currentPage(),
                 'last_page' => $orders->lastPage(),
                 'total' => $orders->total(),
+                'counts' => [
+                    'approved' => Order::query()->where('status', Order::STATUS_APPROVED)->count(),
+                    'billed' => Order::query()->where('status', Order::STATUS_BILLED)->count(),
+                    'dispatched' => Order::query()->where('status', Order::STATUS_DISPATCHED)->count(),
+                ],
             ],
         ]);
     }
@@ -87,6 +103,11 @@ class ProductionOrderController extends Controller
             'transport_type' => ['required', 'in:company_transport,outside_transport'],
             'transport_amount' => ['required', 'numeric', 'min:0'],
             'remark' => ['nullable', 'string', 'max:2000'],
+            'dispatch_date' => ['nullable', 'date'],
+            'transporter_name' => ['nullable', 'string', 'max:255'],
+            'vehicle_number' => ['nullable', 'string', 'max:50'],
+            'lr_number' => ['nullable', 'string', 'max:100'],
+            'lr_document' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf,webp', 'max:10240'],
         ]);
 
         $result = app(DispatchOrderWithTransport::class)->execute(
@@ -95,6 +116,11 @@ class ProductionOrderController extends Controller
             transportType: $validated['transport_type'],
             transportAmount: (float) $validated['transport_amount'],
             remark: $validated['remark'] ?? null,
+            dispatchDate: $validated['dispatch_date'] ?? null,
+            transporterName: $validated['transporter_name'] ?? null,
+            vehicleNumber: $validated['vehicle_number'] ?? null,
+            lrNumber: $validated['lr_number'] ?? null,
+            lrDocument: $request->file('lr_document'),
         );
 
         return response()->json([

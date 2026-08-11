@@ -17,9 +17,17 @@ class ProductionDashboardController extends Controller
     public function __invoke(Request $request): JsonResponse
     {
         $approvedOrders = Order::query()
-            ->where('status', 'approved')
+            ->where('status', Order::STATUS_APPROVED)
             ->with(['dealer:id,firm_name,village', 'salesEmployee:id,full_name'])
             ->orderByDesc('order_date')
+            ->limit(20)
+            ->get()
+            ->map(fn (Order $order): array => $this->formatOrder($order));
+
+        $billedOrders = Order::query()
+            ->where('status', Order::STATUS_BILLED)
+            ->with(['dealer:id,firm_name,village', 'salesEmployee:id,full_name'])
+            ->orderByDesc('billed_at')
             ->limit(20)
             ->get()
             ->map(fn (Order $order): array => $this->formatOrder($order));
@@ -32,19 +40,21 @@ class ProductionDashboardController extends Controller
             ->get()
             ->map(fn (Order $order): array => $this->formatOrder($order));
 
+        $approvedCount = Order::query()->where('status', Order::STATUS_APPROVED)->count();
+        $billedCount = Order::query()->where('status', Order::STATUS_BILLED)->count();
+        $dispatchedCount = Order::query()->where('status', Order::STATUS_DISPATCHED)->count();
+
         return response()->json([
             'success' => true,
             'summary' => [
-                'approved_orders' => Order::query()->where('status', 'approved')->count(),
-                'ready_for_dispatch' => Order::query()->where('status', 'approved')->count(),
-                'dispatched_orders' => Order::query()->where('status', Order::STATUS_DISPATCHED)->count(),
+                'approved_orders' => $approvedCount,
+                'billed_orders' => $billedCount,
+                'ready_for_dispatch' => $billedCount,
+                'dispatched_orders' => $dispatchedCount,
             ],
             'approved_orders' => $approvedOrders,
+            'billed_orders' => $billedOrders,
             'recent_dispatched' => $recentDispatched,
-            // Inventory/production summary embedded so the mobile dashboard can
-            // show both order and manufacturing widgets from a single call.
-            // Mobile may also call GET /production/inventory/dashboard directly
-            // for the full inventory-only payload.
             'inventory' => InventoryDashboardApiController::buildPayload($this->inventoryDashboardService, $request->user()),
         ]);
     }
@@ -56,6 +66,7 @@ class ProductionDashboardController extends Controller
             'order_no' => $order->order_no,
             'order_date' => $order->order_date?->toDateString(),
             'approved_at' => $order->approved_at?->toDateTimeString(),
+            'billed_at' => $order->billed_at?->toDateTimeString(),
             'dispatched_at' => $order->dispatched_at?->toDateTimeString(),
             'dealer_name' => $order->dealer?->firm_name,
             'dealer_village' => $order->dealer?->village,
@@ -63,6 +74,7 @@ class ProductionDashboardController extends Controller
             'grand_total' => (float) $order->grand_total,
             'status' => $order->status,
             'status_label' => Order::statusLabels()[$order->status] ?? ucfirst($order->status),
+            'can_dispatch' => $order->canBeDispatched(),
         ];
     }
 }

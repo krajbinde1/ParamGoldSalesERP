@@ -36,7 +36,11 @@ class OrderPolicy
         return match ($user->roleEnum()) {
             UserRole::Employee => $order->sales_employee_id === $user->employee_id,
             UserRole::Manager, UserRole::Director => true,
-            UserRole::ProductionSupervisor => in_array($order->status, ['approved', 'dispatched'], true),
+            UserRole::ProductionSupervisor => in_array($order->status, [
+                Order::STATUS_APPROVED,
+                Order::STATUS_BILLED,
+                Order::STATUS_DISPATCHED,
+            ], true),
             default => false,
         };
     }
@@ -63,7 +67,7 @@ class OrderPolicy
 
     public function approve(User $user, Order $order): bool
     {
-        if ($user->canActAsProductionSupervisor()) {
+        if ($user->canActAsProductionSupervisor() || $user->isAdminUser()) {
             return false;
         }
 
@@ -76,7 +80,7 @@ class OrderPolicy
 
     public function reject(User $user, Order $order): bool
     {
-        if ($user->canActAsProductionSupervisor()) {
+        if ($user->canActAsProductionSupervisor() || $user->isAdminUser()) {
             return false;
         }
 
@@ -87,9 +91,23 @@ class OrderPolicy
         return $user->hasRole(UserRole::Manager) && $order->canBeRejected();
     }
 
+    public function bill(User $user, Order $order): bool
+    {
+        if (! $order->canBeBilled()) {
+            return false;
+        }
+
+        // Admin (Filament job role) only — Director remains view-only.
+        return $user->isAdminUser();
+    }
+
     public function dispatch(User $user, Order $order): bool
     {
         if (! $order->canBeDispatched()) {
+            return false;
+        }
+
+        if ($user->isAdminUser() || $user->isDirectorUser()) {
             return false;
         }
 

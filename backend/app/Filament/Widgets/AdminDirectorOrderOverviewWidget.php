@@ -34,9 +34,15 @@ class AdminDirectorOrderOverviewWidget extends Widget
                 ],
                 [
                     'label' => 'Approved',
-                    'value' => Order::query()->where('status', 'approved')->count(),
+                    'value' => Order::query()->where('status', Order::STATUS_APPROVED)->count(),
                     'color' => 'success',
-                    'url' => OrderResource::getUrl('index', ['filters' => ['status' => ['value' => 'approved']]]),
+                    'url' => OrderResource::getUrl('index', ['filters' => ['status' => ['value' => Order::STATUS_APPROVED]]]),
+                ],
+                [
+                    'label' => 'Billed',
+                    'value' => Order::query()->where('status', Order::STATUS_BILLED)->count(),
+                    'color' => 'warning',
+                    'url' => OrderResource::getUrl('index', ['filters' => ['status' => ['value' => Order::STATUS_BILLED]]]),
                 ],
                 [
                     'label' => 'Dispatched',

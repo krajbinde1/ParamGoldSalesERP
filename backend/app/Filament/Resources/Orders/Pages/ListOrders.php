@@ -17,7 +17,7 @@ class ListOrders extends ListRecords
 
         $status = request()->query('status');
 
-        if (! in_array($status, ['approved', Order::STATUS_DISPATCHED], true)) {
+        if (! in_array($status, ['approved', Order::STATUS_BILLED, Order::STATUS_DISPATCHED], true)) {
             return;
         }
 

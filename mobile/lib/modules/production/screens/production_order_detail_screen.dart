@@ -85,14 +85,14 @@ class _ProductionOrderDetailScreenState
     return const {};
   }
 
-  bool get _isApproved =>
-      _order?['status']?.toString() == 'approved' &&
+  bool get _isBilled =>
+      _order?['status']?.toString() == 'billed' &&
       _order?['can_dispatch'] == true;
 
   bool get _isDispatched => _order?['status']?.toString() == 'dispatched';
 
   bool get _canDispatch =>
-      _isApproved && widget.auth.permissions.canDispatchOrders;
+      _isBilled && widget.auth.permissions.canDispatchOrders;
 
   void _onTransportAmountChanged() {
     if (!mounted || !_canDispatch || _transportType == null) return;
@@ -340,6 +340,20 @@ class _ProductionOrderDetailScreenState
                           label: 'Approval Remark',
                           value: order['approval_remark'].toString(),
                         ),
+                      if (order['billed_at'] != null) ...[
+                        PgInvoiceRow(
+                          label: 'Billed At',
+                          value: _formatDate(order['billed_at'], dateFormat),
+                        ),
+                        PgInvoiceRow(
+                          label: 'Bill Number',
+                          value: order['bill_number']?.toString() ?? '-',
+                        ),
+                        PgInvoiceRow(
+                          label: 'Billed By',
+                          value: order['billed_by_name']?.toString() ?? '-',
+                        ),
+                      ],
                       if (_isDispatched) ...[
                         PgInvoiceRow(
                           label: 'Dispatched At',
@@ -359,6 +373,35 @@ class _ProductionOrderDetailScreenState
                     ],
                   ),
                 ),
+              if (status == 'approved') ...[
+                const SizedBox(height: AppSpacing.md),
+                PgCard(
+                  child: Text(
+                    'Approved for production planning. Mark as Dispatched becomes available after Admin marks this order as Billed.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+              if (order['bill_url'] != null) ...[
+                const SizedBox(height: AppSpacing.md),
+                PgCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Uploaded Bill',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        order['bill_number']?.toString().isNotEmpty == true
+                            ? 'Bill No: ${order['bill_number']}'
+                            : 'Bill document available',
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: AppSpacing.md),
               PgCard(
                 child: Column(

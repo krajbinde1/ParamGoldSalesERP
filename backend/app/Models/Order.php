@@ -13,6 +13,12 @@ class Order extends Model
 {
     use SoftDeletes;
 
+    public const STATUS_PENDING_APPROVAL = 'pending_approval';
+
+    public const STATUS_APPROVED = 'approved';
+
+    public const STATUS_BILLED = 'billed';
+
     public const STATUS_DISPATCHED = 'dispatched';
 
     private const BUSINESS_TIMEZONE = 'Asia/Kolkata';
@@ -21,6 +27,7 @@ class Order extends Model
         'draft' => 'Draft',
         'pending_approval' => 'Pending Approval',
         'approved' => 'Approved',
+        'billed' => 'Billed',
         'dispatched' => 'Dispatched',
         'delivered' => 'Delivered',
         'rejected' => 'Rejected',
@@ -30,7 +37,8 @@ class Order extends Model
     private const STATUS_TRANSITIONS = [
         'draft' => ['pending_approval'],
         'pending_approval' => ['approved', 'rejected', 'cancelled'],
-        'approved' => ['dispatched'],
+        'approved' => ['billed'],
+        'billed' => ['dispatched'],
         'dispatched' => [],
         'rejected' => [],
         'delivered' => [],
@@ -63,14 +71,17 @@ class Order extends Model
         'order_no', 'order_date', 'dealer_id', 'sales_employee_id', 'payment_type',
         'remarks', 'status', 'subtotal', 'discount_amount', 'gst_amount', 'grand_total',
         'approved_by', 'approved_at', 'rejected_by', 'rejected_at', 'rejection_remark',
-        'dispatched_by', 'dispatched_at', 'dispatch_remark',
-        'transport_type', 'transport_amount', 'subtotal_before_transport', 'taxable_amount_after_transport',
+        'billed_by', 'billed_at', 'bill_path', 'bill_number', 'billing_remark',
+        'dispatched_by', 'dispatched_at', 'dispatch_date', 'dispatch_remark',
+        'transport_type', 'transport_amount', 'transporter_name', 'vehicle_number', 'lr_number', 'lr_document_path',
+        'subtotal_before_transport', 'taxable_amount_after_transport',
     ];
 
     protected function casts(): array
     {
         return [
             'order_date' => 'date',
+            'dispatch_date' => 'date',
             'subtotal' => 'decimal:2',
             'discount_amount' => 'decimal:2',
             'gst_amount' => 'decimal:2',
@@ -80,6 +91,7 @@ class Order extends Model
             'taxable_amount_after_transport' => 'decimal:2',
             'approved_at' => 'datetime',
             'rejected_at' => 'datetime',
+            'billed_at' => 'datetime',
             'dispatched_at' => 'datetime',
         ];
     }
@@ -109,6 +121,11 @@ class Order extends Model
         return $this->belongsTo(User::class, 'rejected_by');
     }
 
+    public function billedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'billed_by');
+    }
+
     public function dispatchedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'dispatched_by');
@@ -130,6 +147,7 @@ class Order extends Model
             'draft' => 'gray',
             'pending_approval' => 'warning',
             'approved' => 'success',
+            'billed' => 'warning',
             'dispatched' => 'info',
             'delivered' => 'primary',
             'rejected', 'cancelled' => 'danger',
@@ -157,9 +175,23 @@ class Order extends Model
         return $this->status === 'pending_approval';
     }
 
+    public function canBeBilled(): bool
+    {
+        return $this->status === self::STATUS_APPROVED;
+    }
+
     public function canBeDispatched(): bool
     {
-        return $this->status === 'approved';
+        return $this->status === self::STATUS_BILLED;
+    }
+
+    public function billUrl(): ?string
+    {
+        if (blank($this->bill_path)) {
+            return null;
+        }
+
+        return url('storage/'.ltrim(str_replace('\\', '/', $this->bill_path), '/'));
     }
 
     public function approve(?int $userId = null, ?string $remark = null): void
@@ -171,7 +203,7 @@ class Order extends Model
         }
 
         $this->update([
-            'status' => 'approved',
+            'status' => self::STATUS_APPROVED,
             'approved_by' => $userId,
             'approved_at' => Carbon::now(self::BUSINESS_TIMEZONE),
             'rejected_by' => null,
@@ -203,11 +235,39 @@ class Order extends Model
         ]);
     }
 
+    public function markAsBilled(
+        ?int $userId = null,
+        ?string $billPath = null,
+        ?string $billNumber = null,
+        ?string $remark = null,
+    ): void {
+        if (! $this->canBeBilled()) {
+            throw ValidationException::withMessages([
+                'status' => ['Only approved orders can be marked as billed.'],
+            ]);
+        }
+
+        if (blank($billPath)) {
+            throw ValidationException::withMessages([
+                'bill' => ['Bill document is required.'],
+            ]);
+        }
+
+        $this->update([
+            'status' => self::STATUS_BILLED,
+            'billed_by' => $userId,
+            'billed_at' => Carbon::now(self::BUSINESS_TIMEZONE),
+            'bill_path' => $billPath,
+            'bill_number' => filled($billNumber) ? trim($billNumber) : null,
+            'billing_remark' => filled($remark) ? trim($remark) : null,
+        ]);
+    }
+
     public function dispatch(?int $userId = null, ?string $remark = null): void
     {
         if (! $this->canBeDispatched()) {
             throw ValidationException::withMessages([
-                'status' => ['Only approved orders can be dispatched.'],
+                'status' => ['Only billed orders can be dispatched.'],
             ]);
         }
 

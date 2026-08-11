@@ -21,7 +21,11 @@ class ProductionOrderStatsWidget extends StatsOverviewWidget
     protected function getStats(): array
     {
         $approvedCount = Order::query()
-            ->where('status', 'approved')
+            ->where('status', Order::STATUS_APPROVED)
+            ->count();
+
+        $billedCount = Order::query()
+            ->where('status', Order::STATUS_BILLED)
             ->count();
 
         $dispatchedCount = Order::query()
@@ -30,12 +34,22 @@ class ProductionOrderStatsWidget extends StatsOverviewWidget
 
         return [
             Stat::make('Approved Orders', (string) $approvedCount)
-                ->description('Ready for dispatch')
+                ->description('Ready for production planning')
                 ->color('success')
                 ->url(OrderResource::getUrl('index', [
                     'filters' => [
                         'status' => [
-                            'value' => 'approved',
+                            'value' => Order::STATUS_APPROVED,
+                        ],
+                    ],
+                ])),
+            Stat::make('Billed Orders', (string) $billedCount)
+                ->description('Ready for dispatch')
+                ->color('warning')
+                ->url(OrderResource::getUrl('index', [
+                    'filters' => [
+                        'status' => [
+                            'value' => Order::STATUS_BILLED,
                         ],
                     ],
                 ])),

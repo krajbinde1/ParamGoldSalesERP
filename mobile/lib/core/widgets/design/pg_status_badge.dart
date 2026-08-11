@@ -17,6 +17,7 @@ abstract final class PgStatusRules {
     if (normalized.contains('pending') || normalized == 'draft') {
       return PgStatusTone.pending;
     }
+    if (normalized.contains('billed')) return PgStatusTone.pending;
     if (normalized.contains('approved')) return PgStatusTone.approved;
     if (normalized.contains('dispatch') || normalized.contains('deliver')) {
       return PgStatusTone.dispatched;
