@@ -16,7 +16,7 @@ class AttendanceInfolist
                 Section::make('Attendance details')->columns(3)->schema([
                     TextEntry::make('employee.full_name')->label('Employee'),
                     TextEntry::make('attendance_date')->label('Attendance Date')->date('d M Y'),
-                    TextEntry::make('attendance_status')->label('Status')->badge(),
+                    TextEntry::make('attendance_status')->label('Attendance Status')->badge(),
                     TextEntry::make('punch_in_time')
                         ->label('Punch In Time (IST)')
                         ->formatStateUsing(fn ($record): string => $record->punchInAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('h:i A') ?? '-')
@@ -25,7 +25,10 @@ class AttendanceInfolist
                         ->label('Punch Out Time (IST)')
                         ->formatStateUsing(fn ($record): string => $record->punchOutAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('h:i A') ?? '-')
                         ->placeholder('-'),
-                    TextEntry::make('working_hours')->label('Working Hours')->placeholder('-'),
+                    TextEntry::make('working_hours')
+                        ->label('Working Hours')
+                        ->formatStateUsing(fn ($record): string => app(\App\Services\Attendance\AttendanceStatusCalculator::class)->formatWorkingHoursLabel($record))
+                        ->placeholder('-'),
                     TextEntry::make('approval_status')->label('Approval Status')->badge(),
                     TextEntry::make('approver.full_name')->label('Approved By')->placeholder('-'),
                     TextEntry::make('remarks')->placeholder('-')->columnSpanFull(),

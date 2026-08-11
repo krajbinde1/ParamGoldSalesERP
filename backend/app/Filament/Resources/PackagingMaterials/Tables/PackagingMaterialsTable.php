@@ -3,8 +3,10 @@
 namespace App\Filament\Resources\PackagingMaterials\Tables;
 
 use App\Enums\InventoryUnit;
+use App\Filament\Actions\SafeDeleteActions;
 use App\Filament\Resources\PackagingMaterials\PackagingMaterialResource;
 use App\Models\PackagingMaterial;
+use Filament\Actions\BulkActionGroup;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\IconColumn;
@@ -53,6 +55,11 @@ class PackagingMaterialsTable
                 ViewAction::make(),
                 EditAction::make()
                     ->authorize(fn (PackagingMaterial $record): bool => PackagingMaterialResource::canEdit($record)),
+            ])
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    SafeDeleteActions::deleteBulkAction(),
+                ]),
             ])
             ->paginated([10, 25, 50])
             ->defaultPaginationPageOption(25)

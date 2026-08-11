@@ -69,6 +69,7 @@ class _AttendanceHistoryState extends ConsumerState<AttendanceHistory> {
                     runSpacing: AppSpacing.sm,
                     children: [
                       _SummaryChip('Present', '${summary.presentDays}'),
+                      _SummaryChip('Half Day', '${summary.halfDays}'),
                       _SummaryChip('Absent', '${summary.absentDays}'),
                       _SummaryChip('Working', '${summary.workingDays}'),
                       _SummaryChip('Punch In', '${summary.punchInDays}'),
@@ -100,8 +101,9 @@ class _AttendanceHistoryState extends ConsumerState<AttendanceHistory> {
             runSpacing: 8,
             children: [
               _Legend('Present', AppColors.approvedFg),
-              _Legend('Absent', AppColors.rejectedFg),
               _Legend('Half Day', AppColors.pendingFg),
+              _Legend('Punched In', AppColors.info),
+              _Legend('Absent', AppColors.rejectedFg),
               _Legend('Holiday', AppColors.dispatchedFg),
             ],
           ),
@@ -120,13 +122,14 @@ class _Calendar extends StatelessWidget {
   final DateTime month;
   final List<Attendance> items;
   final ValueChanged<Attendance> onTap;
-  Color color(String s) => s.toLowerCase().contains('holiday')
-      ? AppColors.dispatchedFg
-      : s.toLowerCase().contains('half')
-      ? AppColors.pendingFg
-      : s.toLowerCase().contains('present')
-      ? AppColors.approvedFg
-      : AppColors.rejectedFg;
+  Color color(String s) {
+    final lower = s.toLowerCase();
+    if (lower.contains('holiday')) return AppColors.dispatchedFg;
+    if (lower.contains('half')) return AppColors.pendingFg;
+    if (lower.contains('punched')) return AppColors.info;
+    if (lower.contains('present')) return AppColors.approvedFg;
+    return AppColors.rejectedFg;
+  }
   @override
   Widget build(BuildContext context) {
     final offset = DateTime(month.year, month.month, 1).weekday - 1,

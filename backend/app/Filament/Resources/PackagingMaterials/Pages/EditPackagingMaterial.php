@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\PackagingMaterials\Pages;
 
 use App\Enums\StockTransactionType;
+use App\Filament\Actions\SafeDeleteActions;
 use App\Filament\Resources\PackagingMaterials\PackagingMaterialResource;
 use App\Filament\Resources\PackagingMaterials\Schemas\PackagingMaterialForm;
 use App\Models\PackagingMaterial;
@@ -23,7 +24,8 @@ class EditPackagingMaterial extends EditRecord
     {
         return [
             ViewAction::make(),
-            // Prefer Active/Inactive over delete for master records.
+            SafeDeleteActions::deactivateAction(),
+            SafeDeleteActions::deleteAction(),
         ];
     }
 

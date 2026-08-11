@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\RawMaterials\Pages;
 
 use App\Enums\StockTransactionType;
+use App\Filament\Actions\SafeDeleteActions;
 use App\Filament\Resources\RawMaterials\RawMaterialResource;
 use App\Filament\Resources\RawMaterials\Schemas\RawMaterialForm;
 use App\Models\RawMaterial;
@@ -23,7 +24,8 @@ class EditRawMaterial extends EditRecord
     {
         return [
             ViewAction::make(),
-            // Prefer Active/Inactive over delete for master records.
+            SafeDeleteActions::deactivateAction(),
+            SafeDeleteActions::deleteAction(),
         ];
     }
 

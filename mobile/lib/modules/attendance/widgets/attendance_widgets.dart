@@ -84,7 +84,7 @@ class _StatusCardState extends State<StatusCard> {
   Widget build(BuildContext context) {
     final a = widget.attendance;
     final tracking = widget.routeTrackingStatus;
-    final isPresent = a != null && !a.status.toLowerCase().contains('absent');
+    final statusColor = _statusColor(a?.status);
     final trackingActive = tracking?.isActive == true;
     final showTracking =
         tracking != null &&
@@ -103,7 +103,7 @@ class _StatusCardState extends State<StatusCard> {
             children: [
               Icon(
                 a == null ? Icons.event_busy_rounded : Icons.verified_rounded,
-                color: isPresent ? AppColors.approvedFg : AppColors.rejectedFg,
+                color: statusColor,
               ),
               const SizedBox(width: AppSpacing.sm),
               Expanded(
@@ -207,6 +207,16 @@ class _StatusCardState extends State<StatusCard> {
     }
     return '$lastLabel · Pending sync: ${tracking.pendingSyncCount} · '
         'GPS: ${tracking.gpsStatus} · Permission: ${tracking.permissionStatus}';
+  }
+
+  Color _statusColor(String? status) {
+    if (status == null) return AppColors.textMuted;
+    final lower = status.toLowerCase();
+    if (lower.contains('absent')) return AppColors.rejectedFg;
+    if (lower.contains('half')) return AppColors.pendingFg;
+    if (lower.contains('punched')) return AppColors.info;
+    if (lower.contains('present')) return AppColors.approvedFg;
+    return AppColors.textSecondary;
   }
 }
 

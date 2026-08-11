@@ -103,7 +103,9 @@ class AttendanceRepository {
       outAddress: action == 'punch-out' ? c.address : null,
       inPhoto: action == 'punch-in' ? c.photoPath : current?.inPhoto,
       outPhoto: action == 'punch-out' ? c.photoPath : null,
-      status: 'Present',
+      status: action == 'punch-in'
+          ? 'Punched In'
+          : _statusFromDuration(current!.punchIn!, c.capturedAt),
       isPendingSync: true,
       workingHours: action == 'punch-out'
           ? _duration(current!.punchIn!, c.capturedAt)
@@ -283,6 +285,15 @@ class AttendanceRepository {
 
   String _duration(DateTime a, DateTime b) {
     final d = b.difference(a);
-    return '${d.inHours}h ${d.inMinutes.remainder(60)}m';
+    return '${d.inHours}h ${d.inMinutes.remainder(60).toString().padLeft(2, '0')}m';
+  }
+
+  /// Mirrors backend AttendanceStatusCalculator for offline punch-out preview.
+  /// Server remains authoritative after sync.
+  String _statusFromDuration(DateTime punchIn, DateTime punchOut) {
+    final minutes = punchOut.difference(punchIn).inMinutes;
+    if (minutes >= 480) return 'Present';
+    if (minutes >= 240) return 'Half Day';
+    return 'Absent';
   }
 }

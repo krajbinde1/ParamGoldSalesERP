@@ -100,6 +100,7 @@ class AttendanceMonthlySummary {
     required this.year,
     required this.workingDays,
     required this.presentDays,
+    required this.halfDays,
     required this.absentDays,
     required this.punchInDays,
     required this.punchOutDays,
@@ -109,6 +110,7 @@ class AttendanceMonthlySummary {
   final int year;
   final int workingDays;
   final int presentDays;
+  final int halfDays;
   final int absentDays;
   final int punchInDays;
   final int punchOutDays;
@@ -119,6 +121,7 @@ class AttendanceMonthlySummary {
         year: int.tryParse('${json['year'] ?? ''}') ?? DateTime.now().year,
         workingDays: int.tryParse('${json['working_days'] ?? ''}') ?? 0,
         presentDays: int.tryParse('${json['present_days'] ?? ''}') ?? 0,
+        halfDays: int.tryParse('${json['half_days'] ?? ''}') ?? 0,
         absentDays: int.tryParse('${json['absent_days'] ?? ''}') ?? 0,
         punchInDays: int.tryParse('${json['punch_in_days'] ?? ''}') ?? 0,
         punchOutDays: int.tryParse('${json['punch_out_days'] ?? ''}') ?? 0,

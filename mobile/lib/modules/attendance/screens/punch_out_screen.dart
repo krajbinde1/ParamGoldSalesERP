@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../models/attendance_format.dart';
 import '../providers/attendance_provider.dart';
 import '../route_tracking/route_tracking_provider.dart';
 import '../route_tracking/route_tracking_service.dart';
@@ -18,17 +19,26 @@ class _PunchOutScreenState extends ConsumerState<PunchOutScreen> {
     if (busy) return;
     setState(() => busy = true);
     try {
-      await ref.read(todayAttendanceProvider.notifier).punch('punch-out');
+      final attendance = await ref
+          .read(todayAttendanceProvider.notifier)
+          .punch('punch-out');
       if (mounted) {
         refreshRouteTrackingStatus(ref);
-        final trackingStatus = RouteTrackingService.instance.statusMessage;
+        final punchInTime = attendance.punchIn == null
+            ? '—'
+            : AttendanceFormat.time(attendance.punchIn);
+        final punchOutTime = attendance.punchOut == null
+            ? '—'
+            : AttendanceFormat.time(attendance.punchOut);
+        final working = attendance.workingHours ?? '—';
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             content: Text(
-              trackingStatus == 'Punch out complete' ||
-                      trackingStatus == 'No active attendance found'
-                  ? 'Punch out recorded successfully. Route tracking stopped.'
-                  : 'Punch out recorded successfully.',
+              'Punch Out Successful\n'
+              'Punch In: $punchInTime\n'
+              'Punch Out: $punchOutTime\n'
+              'Working Hours: $working\n'
+              'Status: ${attendance.status}',
             ),
           ),
         );

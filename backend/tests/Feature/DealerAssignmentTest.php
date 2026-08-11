@@ -314,11 +314,11 @@ it('blocks deleting an employee while dealers remain assigned', function () {
     app(DeleteEmployeeWithUserAccount::class)->execute($employee);
 })->throws(ValidationException::class);
 
-it('blocks deactivating an employee while dealers remain assigned', function () {
+it('allows deactivating an employee while dealers remain assigned', function () {
     $employee = createAssignableEmployee();
     createAssignedDealer($employee);
 
-    app(UpdateEmployeeWithUserAccount::class)->execute($employee, [
+    $updated = app(UpdateEmployeeWithUserAccount::class)->execute($employee, [
         'full_name' => $employee->full_name,
         'mobile' => $employee->mobile,
         'email' => $employee->email,
@@ -338,7 +338,10 @@ it('blocks deactivating an employee while dealers remain assigned', function () 
         'ifsc_code' => $employee->ifsc_code,
         'status' => false,
     ]);
-})->throws(ValidationException::class);
+
+    expect($updated->status)->toBeFalse()
+        ->and(Dealer::query()->where('assigned_employee_id', $employee->id)->count())->toBe(1);
+});
 
 it('lets managers see dealers assigned to direct reports only', function () {
     $manager = createAssignableEmployee([

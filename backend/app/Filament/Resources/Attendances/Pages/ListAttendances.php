@@ -17,7 +17,10 @@ class ListAttendances extends ListRecords
         return [];
     }
 
-    protected function getHeaderWidgets(): array
+    /**
+     * Today's Attendance is the main table (top). Monthly summary sits below.
+     */
+    protected function getFooterWidgets(): array
     {
         return [
             MonthlyAttendanceSummary::class,

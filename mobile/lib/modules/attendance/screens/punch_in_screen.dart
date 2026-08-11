@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/widgets/design/pg_scaffold.dart';
+import '../models/attendance_format.dart';
 import '../providers/attendance_provider.dart';
 import '../route_tracking/route_tracking_permissions.dart';
 import '../route_tracking/route_tracking_provider.dart';
@@ -20,7 +21,9 @@ class _PunchInScreenState extends ConsumerState<PunchInScreen> {
     if (busy) return;
     setState(() => busy = true);
     try {
-      await ref.read(todayAttendanceProvider.notifier).punch('punch-in');
+      final attendance = await ref
+          .read(todayAttendanceProvider.notifier)
+          .punch('punch-in');
       await refreshRouteTrackingStatus(ref);
       if (!mounted) return;
       final trackingStatus = RouteTrackingService.instance.statusMessage;
@@ -31,14 +34,21 @@ class _PunchInScreenState extends ConsumerState<PunchInScreen> {
           RouteTrackingService.instance.uiStatus.permissionStatus == 'OK'
           ? ''
           : ' ${RouteTrackingPermissions.setupGuidance}';
+      final punchInTime = attendance.punchIn == null
+          ? '—'
+          : AttendanceFormat.time(attendance.punchIn);
+      final trackingNote = trackingActive
+          ? ' Route Tracking Active.$guidance'
+          : trackingStatus.isEmpty
+          ? ''
+          : ' $trackingStatus';
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            trackingActive
-                ? 'Punch in recorded successfully. Route Tracking Active.$guidance'
-                : trackingStatus.isEmpty
-                ? 'Punch in recorded successfully.'
-                : 'Punch in recorded successfully. $trackingStatus',
+            'Punch In Successful\n'
+            'Status: ${attendance.status}\n'
+            'Punch In Time: $punchInTime'
+            '$trackingNote',
           ),
         ),
       );

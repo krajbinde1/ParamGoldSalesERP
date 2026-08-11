@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Attendance\AttendanceStatusCalculator;
 use App\Support\AttendanceCalendar;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,20 +15,26 @@ class Attendance extends Model
     use SoftDeletes;
 
     public const ATTENDANCE_STATUS_LABELS = [
-        'Present' => 'Present', 'Absent' => 'Absent', 'Half Day' => 'Half Day', 'Leave' => 'Leave', 'Weekly Off' => 'Weekly Off',
+        AttendanceStatusCalculator::STATUS_PUNCHED_IN => 'Punched In',
+        AttendanceStatusCalculator::STATUS_PRESENT => 'Present',
+        AttendanceStatusCalculator::STATUS_HALF_DAY => 'Half Day',
+        AttendanceStatusCalculator::STATUS_ABSENT => 'Absent',
+        AttendanceStatusCalculator::STATUS_LEAVE => 'Leave',
+        AttendanceStatusCalculator::STATUS_WEEKLY_OFF => 'Weekly Off',
     ];
 
     public const APPROVAL_STATUS_LABELS = [
         'Pending' => 'Pending', 'Approved' => 'Approved', 'Rejected' => 'Rejected',
     ];
 
-    private const PRESENT_STATUSES = ['Present', 'Half Day'];
-
-    public const ADMIN_MIN_PRESENT_MINUTES = 480;
+    /** @deprecated Use AttendanceStatusCalculator::PRESENT_MINUTES */
+    public const ADMIN_MIN_PRESENT_MINUTES = AttendanceStatusCalculator::PRESENT_MINUTES;
 
     protected static function booted(): void
     {
         static::saving(function (Attendance $attendance): void {
+            $calculator = app(AttendanceStatusCalculator::class);
+
             if (filled($attendance->punch_in_time) && filled($attendance->punch_out_time)) {
                 $punchIn = Carbon::parse(
                     $attendance->attendance_date->toDateString().' '.$attendance->punch_in_time,
@@ -45,8 +52,15 @@ class Attendance extends Model
                 $minutes = $punchIn->diffInMinutes($punchOut);
                 $attendance->working_hours = sprintf('%02d:%02d', intdiv($minutes, 60), $minutes % 60);
                 $attendance->total_working_minutes = $minutes;
+            } elseif (filled($attendance->punch_in_time) && blank($attendance->punch_out_time)) {
+                $attendance->working_hours = null;
+                $attendance->total_working_minutes = null;
             } else {
                 $attendance->working_hours = null;
+            }
+
+            if ($calculator->shouldAutoRecalculate($attendance->attendance_status)) {
+                $attendance->attendance_status = $calculator->calculateForAttendance($attendance);
             }
         });
     }
@@ -78,69 +92,113 @@ class Attendance extends Model
         return AttendanceCalendar::today();
     }
 
+    /**
+     * @return array{
+     *     month: int,
+     *     year: int,
+     *     working_days: int,
+     *     present_days: int,
+     *     half_days: int,
+     *     absent_days: int,
+     *     punch_in_days: int,
+     *     punch_out_days: int
+     * }
+     */
     public static function monthlySummary(int $employeeId, int $month, int $year): array
     {
-        $periodStart = Carbon::create($year, $month, 1, 0, 0, 0, AttendanceCalendar::TIMEZONE)->startOfDay();
-        $periodEnd = AttendanceCalendar::periodEndForMonth($month, $year);
-        $workingDays = AttendanceCalendar::workingDaysInPeriod($periodStart, $periodEnd);
-
-        $records = self::query()
-            ->where('employee_id', $employeeId)
-            ->whereDate('attendance_date', '>=', $periodStart->toDateString())
-            ->whereDate('attendance_date', '<=', $periodEnd->toDateString())
-            ->get();
-
-        $presentDays = $records
-            ->filter(fn (self $attendance): bool => in_array($attendance->attendance_status, self::PRESENT_STATUSES, true))
-            ->count();
-
-        $punchInDays = $records->filter(fn (self $attendance): bool => filled($attendance->punch_in_time))->count();
-        $punchOutDays = $records->filter(fn (self $attendance): bool => filled($attendance->punch_out_time))->count();
-        $absentDays = max(0, $workingDays - $presentDays);
-
-        return [
-            'month' => $month,
-            'year' => $year,
-            'working_days' => $workingDays,
-            'present_days' => $presentDays,
-            'absent_days' => $absentDays,
-            'punch_in_days' => $punchInDays,
-            'punch_out_days' => $punchOutDays,
-        ];
+        return self::buildMonthlySummary($employeeId, $month, $year);
     }
 
+    /**
+     * @return array{
+     *     employee_id: int,
+     *     month: int,
+     *     year: int,
+     *     working_days: int,
+     *     present_days: int,
+     *     half_days: int,
+     *     absent_days: int
+     * }
+     */
     public static function adminEmployeeMonthlySummary(int $employeeId, int $month, int $year): array
     {
-        $periodStart = Carbon::create($year, $month, 1, 0, 0, 0, AttendanceCalendar::TIMEZONE)->startOfDay();
-        $periodEnd = AttendanceCalendar::periodEndForMonth($month, $year);
-        $workingDays = AttendanceCalendar::workingDaysInPeriod($periodStart, $periodEnd);
-
-        $records = self::query()
-            ->where('employee_id', $employeeId)
-            ->whereDate('attendance_date', '>=', $periodStart->toDateString())
-            ->whereDate('attendance_date', '<=', $periodEnd->toDateString())
-            ->get();
-
-        $presentDays = $records
-            ->groupBy(fn (self $attendance): string => $attendance->attendance_date->toDateString())
-            ->filter(function ($dateRecords): bool {
-                $longestMinutes = $dateRecords
-                    ->map(fn (self $attendance): ?int => $attendance->workingDurationMinutes())
-                    ->filter()
-                    ->max();
-
-                return $longestMinutes !== null
-                    && $longestMinutes >= self::ADMIN_MIN_PRESENT_MINUTES;
-            })
-            ->count();
+        $summary = self::buildMonthlySummary($employeeId, $month, $year);
 
         return [
             'employee_id' => $employeeId,
+            'month' => $summary['month'],
+            'year' => $summary['year'],
+            'working_days' => $summary['working_days'],
+            'present_days' => $summary['present_days'],
+            'half_days' => $summary['half_days'],
+            'absent_days' => $summary['absent_days'],
+        ];
+    }
+
+    /**
+     * @return array{
+     *     month: int,
+     *     year: int,
+     *     working_days: int,
+     *     present_days: int,
+     *     half_days: int,
+     *     absent_days: int,
+     *     punch_in_days: int,
+     *     punch_out_days: int
+     * }
+     */
+    private static function buildMonthlySummary(int $employeeId, int $month, int $year): array
+    {
+        $periodStart = Carbon::create($year, $month, 1, 0, 0, 0, AttendanceCalendar::TIMEZONE)->startOfDay();
+        $periodEnd = AttendanceCalendar::periodEndForMonth($month, $year);
+        $workingDays = AttendanceCalendar::workingDaysInPeriod($periodStart, $periodEnd);
+        $calculator = app(AttendanceStatusCalculator::class);
+
+        $records = self::query()
+            ->where('employee_id', $employeeId)
+            ->whereDate('attendance_date', '>=', $periodStart->toDateString())
+            ->whereDate('attendance_date', '<=', $periodEnd->toDateString())
+            ->get()
+            ->groupBy(fn (self $attendance): string => $attendance->attendance_date->toDateString());
+
+        $presentDays = 0;
+        $halfDays = 0;
+        $absentDays = 0;
+        $openPunchToday = 0;
+
+        for ($date = $periodStart->copy(); $date->lte($periodEnd); $date->addDay()) {
+            if ($date->isSunday()) {
+                continue;
+            }
+
+            $dayRecords = $records->get($date->toDateString(), collect());
+            $best = $dayRecords
+                ->sortByDesc(fn (self $attendance): int => $attendance->workingDurationMinutes() ?? -1)
+                ->first();
+
+            $classification = $calculator->classifyWorkingDay($best, $date);
+
+            match ($classification) {
+                AttendanceStatusCalculator::STATUS_PRESENT => $presentDays++,
+                AttendanceStatusCalculator::STATUS_HALF_DAY => $halfDays++,
+                AttendanceStatusCalculator::STATUS_PUNCHED_IN => $openPunchToday++,
+                AttendanceStatusCalculator::STATUS_LEAVE,
+                AttendanceStatusCalculator::STATUS_WEEKLY_OFF => null,
+                default => $absentDays++,
+            };
+        }
+
+        $flatRecords = $records->flatten(1);
+
+        return [
             'month' => $month,
             'year' => $year,
             'working_days' => $workingDays,
             'present_days' => $presentDays,
-            'absent_days' => max(0, $workingDays - $presentDays),
+            'half_days' => $halfDays,
+            'absent_days' => $absentDays,
+            'punch_in_days' => $flatRecords->filter(fn (self $attendance): bool => filled($attendance->punch_in_time))->count(),
+            'punch_out_days' => $flatRecords->filter(fn (self $attendance): bool => filled($attendance->punch_out_time))->count(),
         ];
     }
 
@@ -150,7 +208,7 @@ class Attendance extends Model
             return null;
         }
 
-        if ($this->total_working_minutes !== null && $this->total_working_minutes > 0) {
+        if ($this->total_working_minutes !== null && $this->total_working_minutes >= 0) {
             return $this->total_working_minutes;
         }
 

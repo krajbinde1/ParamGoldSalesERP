@@ -123,7 +123,14 @@ class DealerController extends Controller
      */
     public function destroy(Dealer $dealer)
     {
-        app(\App\Services\SafeDelete\SafeDeleteGuard::class)->assertCanDelete($dealer);
+        try {
+            app(\App\Services\SafeDelete\SafeDeleteGuard::class)->assertCanDelete($dealer);
+        } catch (\Illuminate\Validation\ValidationException $exception) {
+            $message = $exception->errors()['delete'][0]
+                ?? 'Cannot delete this dealer because it is already used in the system. You can deactivate it instead.';
+
+            return redirect()->back()->with('error', $message);
+        }
 
         $dealer->delete();
 

@@ -10,9 +10,7 @@ import '../../../core/widgets/design/pg_quick_action.dart';
 import '../../../core/widgets/design/pg_scaffold.dart';
 import '../../auth/providers/auth_controller.dart';
 import '../api/ta_da_claim_api.dart';
-import '../models/ta_da_claim_calendar_data.dart';
 import '../models/ta_da_claim_dashboard_data.dart';
-import '../widgets/ta_da_claim_calendar.dart';
 import '../widgets/ta_da_claim_widgets.dart';
 
 class TaDaClaimDashboardScreen extends StatefulWidget {
@@ -26,9 +24,6 @@ class TaDaClaimDashboardScreen extends StatefulWidget {
 
 class _TaDaClaimDashboardScreenState extends State<TaDaClaimDashboardScreen> {
   late Future<TaDaClaimDashboardData> _future;
-  late int _calendarMonth;
-  late int _calendarYear;
-  Future<TaDaClaimCalendarData>? _calendarFuture;
 
   TaDaClaimApi get _api => TaDaClaimApi(
     ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
@@ -37,53 +32,14 @@ class _TaDaClaimDashboardScreenState extends State<TaDaClaimDashboardScreen> {
   @override
   void initState() {
     super.initState();
-    final now = DateTime.now();
-    _calendarMonth = now.month;
-    _calendarYear = now.year;
     _future = _loadDashboard();
-    _calendarFuture = _loadCalendar();
   }
 
   Future<TaDaClaimDashboardData> _loadDashboard() => _api.loadDashboard();
 
-  Future<TaDaClaimCalendarData> _loadCalendar() =>
-      _api.loadCalendar(month: _calendarMonth, year: _calendarYear);
-
   Future<void> _reload() async {
-    setState(() {
-      _future = _loadDashboard();
-      _calendarFuture = _loadCalendar();
-    });
-    await Future.wait([_future, _calendarFuture!]);
-  }
-
-  void _goToPreviousMonth() {
-    final date = DateTime(_calendarYear, _calendarMonth - 1, 1);
-    setState(() {
-      _calendarMonth = date.month;
-      _calendarYear = date.year;
-      _calendarFuture = _loadCalendar();
-    });
-  }
-
-  void _goToNextMonth() {
-    if (!_canGoNextMonth) return;
-    final date = DateTime(_calendarYear, _calendarMonth + 1, 1);
-    setState(() {
-      _calendarMonth = date.month;
-      _calendarYear = date.year;
-      _calendarFuture = _loadCalendar();
-    });
-  }
-
-  bool get _canGoNextMonth {
-    final nextMonth = DateTime(_calendarYear, _calendarMonth + 1, 1);
-    final todayMonth = DateTime(
-      TaDaClaimCalendar.today.year,
-      TaDaClaimCalendar.today.month,
-      1,
-    );
-    return !nextMonth.isAfter(todayMonth);
+    setState(() => _future = _loadDashboard());
+    await _future;
   }
 
   Future<void> _openClaim(int claimId) async {
@@ -92,23 +48,10 @@ class _TaDaClaimDashboardScreenState extends State<TaDaClaimDashboardScreen> {
     await _reload();
   }
 
-  Future<void> _openNewClaim([DateTime? claimDate]) async {
-    final result = await context.push<bool>(
-      '/ta-da-claims/new',
-      extra: claimDate,
-    );
+  Future<void> _openNewClaim() async {
+    final result = await context.push<bool>('/ta-da-claims/new');
     if (!mounted) return;
     if (result == true) await _reload();
-  }
-
-  void _onCalendarDateTap(DateTime date, TaDaClaimCalendarEntry? claim) {
-    if (claim != null) {
-      _openClaim(claim.id);
-      return;
-    }
-
-    if (date.isAfter(TaDaClaimCalendar.today)) return;
-    _openNewClaim(date);
   }
 
   @override
@@ -123,7 +66,7 @@ class _TaDaClaimDashboardScreenState extends State<TaDaClaimDashboardScreen> {
       auth: widget.auth,
       title: 'TA/DA Claim',
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () => _openNewClaim(),
+        onPressed: _openNewClaim,
         icon: const Icon(Icons.add_rounded),
         label: const Text('New Claim'),
       ),
@@ -161,53 +104,35 @@ class _TaDaClaimDashboardScreenState extends State<TaDaClaimDashboardScreen> {
               padding: const EdgeInsets.all(AppSpacing.screenPadding),
               children: [
                 LayoutBuilder(
-                  builder: (context, constraints) => GridView.count(
-                    crossAxisCount: 2,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    childAspectRatio: constraints.maxWidth >= 700 ? 1.8 : 1.35,
-                    mainAxisSpacing: AppSpacing.sm,
-                    crossAxisSpacing: AppSpacing.sm,
-                    children: [
-                      TaDaClaimSummaryCard(
-                        label: 'Total Claims',
-                        value: '${summary.totalClaims}',
-                        color: AppColors.primary,
-                      ),
-                      TaDaClaimSummaryCard(
-                        label: 'This Month Claims',
-                        value: '${summary.monthClaims}',
-                        color: AppColors.info,
-                      ),
-                      TaDaClaimSummaryCard(
-                        label: 'Pending Claims',
-                        value: '${summary.pendingClaims}',
-                        color: AppColors.pendingFg,
-                      ),
-                      TaDaClaimSummaryCard(
-                        label: 'Approved Claims',
-                        value: '${summary.approvedClaims}',
-                        color: AppColors.approvedFg,
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                FutureBuilder<TaDaClaimCalendarData>(
-                  future: _calendarFuture,
-                  builder: (context, calendarSnapshot) {
-                    final calendarData = calendarSnapshot.data;
-                    return TaDaClaimCalendar(
-                      month: _calendarMonth,
-                      year: _calendarYear,
-                      claimsByDate: calendarData?.claimsByDate ?? const {},
-                      loading:
-                          calendarSnapshot.connectionState ==
-                          ConnectionState.waiting,
-                      onPreviousMonth: _goToPreviousMonth,
-                      onNextMonth: _canGoNextMonth ? _goToNextMonth : null,
-                      canGoNextMonth: _canGoNextMonth,
-                      onDateTap: _onCalendarDateTap,
+                  builder: (context, constraints) {
+                    final wide = constraints.maxWidth >= 700;
+                    return GridView.count(
+                      crossAxisCount: wide ? 3 : 2,
+                      shrinkWrap: true,
+                      physics: const NeverScrollableScrollPhysics(),
+                      childAspectRatio: wide ? 2.2 : 1.45,
+                      mainAxisSpacing: AppSpacing.sm,
+                      crossAxisSpacing: AppSpacing.sm,
+                      children: [
+                        TaDaClaimSummaryCard(
+                          label: 'Pending Claims',
+                          value: '${summary.pendingClaims}',
+                          color: AppColors.pendingFg,
+                          icon: const Icon(Icons.hourglass_top_rounded),
+                        ),
+                        TaDaClaimSummaryCard(
+                          label: 'Approved Claims',
+                          value: '${summary.approvedClaims}',
+                          color: AppColors.approvedFg,
+                          icon: const Icon(Icons.verified_rounded),
+                        ),
+                        TaDaClaimSummaryCard(
+                          label: 'Paid Claims',
+                          value: '${summary.paidClaims}',
+                          color: AppColors.paidFg,
+                          icon: const Icon(Icons.payments_rounded),
+                        ),
+                      ],
                     );
                   },
                 ),
@@ -216,7 +141,7 @@ class _TaDaClaimDashboardScreenState extends State<TaDaClaimDashboardScreen> {
                 if (data.recentClaims.isEmpty)
                   const PgEmptyState(
                     message: 'No TA/DA claims submitted yet.',
-                    icon: const Icon(Icons.receipt_long_outlined),
+                    icon: Icon(Icons.receipt_long_outlined),
                   )
                 else
                   ...data.recentClaims.map(
@@ -226,7 +151,7 @@ class _TaDaClaimDashboardScreenState extends State<TaDaClaimDashboardScreen> {
                       onTap: claim.id == 0 ? null : () => _openClaim(claim.id),
                     ),
                   ),
-                const SizedBox(height: 80),
+                const SizedBox(height: 88),
               ],
             );
           },

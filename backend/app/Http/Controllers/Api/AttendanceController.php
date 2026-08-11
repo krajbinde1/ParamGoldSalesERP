@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
 use App\Models\EmployeeRoutePoint;
+use App\Services\Attendance\AttendanceStatusCalculator;
 use App\Support\AttendanceCalendar;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -82,7 +83,7 @@ class AttendanceController extends Controller
             'punch_in_location' => $validated['location_address'],
             'punch_in_photo' => str_replace('\\', '/', $request->file('photo')->store('attendance', 'public')),
             'remarks' => $validated['remarks'] ?? null,
-            'attendance_status' => 'Present',
+            'attendance_status' => AttendanceStatusCalculator::STATUS_PUNCHED_IN,
             'approval_status' => 'Pending',
         ]);
 
@@ -233,6 +234,8 @@ class AttendanceController extends Controller
 
     private function formatAttendance(Attendance $attendance): array
     {
+        $calculator = app(AttendanceStatusCalculator::class);
+
         return [
             'id' => $attendance->id,
             'employee_id' => $attendance->employee_id,
@@ -263,6 +266,7 @@ class AttendanceController extends Controller
             'in_photo' => $this->photoUrl($attendance->punch_in_photo),
             'out_photo' => $this->photoUrl($attendance->punch_out_photo),
             'working_hours' => $attendance->working_hours,
+            'working_hours_label' => $calculator->formatWorkingHoursLabel($attendance),
             'total_working_minutes' => $attendance->total_working_minutes,
             'attendance_status' => $attendance->attendance_status,
             'status' => $attendance->attendance_status,

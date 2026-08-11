@@ -3,8 +3,10 @@
 namespace App\Filament\Resources\RawMaterials\Tables;
 
 use App\Enums\InventoryUnit;
+use App\Filament\Actions\SafeDeleteActions;
 use App\Filament\Resources\RawMaterials\RawMaterialResource;
 use App\Models\RawMaterial;
+use Filament\Actions\BulkActionGroup;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\IconColumn;
@@ -53,6 +55,11 @@ class RawMaterialsTable
                 ViewAction::make(),
                 EditAction::make()
                     ->authorize(fn (RawMaterial $record): bool => RawMaterialResource::canEdit($record)),
+            ])
+            ->toolbarActions([
+                BulkActionGroup::make([
+                    SafeDeleteActions::deleteBulkAction(),
+                ]),
             ])
             ->paginated([10, 25, 50])
             ->defaultPaginationPageOption(25)

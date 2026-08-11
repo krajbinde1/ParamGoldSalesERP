@@ -145,31 +145,21 @@ final class SafeDeleteGuard
             ['Production Batches', ProductionBatch::query()->where('product_id', $product->id)->count()],
             ['Stock Ledger', StockLedger::query()->where('product_id', $product->id)->count()],
             ['Stock Adjustments', StockAdjustment::query()->where('product_id', $product->id)->count()],
-            ['Finished Goods Profile', FinishedProduct::query()->where('product_id', $product->id)->count()],
         ], supportsDeactivate: true);
     }
 
     private function assessFinishedProduct(FinishedProduct $finishedProduct): SafeDeleteAssessment
     {
-        // Finished Product sidecar is tightly coupled to Product usage — protect via product rules.
-        $product = $finishedProduct->product;
-
-        if ($product instanceof Product) {
-            $assessment = $this->assessProduct($product);
-
-            return new SafeDeleteAssessment(
-                record: $finishedProduct,
-                entityLabel: 'finished goods record',
-                allowed: $assessment->allowed,
-                dependencies: $assessment->dependencies,
-                supportsDeactivate: true,
-            );
-        }
+        // Finished Product is a sidecar of Product — block only when the product has transactional usage.
+        $productId = (int) $finishedProduct->product_id;
 
         return $this->makeAssessment($finishedProduct, 'finished goods record', [
-            ['Stock Ledger', StockLedger::query()->where('product_id', $finishedProduct->product_id)->count()],
-            ['Production Batches', ProductionBatch::query()->where('product_id', $finishedProduct->product_id)->count()],
-        ]);
+            ['Orders', OrderItem::query()->where('product_id', $productId)->count()],
+            ['Bill of Materials', Bom::query()->where('product_id', $productId)->count()],
+            ['Production Batches', ProductionBatch::query()->where('product_id', $productId)->count()],
+            ['Stock Ledger', StockLedger::query()->where('product_id', $productId)->count()],
+            ['Stock Adjustments', StockAdjustment::query()->where('product_id', $productId)->count()],
+        ], supportsDeactivate: true);
     }
 
     private function assessRawMaterial(RawMaterial $material): SafeDeleteAssessment

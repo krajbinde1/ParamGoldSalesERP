@@ -27,7 +27,7 @@ class AttendanceForm
                     Select::make('employee_id')->label('Employee')->relationship('employee', 'full_name', fn (Builder $query) => $query->where('status', true))->searchable()->preload()->required()->tap(fn (Select $select) => EmployeeSelect::applyRelationshipSelect($select))
                         ->rules(fn (Get $get, ?Attendance $record): array => [Rule::unique('attendances', 'employee_id')->where('attendance_date', $get('attendance_date'))->ignore($record)]),
                     DatePicker::make('attendance_date')->default(now())->native(false)->required(),
-                    Select::make('attendance_status')->options(Attendance::ATTENDANCE_STATUS_LABELS)->default('Present')->required(),
+                    Select::make('attendance_status')->label('Attendance Status')->options(Attendance::ATTENDANCE_STATUS_LABELS)->default(\App\Services\Attendance\AttendanceStatusCalculator::STATUS_PUNCHED_IN)->required(),
                     Select::make('approval_status')->options(Attendance::APPROVAL_STATUS_LABELS)->default('Pending')->disabled()->dehydrated(),
                     TimePicker::make('punch_in_time')->label('Punch In Time')->live()->afterStateUpdated(fn (Get $get, Set $set) => self::setWorkingHours($get, $set)),
                     TimePicker::make('punch_out_time')->label('Punch Out Time')->live()->afterStateUpdated(fn (Get $get, Set $set) => self::setWorkingHours($get, $set)),

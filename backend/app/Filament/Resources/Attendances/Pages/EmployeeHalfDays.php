@@ -7,18 +7,14 @@ use App\Models\Employee;
 use App\Support\AttendanceAdminMonthlyReport;
 use App\Support\AttendanceCalendar;
 use Filament\Resources\Pages\Page;
-use Illuminate\Contracts\Support\Htmlable;
-use Illuminate\Support\HtmlString;
 
-class EmployeeMonthlyDetails extends Page
+class EmployeeHalfDays extends Page
 {
     protected static string $resource = AttendanceResource::class;
 
-    protected static ?string $title = 'Monthly Attendance';
+    protected static ?string $title = 'Half Days';
 
-    protected static ?string $navigationLabel = 'Monthly Attendance';
-
-    protected string $view = 'filament.resources.attendances.employee-monthly-details';
+    protected string $view = 'filament.resources.attendances.employee-half-days';
 
     public Employee $employee;
 
@@ -33,29 +29,11 @@ class EmployeeMonthlyDetails extends Page
         $this->year = (int) request()->query('year', AttendanceCalendar::now()->year);
     }
 
-    public function getHeading(): string|Htmlable
-    {
-        return 'Employee Monthly Attendance';
-    }
-
-    public function getSubheading(): string|Htmlable|null
+    public function getHeading(): string
     {
         $monthLabel = AttendanceCalendar::now()->month($this->month)->format('F');
 
-        return new HtmlString(
-            e($this->employee->full_name).'<br>'.e($monthLabel.' '.$this->year),
-        );
-    }
-
-    /**
-     * @return array<string, string>
-     */
-    public function getBreadcrumbs(): array
-    {
-        return [
-            AttendanceResource::getUrl('index') => 'Attendances',
-            url()->current() => 'Monthly Attendance',
-        ];
+        return "{$this->employee->full_name} - Half Days ({$monthLabel} {$this->year})";
     }
 
     /**
@@ -63,7 +41,7 @@ class EmployeeMonthlyDetails extends Page
      */
     public function getRows(): array
     {
-        return AttendanceAdminMonthlyReport::monthlyDetailRows(
+        return AttendanceAdminMonthlyReport::halfDayRows(
             $this->employee->id,
             $this->month,
             $this->year,

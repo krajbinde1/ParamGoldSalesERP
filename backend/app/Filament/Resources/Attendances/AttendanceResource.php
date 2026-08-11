@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Attendances;
 
 use App\Filament\Concerns\DeniesOrdersOnlyFilamentUsers;
 use App\Filament\Resources\Attendances\Pages\EmployeeAbsentDays;
+use App\Filament\Resources\Attendances\Pages\EmployeeHalfDays;
 use App\Filament\Resources\Attendances\Pages\EmployeeMonthlyDetails;
 use App\Filament\Resources\Attendances\Pages\EmployeePresentDays;
 use App\Filament\Resources\Attendances\Pages\ListAttendances;
@@ -62,6 +63,7 @@ class AttendanceResource extends Resource
             'index' => ListAttendances::route('/'),
             'view' => ViewAttendance::route('/{record}'),
             'employee-present-days' => EmployeePresentDays::route('/employee/{employee}/present-days'),
+            'employee-half-days' => EmployeeHalfDays::route('/employee/{employee}/half-days'),
             'employee-absent-days' => EmployeeAbsentDays::route('/employee/{employee}/absent-days'),
             'employee-monthly-details' => EmployeeMonthlyDetails::route('/employee/{employee}/monthly-details'),
         ];

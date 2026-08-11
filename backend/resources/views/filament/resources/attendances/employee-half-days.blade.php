@@ -3,9 +3,9 @@
         <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
             <thead class="bg-gray-50 dark:bg-gray-900">
                 <tr class="text-left">
-                    <th class="px-4 py-3">Date</th>
-                    <th class="px-4 py-3">Punch In</th>
-                    <th class="px-4 py-3">Punch Out</th>
+                    <th class="px-4 py-3">Attendance Date</th>
+                    <th class="px-4 py-3">Punch In Time (IST)</th>
+                    <th class="px-4 py-3">Punch Out Time (IST)</th>
                     <th class="px-4 py-3">Working Hours</th>
                     <th class="px-4 py-3">Status</th>
                     <th class="px-4 py-3">View</th>
@@ -22,22 +22,18 @@
                         <td class="px-4 py-3">{{ $row['working_hours'] }}</td>
                         <td class="px-4 py-3">{{ $row['status'] }}</td>
                         <td class="px-4 py-3">
-                            @if (! empty($row['attendance_id']))
-                                <a
-                                    href="{{ \App\Filament\Resources\Attendances\AttendanceResource::getUrl('view', ['record' => $row['attendance_id']]) }}"
-                                    class="text-primary-600 hover:underline"
-                                >
-                                    View
-                                </a>
-                            @else
-                                —
-                            @endif
+                            <a
+                                href="{{ \App\Filament\Resources\Attendances\AttendanceResource::getUrl('view', ['record' => $row['attendance_id']]) }}"
+                                class="text-primary-600 hover:underline"
+                            >
+                                View
+                            </a>
                         </td>
                     </tr>
                 @empty
                     <tr>
                         <td colspan="6" class="px-4 py-8 text-center text-gray-500">
-                            No attendance days found for this employee in the selected month.
+                            No half days found for this employee in the selected month.
                         </td>
                     </tr>
                 @endforelse

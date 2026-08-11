@@ -4,12 +4,14 @@ class TaDaClaimSummary {
     required this.monthClaims,
     required this.pendingClaims,
     required this.approvedClaims,
+    required this.paidClaims,
   });
 
   final int totalClaims;
   final int monthClaims;
   final int pendingClaims;
   final int approvedClaims;
+  final int paidClaims;
 
   factory TaDaClaimSummary.fromJson(Map<String, dynamic> json) =>
       TaDaClaimSummary(
@@ -17,6 +19,7 @@ class TaDaClaimSummary {
         monthClaims: int.tryParse('${json['month_claims'] ?? 0}') ?? 0,
         pendingClaims: int.tryParse('${json['pending_claims'] ?? 0}') ?? 0,
         approvedClaims: int.tryParse('${json['approved_claims'] ?? 0}') ?? 0,
+        paidClaims: int.tryParse('${json['paid_claims'] ?? 0}') ?? 0,
       );
 
   static const empty = TaDaClaimSummary(
@@ -24,5 +27,6 @@ class TaDaClaimSummary {
     monthClaims: 0,
     pendingClaims: 0,
     approvedClaims: 0,
+    paidClaims: 0,
   );
 }

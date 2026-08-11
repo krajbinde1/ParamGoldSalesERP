@@ -23,16 +23,6 @@ final class UpdateEmployeeWithUserAccount
         Employee::validateReportingManager($validator, $employee);
         $validator->validate();
 
-        if (
-            array_key_exists('status', $employeeData)
-            && ! (bool) $employeeData['status']
-            && $employee->status
-            && $employee->assignedDealers()->exists()
-        ) {
-            // Allowed: inactive employees keep historical dealer assignments.
-            // New assignments should use active employees only (assignment selectors already filter by status).
-        }
-
         return DB::transaction(function () use ($employee, $employeeData): Employee {
             $role = isset($employeeData['role'])
                 ? UserRole::tryFromMixed($employeeData['role'])->value

@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\Attendance;
+use App\Services\Attendance\AttendanceStatusCalculator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -13,31 +14,15 @@ class AttendanceAdminMonthlyReport
      */
     public static function presentRows(int $employeeId, int $month, int $year): array
     {
-        $records = self::recordsForPeriod($employeeId, $month, $year);
+        return self::statusRows($employeeId, $month, $year, AttendanceStatusCalculator::STATUS_PRESENT);
+    }
 
-        return $records
-            ->groupBy(fn (Attendance $attendance): string => $attendance->attendance_date->toDateString())
-            ->map(function (Collection $dateRecords, string $date): ?array {
-                $best = self::bestRecordForDate($dateRecords);
-                $minutes = $best?->workingDurationMinutes();
-
-                if ($minutes === null || $minutes < Attendance::ADMIN_MIN_PRESENT_MINUTES) {
-                    return null;
-                }
-
-                return [
-                    'attendance_id' => $best->id,
-                    'attendance_date' => $date,
-                    'punch_in_time' => $best->punchInAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('h:i A') ?? '-',
-                    'punch_out_time' => $best->punchOutAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('h:i A') ?? '-',
-                    'working_hours' => $best->working_hours ?? '-',
-                    'status' => $best->attendance_status,
-                ];
-            })
-            ->filter()
-            ->sortKeys()
-            ->values()
-            ->all();
+    /**
+     * @return array<int, array<string, mixed>>
+     */
+    public static function halfDayRows(int $employeeId, int $month, int $year): array
+    {
+        return self::statusRows($employeeId, $month, $year, AttendanceStatusCalculator::STATUS_HALF_DAY);
     }
 
     /**
@@ -49,6 +34,7 @@ class AttendanceAdminMonthlyReport
         $periodEnd = AttendanceCalendar::periodEndForMonth($month, $year);
         $records = self::recordsForPeriod($employeeId, $month, $year)
             ->groupBy(fn (Attendance $attendance): string => $attendance->attendance_date->toDateString());
+        $calculator = app(AttendanceStatusCalculator::class);
 
         $rows = [];
 
@@ -59,15 +45,55 @@ class AttendanceAdminMonthlyReport
 
             $dateKey = $date->toDateString();
             $dateRecords = $records->get($dateKey, collect());
+            $best = self::bestRecordForDate($dateRecords);
+            $classification = $calculator->classifyWorkingDay($best, $date);
 
-            if (self::isPresentDate($dateRecords)) {
+            if ($classification !== AttendanceStatusCalculator::STATUS_ABSENT) {
                 continue;
             }
 
             $rows[] = [
                 'absent_date' => $dateKey,
                 'day_name' => $date->format('l'),
-                'reason' => self::absentReason($dateRecords),
+                'reason' => self::absentReason($dateRecords, $date),
+            ];
+        }
+
+        return $rows;
+    }
+
+    /**
+     * Date-wise attendance for the month (includes missing working days as Absent).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    public static function monthlyDetailRows(int $employeeId, int $month, int $year): array
+    {
+        $periodStart = Carbon::create($year, $month, 1, 0, 0, 0, AttendanceCalendar::TIMEZONE)->startOfDay();
+        $periodEnd = AttendanceCalendar::periodEndForMonth($month, $year);
+        $records = self::recordsForPeriod($employeeId, $month, $year)
+            ->groupBy(fn (Attendance $attendance): string => $attendance->attendance_date->toDateString());
+        $calculator = app(AttendanceStatusCalculator::class);
+
+        $rows = [];
+
+        for ($date = $periodStart->copy(); $date->lte($periodEnd); $date->addDay()) {
+            if ($date->isSunday()) {
+                continue;
+            }
+
+            $dateKey = $date->toDateString();
+            $best = self::bestRecordForDate($records->get($dateKey, collect()));
+            $status = $calculator->classifyWorkingDay($best, $date);
+
+            $rows[] = [
+                'attendance_id' => $best?->id,
+                'attendance_date' => $dateKey,
+                'punch_in_time' => $best?->punchInAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('h:i A') ?? '-',
+                'punch_out_time' => $best?->punchOutAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('h:i A') ?? '-',
+                'working_hours' => $calculator->formatWorkingHoursLabel($best),
+                'status' => $status,
+                'approval_status' => $best?->approval_status ?? '-',
             ];
         }
 
@@ -77,21 +103,40 @@ class AttendanceAdminMonthlyReport
     /**
      * @return array<int, array<string, mixed>>
      */
-    public static function monthlyDetailRows(int $employeeId, int $month, int $year): array
+    private static function statusRows(int $employeeId, int $month, int $year, string $status): array
     {
-        return self::recordsForPeriod($employeeId, $month, $year)
-            ->sortBy(fn (Attendance $attendance): string => $attendance->attendance_date->toDateString().' '.$attendance->id)
-            ->map(fn (Attendance $attendance): array => [
-                'attendance_id' => $attendance->id,
-                'attendance_date' => $attendance->attendance_date->toDateString(),
-                'punch_in_time' => $attendance->punchInAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('h:i A') ?? '-',
-                'punch_out_time' => $attendance->punchOutAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('h:i A') ?? '-',
-                'working_hours' => $attendance->working_hours ?? '-',
-                'status' => $attendance->attendance_status,
-                'approval_status' => $attendance->approval_status,
-            ])
-            ->values()
-            ->all();
+        $periodStart = Carbon::create($year, $month, 1, 0, 0, 0, AttendanceCalendar::TIMEZONE)->startOfDay();
+        $periodEnd = AttendanceCalendar::periodEndForMonth($month, $year);
+        $records = self::recordsForPeriod($employeeId, $month, $year)
+            ->groupBy(fn (Attendance $attendance): string => $attendance->attendance_date->toDateString());
+        $calculator = app(AttendanceStatusCalculator::class);
+
+        $rows = [];
+
+        for ($date = $periodStart->copy(); $date->lte($periodEnd); $date->addDay()) {
+            if ($date->isSunday()) {
+                continue;
+            }
+
+            $dateKey = $date->toDateString();
+            $best = self::bestRecordForDate($records->get($dateKey, collect()));
+            $classification = $calculator->classifyWorkingDay($best, $date);
+
+            if ($classification !== $status || $best === null) {
+                continue;
+            }
+
+            $rows[] = [
+                'attendance_id' => $best->id,
+                'attendance_date' => $dateKey,
+                'punch_in_time' => $best->punchInAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('h:i A') ?? '-',
+                'punch_out_time' => $best->punchOutAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('h:i A') ?? '-',
+                'working_hours' => $calculator->formatWorkingHoursLabel($best),
+                'status' => $classification,
+            ];
+        }
+
+        return $rows;
     }
 
     /**
@@ -111,25 +156,18 @@ class AttendanceAdminMonthlyReport
             ->get();
     }
 
-    private static function isPresentDate(Collection $dateRecords): bool
-    {
-        $longestMinutes = $dateRecords
-            ->map(fn (Attendance $attendance): ?int => $attendance->workingDurationMinutes())
-            ->filter()
-            ->max();
-
-        return $longestMinutes !== null
-            && $longestMinutes >= Attendance::ADMIN_MIN_PRESENT_MINUTES;
-    }
-
     private static function bestRecordForDate(Collection $dateRecords): ?Attendance
     {
+        if ($dateRecords->isEmpty()) {
+            return null;
+        }
+
         return $dateRecords
             ->sortByDesc(fn (Attendance $attendance): int => $attendance->workingDurationMinutes() ?? -1)
             ->first();
     }
 
-    private static function absentReason(Collection $dateRecords): string
+    private static function absentReason(Collection $dateRecords, Carbon $date): string
     {
         if ($dateRecords->isEmpty()) {
             return 'No Attendance';
@@ -148,7 +186,18 @@ class AttendanceAdminMonthlyReport
         );
 
         if (! $hasCompletePunch) {
-            return 'Punch Out Missing';
+            return $date->toDateString() === AttendanceCalendar::today()->toDateString()
+                ? 'Punched In'
+                : 'Punch Out Missing';
+        }
+
+        $minutes = $dateRecords
+            ->map(fn (Attendance $attendance): ?int => $attendance->workingDurationMinutes())
+            ->filter()
+            ->max();
+
+        if ($minutes !== null && $minutes < AttendanceStatusCalculator::HALF_DAY_MINUTES) {
+            return 'Less Than 4 Hours';
         }
 
         return 'Less Than 8 Hours';

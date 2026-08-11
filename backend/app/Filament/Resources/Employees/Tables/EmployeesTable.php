@@ -6,12 +6,15 @@ use App\Actions\Employees\DeleteEmployeeWithUserAccount;
 use App\Enums\UserRole;
 use App\Filament\Resources\Employees\Actions\ResetEmployeePasswordAction;
 use App\Models\Employee;
+use App\Services\SafeDelete\SafeDeleteBlockedException;
+use App\Services\SafeDelete\SafeDeleteGuard;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreBulkAction;
 use Filament\Actions\ViewAction;
+use Filament\Notifications\Notification;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Filament\Tables\Columns\ImageColumn;
@@ -126,31 +129,88 @@ class EmployeesTable
                 BulkActionGroup::make([
                     DeleteBulkAction::make()
                         ->using(function (DeleteBulkAction $action, EloquentCollection $records): void {
-                            $records->each(function (Employee $record) use ($action): void {
+                            $deleted = 0;
+                            $blocked = 0;
+                            $guard = app(SafeDeleteGuard::class);
+
+                            $records->each(function (Employee $record) use (&$deleted, &$blocked, $guard): void {
+                                if ($guard->assess($record)->blocked()) {
+                                    $blocked++;
+
+                                    return;
+                                }
+
                                 try {
-                                    $deleted = app(DeleteEmployeeWithUserAccount::class)->execute($record);
-                                    if (! $deleted) {
-                                        $action->reportBulkProcessingFailure();
+                                    if (app(DeleteEmployeeWithUserAccount::class)->execute($record)) {
+                                        $deleted++;
+                                    } else {
+                                        $blocked++;
                                     }
-                                } catch (\Throwable $exception) {
-                                    $action->reportBulkProcessingFailure();
-                                    report($exception);
+                                } catch (SafeDeleteBlockedException) {
+                                    $blocked++;
                                 }
                             });
+
+                            if ($deleted > 0 && $blocked === 0) {
+                                Notification::make()
+                                    ->success()
+                                    ->title('Employees deleted')
+                                    ->body("{$deleted} employee(s) deleted successfully.")
+                                    ->send();
+
+                                return;
+                            }
+
+                            if ($deleted > 0 && $blocked > 0) {
+                                Notification::make()
+                                    ->warning()
+                                    ->title('Partial delete completed')
+                                    ->body("{$deleted} employee(s) deleted successfully.\n{$blocked} employee(s) could not be deleted because they are already in use.")
+                                    ->persistent()
+                                    ->send();
+
+                                return;
+                            }
+
+                            Notification::make()
+                                ->danger()
+                                ->title('No employees deleted')
+                                ->body("{$blocked} employee(s) could not be deleted because they are already in use. Deactivate them instead.")
+                                ->persistent()
+                                ->send();
                         }),
                     ForceDeleteBulkAction::make()
                         ->using(function (ForceDeleteBulkAction $action, EloquentCollection $records): void {
-                            $records->each(function (Employee $record) use ($action): void {
+                            $deleted = 0;
+                            $blocked = 0;
+                            $guard = app(SafeDeleteGuard::class);
+
+                            $records->each(function (Employee $record) use (&$deleted, &$blocked, $guard): void {
+                                if ($guard->assess($record)->blocked()) {
+                                    $blocked++;
+
+                                    return;
+                                }
+
                                 try {
-                                    $deleted = app(DeleteEmployeeWithUserAccount::class)->execute($record, force: true);
-                                    if (! $deleted) {
-                                        $action->reportBulkProcessingFailure();
+                                    if (app(DeleteEmployeeWithUserAccount::class)->execute($record, force: true)) {
+                                        $deleted++;
+                                    } else {
+                                        $blocked++;
                                     }
-                                } catch (\Throwable $exception) {
-                                    $action->reportBulkProcessingFailure();
-                                    report($exception);
+                                } catch (SafeDeleteBlockedException) {
+                                    $blocked++;
                                 }
                             });
+
+                            if ($blocked > 0) {
+                                Notification::make()
+                                    ->warning()
+                                    ->title('Force delete result')
+                                    ->body("{$deleted} deleted, {$blocked} blocked (already in use).")
+                                    ->persistent()
+                                    ->send();
+                            }
                         }),
                     RestoreBulkAction::make(),
                 ]),
