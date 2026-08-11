@@ -12,7 +12,18 @@ final class DealerBulkImportService
 {
     /** @var array<string, string> */
     private const HEADER_ALIASES = [
-        'alt_mobile' => 'alternate_mobile',
+        'employee_code' => 'assigned_employee_code',
+        'assigned_employee' => 'assigned_employee_code',
+        'mobile_number' => 'mobile',
+        'active' => 'status',
+    ];
+
+    /** @var list<string> */
+    private const REMOVED_COLUMNS = [
+        'whatsapp',
+        'whatsapp_number',
+        'alternate_mobile',
+        'alt_mobile',
     ];
 
     public function __construct(
@@ -153,7 +164,7 @@ final class DealerBulkImportService
         $mapped = [];
 
         foreach ($headers as $index => $header) {
-            if ($header === '') {
+            if ($header === '' || in_array($header, self::REMOVED_COLUMNS, true)) {
                 continue;
             }
 
@@ -184,20 +195,21 @@ final class DealerBulkImportService
 
         $validator = Validator::make($data, [
             'firm_name' => ['required', 'string', 'max:255'],
-            'owner_name' => ['required', 'string', 'max:255'],
+            'assigned_employee_code' => ['required', 'string', 'max:255'],
             'mobile' => ['required', 'regex:/^[6-9][0-9]{9}$/'],
-            'address' => ['required', 'string'],
             'state' => ['required', 'string', 'max:255'],
             'district' => ['required', 'string', 'max:255'],
             'taluka' => ['required', 'string', 'max:255'],
             'village' => ['required', 'string', 'max:255'],
-            'pincode' => ['required', 'regex:/^[1-9][0-9]{5}$/'],
-            'assigned_employee_code' => ['required', 'string', 'max:255'],
-            'status' => ['required'],
-            'dealer_code' => ['nullable', 'string', 'max:255'],
-            'alternate_mobile' => ['nullable', 'regex:/^[6-9][0-9]{9}$/'],
+            'owner_name' => ['nullable', 'string', 'max:255'],
+            'dealer_type' => ['nullable', 'in:Distributor,Retailer,Wholesaler'],
+            'address' => ['nullable', 'string'],
+            'pincode' => ['nullable', 'regex:/^[1-9][0-9]{5}$/'],
+            'status' => ['nullable'],
             'email' => ['nullable', 'email', 'max:255'],
             'gst_no' => ['nullable', 'regex:/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[A-Z0-9]{1}Z[A-Z0-9]{1}$/'],
+            'pan_no' => ['nullable', 'regex:/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/'],
+            'fertilizer_license_no' => ['nullable', 'string', 'max:255'],
             'credit_limit' => ['nullable', 'numeric', 'min:0'],
             'outstanding' => ['nullable', 'numeric', 'min:0'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],
@@ -220,7 +232,7 @@ final class DealerBulkImportService
                 rowNumber: $rowNumber,
                 firmName: $firmName,
                 assignedEmployeeCode: $assignedCode,
-                reason: 'No active employee found for the assigned employee code.',
+                reason: 'No active employee found for employee code "'.$assignedCode.'". Use a valid Employee Code from the Employee Master.',
             );
         }
 
@@ -233,41 +245,30 @@ final class DealerBulkImportService
             );
         }
 
-        if (filled($data['dealer_code'] ?? null) && Dealer::query()->where('dealer_code', strtoupper($data['dealer_code']))->exists()) {
-            return new DealerBulkImportRowError(
-                rowNumber: $rowNumber,
-                firmName: $firmName,
-                assignedEmployeeCode: $assignedCode,
-                reason: 'A dealer with this dealer code already exists.',
-            );
-        }
-
         $payload = [
             'firm_name' => $data['firm_name'],
-            'owner_name' => $data['owner_name'],
+            'owner_name' => filled($data['owner_name'] ?? null) ? $data['owner_name'] : null,
             'mobile' => $data['mobile'],
-            'address' => $data['address'],
+            'address' => filled($data['address'] ?? null) ? $data['address'] : null,
             'state' => $data['state'],
             'district' => $data['district'],
             'taluka' => $data['taluka'],
             'village' => $data['village'],
-            'pincode' => $data['pincode'],
-            'status' => $this->parseStatus($data['status']),
+            'pincode' => filled($data['pincode'] ?? null) ? $data['pincode'] : null,
+            'status' => $this->parseStatus($data['status'] ?? null),
             'assigned_employee_id' => $employee->id,
-            'dealer_type' => 'Retailer',
+            'dealer_type' => filled($data['dealer_type'] ?? null) ? $data['dealer_type'] : 'Retailer',
             'credit_limit' => filled($data['credit_limit'] ?? null) ? $data['credit_limit'] : 0,
             'outstanding' => filled($data['outstanding'] ?? null) ? $data['outstanding'] : 0,
-            'alternate_mobile' => filled($data['alternate_mobile'] ?? null) ? $data['alternate_mobile'] : null,
             'email' => filled($data['email'] ?? null) ? $data['email'] : null,
             'gst_no' => filled($data['gst_no'] ?? null) ? strtoupper($data['gst_no']) : null,
+            'pan_no' => filled($data['pan_no'] ?? null) ? strtoupper($data['pan_no']) : null,
+            'fertilizer_license_no' => filled($data['fertilizer_license_no'] ?? null) ? $data['fertilizer_license_no'] : null,
             'latitude' => filled($data['latitude'] ?? null) ? $data['latitude'] : null,
             'longitude' => filled($data['longitude'] ?? null) ? $data['longitude'] : null,
         ];
 
-        if (filled($data['dealer_code'] ?? null)) {
-            $payload['dealer_code'] = strtoupper(trim($data['dealer_code']));
-        }
-
+        // Dealer code is always auto-generated (D001, D002, …) — never taken from the import file.
         Dealer::query()->create($payload);
 
         return true;
@@ -292,6 +293,10 @@ final class DealerBulkImportService
 
     private function parseStatus(mixed $value): bool
     {
+        if ($value === null || trim((string) $value) === '') {
+            return true;
+        }
+
         $normalized = Str::lower(trim((string) $value));
 
         return ! in_array($normalized, ['0', 'false', 'inactive', 'no'], true);

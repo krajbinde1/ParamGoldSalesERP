@@ -17,11 +17,6 @@ class DealerInfolist
                 TextEntry::make('firm_name'),
                 TextEntry::make('owner_name'),
                 TextEntry::make('mobile'),
-                TextEntry::make('alternate_mobile')
-                    ->placeholder('-'),
-                TextEntry::make('whatsapp')
-                    ->label('WhatsApp Number')
-                    ->placeholder('-'),
                 TextEntry::make('email')
                     ->label('Email address')
                     ->placeholder('-'),
@@ -35,18 +30,20 @@ class DealerInfolist
                     ->label('Fertilizer License Number')
                     ->placeholder('-'),
                 TextEntry::make('dealer_type')
-                    ->badge(),
+                    ->badge()
+                    ->placeholder('-'),
                 TextEntry::make('assignedEmployee.full_name')
                     ->label('Assigned Employee')
                     ->formatStateUsing(fn (Dealer $record): string => $record->assignedEmployee?->assignmentLabel() ?? '-'),
                 TextEntry::make('address')
-                    ->columnSpanFull(),
+                    ->columnSpanFull()
+                    ->placeholder('-'),
                 TextEntry::make('state'),
                 TextEntry::make('district'),
                 TextEntry::make('taluka'),
-                TextEntry::make('village')
+                TextEntry::make('village'),
+                TextEntry::make('pincode')
                     ->placeholder('-'),
-                TextEntry::make('pincode'),
                 TextEntry::make('credit_limit')
                     ->numeric(),
                 TextEntry::make('outstanding')

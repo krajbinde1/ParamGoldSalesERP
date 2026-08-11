@@ -62,6 +62,7 @@ class AdminEmployeeRouteController extends Controller
             'summary' => $analysis['summary'],
             'diagnostics' => $analysis['diagnostics'],
             'timeline' => $analysis['timeline'],
+            'journey_events' => $analysis['journey_events'],
             'route_points' => $this->routeAnalysisService->formatRoutePointsForResponse($attendance),
             'stops' => $analysis['stops'],
         ]);

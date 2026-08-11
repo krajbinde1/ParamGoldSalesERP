@@ -16,7 +16,7 @@ class ImportDealersAction
             ->icon('heroicon-o-arrow-up-tray')
             ->color('primary')
             ->modalHeading('Import Dealers')
-            ->modalDescription('Upload the dealer import template CSV. Mandatory columns must be filled for each row. Valid rows are imported even when some rows fail.')
+            ->modalDescription('Upload the dealer import template CSV. Required columns: Firm Name, Employee Code, Mobile, State, District, Taluka, Village. Dealer codes are auto-generated. Valid rows are imported even when some rows fail.')
             ->form([
                 FileUpload::make('file')
                     ->label('CSV File')

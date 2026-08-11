@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Support\Facades\DB;
 
 class Dealer extends Model
 {
@@ -17,16 +18,40 @@ class Dealer extends Model
                 return;
             }
 
-            $lastCode = static::withTrashed()
-                ->where('dealer_code', 'like', 'DLR%')
-                ->orderByDesc('dealer_code')
-                ->value('dealer_code');
+            $dealer->dealer_code = static::generateNextDealerCode();
+        });
 
-            $nextNumber = $lastCode === null
-                ? 1
-                : ((int) substr($lastCode, 3)) + 1;
+        static::updating(function (Dealer $dealer): void {
+            if ($dealer->isDirty('dealer_code')) {
+                $dealer->dealer_code = $dealer->getOriginal('dealer_code');
+            }
+        });
+    }
 
-            $dealer->dealer_code = 'DLR'.str_pad((string) $nextNumber, 6, '0', STR_PAD_LEFT);
+    /**
+     * Generate the next short dealer code (D001, D002, … D999, D1000).
+     * Existing codes (e.g. DLR000001) are left unchanged and ignored for sequencing.
+     */
+    public static function generateNextDealerCode(): string
+    {
+        return DB::transaction(function (): string {
+            $maxNumber = static::withTrashed()
+                ->where('dealer_code', 'like', 'D%')
+                ->lockForUpdate()
+                ->pluck('dealer_code')
+                ->reduce(function (int $max, string $code): int {
+                    if (preg_match('/^D(\d+)$/', $code, $matches) !== 1) {
+                        return $max;
+                    }
+
+                    return max($max, (int) $matches[1]);
+                }, 0);
+
+            $nextNumber = $maxNumber + 1;
+
+            return 'D'.($nextNumber < 1000
+                ? str_pad((string) $nextNumber, 3, '0', STR_PAD_LEFT)
+                : (string) $nextNumber);
         });
     }
 
@@ -35,8 +60,6 @@ class Dealer extends Model
         'firm_name',
         'owner_name',
         'mobile',
-        'alternate_mobile',
-        'whatsapp',
         'email',
         'gst_no',
         'fertilizer_license_no',

@@ -45,6 +45,6 @@ class InventoryBulkImport extends Page
     {
         abort_unless(static::canAccess(), 403);
 
-        $this->redirect(RawMaterialImport::getUrl());
+        $this->redirect(\App\Filament\Resources\RawMaterials\RawMaterialResource::getUrl('index'));
     }
 }

@@ -2,15 +2,21 @@
     $routeData = $this->getRouteMapData();
     $hasEnoughPoints = ($routeData['summary']['valid_point_count'] ?? 0) >= 2;
     $mapElementId = 'employee-route-map-'.$this->getRecord()->getKey();
+    $panelElementId = 'employee-route-panel-'.$this->getRecord()->getKey();
     $diagnostics = $routeData['diagnostics'] ?? [];
     $sparseWarning = $diagnostics['sparse_warning'] ?? null;
-    $timeline = $routeData['timeline'] ?? $routeData['route_points'] ?? [];
+    $journeyEvents = $routeData['journey_events'] ?? [];
     $employeeName = $routeData['employee']['full_name'] ?? 'Employee';
     $employeeCode = $routeData['employee']['employee_code'] ?? null;
     $attendanceDate = $routeData['attendance_date'] ?? '-';
-    $stopCount = (int) ($routeData['summary']['stop_count'] ?? 0);
-    $validPoints = (int) ($routeData['summary']['valid_point_count'] ?? 0);
-    $distanceKm = number_format((float) ($routeData['summary']['total_distance_km'] ?? 0), 2);
+    $attendanceDateIso = $routeData['attendance_date_iso'] ?? '';
+    $summary = $routeData['summary'] ?? [];
+    $navigation = $routeData['navigation'] ?? [];
+    $stopCount = (int) ($summary['stop_count'] ?? 0);
+    $distanceKm = number_format((float) ($summary['total_distance_km'] ?? 0), 1);
+    $travelTimeLabel = $summary['travel_time_label'] ?? '0m';
+    $punchInTime = $summary['punch_in_time'] ?? ($routeData['punch_in']['time'] ?? '—');
+    $punchOutTime = $summary['punch_out_time'] ?? ($routeData['punch_out']['time'] ?? '—');
 @endphp
 
 @push('styles')
@@ -23,38 +29,509 @@
         />
     @endif
     <style>
-        .employee-route-page {
+        .er-page {
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
             width: 100%;
             max-width: 100%;
+            min-height: calc(100vh - 10rem);
             overflow-x: hidden;
         }
 
-        .employee-route-map-shell {
-            width: 100%;
-            margin: 0;
-            border-radius: 0.75rem;
-            overflow: hidden;
+        .er-header {
+            position: sticky;
+            top: 0;
+            z-index: 20;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+            padding: 0.85rem 1rem;
+            border-radius: 0.85rem;
             border: 1px solid rgb(229 231 235);
+            background: rgb(255 255 255 / 0.96);
+            backdrop-filter: blur(8px);
+        }
+
+        .dark .er-header {
+            border-color: rgb(55 65 81);
+            background: rgb(17 24 39 / 0.96);
+        }
+
+        .er-header-top {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+
+        .er-employee {
+            min-width: 0;
+        }
+
+        .er-employee-name {
+            margin: 0;
+            font-size: 1.125rem;
+            font-weight: 700;
+            color: rgb(17 24 39);
+            line-height: 1.25;
+        }
+
+        .dark .er-employee-name {
+            color: white;
+        }
+
+        .er-employee-meta {
+            margin-top: 0.15rem;
+            font-size: 0.8125rem;
+            color: rgb(107 114 128);
+        }
+
+        .dark .er-employee-meta {
+            color: rgb(156 163 175);
+        }
+
+        .er-date-nav {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            flex-wrap: wrap;
+        }
+
+        .er-nav-btn {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 2.25rem;
+            height: 2.25rem;
+            border-radius: 0.65rem;
+            border: 1px solid rgb(209 213 219);
+            background: white;
+            color: rgb(55 65 81);
+            transition: background 0.15s ease, border-color 0.15s ease;
+        }
+
+        .er-nav-btn:hover:not([disabled]) {
+            background: rgb(249 250 251);
+            border-color: rgb(156 163 175);
+        }
+
+        .er-nav-btn[disabled] {
+            opacity: 0.4;
+            cursor: not-allowed;
+        }
+
+        .dark .er-nav-btn {
+            border-color: rgb(75 85 99);
+            background: rgb(31 41 55);
+            color: rgb(229 231 235);
+        }
+
+        .er-date-label {
+            min-width: 7.5rem;
+            text-align: center;
+            font-size: 0.9375rem;
+            font-weight: 600;
+            color: rgb(17 24 39);
+        }
+
+        .dark .er-date-label {
+            color: white;
+        }
+
+        .er-date-input {
+            height: 2.25rem;
+            border-radius: 0.65rem;
+            border: 1px solid rgb(209 213 219);
+            background: white;
+            padding: 0 0.65rem;
+            font-size: 0.8125rem;
+            color: rgb(55 65 81);
+        }
+
+        .dark .er-date-input {
+            border-color: rgb(75 85 99);
+            background: rgb(31 41 55);
+            color: rgb(229 231 235);
+            color-scheme: dark;
+        }
+
+        .er-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.55rem;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: rgb(55 65 81);
+            cursor: pointer;
+            user-select: none;
+        }
+
+        .dark .er-toggle {
+            color: rgb(209 213 219);
+        }
+
+        .er-toggle input {
+            width: 1rem;
+            height: 1rem;
+            accent-color: rgb(37 99 235);
+        }
+
+        .er-summary {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0.55rem;
+        }
+
+        @media (min-width: 768px) {
+            .er-summary {
+                grid-template-columns: repeat(5, minmax(0, 1fr));
+            }
+        }
+
+        .er-summary-card {
+            min-width: 0;
+            border-radius: 0.7rem;
+            border: 1px solid rgb(243 244 246);
+            background: rgb(249 250 251);
+            padding: 0.55rem 0.7rem;
+        }
+
+        .dark .er-summary-card {
+            border-color: rgb(55 65 81);
+            background: rgb(31 41 55);
+        }
+
+        .er-summary-label {
+            font-size: 0.6875rem;
+            font-weight: 600;
+            letter-spacing: 0.02em;
+            text-transform: uppercase;
+            color: rgb(107 114 128);
+        }
+
+        .dark .er-summary-label {
+            color: rgb(156 163 175);
+        }
+
+        .er-summary-value {
+            margin-top: 0.15rem;
+            font-size: 0.9375rem;
+            font-weight: 700;
+            color: rgb(17 24 39);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .dark .er-summary-value {
+            color: white;
+        }
+
+        .er-body {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0.75rem;
+            flex: 1;
+            min-height: 0;
+        }
+
+        @media (min-width: 1024px) {
+            .er-body {
+                grid-template-columns: minmax(280px, 30%) minmax(0, 70%);
+                align-items: stretch;
+                min-height: calc(100vh - 16rem);
+            }
+        }
+
+        .er-panel {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            border-radius: 0.85rem;
+            border: 1px solid rgb(229 231 235);
+            background: white;
+            overflow: hidden;
+        }
+
+        .dark .er-panel {
+            border-color: rgb(55 65 81);
+            background: rgb(17 24 39);
+        }
+
+        .er-panel-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            padding: 0.75rem 0.9rem;
+            border-bottom: 1px solid rgb(243 244 246);
+        }
+
+        .dark .er-panel-head {
+            border-bottom-color: rgb(55 65 81);
+        }
+
+        .er-panel-title {
+            margin: 0;
+            font-size: 0.8125rem;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+            color: rgb(107 114 128);
+        }
+
+        .dark .er-panel-title {
+            color: rgb(156 163 175);
+        }
+
+        .er-panel-count {
+            font-size: 0.75rem;
+            color: rgb(107 114 128);
+        }
+
+        .er-panel-list {
+            flex: 1;
+            overflow-y: auto;
+            max-height: min(34rem, 55vh);
+            padding: 0.5rem;
+        }
+
+        @media (min-width: 1024px) {
+            .er-panel-list {
+                max-height: none;
+            }
+        }
+
+        .er-event {
+            display: flex;
+            gap: 0.7rem;
+            width: 100%;
+            text-align: left;
+            border: 1px solid transparent;
+            border-radius: 0.75rem;
+            background: transparent;
+            padding: 0.7rem 0.65rem;
+            cursor: default;
+            transition: background 0.15s ease, border-color 0.15s ease, box-shadow 0.15s ease;
+        }
+
+        .er-event[data-clickable="1"] {
+            cursor: pointer;
+        }
+
+        .er-event[data-clickable="1"]:hover {
+            background: rgb(249 250 251);
+            border-color: rgb(229 231 235);
+        }
+
+        .dark .er-event[data-clickable="1"]:hover {
+            background: rgb(31 41 55);
+            border-color: rgb(55 65 81);
+        }
+
+        .er-event.is-active {
+            background: rgb(239 246 255);
+            border-color: rgb(147 197 253);
+            box-shadow: 0 0 0 1px rgb(191 219 254);
+        }
+
+        .dark .er-event.is-active {
+            background: rgb(30 58 138 / 0.35);
+            border-color: rgb(59 130 246);
+            box-shadow: none;
+        }
+
+        .er-event-travel {
+            margin: 0.2rem 0.15rem;
+            border-radius: 0.65rem;
+            border: 1px dashed rgb(209 213 219);
+            background: rgb(249 250 251);
+            padding: 0.55rem 0.7rem;
+            color: rgb(75 85 99);
+        }
+
+        .dark .er-event-travel {
+            border-color: rgb(75 85 99);
+            background: rgb(31 41 55);
+            color: rgb(209 213 219);
+        }
+
+        .er-event-badge {
+            flex-shrink: 0;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            width: 1.85rem;
+            height: 1.85rem;
+            border-radius: 9999px;
+            font-size: 0.75rem;
+            font-weight: 700;
+            color: white;
+            background: #ea580c;
+            box-shadow: 0 0 0 2px white, 0 1px 3px rgb(0 0 0 / 0.2);
+        }
+
+        .er-event-badge.start {
+            background: #16a34a;
+            font-size: 0.55rem;
+            letter-spacing: 0.02em;
+        }
+
+        .er-event-badge.end {
+            background: #dc2626;
+            font-size: 0.55rem;
+            letter-spacing: 0.02em;
+        }
+
+        .er-event-body {
+            min-width: 0;
+            flex: 1;
+        }
+
+        .er-event-title {
+            font-size: 0.875rem;
+            font-weight: 650;
+            color: rgb(17 24 39);
+            line-height: 1.3;
+        }
+
+        .dark .er-event-title {
+            color: white;
+        }
+
+        .er-event-location {
+            margin-top: 0.1rem;
+            font-size: 0.75rem;
+            color: rgb(107 114 128);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .dark .er-event-location {
+            color: rgb(156 163 175);
+        }
+
+        .er-event-time {
+            margin-top: 0.25rem;
+            font-size: 0.8125rem;
+            font-weight: 500;
+            color: rgb(55 65 81);
+        }
+
+        .dark .er-event-time {
+            color: rgb(209 213 219);
+        }
+
+        .er-event-meta {
+            margin-top: 0.15rem;
+            font-size: 0.75rem;
+            color: rgb(107 114 128);
+        }
+
+        .er-travel-title {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            font-size: 0.8125rem;
+            font-weight: 650;
+        }
+
+        .er-map-wrap {
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
+            border-radius: 0.85rem;
+            border: 1px solid rgb(229 231 235);
+            background: white;
+            overflow: hidden;
+        }
+
+        .dark .er-map-wrap {
+            border-color: rgb(55 65 81);
+            background: rgb(17 24 39);
+        }
+
+        .er-map-toolbar {
+            display: flex;
+            flex-wrap: wrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            padding: 0.65rem 0.85rem;
+            border-bottom: 1px solid rgb(243 244 246);
+        }
+
+        .dark .er-map-toolbar {
+            border-bottom-color: rgb(55 65 81);
+        }
+
+        .er-legend {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.65rem 1rem;
+            align-items: center;
+        }
+
+        .er-legend-item {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.4rem;
+            font-size: 0.75rem;
+            color: rgb(75 85 99);
+        }
+
+        .dark .er-legend-item {
+            color: rgb(209 213 219);
+        }
+
+        .er-legend-swatch {
+            width: 0.8rem;
+            height: 0.8rem;
+            border-radius: 9999px;
+            border: 2px solid rgba(255, 255, 255, 0.9);
+            box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
+            flex-shrink: 0;
+        }
+
+        .er-legend-line {
+            width: 1.1rem;
+            height: 0;
+            border-top: 3px solid #2563eb;
+            border-radius: 2px;
+            flex-shrink: 0;
+        }
+
+        .er-map-shell {
+            position: relative;
+            flex: 1;
+            min-height: clamp(320px, 55vh, 720px);
             background: rgb(249 250 251);
         }
 
-        .dark .employee-route-map-shell {
-            border-color: rgb(55 65 81);
+        @media (min-width: 1024px) {
+            .er-map-shell {
+                min-height: 100%;
+            }
+        }
+
+        .dark .er-map-shell {
             background: rgb(17 24 39);
         }
 
         #{{ $mapElementId }} {
             width: 100%;
-            height: clamp(420px, 70vh, 900px);
-            min-height: 600px;
+            height: 100%;
+            min-height: clamp(320px, 55vh, 720px);
             position: relative;
             z-index: 0;
         }
 
-        @media (max-width: 768px) {
+        @media (min-width: 1024px) {
             #{{ $mapElementId }} {
-                height: clamp(320px, 55vh, 560px);
-                min-height: 320px;
+                min-height: calc(100vh - 18rem);
             }
         }
 
@@ -65,112 +542,93 @@
             font: inherit;
         }
 
-        .employee-route-legend {
+        .er-number-marker {
             display: flex;
-            flex-wrap: wrap;
-            gap: 0.75rem 1.25rem;
             align-items: center;
-        }
-
-        .employee-route-legend-item {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.8125rem;
-            color: rgb(75 85 99);
-        }
-
-        .dark .employee-route-legend-item {
-            color: rgb(209 213 219);
-        }
-
-        .employee-route-legend-swatch {
-            width: 0.875rem;
-            height: 0.875rem;
+            justify-content: center;
+            width: 28px;
+            height: 28px;
             border-radius: 9999px;
-            border: 2px solid rgba(255, 255, 255, 0.9);
-            box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.15);
-            flex-shrink: 0;
+            background: #ea580c;
+            color: white;
+            font-size: 12px;
+            font-weight: 700;
+            border: 2px solid white;
+            box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
         }
 
-        .employee-route-legend-line {
-            width: 1.25rem;
-            height: 0;
-            border-top: 3px solid #2563eb;
-            border-radius: 2px;
-            flex-shrink: 0;
+        .er-number-marker.is-active {
+            background: #2563eb;
+            transform: scale(1.12);
         }
 
-        .employee-route-summary-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 0.75rem;
+        .er-endpoint-marker {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 52px;
+            height: 24px;
+            padding: 0 0.45rem;
+            border-radius: 9999px;
+            color: white;
+            font-size: 10px;
+            font-weight: 800;
+            letter-spacing: 0.04em;
+            border: 2px solid white;
+            box-shadow: 0 1px 5px rgba(0, 0, 0, 0.35);
         }
 
-        @media (min-width: 768px) {
-            .employee-route-summary-grid {
-                grid-template-columns: repeat(4, minmax(0, 1fr));
-            }
+        .er-endpoint-marker.start {
+            background: #16a34a;
         }
 
-        .employee-route-summary-card {
-            border-radius: 0.75rem;
-            border: 1px solid rgb(229 231 235);
-            background: white;
-            padding: 0.75rem 1rem;
-            min-width: 0;
+        .er-endpoint-marker.end {
+            background: #dc2626;
         }
 
-        .dark .employee-route-summary-card {
-            border-color: rgb(55 65 81);
-            background: rgb(17 24 39);
-        }
-
-        .employee-route-summary-label {
-            font-size: 0.75rem;
-            font-weight: 500;
+        .er-empty {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            min-height: 16rem;
+            padding: 2rem;
+            text-align: center;
             color: rgb(107 114 128);
+            font-size: 0.875rem;
         }
 
-        .dark .employee-route-summary-label {
+        .dark .er-empty {
             color: rgb(156 163 175);
         }
 
-        .employee-route-summary-value {
-            margin-top: 0.25rem;
-            font-size: 0.9375rem;
-            font-weight: 600;
-            color: rgb(17 24 39);
-            line-height: 1.3;
-            white-space: nowrap;
-            overflow: hidden;
-            text-overflow: ellipsis;
-        }
-
-        .dark .employee-route-summary-value {
-            color: white;
-        }
-
-        .employee-route-timeline-wrap {
-            max-height: min(28rem, 50vh);
-            overflow: auto;
+        .er-warning {
             border-radius: 0.75rem;
-            border: 1px solid rgb(229 231 235);
+            border: 1px solid rgb(252 211 77);
+            background: rgb(255 251 235);
+            color: rgb(120 53 15);
+            padding: 0.65rem 0.85rem;
+            font-size: 0.8125rem;
         }
 
-        .dark .employee-route-timeline-wrap {
-            border-color: rgb(55 65 81);
+        .dark .er-warning {
+            border-color: rgb(146 64 14);
+            background: rgb(69 26 3 / 0.35);
+            color: rgb(254 243 199);
         }
 
-        .employee-route-timeline-wrap thead th {
-            position: sticky;
-            top: 0;
-            z-index: 1;
-            background: rgb(249 250 251);
-        }
+        @media (max-width: 1023px) {
+            .er-body {
+                display: flex;
+                flex-direction: column;
+            }
 
-        .dark .employee-route-timeline-wrap thead th {
-            background: rgb(17 24 39);
+            .er-map-wrap {
+                order: 1;
+            }
+
+            .er-panel {
+                order: 2;
+            }
         }
     </style>
 @endpush
@@ -186,171 +644,237 @@
 @endif
 
 <x-filament-panels::page>
-    <div class="employee-route-page space-y-4">
+    <div
+        class="er-page"
+        x-data="{
+            stoppagesOnly: false,
+            activeId: null,
+            selectEvent(id) {
+                this.activeId = id;
+                window.dispatchEvent(new CustomEvent('er-select-event', { detail: { id } }));
+            },
+        }"
+        @er-marker-selected.window="activeId = $event.detail.id; $nextTick(() => {
+            const el = document.querySelector('[data-event-id=\'' + $event.detail.id + '\']');
+            if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        })"
+    >
         @if (filled($sparseWarning))
-            <div class="rounded-xl border border-amber-300 bg-amber-50 px-4 py-2.5 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-100">
-                {{ $sparseWarning }}
-            </div>
+            <div class="er-warning">{{ $sparseWarning }}</div>
         @endif
 
-        <div class="employee-route-summary-grid">
-            <div class="employee-route-summary-card" title="{{ $employeeName }}{{ filled($employeeCode) ? ' ('.$employeeCode.')' : '' }}">
-                <div class="employee-route-summary-label">Employee</div>
-                <div class="employee-route-summary-value">
-                    {{ $employeeName }}{{ filled($employeeCode) ? ' ('.$employeeCode.')' : '' }}
-                </div>
-            </div>
-            <div class="employee-route-summary-card">
-                <div class="employee-route-summary-label">Attendance Date</div>
-                <div class="employee-route-summary-value">{{ $attendanceDate }}</div>
-            </div>
-            <div class="employee-route-summary-card">
-                <div class="employee-route-summary-label">Total Distance</div>
-                <div class="employee-route-summary-value">{{ $distanceKm }} km</div>
-            </div>
-            <div class="employee-route-summary-card">
-                <div class="employee-route-summary-label">Stops / Valid Points</div>
-                <div class="employee-route-summary-value">{{ $stopCount }} Stops / {{ $validPoints }} Valid Points</div>
-            </div>
-        </div>
-
-        <section class="space-y-3">
-            <h3 class="text-sm font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                Route Map
-            </h3>
-
-            @if ($hasEnoughPoints)
-                <div class="employee-route-map-shell">
-                    <div id="{{ $mapElementId }}" wire:ignore></div>
-                </div>
-
-                <div class="employee-route-legend rounded-xl border border-gray-200 bg-white px-4 py-3 dark:border-gray-700 dark:bg-gray-900">
-                    <div class="employee-route-legend-item">
-                        <span class="employee-route-legend-swatch" style="background:#16a34a;"></span>
-                        <span>Punch In</span>
-                    </div>
-                    <div class="employee-route-legend-item">
-                        <span class="employee-route-legend-swatch" style="background:#dc2626;"></span>
-                        <span>Punch Out</span>
-                    </div>
-                    <div class="employee-route-legend-item">
-                        <span class="employee-route-legend-swatch" style="background:#ea580c;"></span>
-                        <span>Stop</span>
-                    </div>
-                    <div class="employee-route-legend-item">
-                        <span class="employee-route-legend-line" aria-hidden="true"></span>
-                        <span>Route</span>
+        <header class="er-header">
+            <div class="er-header-top">
+                <div class="er-employee">
+                    <h1 class="er-employee-name">{{ $employeeName }}</h1>
+                    <div class="er-employee-meta">
+                        @if (filled($employeeCode))
+                            {{ $employeeCode }} ·
+                        @endif
+                        Employee Route
+                        <a href="{{ $navigation['list_url'] ?? '#' }}" class="ml-2 text-primary-600 hover:underline dark:text-primary-400">
+                            Back to list
+                        </a>
                     </div>
                 </div>
-            @else
-                <div class="rounded-xl border border-dashed border-gray-300 px-6 py-16 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
-                    Not enough valid route points to draw a map. At least 2 valid points are required.
-                    @if (($diagnostics['total_points'] ?? 0) > 0)
-                        <div class="mt-2 text-amber-700 dark:text-amber-300">
-                            Incomplete route data – only {{ $diagnostics['total_points'] }} GPS points were received from the mobile device.
+
+                <div class="er-date-nav">
+                    @if (! empty($navigation['previous_url']))
+                        <a href="{{ $navigation['previous_url'] }}" class="er-nav-btn" title="Previous date" aria-label="Previous date">
+                            <x-filament::icon icon="heroicon-m-chevron-left" class="h-5 w-5" />
+                        </a>
+                    @else
+                        <button type="button" class="er-nav-btn" disabled aria-label="Previous date unavailable">
+                            <x-filament::icon icon="heroicon-m-chevron-left" class="h-5 w-5" />
+                        </button>
+                    @endif
+
+                    <div class="er-date-label">{{ $attendanceDate }}</div>
+
+                    @if (! empty($navigation['next_url']))
+                        <a href="{{ $navigation['next_url'] }}" class="er-nav-btn" title="Next date" aria-label="Next date">
+                            <x-filament::icon icon="heroicon-m-chevron-right" class="h-5 w-5" />
+                        </a>
+                    @else
+                        <button type="button" class="er-nav-btn" disabled aria-label="Next date unavailable">
+                            <x-filament::icon icon="heroicon-m-chevron-right" class="h-5 w-5" />
+                        </button>
+                    @endif
+
+                    <input
+                        type="date"
+                        class="er-date-input"
+                        value="{{ $attendanceDateIso }}"
+                        wire:change="goToDate($event.target.value)"
+                        title="Jump to date"
+                        aria-label="Jump to date"
+                    />
+
+                    <label class="er-toggle">
+                        <input
+                            type="checkbox"
+                            x-model="stoppagesOnly"
+                        />
+                        Show Only Stoppages
+                    </label>
+                </div>
+            </div>
+
+            <div class="er-summary">
+                <div class="er-summary-card">
+                    <div class="er-summary-label">Total Distance</div>
+                    <div class="er-summary-value">{{ $distanceKm }} KM</div>
+                </div>
+                <div class="er-summary-card">
+                    <div class="er-summary-label">Travel Time</div>
+                    <div class="er-summary-value">{{ $travelTimeLabel }}</div>
+                </div>
+                <div class="er-summary-card">
+                    <div class="er-summary-label">Stoppages</div>
+                    <div class="er-summary-value">{{ $stopCount }}</div>
+                </div>
+                <div class="er-summary-card">
+                    <div class="er-summary-label">Punch In</div>
+                    <div class="er-summary-value">{{ $punchInTime ?: '—' }}</div>
+                </div>
+                <div class="er-summary-card">
+                    <div class="er-summary-label">Punch Out</div>
+                    <div class="er-summary-value">{{ $punchOutTime ?: '—' }}</div>
+                </div>
+            </div>
+        </header>
+
+        <div class="er-body">
+            <aside class="er-panel" id="{{ $panelElementId }}">
+                <div class="er-panel-head">
+                    <h2 class="er-panel-title">Route History</h2>
+                    <span class="er-panel-count">{{ count($journeyEvents) }} events</span>
+                </div>
+
+                <div class="er-panel-list">
+                    @forelse ($journeyEvents as $event)
+                        @php
+                            $type = $event['type'] ?? '';
+                            $eventId = $event['id'] ?? '';
+                            $isStoppage = $type === 'stoppage';
+                            $isTravel = $type === 'travel';
+                            $isEndpoint = in_array($type, ['start', 'end'], true);
+                            $clickable = $isStoppage || ($isEndpoint && ($event['latitude'] ?? null) !== null);
+                        @endphp
+
+                        @if ($isTravel)
+                            <div
+                                class="er-event-travel"
+                                data-event-id="{{ $eventId }}"
+                                data-event-type="travel"
+                                x-show="!stoppagesOnly"
+                                x-cloak
+                            >
+                                <div class="er-travel-title">Travel 🚗</div>
+                                <div class="er-event-time">{{ $event['time_label'] ?? '—' }}</div>
+                                @if (! empty($event['distance_km']))
+                                    <div class="er-event-meta">{{ number_format((float) $event['distance_km'], 1) }} KM
+                                        @if (! empty($event['duration_label']))
+                                            · {{ $event['duration_label'] }}
+                                        @endif
+                                    </div>
+                                @elseif (! empty($event['duration_label']))
+                                    <div class="er-event-meta">{{ $event['duration_label'] }}</div>
+                                @endif
+                            </div>
+                        @else
+                            <button
+                                type="button"
+                                class="er-event"
+                                data-event-id="{{ $eventId }}"
+                                data-event-type="{{ $type }}"
+                                data-clickable="{{ $clickable ? '1' : '0' }}"
+                                data-sequence="{{ $event['sequence'] ?? '' }}"
+                                @if ($isStoppage)
+                                    x-show="true"
+                                @elseif ($isEndpoint)
+                                    x-show="!stoppagesOnly"
+                                    x-cloak
+                                @endif
+                                @class(['is-active' => false])
+                                :class="{ 'is-active': activeId === @js($eventId) }"
+                                @if ($clickable)
+                                    @click="selectEvent(@js($eventId))"
+                                @endif
+                            >
+                                @if ($type === 'start')
+                                    <span class="er-event-badge start">START</span>
+                                @elseif ($type === 'end')
+                                    <span class="er-event-badge end">END</span>
+                                @else
+                                    <span class="er-event-badge">{{ $event['sequence'] }}</span>
+                                @endif
+
+                                <div class="er-event-body">
+                                    <div class="er-event-title">
+                                        @if ($isEndpoint)
+                                            {{ $event['label'] }}
+                                        @else
+                                            {{ $event['label'] ?? 'Stop' }}
+                                        @endif
+                                    </div>
+                                    @if (filled($event['location'] ?? null))
+                                        <div class="er-event-location" title="{{ $event['location'] }}">
+                                            {{ $event['location'] }}
+                                        </div>
+                                    @endif
+                                    <div class="er-event-time">{{ $event['time_label'] ?? '—' }}</div>
+                                    @if (! empty($event['duration_label']))
+                                        <div class="er-event-meta">Duration: {{ $event['duration_label'] }}</div>
+                                    @endif
+                                </div>
+                            </button>
+                        @endif
+                    @empty
+                        <div class="er-empty">No route events recorded for this day.</div>
+                    @endforelse
+                </div>
+            </aside>
+
+            <section class="er-map-wrap">
+                <div class="er-map-toolbar">
+                    <h2 class="er-panel-title" style="text-transform:none; letter-spacing:0;">Route Map</h2>
+                    <div class="er-legend">
+                        <div class="er-legend-item">
+                            <span class="er-legend-swatch" style="background:#16a34a;"></span>
+                            <span>Start</span>
                         </div>
-                    @endif
+                        <div class="er-legend-item">
+                            <span class="er-legend-swatch" style="background:#ea580c;"></span>
+                            <span>Stoppage</span>
+                        </div>
+                        <div class="er-legend-item">
+                            <span class="er-legend-swatch" style="background:#dc2626;"></span>
+                            <span>End</span>
+                        </div>
+                        <div class="er-legend-item">
+                            <span class="er-legend-line" aria-hidden="true"></span>
+                            <span>Travel path</span>
+                        </div>
+                    </div>
                 </div>
-            @endif
-        </section>
 
-        <section class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900 sm:p-5">
-            <div class="mb-3 flex flex-wrap items-end justify-between gap-2">
-                <h3 class="text-base font-semibold text-gray-950 dark:text-white">Route Timeline</h3>
-                <p class="text-xs text-gray-500 dark:text-gray-400">
-                    {{ count($timeline) }} points
-                    @if (($diagnostics['rejected_count'] ?? 0) > 0)
-                        · {{ $diagnostics['rejected_count'] }} rejected
-                    @endif
-                </p>
-            </div>
-
-            <div class="employee-route-timeline-wrap overflow-x-auto">
-                <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
-                    <thead>
-                        <tr class="text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                            <th class="px-3 py-2.5">Time</th>
-                            <th class="px-3 py-2.5">Latitude</th>
-                            <th class="px-3 py-2.5">Longitude</th>
-                            <th class="px-3 py-2.5">Accuracy</th>
-                            <th class="px-3 py-2.5">Event / Type</th>
-                        </tr>
-                    </thead>
-                    <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-                        @forelse ($timeline as $point)
-                            <tr class="text-gray-800 dark:text-gray-200">
-                                <td class="px-3 py-2 whitespace-nowrap">
-                                    {{ \Illuminate\Support\Carbon::parse($point['recorded_at'])->timezone('Asia/Kolkata')->format('d M Y h:i A') }}
-                                </td>
-                                <td class="px-3 py-2 whitespace-nowrap font-mono text-xs sm:text-sm">
-                                    {{ number_format((float) $point['latitude'], 6) }}
-                                </td>
-                                <td class="px-3 py-2 whitespace-nowrap font-mono text-xs sm:text-sm">
-                                    {{ number_format((float) $point['longitude'], 6) }}
-                                </td>
-                                <td class="px-3 py-2 whitespace-nowrap">
-                                    {{ isset($point['accuracy']) && $point['accuracy'] !== null ? number_format((float) $point['accuracy'], 1).' m' : '—' }}
-                                </td>
-                                <td class="px-3 py-2 whitespace-nowrap">
-                                    @php $type = $point['point_type'] ?? 'Route Point'; @endphp
-                                    <span @class([
-                                        'inline-flex rounded-md px-2 py-0.5 text-xs font-medium',
-                                        'bg-green-50 text-green-800 dark:bg-green-500/10 dark:text-green-300' => $type === 'Punch In',
-                                        'bg-red-50 text-red-800 dark:bg-red-500/10 dark:text-red-300' => $type === 'Punch Out',
-                                        'bg-orange-50 text-orange-800 dark:bg-orange-500/10 dark:text-orange-300' => str_contains(strtolower((string) $type), 'stop'),
-                                        'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300' => ! in_array($type, ['Punch In', 'Punch Out'], true) && ! str_contains(strtolower((string) $type), 'stop'),
-                                    ])>
-                                        {{ $type }}
-                                    </span>
-                                </td>
-                            </tr>
-                        @empty
-                            <tr>
-                                <td colspan="5" class="px-3 py-8 text-center text-gray-500 dark:text-gray-400">
-                                    No route points recorded.
-                                </td>
-                            </tr>
-                        @endforelse
-                    </tbody>
-                </table>
-            </div>
-        </section>
-
-        @if (($routeData['stops'] ?? []) !== [])
-            <section class="rounded-xl border border-gray-200 bg-white p-4 dark:border-gray-700 dark:bg-gray-900 sm:p-5">
-                <h3 class="mb-3 text-base font-semibold text-gray-950 dark:text-white">Detected Stops</h3>
-                <div class="overflow-x-auto rounded-xl border border-gray-100 dark:border-gray-800">
-                    <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-gray-700">
-                        <thead class="bg-gray-50 dark:bg-gray-950/50">
-                            <tr class="text-left text-xs font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">
-                                <th class="px-3 py-2.5">#</th>
-                                <th class="px-3 py-2.5">Start</th>
-                                <th class="px-3 py-2.5">End</th>
-                                <th class="px-3 py-2.5">Duration</th>
-                                <th class="px-3 py-2.5">Centre</th>
-                            </tr>
-                        </thead>
-                        <tbody class="divide-y divide-gray-100 dark:divide-gray-800">
-                            @foreach ($routeData['stops'] as $index => $stop)
-                                <tr>
-                                    <td class="px-3 py-2 whitespace-nowrap">{{ $index + 1 }}</td>
-                                    <td class="px-3 py-2 whitespace-nowrap">
-                                        {{ \Illuminate\Support\Carbon::parse($stop['start_time'])->timezone('Asia/Kolkata')->format('d M Y h:i A') }}
-                                    </td>
-                                    <td class="px-3 py-2 whitespace-nowrap">
-                                        {{ \Illuminate\Support\Carbon::parse($stop['end_time'])->timezone('Asia/Kolkata')->format('d M Y h:i A') }}
-                                    </td>
-                                    <td class="px-3 py-2 whitespace-nowrap">{{ $stop['duration_minutes'] }} min</td>
-                                    <td class="px-3 py-2 whitespace-nowrap font-mono text-xs sm:text-sm">
-                                        {{ number_format((float) $stop['latitude'], 6) }}, {{ number_format((float) $stop['longitude'], 6) }}
-                                    </td>
-                                </tr>
-                            @endforeach
-                        </tbody>
-                    </table>
-                </div>
+                @if ($hasEnoughPoints)
+                    <div class="er-map-shell">
+                        <div id="{{ $mapElementId }}" wire:ignore></div>
+                    </div>
+                @else
+                    <div class="er-empty">
+                        Not enough valid route points to draw a map. At least 2 valid points are required.
+                        @if (($diagnostics['total_points'] ?? 0) > 0)
+                            <div class="mt-2 text-amber-700 dark:text-amber-300">
+                                Incomplete route data – only {{ $diagnostics['total_points'] }} GPS points were received.
+                            </div>
+                        @endif
+                    </div>
+                @endif
             </section>
-        @endif
+        </div>
     </div>
 
     @if ($hasEnoughPoints)
@@ -361,6 +885,7 @@
                     const routeData = @json($routeData, JSON_THROW_ON_ERROR);
 
                     window.__employeeRouteMapInstances = window.__employeeRouteMapInstances || {};
+                    window.__employeeRouteMarkerIndex = window.__employeeRouteMarkerIndex || {};
 
                     const toNumber = (value) => {
                         const parsed = Number.parseFloat(value);
@@ -385,6 +910,8 @@
                             existing.remove();
                             delete window.__employeeRouteMapInstances[mapElementId];
                         }
+
+                        window.__employeeRouteMarkerIndex[mapElementId] = {};
                     };
 
                     const fitRouteBounds = (map, bounds) => {
@@ -399,7 +926,7 @@
                         }
 
                         map.fitBounds(latLngBounds, {
-                            padding: [56, 56],
+                            padding: [48, 48],
                             maxZoom: 16,
                             animate: false,
                         });
@@ -430,22 +957,59 @@
                         });
                     };
 
-                    const markerIcon = (color) => {
-                        return window.L.divIcon({
-                            className: '',
-                            html: `<span style="
-                                display:block;
-                                width:16px;
-                                height:16px;
-                                border-radius:9999px;
-                                background:${color};
-                                border:2px solid #fff;
-                                box-shadow:0 1px 4px rgba(0,0,0,.35);
-                            "></span>`,
-                            iconSize: [16, 16],
-                            iconAnchor: [8, 8],
-                            popupAnchor: [0, -8],
+                    const numberIcon = (sequence, active = false) => window.L.divIcon({
+                        className: '',
+                        html: `<span class="er-number-marker${active ? ' is-active' : ''}">${sequence}</span>`,
+                        iconSize: [28, 28],
+                        iconAnchor: [14, 14],
+                        popupAnchor: [0, -14],
+                    });
+
+                    const endpointIcon = (kind) => window.L.divIcon({
+                        className: '',
+                        html: `<span class="er-endpoint-marker ${kind}">${kind === 'start' ? 'START' : 'END'}</span>`,
+                        iconSize: [56, 24],
+                        iconAnchor: [28, 12],
+                        popupAnchor: [0, -12],
+                    });
+
+                    const setActiveMarker = (eventId) => {
+                        const index = window.__employeeRouteMarkerIndex[mapElementId] || {};
+
+                        Object.entries(index).forEach(([id, entry]) => {
+                            if (!entry?.marker || !entry?.kind) {
+                                return;
+                            }
+
+                            const isActive = id === eventId;
+
+                            if (entry.kind === 'stoppage') {
+                                entry.marker.setIcon(numberIcon(entry.sequence, isActive));
+                                entry.marker.setZIndexOffset(isActive ? 1000 : 500);
+                            } else {
+                                entry.marker.setZIndexOffset(isActive ? 1100 : 700);
+                            }
+
+                            if (isActive) {
+                                entry.marker.openPopup();
+                            }
                         });
+                    };
+
+                    const focusEvent = (eventId) => {
+                        const map = window.__employeeRouteMapInstances[mapElementId];
+                        const entry = (window.__employeeRouteMarkerIndex[mapElementId] || {})[eventId];
+
+                        if (!map || !entry?.marker) {
+                            return;
+                        }
+
+                        setActiveMarker(eventId);
+                        map.panTo(entry.marker.getLatLng(), { animate: true });
+
+                        if (map.getZoom() < 14) {
+                            map.setZoom(15, { animate: true });
+                        }
                     };
 
                     const renderMap = () => {
@@ -467,6 +1031,7 @@
                         });
 
                         window.__employeeRouteMapInstances[mapElementId] = map;
+                        window.__employeeRouteMarkerIndex[mapElementId] = {};
 
                         window.L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
                             maxZoom: 19,
@@ -474,7 +1039,6 @@
                         }).addTo(map);
 
                         const bounds = [];
-
                         const pushBound = (latLng) => {
                             if (latLng) {
                                 bounds.push(latLng);
@@ -501,61 +1065,92 @@
                             }).addTo(map);
                         }
 
-                        const addEventMarker = (latitude, longitude, color, html) => {
-                            const latLng = toLatLng(latitude, longitude);
+                        const registerMarker = (id, kind, sequence, marker) => {
+                            window.__employeeRouteMarkerIndex[mapElementId][id] = {
+                                kind,
+                                sequence,
+                                marker,
+                            };
+
+                            marker.on('click', () => {
+                                window.dispatchEvent(new CustomEvent('er-marker-selected', {
+                                    detail: { id },
+                                }));
+                                setActiveMarker(id);
+                            });
+                        };
+
+                        const journeyEvents = routeData.journey_events || [];
+
+                        journeyEvents.forEach((event) => {
+                            if (event.type === 'travel') {
+                                return;
+                            }
+
+                            const latLng = toLatLng(event.latitude, event.longitude);
 
                             if (!latLng) {
                                 return;
                             }
 
-                            const marker = window.L.marker(latLng, {
-                                icon: markerIcon(color),
-                                zIndexOffset: (color === '#16a34a' || color === '#dc2626') ? 600 : 400,
-                            }).addTo(map);
-
-                            marker.bindPopup(html);
                             pushBound(latLng);
-                        };
 
+                            if (event.type === 'start' || event.type === 'end') {
+                                const marker = window.L.marker(latLng, {
+                                    icon: endpointIcon(event.type),
+                                    zIndexOffset: 700,
+                                }).addTo(map);
+
+                                marker.bindPopup(
+                                    `<strong>${event.label}</strong><br>${event.time_label ?? '-'}<br>${event.location ?? ''}`,
+                                );
+                                registerMarker(event.id, event.type, null, marker);
+
+                                return;
+                            }
+
+                            if (event.type === 'stoppage') {
+                                const marker = window.L.marker(latLng, {
+                                    icon: numberIcon(event.sequence, false),
+                                    zIndexOffset: 500,
+                                }).addTo(map);
+
+                                marker.bindPopup(
+                                    `<strong>Stop ${event.sequence}</strong><br>${event.time_label ?? '-'}<br>${event.duration_label ?? ''}`,
+                                );
+                                registerMarker(event.id, 'stoppage', event.sequence, marker);
+                            }
+                        });
+
+                        // Fallback punch markers if journey events lack coordinates.
                         const punchIn = routeData.punch_in || {};
                         const punchOut = routeData.punch_out || {};
 
-                        if (punchIn.latitude != null && punchIn.longitude != null) {
-                            addEventMarker(
-                                punchIn.latitude,
-                                punchIn.longitude,
-                                '#16a34a',
-                                `<strong>Punch In</strong><br>${punchIn.time ?? '-'}`,
-                            );
-                        } else {
-                            const pin = (routeData.timeline || []).find((p) => p.point_type === 'Punch In');
+                        if (!window.__employeeRouteMarkerIndex[mapElementId].start) {
+                            const pin = toLatLng(punchIn.latitude, punchIn.longitude);
                             if (pin) {
-                                addEventMarker(pin.latitude, pin.longitude, '#16a34a', `<strong>Punch In</strong><br>${pin.recorded_at ?? '-'}`);
+                                pushBound(pin);
+                                const marker = window.L.marker(pin, {
+                                    icon: endpointIcon('start'),
+                                    zIndexOffset: 700,
+                                }).addTo(map);
+                                marker.bindPopup(`<strong>START</strong><br>${punchIn.time ?? '-'}`);
+                                registerMarker('start', 'start', null, marker);
                             }
                         }
 
-                        if (punchOut.latitude != null && punchOut.longitude != null) {
-                            addEventMarker(
-                                punchOut.latitude,
-                                punchOut.longitude,
-                                '#dc2626',
-                                `<strong>Punch Out</strong><br>${punchOut.time ?? '-'}`,
-                            );
-                        } else {
-                            const pout = (routeData.timeline || []).find((p) => p.point_type === 'Punch Out');
+                        if (!window.__employeeRouteMarkerIndex[mapElementId].end) {
+                            const pout = toLatLng(punchOut.latitude, punchOut.longitude);
                             if (pout) {
-                                addEventMarker(pout.latitude, pout.longitude, '#dc2626', `<strong>Punch Out</strong><br>${pout.recorded_at ?? '-'}`);
+                                pushBound(pout);
+                                const marker = window.L.marker(pout, {
+                                    icon: endpointIcon('end'),
+                                    zIndexOffset: 700,
+                                }).addTo(map);
+                                marker.bindPopup(`<strong>END</strong><br>${punchOut.time ?? '-'}`);
+                                registerMarker('end', 'end', null, marker);
                             }
                         }
-
-                        (routeData.stops || []).forEach((stop, index) => {
-                            addEventMarker(
-                                stop.latitude,
-                                stop.longitude,
-                                '#ea580c',
-                                `<strong>Stop ${index + 1}</strong><br>${stop.start_time ?? '-'} → ${stop.end_time ?? '-'}<br>${stop.duration_minutes ?? 0} min`,
-                            );
-                        });
 
                         if (bounds.length > 0) {
                             fitRouteBounds(map, bounds);
@@ -592,6 +1187,10 @@
                     };
 
                     scheduleInitialize();
+
+                    window.addEventListener('er-select-event', (event) => {
+                        focusEvent(event.detail?.id);
+                    });
 
                     document.addEventListener('livewire:navigated', scheduleInitialize);
                     document.addEventListener('DOMContentLoaded', scheduleInitialize);

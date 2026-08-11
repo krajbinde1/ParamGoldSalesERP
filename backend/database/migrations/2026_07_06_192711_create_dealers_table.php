@@ -14,7 +14,7 @@ return new class extends Migration
             $table->string('dealer_code')->unique();
 
             $table->string('firm_name');
-            $table->string('owner_name');
+            $table->string('owner_name')->nullable();
 
             $table->string('mobile', 20);
             $table->string('alternate_mobile', 20)->nullable();
@@ -26,13 +26,13 @@ return new class extends Migration
             $table->string('fertilizer_license_no')->nullable();
             $table->string('pan_no', 20)->nullable();
 
-            $table->text('address');
+            $table->text('address')->nullable();
 
             $table->string('village')->nullable();
             $table->string('taluka');
             $table->string('district');
             $table->string('state');
-            $table->string('pincode', 10);
+            $table->string('pincode', 10)->nullable();
 
             $table->decimal('latitude', 10, 7)->nullable();
             $table->decimal('longitude', 10, 7)->nullable();

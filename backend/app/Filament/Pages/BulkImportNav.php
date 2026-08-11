@@ -38,13 +38,13 @@ class BulkImportNav extends Page
 
     public static function shouldRegisterNavigation(): bool
     {
-        return static::canAccess();
+        return false;
     }
 
     public function mount(): void
     {
         abort_unless(static::canAccess(), 403);
 
-        $this->redirect(RawMaterialImport::getUrl());
+        $this->redirect(\App\Filament\Resources\RawMaterials\RawMaterialResource::getUrl('index'));
     }
 }

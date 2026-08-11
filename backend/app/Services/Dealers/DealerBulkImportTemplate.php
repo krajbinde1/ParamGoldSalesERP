@@ -7,28 +7,29 @@ final class DealerBulkImportTemplate
     /** @var list<string> */
     public const MANDATORY_COLUMNS = [
         'firm_name',
-        'owner_name',
+        'assigned_employee_code',
         'mobile',
-        'address',
         'state',
         'district',
         'taluka',
         'village',
-        'pincode',
-        'assigned_employee_code',
-        'status',
     ];
 
     /** @var list<string> */
     public const OPTIONAL_COLUMNS = [
-        'dealer_code',
-        'alt_mobile',
-        'email',
+        'owner_name',
+        'dealer_type',
         'gst_no',
+        'pan_no',
+        'fertilizer_license_no',
+        'address',
+        'pincode',
         'credit_limit',
         'outstanding',
         'latitude',
         'longitude',
+        'status',
+        'email',
     ];
 
     /** @return list<string> */
@@ -56,26 +57,28 @@ final class DealerBulkImportTemplate
 
         fputcsv($handle, array_merge(['Column'], $columns));
 
+        // Example row: only mandatory fields filled; optional left blank so users see the minimum viable import.
         fputcsv($handle, array_merge(['Example'], [
-            'ABC Agro',
-            'Rajesh Kumar',
-            '9876543210',
-            'Market Road',
-            'Maharashtra',
-            'Pune',
-            'Haveli',
-            'Wagholi',
-            '412207',
-            'E001',
-            '1',
-            '',
-            '',
-            'abc@example.com',
-            '',
-            '0',
-            '0',
-            '',
-            '',
+            'ABC Agro',           // firm_name (mandatory)
+            'E001',               // assigned_employee_code (mandatory)
+            '9876543210',         // mobile (mandatory)
+            'Maharashtra',        // state (mandatory)
+            'Pune',               // district (mandatory)
+            'Haveli',             // taluka (mandatory)
+            'Wagholi',            // village (mandatory)
+            'Rajesh Kumar',       // owner_name (optional)
+            'Retailer',           // dealer_type (optional)
+            '',                   // gst_no
+            '',                   // pan_no
+            '',                   // fertilizer_license_no
+            'Market Road',        // address (optional)
+            '412207',             // pincode (optional)
+            '0',                  // credit_limit
+            '0',                  // outstanding
+            '',                   // latitude
+            '',                   // longitude
+            '1',                  // status / Active
+            'abc@example.com',    // email
         ]));
 
         rewind($handle);

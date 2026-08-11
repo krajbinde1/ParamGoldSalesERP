@@ -64,6 +64,7 @@ function createAssignedDealer(\App\Models\Employee $employee, array $overrides =
         'state' => 'Maharashtra',
         'district' => 'Pune',
         'taluka' => 'Haveli',
+        'village' => 'Wagholi',
         'pincode' => '411001',
         'status' => true,
         'assigned_employee_id' => $employee->id,
@@ -79,30 +80,31 @@ function dealerImportDataLine(array $overrides = []): string
 {
     $values = [
         'firm_name' => 'ABC Agro',
-        'owner_name' => 'Rajesh Kumar',
+        'assigned_employee_code' => 'E001',
         'mobile' => '9876543210',
-        'address' => 'Market Road',
         'state' => 'Maharashtra',
         'district' => 'Pune',
         'taluka' => 'Haveli',
         'village' => 'Wagholi',
-        'pincode' => '412207',
-        'assigned_employee_code' => 'E001',
-        'status' => '1',
-        'dealer_code' => '',
-        'alt_mobile' => '',
-        'email' => '',
+        'owner_name' => 'Rajesh Kumar',
+        'dealer_type' => 'Retailer',
         'gst_no' => '',
+        'pan_no' => '',
+        'fertilizer_license_no' => '',
+        'address' => 'Market Road',
+        'pincode' => '412207',
         'credit_limit' => '0',
         'outstanding' => '0',
         'latitude' => '',
         'longitude' => '',
+        'status' => '1',
+        'email' => '',
     ];
 
     $values = array_merge($values, $overrides);
 
     return implode(',', array_map(
-        fn (string $column): string => $values[$column],
+        fn (string $column): string => $values[$column] ?? '',
         DealerBulkImportTemplate::allColumns(),
     ));
 }
@@ -151,7 +153,7 @@ it('rejects rows with missing mandatory fields and imports valid rows', function
         dealerImportDataLine(['assigned_employee_code' => $employee->employee_code]),
         dealerImportDataLine([
             'mobile' => '9876543211',
-            'owner_name' => '',
+            'village' => '',
             'assigned_employee_code' => $employee->employee_code,
         ]),
     ]);
@@ -163,18 +165,26 @@ it('rejects rows with missing mandatory fields and imports valid rows', function
 
     expect($result->imported)->toBe(1)
         ->and($result->failed())->toBe(1)
-        ->and($result->errors[0]->reason)->toContain('Missing mandatory field: owner_name');
+        ->and($result->errors[0]->reason)->toContain('Missing mandatory field: village');
 });
 
-it('imports rows when optional columns are blank and auto-generates dealer code', function () {
+it('imports rows when only mandatory columns are filled and auto-generates short dealer code', function () {
     $employee = createAssignableEmployee();
 
-    $csv = implode("\n", [
-        dealerImportHeaderLine(),
-        dealerImportDataLine(['assigned_employee_code' => $employee->employee_code]),
+    $mandatoryOnlyHeader = implode(',', DealerBulkImportTemplate::MANDATORY_COLUMNS);
+    $mandatoryOnlyRow = implode(',', [
+        'ABC Agro',
+        $employee->employee_code,
+        '9876543210',
+        'Maharashtra',
+        'Pune',
+        'Haveli',
+        'Wagholi',
     ]);
 
-    $path = storage_path('framework/testing/dealer-import-optional.csv');
+    $csv = implode("\n", [$mandatoryOnlyHeader, $mandatoryOnlyRow]);
+
+    $path = storage_path('framework/testing/dealer-import-mandatory-only.csv');
     File::put($path, $csv);
 
     app(DealerBulkImportService::class)->import($path);
@@ -182,9 +192,49 @@ it('imports rows when optional columns are blank and auto-generates dealer code'
     $dealer = Dealer::query()->where('firm_name', 'ABC Agro')->first();
 
     expect($dealer)->not->toBeNull()
-        ->and($dealer->dealer_code)->toStartWith('DLR')
+        ->and($dealer->dealer_code)->toMatch('/^D\d+$/')
+        ->and($dealer->dealer_code)->toBe('D001')
+        ->and($dealer->owner_name)->toBeNull()
+        ->and($dealer->address)->toBeNull()
         ->and($dealer->email)->toBeNull()
-        ->and($dealer->gst_no)->toBeNull();
+        ->and($dealer->gst_no)->toBeNull()
+        ->and($dealer->assigned_employee_id)->toBe($employee->id);
+});
+
+it('does not change existing DLR dealer codes and continues D-series from the highest D code', function () {
+    $employee = createAssignableEmployee();
+
+    Dealer::query()->create([
+        'dealer_code' => 'DLR000001',
+        'firm_name' => 'Legacy Dealer',
+        'mobile' => '9876500001',
+        'state' => 'Maharashtra',
+        'district' => 'Pune',
+        'taluka' => 'Haveli',
+        'village' => 'Wagholi',
+        'status' => true,
+        'assigned_employee_id' => $employee->id,
+    ]);
+
+    Dealer::query()->create([
+        'dealer_code' => 'D005',
+        'firm_name' => 'Short Code Dealer',
+        'mobile' => '9876500002',
+        'state' => 'Maharashtra',
+        'district' => 'Pune',
+        'taluka' => 'Haveli',
+        'village' => 'Wagholi',
+        'status' => true,
+        'assigned_employee_id' => $employee->id,
+    ]);
+
+    $newDealer = createAssignedDealer($employee, [
+        'firm_name' => 'New Format Dealer',
+        'mobile' => '9876500003',
+    ]);
+
+    expect(Dealer::query()->where('firm_name', 'Legacy Dealer')->value('dealer_code'))->toBe('DLR000001')
+        ->and($newDealer->dealer_code)->toBe('D006');
 });
 
 it('imports files exported from the marked template format', function () {
@@ -210,6 +260,24 @@ it('rejects bulk import files that still use assigned employee mobile column', f
 
     app(DealerBulkImportService::class)->import($path);
 })->throws(ValidationException::class);
+
+it('ignores whatsapp and alternate mobile columns if present in older import files', function () {
+    $employee = createAssignableEmployee();
+
+    $headers = dealerImportHeaderLine().',alt_mobile,whatsapp';
+    $csv = $headers."\n".dealerImportDataLine(['assigned_employee_code' => $employee->employee_code]).',9876500099,9876500098';
+    $path = storage_path('framework/testing/dealer-import-alt-mobile.csv');
+    File::put($path, $csv);
+
+    $result = app(DealerBulkImportService::class)->import($path);
+
+    $dealer = Dealer::query()->where('firm_name', 'ABC Agro')->first();
+
+    expect($result->imported)->toBe(1)
+        ->and($dealer)->not->toBeNull()
+        ->and($dealer->alternate_mobile)->toBeNull()
+        ->and($dealer->whatsapp)->toBeNull();
+});
 
 it('scopes dealer access to the assigned employee on mobile api', function () {
     $employeeA = createAssignableEmployee();

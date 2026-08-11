@@ -32,7 +32,6 @@ class DealerForm
                             ->maxLength(255),
                         TextInput::make('owner_name')
                             ->label('Owner Name')
-                            ->required()
                             ->maxLength(255),
                         Select::make('dealer_type')
                             ->options([
@@ -40,8 +39,7 @@ class DealerForm
                                 'Retailer' => 'Retailer',
                                 'Wholesaler' => 'Wholesaler',
                             ])
-                            ->default('Retailer')
-                            ->required(),
+                            ->default('Retailer'),
                         Toggle::make('status')
                             ->label('Active')
                             ->default(true)
@@ -69,18 +67,6 @@ class DealerForm
                             ->rule('regex:/^[6-9][0-9]{9}$/')
                             ->validationMessages(['regex' => 'Enter a valid 10-digit Indian mobile number.'])
                             ->maxLength(10),
-                        TextInput::make('whatsapp')
-                            ->label('WhatsApp Number')
-                            ->tel()
-                            ->rule('regex:/^[6-9][0-9]{9}$/')
-                            ->validationMessages(['regex' => 'Enter a valid 10-digit Indian mobile number.'])
-                            ->maxLength(10),
-                        TextInput::make('alternate_mobile')
-                            ->label('Alternate Mobile')
-                            ->tel()
-                            ->rule('regex:/^[6-9][0-9]{9}$/')
-                            ->validationMessages(['regex' => 'Enter a valid 10-digit Indian mobile number.'])
-                            ->maxLength(10),
                         TextInput::make('email')
                             ->label('Email Address')
                             ->email()
@@ -89,34 +75,33 @@ class DealerForm
                             ->label('GST Number')
                             ->extraInputAttributes(['class' => 'uppercase'])
                             ->dehydrateStateUsing(fn (?string $state): ?string => filled($state) ? strtoupper($state) : null)
-                            ->rule('regex:/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[A-Z0-9]{1}Z[A-Z0-9]{1}$/')
+                            ->rule('nullable|regex:/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[A-Z0-9]{1}Z[A-Z0-9]{1}$/')
                             ->validationMessages(['regex' => 'Enter a valid GSTIN.'])
                             ->maxLength(15),
                         TextInput::make('pan_no')
                             ->label('PAN Number')
                             ->extraInputAttributes(['class' => 'uppercase'])
                             ->dehydrateStateUsing(fn (?string $state): ?string => filled($state) ? strtoupper($state) : null)
-                            ->rule('regex:/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/')
+                            ->rule('nullable|regex:/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/')
                             ->validationMessages(['regex' => 'Enter a valid PAN.'])
                             ->maxLength(10),
                         TextInput::make('fertilizer_license_no')
                             ->label('Fertilizer License Number')
-                            ->maxLength(255),
+                            ->maxLength(255)
+                            ->columnSpanFull(),
                     ]),
                 Section::make('Address')
                     ->columns(2)
                     ->schema([
                         Textarea::make('address')
-                            ->required()
                             ->rows(3)
                             ->columnSpanFull(),
                         TextInput::make('state')->required()->maxLength(255),
                         TextInput::make('district')->required()->maxLength(255),
                         TextInput::make('taluka')->required()->maxLength(255),
-                        TextInput::make('village')->maxLength(255),
+                        TextInput::make('village')->required()->maxLength(255),
                         TextInput::make('pincode')
-                            ->required()
-                            ->rule('regex:/^[1-9][0-9]{5}$/')
+                            ->rule('nullable|regex:/^[1-9][0-9]{5}$/')
                             ->validationMessages(['regex' => 'Enter a valid 6-digit PIN code.'])
                             ->maxLength(6),
                     ]),

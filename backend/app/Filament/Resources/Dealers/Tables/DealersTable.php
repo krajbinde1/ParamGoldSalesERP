@@ -27,14 +27,14 @@ class DealersTable
                 TextColumn::make('firm_name')
                     ->searchable(),
                 TextColumn::make('owner_name')
-                    ->searchable(),
+                    ->searchable()
+                    ->placeholder('-'),
                 TextColumn::make('mobile')
-                    ->searchable(),
-                TextColumn::make('alternate_mobile')
                     ->searchable(),
                 TextColumn::make('email')
                     ->label('Email address')
-                    ->searchable(),
+                    ->searchable()
+                    ->toggleable(isToggledHiddenByDefault: true),
                 TextColumn::make('gst_no')
                     ->label('GSTIN')
                     ->searchable(),

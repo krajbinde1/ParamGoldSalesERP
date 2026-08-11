@@ -82,7 +82,9 @@ trait HandlesInventoryMaterialImport
 
     public static function shouldRegisterNavigation(): bool
     {
-        return static::canAccess();
+        // Import pages remain available by URL for deep links/tests, but are no longer
+        // shown under a separate Bulk Upload sidebar section. Use Material Master header actions.
+        return false;
     }
 
     public function mount(): void

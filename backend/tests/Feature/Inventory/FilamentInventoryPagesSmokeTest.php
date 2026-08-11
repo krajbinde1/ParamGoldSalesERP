@@ -1,13 +1,16 @@
 <?php
 
 use App\Enums\UserRole;
+use App\Filament\Pages\BulkImportNav;
 use App\Filament\Pages\FinishedGoodsImport;
+use App\Filament\Pages\FinishedGoodsOpeningStockImport;
 use App\Filament\Pages\InventoryDashboard;
 use App\Filament\Pages\InventoryReports;
 use App\Filament\Pages\PackagingMaterialImport;
 use App\Filament\Pages\RawMaterialImport;
 use App\Filament\Pages\SemiFinishedMaterialImport;
 use App\Filament\Resources\Boms\Pages\ListBoms;
+use App\Filament\Resources\FinishedProducts\Pages\ListFinishedProducts;
 use App\Filament\Resources\PackagingMaterialInwards\Pages\ListPackagingMaterialInwards;
 use App\Filament\Resources\PackagingMaterials\Pages\ListPackagingMaterials;
 use App\Filament\Resources\ProductionBatches\Pages\ListProductionBatches;
@@ -36,6 +39,7 @@ it('boots Inventory & Manufacturing menu pages without error', function (string 
     'raw materials' => ListRawMaterials::class,
     'packaging materials' => ListPackagingMaterials::class,
     'semi finished' => ListSemiFinishedMaterials::class,
+    'finished goods inventory' => ListFinishedProducts::class,
     'raw material inwards' => ListRawMaterialInwards::class,
     'packaging material inwards' => ListPackagingMaterialInwards::class,
     'boms' => ListBoms::class,
@@ -43,11 +47,16 @@ it('boots Inventory & Manufacturing menu pages without error', function (string 
     'stock adjustments' => ListStockAdjustments::class,
     'inventory dashboard' => InventoryDashboard::class,
     'inventory reports' => InventoryReports::class,
-    'raw material import' => RawMaterialImport::class,
-    'packaging material import' => PackagingMaterialImport::class,
-    'semi finished material import' => SemiFinishedMaterialImport::class,
-    'finished goods import' => FinishedGoodsImport::class,
 ]);
+
+it('hides Bulk Upload and standalone import pages from sidebar navigation', function (): void {
+    expect(BulkImportNav::shouldRegisterNavigation())->toBeFalse()
+        ->and(RawMaterialImport::shouldRegisterNavigation())->toBeFalse()
+        ->and(PackagingMaterialImport::shouldRegisterNavigation())->toBeFalse()
+        ->and(SemiFinishedMaterialImport::shouldRegisterNavigation())->toBeFalse()
+        ->and(FinishedGoodsImport::shouldRegisterNavigation())->toBeFalse()
+        ->and(FinishedGoodsOpeningStockImport::shouldRegisterNavigation())->toBeFalse();
+});
 
 it('keeps packaging materials list under a tight query budget', function (): void {
     $queries = 0;

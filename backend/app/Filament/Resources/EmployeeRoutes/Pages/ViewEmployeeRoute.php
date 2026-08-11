@@ -28,17 +28,12 @@ class ViewEmployeeRoute extends ViewRecord
 
     public function getHeading(): string|Htmlable
     {
-        return $this->getTitle();
+        return '';
     }
 
     public function getSubheading(): string|Htmlable|null
     {
-        /** @var Attendance $record */
-        $record = $this->getRecord();
-
-        return $record->attendance_date
-            ->timezone(AttendanceCalendar::TIMEZONE)
-            ->format('d M Y');
+        return null;
     }
 
     /**
@@ -53,6 +48,9 @@ class ViewEmployeeRoute extends ViewRecord
         $analysis = $service->analyze($record);
         $validPoints = $service->formatValidPointsForMap($analysis['valid_points']);
 
+        $previous = $this->findAdjacentAttendance('previous');
+        $next = $this->findAdjacentAttendance('next');
+
         return [
             'summary' => $analysis['summary'],
             'diagnostics' => $analysis['diagnostics'],
@@ -60,23 +58,82 @@ class ViewEmployeeRoute extends ViewRecord
             'route_points' => $service->formatRoutePointsForResponse($record),
             'timeline' => $analysis['timeline'],
             'stops' => $analysis['stops'],
+            'journey_events' => $analysis['journey_events'],
             'punch_in' => [
-                'time' => $record->punchInAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('d M Y h:i A'),
+                'time' => $record->punchInAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('h:i A'),
+                'full_time' => $record->punchInAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('d M Y h:i A'),
                 'latitude' => $record->punch_in_latitude !== null ? (float) $record->punch_in_latitude : null,
                 'longitude' => $record->punch_in_longitude !== null ? (float) $record->punch_in_longitude : null,
                 'location' => $record->punch_in_location,
             ],
             'punch_out' => [
-                'time' => $record->punchOutAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('d M Y h:i A'),
+                'time' => $record->punchOutAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('h:i A'),
+                'full_time' => $record->punchOutAt()?->timezone(AttendanceCalendar::TIMEZONE)->format('d M Y h:i A'),
                 'latitude' => $record->punch_out_latitude !== null ? (float) $record->punch_out_latitude : null,
                 'longitude' => $record->punch_out_longitude !== null ? (float) $record->punch_out_longitude : null,
                 'location' => $record->punch_out_location,
             ],
             'employee' => [
+                'id' => $record->employee_id,
                 'full_name' => $record->employee?->full_name,
                 'employee_code' => $record->employee?->employee_code,
             ],
             'attendance_date' => $record->attendance_date->timezone(AttendanceCalendar::TIMEZONE)->format('d M Y'),
+            'attendance_date_iso' => $record->attendance_date->timezone(AttendanceCalendar::TIMEZONE)->toDateString(),
+            'navigation' => [
+                'previous_url' => $previous !== null
+                    ? EmployeeRouteResource::getUrl('view', ['record' => $previous])
+                    : null,
+                'next_url' => $next !== null
+                    ? EmployeeRouteResource::getUrl('view', ['record' => $next])
+                    : null,
+                'list_url' => EmployeeRouteResource::getUrl('index'),
+            ],
         ];
+    }
+
+    public function goToDate(string $date): void
+    {
+        /** @var Attendance $record */
+        $record = $this->getRecord();
+
+        $target = Attendance::query()
+            ->where('employee_id', $record->employee_id)
+            ->whereDate('attendance_date', $date)
+            ->whereNotNull('punch_in_time')
+            ->orderByDesc('id')
+            ->first();
+
+        if ($target === null) {
+            $this->dispatch('route-date-missing', date: $date);
+
+            return;
+        }
+
+        $this->redirect(EmployeeRouteResource::getUrl('view', ['record' => $target]));
+    }
+
+    private function findAdjacentAttendance(string $direction): ?Attendance
+    {
+        /** @var Attendance $record */
+        $record = $this->getRecord();
+
+        $query = Attendance::query()
+            ->where('employee_id', $record->employee_id)
+            ->whereNotNull('punch_in_time');
+
+        if ($direction === 'previous') {
+            return $query
+                ->whereDate('attendance_date', '<', $record->attendance_date->toDateString())
+                ->orderByDesc('attendance_date')
+                ->orderByDesc('id')
+                ->first();
+        }
+
+        return $query
+            ->whereDate('attendance_date', '>', $record->attendance_date->toDateString())
+            ->orderBy('attendance_date')
+            ->orderBy('id')
+            ->first();
     }
 }
