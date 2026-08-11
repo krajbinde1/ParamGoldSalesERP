@@ -45,7 +45,7 @@ class ManagerDashboardController extends Controller
             'pending_order_approvals' => Order::query()
                 ->where('status', 'pending_approval')
                 ->with(['dealer:id,firm_name', 'salesEmployee:id,full_name'])
-                ->orderByDesc('order_date')
+                ->orderByDesc('created_at')
                 ->limit(10)
                 ->get()
                 ->map(fn (Order $order): array => [
@@ -56,6 +56,7 @@ class ManagerDashboardController extends Controller
                     'employee_name' => $order->salesEmployee?->full_name,
                     'grand_total' => (float) $order->grand_total,
                     'status' => $order->status,
+                    'status_label' => $order->displayStatusLabel(),
                 ]),
             'pending_ta_da_approvals' => TaDaClaim::query()
                 ->where('status', TaDaClaim::STATUS_PENDING)

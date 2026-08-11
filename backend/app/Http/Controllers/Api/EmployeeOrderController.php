@@ -45,7 +45,7 @@ class EmployeeOrderController extends Controller
             return response()->json([
                 'orders' => $this->applyFilter($orders, $filter)
                     ->with('dealer:id,firm_name')
-                    ->orderByDesc('order_date')
+                    ->orderByDesc('created_at')
                     ->orderByDesc('id')
                     ->get()
                     ->map(fn (Order $order): array => $this->formatOrderListItem($order))
@@ -62,7 +62,7 @@ class EmployeeOrderController extends Controller
 
         $recentOrders = (clone $orders)
             ->with('dealer:id,firm_name')
-            ->orderByDesc('order_date')
+            ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->limit(10)
             ->get()
@@ -80,9 +80,13 @@ class EmployeeOrderController extends Controller
         $this->authorizeEmployeeOrder($request, $order);
 
         $order->load([
-            'dealer:id,firm_name,owner_name,village,mobile',
+            'dealer:id,dealer_code,firm_name,owner_name,village,taluka,district,state,mobile,address',
             'salesEmployee:id,full_name',
             'items.product:id,product_name,product_code,dealer_price',
+            'approvedByUser:id,name',
+            'rejectedByUser:id,name',
+            'billedByUser:id,name',
+            'dispatchedByUser:id,name',
         ]);
 
         return response()->json([
@@ -320,8 +324,10 @@ class EmployeeOrderController extends Controller
             'order_no' => $order->order_no,
             'dealer_name' => $order->dealer?->firm_name,
             'order_date' => $order->order_date->toDateString(),
+            'created_at' => $order->created_at?->toDateTimeString(),
             'grand_total' => (float) $order->grand_total,
             'status' => $order->status,
+            'status_label' => $order->displayStatusLabel(),
         ];
     }
 
@@ -339,17 +345,39 @@ class EmployeeOrderController extends Controller
             'id' => $order->id,
             'order_no' => $order->order_no,
             'order_date' => $order->order_date->toDateString(),
+            'created_at' => $order->created_at?->toDateTimeString(),
             'status' => $order->status,
+            'status_label' => $order->displayStatusLabel(),
             'remarks' => $order->remarks,
             'dealer' => $order->dealer === null ? null : [
                 'id' => $order->dealer->id,
+                'dealer_code' => $order->dealer->dealer_code,
                 'firm_name' => $order->dealer->firm_name,
                 'owner_name' => $order->dealer->owner_name,
-                'village' => $order->dealer->village,
                 'mobile' => $order->dealer->mobile,
+                'address' => $order->dealer->address,
+                'village' => $order->dealer->village,
+                'taluka' => $order->dealer->taluka,
+                'district' => $order->dealer->district,
+                'state' => $order->dealer->state,
             ],
             'dealer_name' => $order->dealer?->firm_name,
             'sales_employee_name' => $order->salesEmployee?->full_name,
+            'approved_at' => $order->approved_at?->toDateTimeString(),
+            'approved_by_name' => $order->approvedByUser?->name,
+            'rejected_at' => $order->rejected_at?->toDateTimeString(),
+            'rejected_by_name' => $order->rejectedByUser?->name,
+            'rejected_by_role' => $order->rejected_by_role,
+            'rejection_remark' => $order->rejection_remark,
+            'rejection_reason' => $order->rejection_remark,
+            'billed_at' => $order->billed_at?->toDateTimeString(),
+            'billed_by_name' => $order->billedByUser?->name,
+            'bill_number' => $order->bill_number,
+            'bill_url' => $order->billUrl(),
+            'billing_remark' => $order->billing_remark,
+            'dispatched_at' => $order->dispatched_at?->toDateTimeString(),
+            'dispatched_by_name' => $order->dispatchedByUser?->name,
+            'dispatch_remark' => $order->dispatch_remark,
             'subtotal' => (float) $order->subtotal,
             'discount_amount' => (float) $order->discount_amount,
             'gst_amount' => (float) $order->gst_amount,
@@ -368,6 +396,7 @@ class EmployeeOrderController extends Controller
                 ? (float) $order->taxable_amount_after_transport
                 : null,
             'can_edit' => $order->status === 'pending_approval',
+            'timeline' => $order->workflowTimeline(),
             'items' => $items,
         ];
     }

@@ -254,7 +254,7 @@ class DashboardMetricsService
             ->with(['dealer:id,firm_name'])
             ->where('sales_employee_id', $employeeId)
             ->whereBetween('order_date', [$start->toDateString(), $end->toDateString()])
-            ->orderByDesc('order_date')
+            ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->get()
             ->map(fn (Order $order): array => [
@@ -264,7 +264,7 @@ class DashboardMetricsService
                 'dealer_name' => $order->dealer?->firm_name,
                 'grand_total' => (float) $order->grand_total,
                 'status' => $order->status,
-                'status_label' => Order::statusLabels()[$order->status] ?? ucfirst($order->status),
+                'status_label' => $order->displayStatusLabel(),
             ])
             ->values()
             ->all();

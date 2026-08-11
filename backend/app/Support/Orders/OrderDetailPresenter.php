@@ -4,11 +4,13 @@ namespace App\Support\Orders;
 
 use App\Models\Order;
 use App\Services\Orders\OrderDispatchCalculationService;
+use App\Services\Orders\OrderLineCalculationService;
 
 final class OrderDetailPresenter
 {
     public function __construct(
         private readonly OrderDispatchCalculationService $calculator,
+        private readonly OrderLineCalculationService $lineCalculator = new OrderLineCalculationService,
     ) {}
 
     /**
@@ -17,10 +19,11 @@ final class OrderDetailPresenter
     public function present(Order $order, bool $includeDispatchPreview = false, ?array $previewCalculation = null): array
     {
         $order->loadMissing([
-            'dealer:id,firm_name,owner_name,village,mobile,address',
+            'dealer:id,dealer_code,firm_name,owner_name,village,taluka,district,state,mobile,address',
             'salesEmployee:id,full_name',
             'items.product:id,product_name,product_code,dealer_price',
             'approvedByUser:id,name',
+            'rejectedByUser:id,name',
             'billedByUser:id,name',
             'dispatchedByUser:id,name',
         ]);
@@ -30,20 +33,41 @@ final class OrderDetailPresenter
                 ? $this->calculator->calculateForOrder($order)
                 : $this->calculator->calculate($order, 'company_transport', 0));
 
+        $storedItems = $order->items
+            ->map(fn ($item): array => $this->lineCalculator->presentLineItem($item))
+            ->values()
+            ->all();
+
         return [
             'id' => $order->id,
             'order_no' => $order->order_no,
             'order_date' => $order->order_date?->toDateString(),
+            'created_at' => $order->created_at?->toDateTimeString(),
             'status' => $order->status,
-            'status_label' => Order::statusLabels()[$order->status] ?? ucfirst($order->status),
+            'status_label' => $order->displayStatusLabel(),
             'payment_type' => $order->payment_type,
             'remarks' => $order->remarks,
             'employee_name' => $order->salesEmployee?->full_name,
-            'dealer' => $order->dealer,
+            'dealer' => $order->dealer === null ? null : [
+                'id' => $order->dealer->id,
+                'dealer_code' => $order->dealer->dealer_code,
+                'firm_name' => $order->dealer->firm_name,
+                'owner_name' => $order->dealer->owner_name,
+                'mobile' => $order->dealer->mobile,
+                'address' => $order->dealer->address,
+                'village' => $order->dealer->village,
+                'taluka' => $order->dealer->taluka,
+                'district' => $order->dealer->district,
+                'state' => $order->dealer->state,
+            ],
             'approved_at' => $order->approved_at?->toDateTimeString(),
             'approved_by_name' => $order->approvedByUser?->name,
             'approval_remark' => $order->remarks,
+            'rejected_at' => $order->rejected_at?->toDateTimeString(),
+            'rejected_by_name' => $order->rejectedByUser?->name,
+            'rejected_by_role' => $order->rejected_by_role,
             'rejection_remark' => $order->rejection_remark,
+            'rejection_reason' => $order->rejection_remark,
             'billed_at' => $order->billed_at?->toDateTimeString(),
             'billed_by_name' => $order->billedByUser?->name,
             'bill_number' => $order->bill_number,
@@ -81,9 +105,13 @@ final class OrderDetailPresenter
             'total_cases' => $calculation['total_cases'] ?? 0,
             'total_quantity_nos' => $calculation['total_quantity_nos'] ?? 0,
             'calculation' => $calculation,
-            'items' => $calculation['items'],
+            'items' => $calculation['items'] ?? $storedItems,
+            'line_items' => $storedItems,
+            'timeline' => $order->workflowTimeline(),
             'can_dispatch' => $order->canBeDispatched(),
             'can_bill' => $order->canBeBilled(),
+            'can_approve' => $order->canBeApproved(),
+            'can_reject' => $order->canBeRejected(),
         ];
     }
 }

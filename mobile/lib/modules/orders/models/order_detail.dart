@@ -14,6 +14,7 @@ class OrderDetailItem {
     required this.discountPercentage,
     required this.gstPercentage,
     required this.lineTotal,
+    this.unit,
     this.originalDealerPrice,
     this.baseAmount,
     this.discountAmount,
@@ -29,6 +30,7 @@ class OrderDetailItem {
   final int caseQuantity;
   final int nosPerCase;
   final int totalQuantityNos;
+  final String? unit;
   final double? originalDealerPrice;
   final double ratePerNo;
   final double discountPercentage;
@@ -54,6 +56,7 @@ class OrderDetailItem {
         nosPerCase: int.tryParse('${json['nos_per_case'] ?? 1}') ?? 1,
         totalQuantityNos:
             int.tryParse('${json['total_quantity_nos'] ?? 0}') ?? 0,
+        unit: json['unit']?.toString(),
         originalDealerPrice: json['original_dealer_price'] == null
             ? null
             : double.tryParse('${json['original_dealer_price']}'),
@@ -102,15 +105,30 @@ class OrderDetail {
     required this.grandTotal,
     required this.canEdit,
     required this.items,
+    this.statusLabel,
     this.totalCases,
     this.totalQuantityNos,
     this.dealer,
+    this.approvedAt,
+    this.approvedByName,
+    this.rejectedAt,
+    this.rejectedByName,
+    this.rejectedByRole,
+    this.rejectionRemark,
+    this.billedAt,
+    this.billedByName,
+    this.billUrl,
+    this.dispatchedAt,
+    this.dispatchedByName,
+    this.transportAmount,
+    this.timelineSteps = const [],
   });
 
   final int id;
   final String orderNo;
   final DateTime orderDate;
   final String status;
+  final String? statusLabel;
   final String remarks;
   final String dealerName;
   final String salesEmployeeName;
@@ -123,23 +141,40 @@ class OrderDetail {
   final bool canEdit;
   final List<OrderDetailItem> items;
   final OrderDealer? dealer;
+  final String? approvedAt;
+  final String? approvedByName;
+  final String? rejectedAt;
+  final String? rejectedByName;
+  final String? rejectedByRole;
+  final String? rejectionRemark;
+  final String? billedAt;
+  final String? billedByName;
+  final String? billUrl;
+  final String? dispatchedAt;
+  final String? dispatchedByName;
+  final double? transportAmount;
+  final List<OrderTimelineStep> timelineSteps;
 
   factory OrderDetail.fromJson(Map<String, dynamic> json) {
     final dateRaw = json['order_date']?.toString() ?? '';
     final dealerJson = json['dealer'];
     final rawItems = json['items'];
+    final rawTimeline = json['timeline'];
 
     return OrderDetail(
       id: int.tryParse('${json['id'] ?? ''}') ?? 0,
       orderNo: json['order_no']?.toString() ?? '—',
       orderDate: DateTime.tryParse(dateRaw) ?? DateTime.now(),
       status: json['status']?.toString() ?? 'pending',
+      statusLabel: json['status_label']?.toString(),
       remarks: json['remarks']?.toString() ?? '',
       dealerName:
           json['dealer_name']?.toString() ??
           (dealerJson is Map ? dealerJson['firm_name']?.toString() : null) ??
           '—',
-      salesEmployeeName: json['sales_employee_name']?.toString() ?? '—',
+      salesEmployeeName: json['sales_employee_name']?.toString() ??
+          json['employee_name']?.toString() ??
+          '—',
       subtotal: double.tryParse('${json['subtotal'] ?? 0}') ?? 0,
       discountAmount: double.tryParse('${json['discount_amount'] ?? 0}') ?? 0,
       gstAmount: double.tryParse('${json['gst_amount'] ?? 0}') ?? 0,
@@ -151,6 +186,22 @@ class OrderDetail {
           ? null
           : int.tryParse('${json['total_quantity_nos']}'),
       canEdit: json['can_edit'] == true,
+      approvedAt: json['approved_at']?.toString(),
+      approvedByName: json['approved_by_name']?.toString(),
+      rejectedAt: json['rejected_at']?.toString(),
+      rejectedByName: json['rejected_by_name']?.toString(),
+      rejectedByRole: json['rejected_by_role']?.toString(),
+      rejectionRemark:
+          json['rejection_remark']?.toString() ??
+          json['rejection_reason']?.toString(),
+      billedAt: json['billed_at']?.toString(),
+      billedByName: json['billed_by_name']?.toString(),
+      billUrl: json['bill_url']?.toString(),
+      dispatchedAt: json['dispatched_at']?.toString(),
+      dispatchedByName: json['dispatched_by_name']?.toString(),
+      transportAmount: json['transport_amount'] == null
+          ? null
+          : double.tryParse('${json['transport_amount']}'),
       dealer: dealerJson is Map
           ? OrderDealer.fromJson(Map<String, dynamic>.from(dealerJson))
           : null,
@@ -163,10 +214,25 @@ class OrderDetail {
                 )
                 .toList()
           : const [],
+      timelineSteps: rawTimeline is List
+          ? rawTimeline
+                .whereType<Map>()
+                .map(
+                  (step) => OrderTimelineStep.fromApi(
+                    Map<String, dynamic>.from(step),
+                  ),
+                )
+                .toList()
+          : const [],
     );
   }
 
-  List<OrderTimelineStep> get timeline => OrderTimelineStep.build(status);
+  List<OrderTimelineStep> get timeline => timelineSteps.isNotEmpty
+      ? timelineSteps
+      : OrderTimelineStep.build(
+          status,
+          rejectedByRole: rejectedByRole,
+        );
 }
 
 class OrderTimelineStep {
@@ -175,27 +241,53 @@ class OrderTimelineStep {
     required this.isComplete,
     required this.isCurrent,
     required this.isRejected,
+    this.actor,
+    this.at,
+    this.remark,
   });
 
   final String label;
   final bool isComplete;
   final bool isCurrent;
   final bool isRejected;
+  final String? actor;
+  final String? at;
+  final String? remark;
 
-  static List<OrderTimelineStep> build(String status) {
+  factory OrderTimelineStep.fromApi(Map<String, dynamic> json) {
+    final completed = json['completed'] == true;
+    final isRejection = json['is_rejection'] == true;
+
+    return OrderTimelineStep(
+      label: json['label']?.toString() ?? '',
+      actor: json['actor']?.toString(),
+      at: json['at']?.toString(),
+      remark: json['remark']?.toString(),
+      isComplete: completed,
+      isCurrent: !completed || isRejection,
+      isRejected: isRejection,
+    );
+  }
+
+  static List<OrderTimelineStep> build(
+    String status, {
+    String? rejectedByRole,
+  }) {
     final value = OrderStatusRules.normalize(status);
 
     if (OrderStatusRules.isRejectedBucket(value)) {
-      final label = value == 'cancelled' ? 'Cancelled' : 'Rejected';
       return [
         const OrderTimelineStep(
-          label: 'Pending Approval',
+          label: 'Order Created',
           isComplete: true,
           isCurrent: false,
           isRejected: false,
         ),
         OrderTimelineStep(
-          label: label,
+          label: OrderStatusRules.badgeLabel(
+            status,
+            rejectedByRole: rejectedByRole,
+          ),
           isComplete: true,
           isCurrent: true,
           isRejected: true,
@@ -203,13 +295,15 @@ class OrderTimelineStep {
       ];
     }
 
-    final steps = <OrderTimelineStep>[
+    return [
       OrderTimelineStep(
-        label: 'Pending Approval',
-        isComplete:
-            value != 'pending_approval' &&
-            value != 'pending' &&
-            value != 'draft',
+        label: 'Pending Sales Manager Approval',
+        isComplete: !{
+          'pending_approval',
+          'pending',
+          'draft',
+          'processing',
+        }.contains(value),
         isCurrent: {
           'pending_approval',
           'pending',
@@ -219,9 +313,15 @@ class OrderTimelineStep {
         isRejected: false,
       ),
       OrderTimelineStep(
-        label: 'Approved',
-        isComplete: {'dispatched', 'delivered'}.contains(value),
+        label: 'Approved by Sales Manager',
+        isComplete: {'billed', 'dispatched', 'delivered'}.contains(value),
         isCurrent: value == 'approved',
+        isRejected: false,
+      ),
+      OrderTimelineStep(
+        label: 'Billed by Admin',
+        isComplete: {'dispatched', 'delivered'}.contains(value),
+        isCurrent: value == 'billed',
         isRejected: false,
       ),
       OrderTimelineStep(
@@ -231,8 +331,6 @@ class OrderTimelineStep {
         isRejected: false,
       ),
     ];
-
-    return steps;
   }
 }
 

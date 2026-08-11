@@ -4,8 +4,10 @@ namespace App\Filament\Resources\Orders\Pages;
 
 use App\Actions\Orders\BillOrderWithDocument;
 use App\Actions\Orders\DispatchOrderWithTransport;
+use App\Actions\Orders\RejectOrderWithRemarks;
 use App\Enums\TransportType;
 use App\Filament\Resources\Orders\OrderResource;
+use App\Models\Order;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\DatePicker;
@@ -25,6 +27,40 @@ class ViewOrder extends ViewRecord
         $record = $this->getRecord();
 
         return [
+            Action::make('reject')
+                ->label('Reject Order')
+                ->color('danger')
+                ->visible(fn (): bool => Gate::forUser(auth()->user())->allows('reject', $record))
+                ->authorize(fn (): bool => Gate::forUser(auth()->user())->allows('reject', $record))
+                ->modalHeading('Reject Order')
+                ->form([
+                    Textarea::make('rejection_reason')
+                        ->label('Reason / Remarks')
+                        ->required()
+                        ->minLength(3)
+                        ->rows(3),
+                ])
+                ->action(function (array $data) use ($record): void {
+                    $user = auth()->user();
+                    $role = $user?->isAdminUser()
+                        ? Order::REJECTED_BY_ROLE_ADMIN
+                        : Order::REJECTED_BY_ROLE_SALES_MANAGER;
+
+                    app(RejectOrderWithRemarks::class)->execute(
+                        order: $record,
+                        actor: $user,
+                        remark: $data['rejection_reason'],
+                        rejectedByRole: $role,
+                    );
+
+                    $this->refreshFormData([
+                        'status',
+                        'rejected_by',
+                        'rejected_by_role',
+                        'rejected_at',
+                        'rejection_remark',
+                    ]);
+                }),
             Action::make('bill')
                 ->label('Mark as Billed')
                 ->color('warning')
@@ -65,7 +101,7 @@ class ViewOrder extends ViewRecord
             Action::make('dispatch')
                 ->label('Mark as Dispatched')
                 ->color('info')
-                ->visible(fn (): bool => $record->status === \App\Models\Order::STATUS_BILLED
+                ->visible(fn (): bool => $record->status === Order::STATUS_BILLED
                     && auth()->user()?->canActAsProductionSupervisor()
                     && Gate::forUser(auth()->user())->allows('dispatch', $record))
                 ->authorize(fn (): bool => Gate::forUser(auth()->user())->allows('dispatch', $record))

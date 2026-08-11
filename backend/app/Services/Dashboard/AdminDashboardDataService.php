@@ -52,7 +52,7 @@ class AdminDashboardDataService
                     'subtitle' => $order->dealer?->firm_name,
                     'date' => $order->order_date?->format('d M Y'),
                     'status' => $order->status,
-                    'status_label' => Order::statusLabels()[$order->status] ?? $order->status,
+                    'status_label' => $order->displayStatusLabel(),
                     'status_color' => Order::statusColor($order->status),
                 ])
                 ->all(),

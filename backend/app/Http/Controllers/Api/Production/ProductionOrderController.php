@@ -34,7 +34,7 @@ class ProductionOrderController extends Controller
                 $request->filled('status') && in_array($request->string('status')->toString(), $allowed, true),
                 fn ($q) => $q->where('status', $request->string('status')),
             )
-            ->orderByDesc('order_date')
+            ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->paginate(20);
 
@@ -43,6 +43,7 @@ class ProductionOrderController extends Controller
                 'id' => $order->id,
                 'order_no' => $order->order_no,
                 'order_date' => $order->order_date?->toDateString(),
+                'created_at' => $order->created_at?->toDateTimeString(),
                 'approved_at' => $order->approved_at?->toDateTimeString(),
                 'billed_at' => $order->billed_at?->toDateTimeString(),
                 'dispatched_at' => $order->dispatched_at?->toDateTimeString(),
@@ -52,7 +53,7 @@ class ProductionOrderController extends Controller
                 'employee_name' => $order->salesEmployee?->full_name,
                 'grand_total' => (float) $order->grand_total,
                 'status' => $order->status,
-                'status_label' => Order::statusLabels()[$order->status] ?? ucfirst($order->status),
+                'status_label' => $order->displayStatusLabel(),
                 'can_dispatch' => $order->canBeDispatched(),
             ])->values(),
             'meta' => [

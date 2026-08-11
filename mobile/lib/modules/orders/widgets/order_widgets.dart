@@ -171,10 +171,15 @@ class OrderTimelineRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final isCompleted = step.isComplete && !step.isRejected;
     final isActive = step.isCurrent;
+    final parts = <String>[
+      if ((step.actor ?? '').trim().isNotEmpty) step.actor!.trim(),
+      if ((step.at ?? '').trim().isNotEmpty) step.at!.trim(),
+      if ((step.remark ?? '').trim().isNotEmpty) 'Remarks: ${step.remark!.trim()}',
+    ];
 
     return PgTimelineStep(
       title: step.label,
-      subtitle: '',
+      subtitle: parts.join('\n'),
       isCompleted: isCompleted,
       isActive: isActive,
       isLast: isLast,

@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Orders\Tables;
 
 use App\Actions\Orders\BillOrderWithDocument;
 use App\Actions\Orders\DispatchOrderWithTransport;
+use App\Actions\Orders\RejectOrderWithRemarks;
 use App\Enums\TransportType;
 use App\Models\Order;
 use Filament\Actions\Action;
@@ -31,19 +32,20 @@ class OrdersTable
         $ordersOnlyUser = fn (): bool => auth()->user()?->hasOrdersOnlyFilamentAccess() ?? false;
 
         return $table
+            ->defaultSort('created_at', 'desc')
             ->columns([
                 TextColumn::make('order_no')->searchable()->sortable(),
                 TextColumn::make('order_date')->date()->sortable(),
+                TextColumn::make('created_at')->label('Created')->dateTime()->sortable(),
                 TextColumn::make('dealer.firm_name')->label('Dealer')->searchable()->sortable(),
                 TextColumn::make('salesEmployee.full_name')->label('Sales Employee')->placeholder('-')->searchable(),
                 TextColumn::make('payment_type')->badge(),
                 TextColumn::make('status')
                     ->badge()
-                    ->formatStateUsing(fn (string $state): string => Order::statusLabels()[$state] ?? $state)
+                    ->formatStateUsing(fn (string $state, Order $record): string => $record->displayStatusLabel())
                     ->color(fn (string $state): string => Order::statusColor($state))
                     ->sortable(),
                 TextColumn::make('grand_total')->label('Grand Total')->money('INR')->sortable(),
-                TextColumn::make('created_at')->dateTime()->sortable()->toggleable(isToggledHiddenByDefault: true),
             ])
             ->filters([
                 SelectFilter::make('payment_type')->options(['Cash' => 'Cash', 'Credit' => 'Credit']),
@@ -67,20 +69,31 @@ class OrdersTable
                     ->requiresConfirmation()
                     ->action(fn (Order $record) => $record->approve(auth()->id())),
                 Action::make('reject')
-                    ->label('Reject')
+                    ->label('Reject Order')
                     ->color('danger')
                     ->visible(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('reject', $record))
                     ->authorize(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('reject', $record))
+                    ->modalHeading('Reject Order')
                     ->form([
-                        Textarea::make('rejection_remark')
-                            ->label('Rejection Remark')
+                        Textarea::make('rejection_reason')
+                            ->label('Reason / Remarks')
                             ->required()
+                            ->minLength(3)
                             ->rows(3),
                     ])
-                    ->action(fn (Order $record, array $data) => $record->reject(
-                        auth()->id(),
-                        $data['rejection_remark'],
-                    )),
+                    ->action(function (Order $record, array $data): void {
+                        $user = auth()->user();
+                        $role = $user?->isAdminUser()
+                            ? Order::REJECTED_BY_ROLE_ADMIN
+                            : Order::REJECTED_BY_ROLE_SALES_MANAGER;
+
+                        app(RejectOrderWithRemarks::class)->execute(
+                            order: $record,
+                            actor: $user,
+                            remark: $data['rejection_reason'],
+                            rejectedByRole: $role,
+                        );
+                    }),
                 Action::make('bill')
                     ->label('Mark as Billed')
                     ->color('warning')

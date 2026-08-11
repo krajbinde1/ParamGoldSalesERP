@@ -65,22 +65,35 @@ abstract final class OrderStatusRules {
     if (value == 'dispatched' || value == 'delivered') {
       return OrderBadgeTone.dispatched;
     }
-    if (value == 'approved') return OrderBadgeTone.approved;
+    if (value == 'approved' || value == 'billed') return OrderBadgeTone.approved;
     return OrderBadgeTone.pending;
   }
 
-  static String badgeLabel(String status) {
+  static String badgeLabel(String status, {String? rejectedByRole, String? statusLabel}) {
+    if (statusLabel != null && statusLabel.trim().isNotEmpty) {
+      return statusLabel.trim();
+    }
+
     final value = normalize(status);
+    if (value == 'rejected') {
+      final role = (rejectedByRole ?? '').trim().toLowerCase();
+      if (role.contains('admin')) return 'Rejected by Admin';
+      if (role.contains('manager') || role.contains('sales')) {
+        return 'Rejected by Sales Manager';
+      }
+      return 'Rejected';
+    }
+
     return switch (value) {
-      'draft' => 'Pending',
-      'pending_approval' => 'Pending Approval',
-      'approved' => 'Approved',
+      'draft' => 'Pending Sales Manager Approval',
+      'pending_approval' => 'Pending Sales Manager Approval',
+      'approved' => 'Approved by Sales Manager',
+      'billed' => 'Billed by Admin',
       'processing' => 'Processing',
       'dispatched' => 'Dispatched',
       'delivered' => 'Delivered',
-      'rejected' => 'Rejected',
       'cancelled' => 'Cancelled',
-      'pending' => 'Pending',
+      'pending' => 'Pending Sales Manager Approval',
       _ => status,
     };
   }

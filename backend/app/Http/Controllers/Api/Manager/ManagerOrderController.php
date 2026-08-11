@@ -14,13 +14,13 @@ class ManagerOrderController extends Controller
         $this->authorize('viewAny', Order::class);
 
         $request->validate([
-            'status' => ['nullable', 'string', 'in:pending_approval,approved,dispatched'],
+            'status' => ['nullable', 'string', 'in:pending_approval,approved,billed,dispatched,rejected'],
         ]);
 
         $orders = Order::query()
             ->with(['dealer:id,firm_name', 'salesEmployee:id,full_name'])
             ->when($request->filled('status'), fn ($q) => $q->where('status', $request->string('status')))
-            ->orderByDesc('order_date')
+            ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->paginate(20);
 
@@ -29,11 +29,12 @@ class ManagerOrderController extends Controller
                 'id' => $order->id,
                 'order_no' => $order->order_no,
                 'order_date' => $order->order_date?->toDateString(),
+                'created_at' => $order->created_at?->toDateTimeString(),
                 'dealer_name' => $order->dealer?->firm_name,
                 'employee_name' => $order->salesEmployee?->full_name,
                 'grand_total' => (float) $order->grand_total,
                 'status' => $order->status,
-                'status_label' => Order::statusLabels()[$order->status] ?? ucfirst($order->status),
+                'status_label' => $order->displayStatusLabel(),
                 'approved_at' => $order->approved_at?->toDateTimeString(),
                 'dispatched_at' => $order->dispatched_at?->toDateTimeString(),
             ])->values(),
@@ -54,56 +55,8 @@ class ManagerOrderController extends Controller
     {
         $this->authorize('view', $order);
 
-        $order->load([
-            'dealer:id,firm_name,owner_name,village,mobile,address',
-            'salesEmployee:id,full_name',
-            'items.product:id,product_name,product_code,dealer_price',
-            'approvedByUser:id,name',
-            'rejectedByUser:id,name',
-            'dispatchedByUser:id,name',
-        ]);
-
         return response()->json([
-            'data' => [
-                'id' => $order->id,
-                'order_no' => $order->order_no,
-                'order_date' => $order->order_date?->toDateString(),
-                'status' => $order->status,
-                'status_label' => Order::statusLabels()[$order->status] ?? ucfirst($order->status),
-                'dealer' => $order->dealer,
-                'employee_name' => $order->salesEmployee?->full_name,
-                'remarks' => $order->remarks,
-                'rejection_remark' => $order->rejection_remark,
-                'dispatch_remark' => $order->dispatch_remark,
-                'approved_at' => $order->approved_at?->toDateTimeString(),
-                'approved_by_name' => $order->approvedByUser?->name,
-                'rejected_at' => $order->rejected_at?->toDateTimeString(),
-                'rejected_by_name' => $order->rejectedByUser?->name,
-                'dispatched_at' => $order->dispatched_at?->toDateTimeString(),
-                'dispatched_by_name' => $order->dispatchedByUser?->name,
-            'transport_type' => $order->transport_type,
-            'transport_type_label' => filled($order->transport_type)
-                ? \App\Enums\TransportType::from($order->transport_type)->label()
-                : null,
-            'transport_amount' => $order->transport_amount !== null ? (float) $order->transport_amount : null,
-            'subtotal_before_transport' => $order->subtotal_before_transport !== null
-                ? (float) $order->subtotal_before_transport
-                : null,
-            'taxable_amount_after_transport' => $order->taxable_amount_after_transport !== null
-                ? (float) $order->taxable_amount_after_transport
-                : null,
-                'subtotal' => (float) $order->subtotal,
-                'discount_amount' => (float) $order->discount_amount,
-                'gst_amount' => (float) $order->gst_amount,
-                'grand_total' => (float) $order->grand_total,
-                'items' => $order->items->map(fn ($item): array => [
-                    'product_name' => $item->product?->product_name,
-                    'quantity' => (float) $item->quantity,
-                    'unit' => $item->unit,
-                    'rate' => (float) $item->rate,
-                    'line_total' => (float) $item->line_total,
-                ]),
-            ],
+            'data' => app(\App\Support\Orders\OrderDetailPresenter::class)->present($order),
         ]);
     }
 
@@ -128,14 +81,26 @@ class ManagerOrderController extends Controller
         $this->authorize('reject', $order);
 
         $validated = $request->validate([
-            'remark' => ['required', 'string', 'max:2000'],
+            'remark' => ['required_without:rejection_reason', 'nullable', 'string', 'min:3', 'max:2000'],
+            'rejection_reason' => ['required_without:remark', 'nullable', 'string', 'min:3', 'max:2000'],
         ]);
 
-        $order->reject($request->user()->id, $validated['remark']);
+        $remark = $validated['remark'] ?? $validated['rejection_reason'];
+
+        app(\App\Actions\Orders\RejectOrderWithRemarks::class)->execute(
+            order: $order,
+            actor: $request->user(),
+            remark: (string) $remark,
+            rejectedByRole: Order::REJECTED_BY_ROLE_SALES_MANAGER,
+        );
 
         return response()->json([
             'message' => 'Order rejected successfully.',
-            'data' => ['id' => $order->id, 'status' => $order->fresh()->status],
+            'data' => [
+                'id' => $order->id,
+                'status' => $order->fresh()->status,
+                'status_label' => $order->fresh()->displayStatusLabel(),
+            ],
         ]);
     }
 }

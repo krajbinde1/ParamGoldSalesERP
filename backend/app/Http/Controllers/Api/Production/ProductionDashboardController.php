@@ -19,7 +19,7 @@ class ProductionDashboardController extends Controller
         $approvedOrders = Order::query()
             ->where('status', Order::STATUS_APPROVED)
             ->with(['dealer:id,firm_name,village', 'salesEmployee:id,full_name'])
-            ->orderByDesc('order_date')
+            ->orderByDesc('created_at')
             ->limit(20)
             ->get()
             ->map(fn (Order $order): array => $this->formatOrder($order));
@@ -27,7 +27,7 @@ class ProductionDashboardController extends Controller
         $billedOrders = Order::query()
             ->where('status', Order::STATUS_BILLED)
             ->with(['dealer:id,firm_name,village', 'salesEmployee:id,full_name'])
-            ->orderByDesc('billed_at')
+            ->orderByDesc('created_at')
             ->limit(20)
             ->get()
             ->map(fn (Order $order): array => $this->formatOrder($order));
@@ -35,7 +35,7 @@ class ProductionDashboardController extends Controller
         $recentDispatched = Order::query()
             ->where('status', Order::STATUS_DISPATCHED)
             ->with(['dealer:id,firm_name,village', 'salesEmployee:id,full_name'])
-            ->orderByDesc('dispatched_at')
+            ->orderByDesc('created_at')
             ->limit(10)
             ->get()
             ->map(fn (Order $order): array => $this->formatOrder($order));
@@ -73,7 +73,7 @@ class ProductionDashboardController extends Controller
             'employee_name' => $order->salesEmployee?->full_name,
             'grand_total' => (float) $order->grand_total,
             'status' => $order->status,
-            'status_label' => Order::statusLabels()[$order->status] ?? ucfirst($order->status),
+            'status_label' => $order->displayStatusLabel(),
             'can_dispatch' => $order->canBeDispatched(),
         ];
     }

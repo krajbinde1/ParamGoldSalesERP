@@ -121,7 +121,11 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                 PgDetailHeader(
                   title: detail.orderNo,
                   subtitle: detail.dealerName,
-                  badgeLabel: OrderStatusRules.badgeLabel(detail.status),
+                  badgeLabel: OrderStatusRules.badgeLabel(
+                    detail.status,
+                    rejectedByRole: detail.rejectedByRole,
+                    statusLabel: detail.statusLabel,
+                  ),
                   badgeTone: _statusTone(detail.status),
                 ),
                 const SizedBox(height: AppSpacing.md),
@@ -139,9 +143,14 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                         value: DateFormat('d MMM yyyy').format(detail.orderDate),
                       ),
                       PgInvoiceRow(
-                        label: 'Sales Employee',
+                        label: 'Created By Employee',
                         value: detail.salesEmployeeName,
                       ),
+                      if ((detail.approvedByName ?? '').isNotEmpty)
+                        PgInvoiceRow(
+                          label: 'Sales Manager',
+                          value: detail.approvedByName!,
+                        ),
                       PgInvoiceRow(
                         label: 'Remarks',
                         value: detail.remarks.trim().isEmpty
@@ -151,6 +160,100 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                     ],
                   ),
                 ),
+                if (detail.dealer != null) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  PgCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Dealer Details',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        if ((detail.dealer!.dealerCode ?? '').isNotEmpty)
+                          PgInvoiceRow(
+                            label: 'Dealer Code',
+                            value: detail.dealer!.dealerCode!,
+                          ),
+                        PgInvoiceRow(
+                          label: 'Firm Name',
+                          value: detail.dealer!.name,
+                        ),
+                        if ((detail.dealer!.ownerName ?? '').isNotEmpty)
+                          PgInvoiceRow(
+                            label: 'Owner Name',
+                            value: detail.dealer!.ownerName!,
+                          ),
+                        if ((detail.dealer!.mobile ?? '').isNotEmpty)
+                          PgInvoiceRow(
+                            label: 'Mobile Number',
+                            value: detail.dealer!.mobile!,
+                          ),
+                        if ((detail.dealer!.address ?? '').isNotEmpty)
+                          PgInvoiceRow(
+                            label: 'Address',
+                            value: detail.dealer!.address!,
+                          ),
+                        if ((detail.dealer!.village ?? '').isNotEmpty)
+                          PgInvoiceRow(
+                            label: 'Village',
+                            value: detail.dealer!.village!,
+                          ),
+                        if ((detail.dealer!.taluka ?? '').isNotEmpty)
+                          PgInvoiceRow(
+                            label: 'Taluka',
+                            value: detail.dealer!.taluka!,
+                          ),
+                        if ((detail.dealer!.district ?? '').isNotEmpty)
+                          PgInvoiceRow(
+                            label: 'District',
+                            value: detail.dealer!.district!,
+                          ),
+                        if ((detail.dealer!.state ?? '').isNotEmpty)
+                          PgInvoiceRow(
+                            label: 'State',
+                            value: detail.dealer!.state!,
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
+                if ((detail.rejectionRemark ?? '').trim().isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  PgCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Rejection Details',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        PgInvoiceRow(
+                          label: 'Rejected By',
+                          value: detail.rejectedByName ??
+                              detail.rejectedByRole ??
+                              '—',
+                        ),
+                        if ((detail.rejectedByRole ?? '').isNotEmpty)
+                          PgInvoiceRow(
+                            label: 'Role',
+                            value: detail.rejectedByRole!,
+                          ),
+                        if ((detail.rejectedAt ?? '').isNotEmpty)
+                          PgInvoiceRow(
+                            label: 'Rejection Date',
+                            value: detail.rejectedAt!,
+                          ),
+                        PgInvoiceRow(
+                          label: 'Reason',
+                          value: detail.rejectionRemark!.trim(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.md),
                 PgCard(
                   child: Column(
@@ -182,39 +285,38 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                                 label: 'Quantity',
                                 value: item.quantitySummary,
                               ),
+                              if ((item.unit ?? '').isNotEmpty)
+                                PgInvoiceRow(label: 'Unit', value: item.unit!),
                               PgInvoiceRow(
-                                label: 'Cases',
-                                value: '${item.caseQuantity}',
-                              ),
-                              PgInvoiceRow(
-                                label: 'Nos Per Case',
-                                value: '${item.nosPerCase}',
-                              ),
-                              PgInvoiceRow(
-                                label: 'Total Nos',
-                                value: '${item.totalQuantityNos}',
-                              ),
-                              if (item.originalDealerPrice != null)
-                                PgInvoiceRow(
-                                  label: 'Original Dealer Price',
-                                  value: currency.format(item.originalDealerPrice),
-                                ),
-                              PgInvoiceRow(
-                                label: 'Rate Per No',
+                                label: 'Rate',
                                 value: currency.format(item.ratePerNo),
                               ),
                               PgInvoiceRow(
-                                label: 'Discount %',
-                                value:
-                                    '${item.discountPercentage.toStringAsFixed(item.discountPercentage % 1 == 0 ? 0 : 2)}%',
+                                label: 'Discount',
+                                value: currency.format(item.discountAmount ?? 0),
+                              ),
+                              PgInvoiceRow(
+                                label: 'Taxable Amount',
+                                value: currency.format(
+                                  item.taxableAmount ??
+                                      ((item.baseAmount ?? 0) -
+                                          (item.discountAmount ?? 0)),
+                                ),
                               ),
                               PgInvoiceRow(
                                 label: 'GST %',
-                                value: '${item.gstPercentage.toStringAsFixed(0)}%',
+                                value:
+                                    '${item.gstPercentage.toStringAsFixed(0)}%',
                               ),
                               PgInvoiceRow(
-                                label: 'Item Amount',
-                                value: currency.format(item.lineTotal),
+                                label: 'GST Amount',
+                                value: currency.format(item.gstAmount ?? 0),
+                              ),
+                              PgInvoiceRow(
+                                label: 'Final Amount',
+                                value: currency.format(
+                                  item.finalAmount ?? item.lineTotal,
+                                ),
                                 emphasize: true,
                               ),
                               if (item != detail.items.last)
@@ -236,26 +338,20 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: AppSpacing.sm),
-                      if (detail.totalCases != null)
-                        PgInvoiceRow(
-                          label: 'Total Cases',
-                          value: '${detail.totalCases}',
-                        ),
-                      if (detail.totalQuantityNos != null)
-                        PgInvoiceRow(
-                          label: 'Total Quantity (Nos)',
-                          value: '${detail.totalQuantityNos}',
-                        ),
                       PgInvoiceRow(
                         label: 'Subtotal',
                         value: currency.format(detail.subtotal),
                       ),
                       PgInvoiceRow(
-                        label: 'Total Discount',
+                        label: 'Discount',
                         value: currency.format(detail.discountAmount),
                       ),
                       PgInvoiceRow(
-                        label: 'Total GST',
+                        label: 'Transport Charges',
+                        value: currency.format(detail.transportAmount ?? 0),
+                      ),
+                      PgInvoiceRow(
+                        label: 'GST',
                         value: currency.format(detail.gstAmount),
                       ),
                       const Divider(height: AppSpacing.lg),

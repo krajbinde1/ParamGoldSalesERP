@@ -335,7 +335,10 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
 
     final remark = await promptRemarkDialog(
       context,
-      title: 'Rejection Remark',
+      title: 'Reject Order',
+      label: 'Reason / Remarks',
+      submitLabel: 'Reject Order',
+      required: true,
     );
     if (remark == null || !mounted) return;
 
@@ -431,6 +434,11 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
                         label: 'Rejected',
                         value: _formatDate(order['rejected_at'], dateFormat),
                       ),
+                      if (order['rejected_by_role'] != null)
+                        PgInvoiceRow(
+                          label: 'Rejected By Role',
+                          value: order['rejected_by_role'].toString(),
+                        ),
                       if (order['rejected_by_name'] != null)
                         PgInvoiceRow(
                           label: 'Rejected By',

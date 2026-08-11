@@ -11,7 +11,7 @@ class OrderPolicy
 {
     public function viewAny(User $user): bool
     {
-        if ($this->filamentProductionOrderUser($user)) {
+        if ($this->filamentProductionOrderUser($user) || $user->isAdminUser() || $user->isDirectorUser()) {
             return true;
         }
 
@@ -25,12 +25,16 @@ class OrderPolicy
 
     public function view(User $user, Order $order): bool
     {
-        if ($this->filamentProductionOrderUser($user)) {
+        if ($this->filamentProductionOrderUser($user) || $user->isAdminUser() || $user->isDirectorUser()) {
             return true;
         }
 
         if ($user->canActAsProductionSupervisor()) {
-            return true;
+            return in_array($order->status, [
+                Order::STATUS_APPROVED,
+                Order::STATUS_BILLED,
+                Order::STATUS_DISPATCHED,
+            ], true);
         }
 
         return match ($user->roleEnum()) {
@@ -67,7 +71,7 @@ class OrderPolicy
 
     public function approve(User $user, Order $order): bool
     {
-        if ($user->canActAsProductionSupervisor() || $user->isAdminUser()) {
+        if ($user->canActAsProductionSupervisor() || $user->isAdminUser() || $user->isDirectorUser()) {
             return false;
         }
 
@@ -80,15 +84,23 @@ class OrderPolicy
 
     public function reject(User $user, Order $order): bool
     {
-        if ($user->canActAsProductionSupervisor() || $user->isAdminUser()) {
+        if ($user->canActAsProductionSupervisor()) {
+            return false;
+        }
+
+        if ($user->isAdminUser()) {
+            return $order->canBeRejectedByAdmin();
+        }
+
+        if ($user->isDirectorUser()) {
             return false;
         }
 
         if ($this->filamentProductionManager($user)) {
-            return $order->canBeRejected();
+            return $order->canBeRejectedByManager();
         }
 
-        return $user->hasRole(UserRole::Manager) && $order->canBeRejected();
+        return $user->hasRole(UserRole::Manager) && $order->canBeRejectedByManager();
     }
 
     public function bill(User $user, Order $order): bool
@@ -125,7 +137,9 @@ class OrderPolicy
         }
 
         return $user->hasOrdersOnlyFilamentAccess()
-            || $user->canActAsProductionSupervisor();
+            || $user->canActAsProductionSupervisor()
+            || $user->isAdminUser()
+            || $user->isDirectorUser();
     }
 
     private function filamentProductionManager(User $user): bool
