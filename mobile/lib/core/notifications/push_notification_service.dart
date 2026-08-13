@@ -50,6 +50,9 @@ class PushNotificationService {
   Stream<NotificationPayload> get taps => _taps.stream;
   bool get isFirebaseReady => _firebaseReady;
 
+  /// Shared plugin for local-only reminders (e.g. Today's Planning).
+  FlutterLocalNotificationsPlugin get localPlugin => _local;
+
   static const AndroidNotificationChannel approvalsChannel =
       AndroidNotificationChannel(
     'order_approvals',
@@ -83,10 +86,13 @@ class PushNotificationService {
     } catch (error, stack) {
       debugPrint('Firebase init skipped/failed: $error\n$stack');
       _firebaseReady = false;
-      return;
     }
 
+    // Local notifications must initialize even when FCM is unavailable
+    // (used by Today's Planning reminders).
     await ensureLocalInitialized();
+    if (!_firebaseReady) return;
+
     await _requestPermissions();
     await _bindHandlers();
   }
@@ -165,21 +171,39 @@ class PushNotificationService {
     required SessionStore store,
     void Function()? onUnauthorized,
   }) async {
-    if (!_firebaseReady) return null;
+    debugPrint('FCM registration start (firebaseReady=$_firebaseReady)');
+    if (!_firebaseReady) {
+      debugPrint('FCM registration skipped: Firebase not ready');
+      return null;
+    }
 
     try {
       final token = await FirebaseMessaging.instance.getToken();
-      if (token == null || token.isEmpty) return null;
+      if (token == null || token.isEmpty) {
+        debugPrint('FCM registration result: no device token');
+        return null;
+      }
 
+      // Never clear the auth session if device-token API returns 401.
+      // Login must remain successful when notification registration fails.
       final api = NotificationApi(
-        ApiClient(store, onUnauthorized: onUnauthorized).dio,
+        ApiClient(
+          store,
+          onUnauthorized: onUnauthorized,
+          clearSessionOnUnauthorized: false,
+        ).dio,
       );
       await api.registerDeviceToken(token);
+      debugPrint('FCM registration result: success');
 
       FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
         try {
           await NotificationApi(
-            ApiClient(store, onUnauthorized: onUnauthorized).dio,
+            ApiClient(
+              store,
+              onUnauthorized: onUnauthorized,
+              clearSessionOnUnauthorized: false,
+            ).dio,
           ).registerDeviceToken(newToken);
         } catch (error) {
           debugPrint('FCM token refresh register failed: $error');
@@ -187,8 +211,9 @@ class PushNotificationService {
       });
 
       return token;
-    } catch (error) {
-      debugPrint('FCM token register failed: $error');
+    } catch (error, stackTrace) {
+      debugPrint('FCM registration result: failed — $error');
+      debugPrintStack(stackTrace: stackTrace, label: 'FCM.registerToken');
       return null;
     }
   }

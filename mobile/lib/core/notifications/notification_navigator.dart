@@ -53,16 +53,23 @@ class NotificationNavigator {
   }
 
   static Future<void> _register(AuthController auth) async {
-    await PushNotificationService.instance.registerToken(
-      store: SessionStore(),
-      onUnauthorized: auth.sessionExpired,
-    );
+    // Fire-and-forget semantics for callers: failures are logged inside
+    // PushNotificationService and must never log the user out.
+    try {
+      await PushNotificationService.instance.registerToken(
+        store: SessionStore(),
+        onUnauthorized: null,
+      );
+    } catch (error, stackTrace) {
+      debugPrint('NotificationNavigator FCM register ignored: $error');
+      debugPrintStack(stackTrace: stackTrace, label: 'NotificationNavigator._register');
+    }
   }
 
   static Future<void> unregister(AuthController auth) async {
     await PushNotificationService.instance.unregisterToken(
       store: SessionStore(),
-      onUnauthorized: auth.sessionExpired,
+      onUnauthorized: null,
     );
   }
 

@@ -175,6 +175,11 @@ class Employee extends Authenticatable
         return $this->hasMany(Dealer::class, 'assigned_employee_id');
     }
 
+    public function tasks(): HasMany
+    {
+        return $this->hasMany(EmployeeTask::class);
+    }
+
     public function assignedDealersCount(): int
     {
         return $this->assignedDealers()->count();

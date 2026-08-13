@@ -2,31 +2,24 @@ import 'package:flutter/material.dart';
 import '../../design/app_colors.dart';
 import '../../design/app_spacing.dart';
 
-enum EmployeeNavTab { dashboard, orders, activities, collections, profile }
+enum EmployeeNavTab { dashboard, profile }
 
 abstract final class EmployeeNavRoutes {
   static const dashboard = '/dashboard';
-  static const orders = '/orders';
-  static const activities = '/field-activities';
-  static const collections = '/collections';
   static const profile = '/profile';
 
   static EmployeeNavTab? tabForPath(String path) {
     if (path == dashboard || path.startsWith('$dashboard/')) {
       return EmployeeNavTab.dashboard;
     }
-    if (path == orders) return EmployeeNavTab.orders;
-    if (path == activities) return EmployeeNavTab.activities;
-    if (path == collections) return EmployeeNavTab.collections;
-    if (path == profile) return EmployeeNavTab.profile;
+    if (path == profile || path.startsWith('$profile/')) {
+      return EmployeeNavTab.profile;
+    }
     return null;
   }
 
   static String pathForTab(EmployeeNavTab tab) => switch (tab) {
     EmployeeNavTab.dashboard => dashboard,
-    EmployeeNavTab.orders => orders,
-    EmployeeNavTab.activities => activities,
-    EmployeeNavTab.collections => collections,
     EmployeeNavTab.profile => profile,
   };
 }
@@ -68,24 +61,6 @@ class PgFloatingBottomNav extends StatelessWidget {
               onTap: onTap,
             ),
             _NavItem(
-              tab: EmployeeNavTab.orders,
-              label: 'Orders',
-              selected: current == EmployeeNavTab.orders,
-              onTap: onTap,
-            ),
-            _NavItem(
-              tab: EmployeeNavTab.activities,
-              label: 'Activities',
-              selected: current == EmployeeNavTab.activities,
-              onTap: onTap,
-            ),
-            _NavItem(
-              tab: EmployeeNavTab.collections,
-              label: 'Collections',
-              selected: current == EmployeeNavTab.collections,
-              onTap: onTap,
-            ),
-            _NavItem(
               tab: EmployeeNavTab.profile,
               label: 'Profile',
               selected: current == EmployeeNavTab.profile,
@@ -114,9 +89,6 @@ class _NavItem extends StatelessWidget {
   /// Const [Icon] per tab so Flutter 3.44 tree-shaking keeps each glyph.
   Widget _constIcon() => switch (tab) {
     EmployeeNavTab.dashboard => const Icon(Icons.dashboard_rounded),
-    EmployeeNavTab.orders => const Icon(Icons.receipt_long_rounded),
-    EmployeeNavTab.activities => const Icon(Icons.route_rounded),
-    EmployeeNavTab.collections => const Icon(Icons.payments_rounded),
     EmployeeNavTab.profile => const Icon(Icons.person_rounded),
   };
 

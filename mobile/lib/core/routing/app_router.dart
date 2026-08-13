@@ -27,6 +27,7 @@ import '../../modules/field_activities/screens/field_activity_detail_screen.dart
 import '../../modules/field_activities/screens/new_field_activity_screen.dart';
 import '../../modules/dashboard/screens/coming_soon_screen.dart';
 import '../../modules/dashboard/screens/role_dashboard_screen.dart';
+import '../../modules/planning/screens/todays_planning_screen.dart';
 import '../../modules/orders/models/order_draft.dart';
 import '../../modules/orders/models/order_filter.dart';
 import '../../modules/orders/screens/new_order_screen.dart';
@@ -104,6 +105,10 @@ GoRouter createRouter(
     GoRoute(
       path: '/dashboard',
       builder: (_, _) => RoleDashboardScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/planning',
+      builder: (_, _) => TodaysPlanningScreen(auth: auth),
     ),
     GoRoute(
       path: '/profile',

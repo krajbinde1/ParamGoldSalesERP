@@ -47,12 +47,17 @@ class PgProgressBar extends StatelessWidget {
         ),
         if (currentLabel != null || targetLabel != null) ...[
           const SizedBox(height: 4),
-          Text(
-            [
-              if (currentLabel != null) currentLabel,
-              if (targetLabel != null) 'of $targetLabel',
-            ].join(' '),
-            style: Theme.of(context).textTheme.bodySmall,
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              [
+                if (currentLabel != null) currentLabel,
+                if (targetLabel != null) 'of $targetLabel',
+              ].join(' '),
+              maxLines: 1,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
           ),
         ],
         const SizedBox(height: AppSpacing.sm),

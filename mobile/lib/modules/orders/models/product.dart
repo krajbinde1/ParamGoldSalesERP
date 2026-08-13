@@ -42,9 +42,15 @@ class Product {
           '${json['gst_percentage'] ?? json['gst_percent'] ?? 0}',
         ) ??
         0,
-    nosPerCase: int.tryParse('${json['nos_per_case'] ?? 1}') ?? 1,
+    nosPerCase: _parseNosPerCase(json['nos_per_case']),
     uom: json['uom']?.toString(),
   );
+
+  static int _parseNosPerCase(Object? raw) {
+    if (raw == null || '$raw'.trim().isEmpty) return 0;
+    final value = int.tryParse('$raw') ?? 0;
+    return value < 0 ? 0 : value;
+  }
 
   bool matchesQuery(String query) {
     final value = query.trim().toLowerCase();

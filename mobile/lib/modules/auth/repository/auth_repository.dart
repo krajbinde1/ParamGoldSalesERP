@@ -1,5 +1,7 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
+
 import '../../../core/api/api_errors.dart';
 import '../../../core/storage/session_store.dart';
 import '../api/auth_api.dart';
@@ -11,6 +13,9 @@ class AuthRepository {
   final SessionStore store;
 
   static const restoreTimeout = Duration(seconds: 10);
+  /// Login must outlive Dio connect/receive timeouts so we do not mask a
+  /// successful API response as a credentials/connection failure.
+  static const loginTimeout = Duration(seconds: 30);
 
   /// Restores a session from secure storage and validates it with `/me`.
   ///
@@ -49,10 +54,12 @@ class AuthRepository {
 
   Future<AuthSession> login(String loginId, String password) async {
     try {
-      final session = await api.login(loginId, password).timeout(restoreTimeout);
+      final session = await api.login(loginId, password).timeout(loginTimeout);
       await store.write(session);
+      debugPrint('AuthRepository.login session save completed');
       return session;
     } on TimeoutException {
+      debugPrint('AuthRepository.login timed out after ${loginTimeout.inSeconds}s');
       throw AuthApiException(connectionFailureMessage());
     }
   }

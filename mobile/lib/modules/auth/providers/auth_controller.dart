@@ -103,8 +103,16 @@ class AuthController extends ChangeNotifier {
     _notify();
     try {
       session = await _repository.login(loginId, password);
+      debugPrint(
+        'AuthController.login success '
+        '(authenticated=$authenticated, role=${session?.user.role})',
+      );
+      // FCM/device-token registration runs via NotificationNavigator and must
+      // never be awaited here — login succeeds regardless of push setup.
       return true;
-    } catch (error) {
+    } catch (error, stackTrace) {
+      debugPrint('AuthController.login failed: $error');
+      debugPrintStack(stackTrace: stackTrace, label: 'AuthController.login');
       final raw = error is AuthApiException
           ? error.message
           : errorMessage(error);

@@ -1,8 +1,13 @@
 class DashboardData {
   const DashboardData({
     required this.attendanceStatus,
+    this.attendancePunchIn,
+    this.attendancePunchOut,
+    this.attendanceWorkingHours,
     required this.todayFieldActivities,
     required this.todayDealerVisits,
+    this.todayPlanningPending = 0,
+    this.todayPlanningCompleted = 0,
     required this.weeklySalesTarget,
     required this.weeklySalesAchieved,
     required this.weeklySalesPercentage,
@@ -12,8 +17,13 @@ class DashboardData {
   });
 
   final String attendanceStatus;
+  final String? attendancePunchIn;
+  final String? attendancePunchOut;
+  final String? attendanceWorkingHours;
   final int todayFieldActivities;
   final int todayDealerVisits;
+  final int todayPlanningPending;
+  final int todayPlanningCompleted;
   final double weeklySalesTarget;
   final double weeklySalesAchieved;
   final double weeklySalesPercentage;
@@ -28,12 +38,18 @@ class DashboardData {
     final summary = Map<String, dynamic>.from(
       json['summary'] as Map? ?? const {},
     );
+    final planning = Map<String, dynamic>.from(
+      json['today_planning'] as Map? ?? const {},
+    );
 
     double readAmount(String rootKey, String summaryKey) =>
         _asDouble(json[rootKey]) ?? _asDouble(summary[summaryKey]) ?? 0;
 
     return DashboardData(
       attendanceStatus: attendance['status']?.toString() ?? 'absent',
+      attendancePunchIn: attendance['punch_in']?.toString(),
+      attendancePunchOut: attendance['punch_out']?.toString(),
+      attendanceWorkingHours: attendance['working_hours']?.toString(),
       todayFieldActivities:
           _asInt(json['today_field_activities']) ??
           _asInt(summary['today_field_activities']) ??
@@ -42,6 +58,8 @@ class DashboardData {
           _asInt(json['today_dealer_visits']) ??
           _asInt(summary['today_dealer_visits']) ??
           0,
+      todayPlanningPending: _asInt(planning['pending']) ?? 0,
+      todayPlanningCompleted: _asInt(planning['completed']) ?? 0,
       weeklySalesTarget: readAmount(
         'weekly_sales_target',
         'weekly_sales_target',

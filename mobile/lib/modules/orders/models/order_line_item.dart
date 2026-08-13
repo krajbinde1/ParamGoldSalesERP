@@ -23,22 +23,25 @@ class OrderLineItem {
   double discountValue;
   final double gstPercent;
 
-  int get totalQuantityNos => caseQuantity * nosPerCase;
+  /// Qty = Cases × Qty Per Case (nos_per_case).
+  int get totalQuantityNos =>
+      nosPerCase < 1 ? 0 : caseQuantity * nosPerCase;
 
-  String get displaySummary =>
-      '$caseQuantity Cases × $nosPerCase Nos = $totalQuantityNos Nos';
+  String get displaySummary => nosPerCase < 1
+      ? 'Packing quantity missing'
+      : '$caseQuantity Cases × $nosPerCase Nos = $totalQuantityNos Nos';
 
   factory OrderLineItem.fromProduct(Product product) => OrderLineItem(
-    productId: product.id,
-    productName: product.productName,
-    productCode: product.productCode,
-    caseQuantity: 1,
-    nosPerCase: product.nosPerCase,
-    ratePerNo: product.dealerPrice,
-    originalDealerPrice: product.dealerPrice,
-    discountValue: 0,
-    gstPercent: product.orderGst,
-  );
+        productId: product.id,
+        productName: product.productName,
+        productCode: product.productCode,
+        caseQuantity: 1,
+        nosPerCase: product.nosPerCase,
+        ratePerNo: product.dealerPrice,
+        originalDealerPrice: product.dealerPrice,
+        discountValue: 0,
+        gstPercent: product.orderGst,
+      );
 
   bool get isDiscountEnabled => _sameAmount(ratePerNo, originalDealerPrice);
 
@@ -47,9 +50,16 @@ class OrderLineItem {
   double get discountAmount =>
       isDiscountEnabled ? baseAmount * discountValue / 100 : 0;
 
+  /// Amount Without GST = Gross - Discount.
   double get taxableAmount => baseAmount - discountAmount;
 
+  double get amountWithoutGst => taxableAmount;
+
   double get gstAmount => taxableAmount * gstPercent / 100;
+
+  double get cgstAmount => gstAmount / 2;
+
+  double get sgstAmount => gstAmount / 2;
 
   double get finalAmount => taxableAmount + gstAmount;
 
@@ -65,12 +75,17 @@ class OrderLineItem {
   List<String> get validationErrors {
     final errors = <String>[];
     if (caseQuantity < 1) {
-      errors.add('Case quantity must be at least 1.');
+      errors.add('Cases must be at least 1.');
     }
-    if (ratePerNo < 0) errors.add('Rate per No cannot be negative.');
+    if (nosPerCase < 1) {
+      errors.add(
+        'Qty Per Case is missing for this product. Update packing in Product Master.',
+      );
+    }
+    if (ratePerNo < 0) errors.add('Rate cannot be negative.');
     if (isDiscountEnabled) {
       if (discountValue < 0 || discountValue > 100) {
-        errors.add('Percentage discount must be between 0 and 100.');
+        errors.add('Disc % must be between 0 and 100.');
       }
     } else if (discountValue != 0) {
       errors.add('Discount must be 0 when rate is changed.');
@@ -98,10 +113,19 @@ class OrderSummaryTotals {
   final int totalProducts;
   final int totalCases;
   final int totalQuantityNos;
+
+  /// Gross before discount (sum of Qty × Rate). Kept for Manager/shared callers.
   final double subtotal;
   final double totalDiscount;
   final double totalGst;
   final double grandTotal;
+
+  /// Sum of Amount Without GST (after discount, before GST).
+  double get amountWithoutGstSubtotal => subtotal - totalDiscount;
+
+  double get cgst => totalGst / 2;
+
+  double get sgst => totalGst / 2;
 
   static OrderSummaryTotals fromItems(List<OrderLineItem> items) {
     final validItems = items.where((item) => item.isValid).toList();

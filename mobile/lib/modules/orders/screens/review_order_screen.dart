@@ -105,24 +105,24 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 PgInvoiceRow(
-                  label: 'Total Products',
-                  value: '${summary.totalProducts}',
+                  label: 'Subtotal',
+                  value: OrderInvoiceProductsTable.money(
+                    summary.amountWithoutGstSubtotal,
+                  ),
                 ),
                 PgInvoiceRow(
-                  label: 'Total Cases',
-                  value: '${summary.totalCases}',
+                  label: 'CGST',
+                  value: OrderInvoiceProductsTable.money(summary.cgst),
                 ),
                 PgInvoiceRow(
-                  label: 'Total Quantity (Nos)',
-                  value: '${summary.totalQuantityNos}',
+                  label: 'SGST',
+                  value: OrderInvoiceProductsTable.money(summary.sgst),
                 ),
-                const SizedBox(height: AppSpacing.sm),
-                OrderInvoiceSummaryBlock(
-                  showTitle: false,
-                  subtotal: summary.subtotal,
-                  discount: summary.totalDiscount,
-                  gst: summary.totalGst,
-                  grandTotal: summary.grandTotal,
+                const Divider(height: AppSpacing.lg),
+                PgInvoiceRow(
+                  label: 'Grand Total',
+                  value: OrderInvoiceProductsTable.money(summary.grandTotal),
+                  isTotal: true,
                 ),
               ],
             ),

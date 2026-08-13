@@ -12,7 +12,6 @@ import '../models/order_draft.dart';
 import '../models/order_dealer.dart';
 import '../models/order_line_item.dart';
 import '../models/product.dart';
-import '../widgets/order_invoice_products_table.dart';
 import '../widgets/order_line_item_card.dart';
 
 class NewOrderScreen extends StatefulWidget {
@@ -29,6 +28,11 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
   final _scrollController = ScrollController();
   final _itemKeys = <int, GlobalKey>{};
   final _items = <OrderLineItem>[];
+  final _money = NumberFormat.currency(
+    locale: 'en_IN',
+    symbol: '₹',
+    decimalDigits: 2,
+  );
 
   OrderDealer? _selectedDealer;
   int? _editingOrderId;
@@ -260,16 +264,6 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
     });
   }
 
-  Future<void> _editItem(OrderLineItem item) async {
-    await showOrderLineItemEditor(
-      context: context,
-      item: item,
-      onChanged: _refreshItems,
-      onRemove: () => _removeItem(item.productId),
-    );
-    if (mounted) _refreshItems();
-  }
-
   void _removeItem(int productId) {
     setState(() {
       _items.removeWhere((item) => item.productId == productId);
@@ -384,14 +378,20 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
                       ),
                     )
                   else
-                    OrderInvoiceProductsTable(
-                      lines: _items
-                          .map(OrderInvoiceLine.fromLineItem)
-                          .toList(growable: false),
-                      showTitle: false,
-                      onEdit: (index) => _editItem(_items[index]),
-                      onDelete: (index) =>
-                          _removeItem(_items[index].productId),
+                    Column(
+                      children: [
+                        for (var i = 0; i < _items.length; i++)
+                          KeyedSubtree(
+                            key: _itemKeys[_items[i].productId],
+                            child: OrderLineItemCard(
+                              item: _items[i],
+                              serialNumber: i + 1,
+                              onChanged: _refreshItems,
+                              onRemove: () =>
+                                  _removeItem(_items[i].productId),
+                            ),
+                          ),
+                      ],
                     ),
                 ],
               ),
@@ -410,26 +410,24 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
                   ),
                   const SizedBox(height: 12),
                   _SummaryRow(
-                    label: 'Total Products',
-                    value: '${summary.totalProducts}',
+                    label: 'Subtotal',
+                    value: _money.format(summary.amountWithoutGstSubtotal),
                   ),
                   const SizedBox(height: 8),
                   _SummaryRow(
-                    label: 'Total Cases',
-                    value: '${summary.totalCases}',
+                    label: 'CGST',
+                    value: _money.format(summary.cgst),
                   ),
                   const SizedBox(height: 8),
                   _SummaryRow(
-                    label: 'Total Quantity (Nos)',
-                    value: '${summary.totalQuantityNos}',
+                    label: 'SGST',
+                    value: _money.format(summary.sgst),
                   ),
                   const SizedBox(height: 8),
-                  OrderInvoiceSummaryBlock(
-                    showTitle: false,
-                    subtotal: summary.subtotal,
-                    discount: summary.totalDiscount,
-                    gst: summary.totalGst,
-                    grandTotal: summary.grandTotal,
+                  _SummaryRow(
+                    label: 'Grand Total',
+                    value: _money.format(summary.grandTotal),
+                    emphasized: true,
                   ),
                 ],
               ),
@@ -466,20 +464,34 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
 }
 
 class _SummaryRow extends StatelessWidget {
-  const _SummaryRow({required this.label, required this.value});
+  const _SummaryRow({
+    required this.label,
+    required this.value,
+    this.emphasized = false,
+  });
   final String label;
   final String value;
+  final bool emphasized;
 
   @override
   Widget build(BuildContext context) => Row(
-    children: [
-      Expanded(child: Text(label)),
-      Text(
-        value,
-        style: Theme.of(
-          context,
-        ).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w600),
-      ),
-    ],
-  );
+        children: [
+          Expanded(
+            child: Text(
+              label,
+              style: emphasized
+                  ? Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      )
+                  : null,
+            ),
+          ),
+          Text(
+            value,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+        ],
+      );
 }

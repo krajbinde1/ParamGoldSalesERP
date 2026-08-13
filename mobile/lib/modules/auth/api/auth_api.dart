@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 
 import '../../../core/api/api_errors.dart';
 import '../models/auth_session.dart';
@@ -20,8 +21,23 @@ class AuthApi {
         '/login',
         data: {'login_id': loginId, 'password': password},
       );
-      return AuthSession.fromJson(Map<String, dynamic>.from(response.data));
+      debugPrint('AuthApi.login HTTP status=${response.statusCode}');
+      final data = response.data;
+      if (data is! Map) {
+        throw const AuthApiException('Unexpected login response format.');
+      }
+      final session = AuthSession.fromJson(Map<String, dynamic>.from(data));
+      debugPrint(
+        'AuthApi.login AuthSession parsed OK '
+        '(userId=${session.user.id}, role=${session.user.role}, '
+        'tokenLen=${session.token.length})',
+      );
+      return session;
     } on DioException catch (error) {
+      debugPrint(
+        'AuthApi.login DioException status=${error.response?.statusCode} '
+        'type=${error.type}',
+      );
       throw _exception(error);
     }
   }

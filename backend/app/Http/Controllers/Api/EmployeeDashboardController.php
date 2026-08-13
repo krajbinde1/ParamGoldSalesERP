@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
+use App\Models\EmployeeTask;
 use App\Models\Order;
 use App\Models\WeeklyTarget;
 use Illuminate\Http\JsonResponse;
@@ -68,6 +69,18 @@ class EmployeeDashboardController extends Controller
             'weekly_collection_percentage' => $weeklyCollectionPercentage,
             'today_dealer_visits' => 0,
             'today_field_activities' => 0,
+            'today_planning' => [
+                'pending' => EmployeeTask::query()
+                    ->where('employee_id', $employee->id)
+                    ->whereDate('due_date', today())
+                    ->where('is_completed', false)
+                    ->count(),
+                'completed' => EmployeeTask::query()
+                    ->where('employee_id', $employee->id)
+                    ->where('is_completed', true)
+                    ->whereDate('completed_at', today())
+                    ->count(),
+            ],
             'summary' => [
                 'today_orders' => Order::query()
                     ->where('sales_employee_id', $employee->id)
