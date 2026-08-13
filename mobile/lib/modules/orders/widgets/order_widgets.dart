@@ -125,7 +125,7 @@ class OrderListTile extends StatelessWidget {
           children: [
             Expanded(
               child: Text(
-                order.orderNo,
+                order.displayOrderNo,
                 style: Theme.of(context).textTheme.titleMedium,
               ),
             ),

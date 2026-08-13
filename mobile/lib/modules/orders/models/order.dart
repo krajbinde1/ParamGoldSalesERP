@@ -15,6 +15,9 @@ class Order {
   final double amount;
   final String status;
 
+  /// Display-only short form, e.g. `PG-20260813-0004` → `PG-0004`.
+  String get displayOrderNo => OrderNoDisplay.short(orderNo);
+
   factory Order.fromJson(Map<String, dynamic> json) {
     final dateRaw = json['order_date']?.toString() ?? '';
     return Order(
@@ -29,6 +32,20 @@ class Order {
           double.tryParse('${json['amount'] ?? json['grand_total'] ?? 0}') ?? 0,
       status: json['status']?.toString() ?? 'pending',
     );
+  }
+}
+
+/// Display-only formatting for order numbers. Never mutate stored/API values.
+abstract final class OrderNoDisplay {
+  /// `PG-20260813-0004` → `PG-0004` (prefix + sequence).
+  static String short(String orderNo) {
+    final trimmed = orderNo.trim();
+    if (trimmed.isEmpty || trimmed == '—') return trimmed;
+    final parts = trimmed.split('-').where((p) => p.isNotEmpty).toList();
+    if (parts.length >= 3) {
+      return '${parts.first}-${parts.last}';
+    }
+    return trimmed;
   }
 }
 

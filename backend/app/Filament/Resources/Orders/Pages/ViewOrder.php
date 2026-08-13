@@ -16,11 +16,36 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
+use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\Gate;
 
 class ViewOrder extends ViewRecord
 {
     protected static string $resource = OrderResource::class;
+
+    public function getTitle(): string|Htmlable
+    {
+        /** @var Order $record */
+        $record = $this->getRecord();
+
+        return 'Order #'.$record->shortOrderNo();
+    }
+
+    public function getHeading(): string|Htmlable
+    {
+        /** @var Order $record */
+        $record = $this->getRecord();
+
+        return 'Order #'.$record->shortOrderNo();
+    }
+
+    public function getSubheading(): string|Htmlable|null
+    {
+        /** @var Order $record */
+        $record = $this->getRecord();
+
+        return $record->displayStatusLabel();
+    }
 
     protected function getHeaderActions(): array
     {

@@ -37,10 +37,21 @@ class EmployeeTaskController extends Controller
             ->where('is_completed', false)
             ->count();
 
+        $upcomingCount = (clone $base)
+            ->whereDate('due_date', '>', $today)
+            ->where('is_completed', false)
+            ->count();
+
+        $completedCount = (clone $base)
+            ->where('is_completed', true)
+            ->count();
+
         $counts = [
             'today_pending' => $todayPendingCount,
             'today_completed' => $todayCompletedCount,
             'overdue_count' => $overdueCount,
+            'upcoming_count' => $upcomingCount,
+            'completed_count' => $completedCount,
         ];
 
         if ($filter === 'today') {

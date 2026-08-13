@@ -98,6 +98,8 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
           ),
           const SizedBox(height: AppSpacing.md),
           OrderInvoiceProductsCard(
+            freezeProductColumn: true,
+            showTotalCases: true,
             lines: draft.items
                 .map(OrderInvoiceLine.fromLineItem)
                 .toList(growable: false),

@@ -169,6 +169,9 @@ class OrderDetail {
   final double? transportAmount;
   final List<OrderTimelineStep> timelineSteps;
 
+  /// Display-only short form, e.g. `PG-20260813-0004` → `PG-0004`.
+  String get displayOrderNo => OrderNoDisplay.short(orderNo);
+
   factory OrderDetail.fromJson(Map<String, dynamic> json) {
     final dateRaw = json['order_date']?.toString() ?? '';
     final dealerJson = json['dealer'];

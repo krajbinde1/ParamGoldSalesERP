@@ -37,6 +37,10 @@ class _TodaysPlanningScreenState extends State<TodaysPlanningScreen> {
   bool _completedExpanded = true;
   String? _error;
   EmployeeTaskListResult? _data;
+  int _todayCount = 0;
+  int _upcomingCount = 0;
+  int _overdueCount = 0;
+  int _completedCount = 0;
 
   @override
   void initState() {
@@ -63,17 +67,41 @@ class _TodaysPlanningScreenState extends State<TodaysPlanningScreen> {
       _error = null;
     });
     try {
-      final result = await _api.list(filter: _filter.name);
+      // Load every filter list so tab badges match the same rows each tab shows.
+      final results = await Future.wait([
+        _api.list(filter: 'today'),
+        _api.list(filter: 'upcoming'),
+        _api.list(filter: 'overdue'),
+        _api.list(filter: 'completed'),
+      ]);
       if (!mounted) return;
+
+      final today = results[0];
+      final upcoming = results[1];
+      final overdue = results[2];
+      final completed = results[3];
+      final result = switch (_filter) {
+        _TaskFilter.today => today,
+        _TaskFilter.upcoming => upcoming,
+        _TaskFilter.overdue => overdue,
+        _TaskFilter.completed => completed,
+      };
+
       setState(() {
+        _todayCount = today.pending.length;
+        _upcomingCount = upcoming.tasks.length;
+        _overdueCount = overdue.tasks.length;
+        _completedCount = completed.tasks.length;
         _data = result;
         _loading = false;
       });
       // Best-effort local reminder sync (never blocks UI).
       for (final task in [
-        ...result.pending,
-        ...result.overdue,
-        ...result.tasks,
+        ...today.pending,
+        ...today.overdue,
+        ...upcoming.tasks,
+        ...overdue.tasks,
+        ...completed.tasks,
       ]) {
         unawaited(TaskReminderService.instance.syncReminder(task));
       }
@@ -84,6 +112,49 @@ class _TodaysPlanningScreenState extends State<TodaysPlanningScreen> {
         _loading = false;
       });
     }
+  }
+
+  int _countFor(_TaskFilter filter) => switch (filter) {
+        _TaskFilter.today => _todayCount,
+        _TaskFilter.upcoming => _upcomingCount,
+        _TaskFilter.overdue => _overdueCount,
+        _TaskFilter.completed => _completedCount,
+      };
+
+  bool _isOverdueTask(EmployeeTask task) {
+    if (task.isCompleted) return false;
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final due = DateTime(
+      task.dueDate.year,
+      task.dueDate.month,
+      task.dueDate.day,
+    );
+    return due.isBefore(today);
+  }
+
+  String? _dueDateLine(EmployeeTask task) {
+    final due = task.dueDate;
+    // Guard against empty/invalid dates.
+    if (due.year < 1970) return null;
+
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final dueDay = DateTime(due.year, due.month, due.day);
+    final datePart =
+        dueDay == today ? 'Today' : DateFormat('EEE, d MMM yyyy').format(due);
+
+    final timeRaw = task.dueTime?.trim();
+    if (timeRaw == null || timeRaw.isEmpty) return datePart;
+    final parts = timeRaw.split(':');
+    if (parts.length < 2) return datePart;
+    final hour = int.tryParse(parts[0]);
+    final minute = int.tryParse(parts[1]);
+    if (hour == null || minute == null) return datePart;
+    final timePart = DateFormat('h:mm a').format(
+      DateTime(due.year, due.month, due.day, hour, minute),
+    );
+    return '$datePart • $timePart';
   }
 
   Future<void> _quickAddTask() async {
@@ -258,10 +329,39 @@ class _TodaysPlanningScreenState extends State<TodaysPlanningScreen> {
                     _TaskFilter.overdue => 'Overdue',
                     _TaskFilter.completed => 'Completed',
                   };
+                  final count = _countFor(filter);
                   return Padding(
                     padding: const EdgeInsets.only(right: 8),
                     child: ChoiceChip(
-                      label: Text(label),
+                      label: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(label),
+                          const SizedBox(width: 6),
+                          Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 1,
+                            ),
+                            decoration: BoxDecoration(
+                              color: selected
+                                  ? AppColors.primary.withValues(alpha: 0.2)
+                                  : AppColors.textMuted.withValues(alpha: 0.12),
+                              borderRadius: BorderRadius.circular(999),
+                            ),
+                            child: Text(
+                              '$count',
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                                color: selected
+                                    ? AppColors.primary
+                                    : AppColors.textSecondary,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
                       selected: selected,
                       onSelected: (_) {
                         if (_filter == filter) return;
@@ -443,14 +543,27 @@ class _TodaysPlanningScreenState extends State<TodaysPlanningScreen> {
                       ),
                     ],
                   ),
+                  if (_dueDateLine(task) case final dueLine?) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      dueLine,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w500,
+                        color: _isOverdueTask(task)
+                            ? AppColors.error
+                            : AppColors.textMuted,
+                      ),
+                    ),
+                  ],
                   if ((task.note ?? '').isNotEmpty ||
-                      task.dueTime != null ||
                       task.reminderAt != null) ...[
                     const SizedBox(height: 2),
                     Text(
                       [
                         if ((task.note ?? '').isNotEmpty) task.note!,
-                        if (task.dueTime != null) 'Time ${task.dueTime}',
                         if (task.reminderAt != null)
                           'Reminder ${DateFormat('hh:mm a').format(task.reminderAt!.toLocal())}',
                       ].join(' • '),

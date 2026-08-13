@@ -149,6 +149,8 @@ class OrderInvoiceProductsTable extends StatelessWidget {
     this.onEdit,
     this.onDelete,
     this.padding = EdgeInsets.zero,
+    this.freezeProductColumn = false,
+    this.spaciousLayout = false,
   });
 
   final List<OrderInvoiceLine> lines;
@@ -157,8 +159,16 @@ class OrderInvoiceProductsTable extends StatelessWidget {
   final void Function(int index)? onEdit;
   final void Function(int index)? onDelete;
   final EdgeInsetsGeometry padding;
+  /// When true, # / Product / Code stay fixed while metrics scroll horizontally.
+  final bool freezeProductColumn;
+  /// Slightly wider columns and roomier row padding (Order Details).
+  final bool spaciousLayout;
 
   bool get _editable => onEdit != null || onDelete != null;
+
+  /// Fixed left pane: Sr (#) + Product name/code.
+  static const double frozenProductWidth = 156;
+  static const double frozenProductWidthSpacious = 176;
 
   static final _currency = NumberFormat.currency(
     locale: 'en_IN',
@@ -200,6 +210,10 @@ class OrderInvoiceProductsTable extends StatelessWidget {
       );
     }
 
+    final layout = spaciousLayout
+        ? _FrozenTableLayout.spacious
+        : _FrozenTableLayout.compact;
+
     return Padding(
       padding: padding,
       child: Column(
@@ -209,29 +223,40 @@ class OrderInvoiceProductsTable extends StatelessWidget {
             Text(title, style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: AppSpacing.sm),
           ],
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final minWidth = _editable ? 560.0 : 520.0;
-              final needsScroll = constraints.maxWidth < (_editable ? 400 : 360);
-              final table = _InvoiceTable(
-                lines: lines,
-                editable: _editable,
-                onTapRow: (index) => _showLineDetails(context, lines[index]),
-                onEdit: onEdit,
-                onDelete: onDelete,
-              );
+          if (freezeProductColumn)
+            _FrozenInvoiceTable(
+              lines: lines,
+              editable: _editable,
+              layout: layout,
+              onTapRow: (index) => _showLineDetails(context, lines[index]),
+              onEdit: onEdit,
+              onDelete: onDelete,
+            )
+          else
+            LayoutBuilder(
+              builder: (context, constraints) {
+                final minWidth = _editable ? 560.0 : 520.0;
+                final needsScroll =
+                    constraints.maxWidth < (_editable ? 400 : 360);
+                final table = _InvoiceTable(
+                  lines: lines,
+                  editable: _editable,
+                  onTapRow: (index) => _showLineDetails(context, lines[index]),
+                  onEdit: onEdit,
+                  onDelete: onDelete,
+                );
 
-              if (!needsScroll) return table;
+                if (!needsScroll) return table;
 
-              return SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: ConstrainedBox(
-                  constraints: BoxConstraints(minWidth: minWidth),
-                  child: SizedBox(width: minWidth, child: table),
-                ),
-              );
-            },
-          ),
+                return SingleChildScrollView(
+                  scrollDirection: Axis.horizontal,
+                  child: ConstrainedBox(
+                    constraints: BoxConstraints(minWidth: minWidth),
+                    child: SizedBox(width: minWidth, child: table),
+                  ),
+                );
+              },
+            ),
         ],
       ),
     );
@@ -405,6 +430,9 @@ class OrderInvoiceProductsCard extends StatelessWidget {
     this.summary,
     this.onEdit,
     this.onDelete,
+    this.freezeProductColumn = false,
+    this.showTotalCases = false,
+    this.spaciousLayout = false,
   });
 
   final List<OrderInvoiceLine> lines;
@@ -413,9 +441,18 @@ class OrderInvoiceProductsCard extends StatelessWidget {
   final Widget? summary;
   final void Function(int index)? onEdit;
   final void Function(int index)? onDelete;
+  final bool freezeProductColumn;
+  final bool showTotalCases;
+  final bool spaciousLayout;
+
+  int get _totalCases =>
+      lines.fold<int>(0, (sum, line) => sum + line.caseQuantity);
 
   @override
   Widget build(BuildContext context) => PgCard(
+        padding: spaciousLayout
+            ? const EdgeInsets.fromLTRB(10, 14, 10, 14)
+            : null,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -425,7 +462,19 @@ class OrderInvoiceProductsCard extends StatelessWidget {
               showTitle: showTitle,
               onEdit: onEdit,
               onDelete: onDelete,
+              freezeProductColumn: freezeProductColumn,
+              spaciousLayout: spaciousLayout,
             ),
+            if (showTotalCases) ...[
+              const SizedBox(height: AppSpacing.md),
+              Text(
+                'Total Cases: $_totalCases',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.textPrimary,
+                    ),
+              ),
+            ],
             if (summary != null) ...[
               const SizedBox(height: AppSpacing.md),
               const Divider(height: 1),
@@ -435,6 +484,78 @@ class OrderInvoiceProductsCard extends StatelessWidget {
           ],
         ),
       );
+}
+
+class _FrozenTableLayout {
+  const _FrozenTableLayout({
+    required this.frozenWidth,
+    required this.srWidth,
+    required this.casesWidth,
+    required this.qtyWidth,
+    required this.rateWidth,
+    required this.discWidth,
+    required this.gstWidth,
+    required this.amountWidth,
+    required this.actionsWidth,
+    required this.headerVertical,
+    required this.rowVertical,
+    required this.columnGap,
+  });
+
+  final double frozenWidth;
+  final double srWidth;
+  final double casesWidth;
+  final double qtyWidth;
+  final double rateWidth;
+  final double discWidth;
+  final double gstWidth;
+  final double amountWidth;
+  final double actionsWidth;
+  final double headerVertical;
+  final double rowVertical;
+  final double columnGap;
+
+  static const compact = _FrozenTableLayout(
+    frozenWidth: OrderInvoiceProductsTable.frozenProductWidth,
+    srWidth: 22,
+    casesWidth: 44,
+    qtyWidth: 42,
+    rateWidth: 54,
+    discWidth: 36,
+    gstWidth: 34,
+    amountWidth: 72,
+    actionsWidth: 64,
+    headerVertical: 6,
+    rowVertical: 8,
+    columnGap: 0,
+  );
+
+  static const spacious = _FrozenTableLayout(
+    frozenWidth: OrderInvoiceProductsTable.frozenProductWidthSpacious,
+    srWidth: 26,
+    casesWidth: 56,
+    qtyWidth: 56,
+    rateWidth: 68,
+    discWidth: 48,
+    gstWidth: 48,
+    amountWidth: 92,
+    actionsWidth: 64,
+    headerVertical: 10,
+    rowVertical: 12,
+    columnGap: 6,
+  );
+
+  double scrollContentWidth({required bool editable}) {
+    final metrics = casesWidth +
+        qtyWidth +
+        rateWidth +
+        discWidth +
+        gstWidth +
+        amountWidth +
+        (editable ? actionsWidth : 4);
+    // 6 metric gaps when columnGap > 0 (between the 6 value columns).
+    return metrics + (columnGap * 5);
+  }
 }
 
 class _InvoiceTable extends StatelessWidget {
@@ -475,6 +596,485 @@ class _InvoiceTable extends StatelessWidget {
             ],
           );
         }),
+      ],
+    );
+  }
+}
+
+/// Products table with frozen # / Product / Code and horizontally scrollable metrics.
+class _FrozenInvoiceTable extends StatefulWidget {
+  const _FrozenInvoiceTable({
+    required this.lines,
+    required this.editable,
+    required this.layout,
+    required this.onTapRow,
+    this.onEdit,
+    this.onDelete,
+  });
+
+  final List<OrderInvoiceLine> lines;
+  final bool editable;
+  final _FrozenTableLayout layout;
+  final void Function(int index) onTapRow;
+  final void Function(int index)? onEdit;
+  final void Function(int index)? onDelete;
+
+  @override
+  State<_FrozenInvoiceTable> createState() => _FrozenInvoiceTableState();
+}
+
+class _FrozenInvoiceTableState extends State<_FrozenInvoiceTable> {
+  late final ScrollController _headerScroll;
+  late final List<ScrollController> _rowScrolls;
+  bool _syncing = false;
+
+  double get _scrollContentWidth =>
+      widget.layout.scrollContentWidth(editable: widget.editable);
+
+  @override
+  void initState() {
+    super.initState();
+    _headerScroll = ScrollController();
+    _headerScroll.addListener(() => _syncFrom(_headerScroll));
+    _rowScrolls = List.generate(widget.lines.length, (_) {
+      final c = ScrollController();
+      c.addListener(() => _syncFrom(c));
+      return c;
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _FrozenInvoiceTable oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.lines.length == widget.lines.length) return;
+    for (final c in _rowScrolls) {
+      c.dispose();
+    }
+    _rowScrolls
+      ..clear()
+      ..addAll(List.generate(widget.lines.length, (_) {
+        final c = ScrollController();
+        c.addListener(() => _syncFrom(c));
+        return c;
+      }));
+  }
+
+  void _syncFrom(ScrollController source) {
+    if (_syncing || !source.hasClients) return;
+    _syncing = true;
+    final offset = source.offset;
+    void jump(ScrollController c) {
+      if (c == source || !c.hasClients) return;
+      if ((c.offset - offset).abs() < 0.5) return;
+      c.jumpTo(offset.clamp(0.0, c.position.maxScrollExtent));
+    }
+
+    jump(_headerScroll);
+    for (final c in _rowScrolls) {
+      jump(c);
+    }
+    _syncing = false;
+  }
+
+  @override
+  void dispose() {
+    _headerScroll.dispose();
+    for (final c in _rowScrolls) {
+      c.dispose();
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final layout = widget.layout;
+    final headerStyle = Theme.of(context).textTheme.labelSmall?.copyWith(
+          color: AppColors.textSecondary,
+          fontWeight: FontWeight.w700,
+          letterSpacing: 0.2,
+        );
+
+    return Column(
+      children: [
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border(
+                    right: BorderSide(
+                      color: AppColors.border.withValues(alpha: 0.85),
+                    ),
+                  ),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.04),
+                      offset: const Offset(2, 0),
+                      blurRadius: 3,
+                    ),
+                  ],
+                ),
+                child: SizedBox(
+                  width: layout.frozenWidth,
+                  child: Padding(
+                    padding: EdgeInsets.symmetric(vertical: layout.headerVertical),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: layout.srWidth,
+                          child: Text('#', style: headerStyle),
+                        ),
+                        Expanded(child: Text('Product', style: headerStyle)),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+              Expanded(
+                child: SingleChildScrollView(
+                  controller: _headerScroll,
+                  scrollDirection: Axis.horizontal,
+                  child: SizedBox(
+                    width: _scrollContentWidth,
+                    child: Padding(
+                      padding:
+                          EdgeInsets.symmetric(vertical: layout.headerVertical),
+                      child: _MetricsHeaderRow(
+                        editable: widget.editable,
+                        layout: layout,
+                        style: headerStyle,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+        const Divider(height: 1),
+        ...List.generate(widget.lines.length, (index) {
+          final line = widget.lines[index];
+          return Column(
+            children: [
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surface,
+                        border: Border(
+                          right: BorderSide(
+                            color: AppColors.border.withValues(alpha: 0.85),
+                          ),
+                        ),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.04),
+                            offset: const Offset(2, 0),
+                            blurRadius: 3,
+                          ),
+                        ],
+                      ),
+                      child: SizedBox(
+                        width: layout.frozenWidth,
+                        child: InkWell(
+                          onTap: () => widget.onTapRow(index),
+                          child: Padding(
+                            padding: EdgeInsets.symmetric(
+                              vertical: layout.rowVertical,
+                            ),
+                            child: _FrozenProductCell(
+                              index: index + 1,
+                              line: line,
+                              srWidth: layout.srWidth,
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Expanded(
+                      child: SingleChildScrollView(
+                        controller: _rowScrolls[index],
+                        scrollDirection: Axis.horizontal,
+                        child: SizedBox(
+                          width: _scrollContentWidth,
+                          child: InkWell(
+                            onTap: () => widget.onTapRow(index),
+                            child: Padding(
+                              padding: EdgeInsets.symmetric(
+                                vertical: layout.rowVertical,
+                              ),
+                              child: _MetricsDataRow(
+                                line: line,
+                                editable: widget.editable,
+                                layout: layout,
+                                onEdit: widget.onEdit == null
+                                    ? null
+                                    : () => widget.onEdit!(index),
+                                onDelete: widget.onDelete == null
+                                    ? null
+                                    : () => widget.onDelete!(index),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (index != widget.lines.length - 1)
+                Divider(
+                  height: 1,
+                  color: AppColors.border.withValues(alpha: 0.7),
+                ),
+            ],
+          );
+        }),
+      ],
+    );
+  }
+}
+
+class _FrozenProductCell extends StatelessWidget {
+  const _FrozenProductCell({
+    required this.index,
+    required this.line,
+    required this.srWidth,
+  });
+
+  final int index;
+  final OrderInvoiceLine line;
+  final double srWidth;
+
+  @override
+  Widget build(BuildContext context) {
+    final body = Theme.of(context).textTheme.bodySmall;
+    final muted = body?.copyWith(
+      color: AppColors.textSecondary,
+      fontSize: 11,
+      height: 1.25,
+    );
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: srWidth,
+          child: Text('$index', style: body),
+        ),
+        Expanded(
+          child: Padding(
+            padding: const EdgeInsets.only(right: 4),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  line.productName,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: body?.copyWith(
+                    fontWeight: FontWeight.w600,
+                    color: AppColors.textPrimary,
+                    height: 1.3,
+                  ),
+                ),
+                if (line.productCode.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    line.productCode,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: muted,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _MetricsHeaderRow extends StatelessWidget {
+  const _MetricsHeaderRow({
+    required this.editable,
+    required this.layout,
+    required this.style,
+  });
+
+  final bool editable;
+  final _FrozenTableLayout layout;
+  final TextStyle? style;
+
+  Widget _col(double width, String label) => SizedBox(
+        width: width,
+        child: Text(label, style: style, textAlign: TextAlign.right),
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    final gap = layout.columnGap;
+    return Row(
+      children: [
+        _col(layout.casesWidth, 'Cases'),
+        if (gap > 0) SizedBox(width: gap),
+        _col(layout.qtyWidth, 'Qty'),
+        if (gap > 0) SizedBox(width: gap),
+        _col(layout.rateWidth, 'Rate'),
+        if (gap > 0) SizedBox(width: gap),
+        _col(layout.discWidth, 'Disc'),
+        if (gap > 0) SizedBox(width: gap),
+        _col(layout.gstWidth, 'GST'),
+        if (gap > 0) SizedBox(width: gap),
+        _col(layout.amountWidth, 'Amount'),
+        SizedBox(width: editable ? layout.actionsWidth : 4),
+      ],
+    );
+  }
+}
+
+class _MetricsDataRow extends StatelessWidget {
+  const _MetricsDataRow({
+    required this.line,
+    required this.editable,
+    required this.layout,
+    this.onEdit,
+    this.onDelete,
+  });
+
+  final OrderInvoiceLine line;
+  final bool editable;
+  final _FrozenTableLayout layout;
+  final VoidCallback? onEdit;
+  final VoidCallback? onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final body = Theme.of(context).textTheme.bodySmall;
+    final amountStyle = body?.copyWith(
+      fontWeight: FontWeight.w700,
+      color: AppColors.textPrimary,
+    );
+    final muted = body?.copyWith(
+      color: AppColors.textSecondary,
+      fontSize: 10,
+      height: 1.2,
+    );
+    final gap = layout.columnGap;
+
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          width: layout.casesWidth,
+          child: Text(
+            '${line.caseQuantity}',
+            textAlign: TextAlign.right,
+            style: body?.copyWith(fontWeight: FontWeight.w600),
+          ),
+        ),
+        if (gap > 0) SizedBox(width: gap),
+        SizedBox(
+          width: layout.qtyWidth,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: [
+              Text(
+                '${line.totalQuantityNos}',
+                textAlign: TextAlign.right,
+                style: body?.copyWith(fontWeight: FontWeight.w600),
+              ),
+              Text(
+                line.shortQtyHint,
+                textAlign: TextAlign.right,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: muted,
+              ),
+            ],
+          ),
+        ),
+        if (gap > 0) SizedBox(width: gap),
+        SizedBox(
+          width: layout.rateWidth,
+          child: Text(
+            OrderInvoiceProductsTable.money(line.rate, compact: true),
+            textAlign: TextAlign.right,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: body,
+          ),
+        ),
+        if (gap > 0) SizedBox(width: gap),
+        SizedBox(
+          width: layout.discWidth,
+          child: Text(
+            OrderInvoiceProductsTable.percent(line.discountPercent),
+            textAlign: TextAlign.right,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: body,
+          ),
+        ),
+        if (gap > 0) SizedBox(width: gap),
+        SizedBox(
+          width: layout.gstWidth,
+          child: Text(
+            OrderInvoiceProductsTable.percent(line.gstPercent),
+            textAlign: TextAlign.right,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: body,
+          ),
+        ),
+        if (gap > 0) SizedBox(width: gap),
+        SizedBox(
+          width: layout.amountWidth,
+          child: Text(
+            OrderInvoiceProductsTable.money(line.amount),
+            textAlign: TextAlign.right,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: amountStyle,
+          ),
+        ),
+        if (editable)
+          SizedBox(
+            width: layout.actionsWidth,
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (onEdit != null)
+                  InkWell(
+                    onTap: onEdit,
+                    borderRadius: BorderRadius.circular(16),
+                    child: const Padding(
+                      padding: EdgeInsets.all(4),
+                      child: Icon(Icons.edit_outlined, size: 18),
+                    ),
+                  ),
+                if (onDelete != null)
+                  InkWell(
+                    onTap: onDelete,
+                    borderRadius: BorderRadius.circular(16),
+                    child: const Padding(
+                      padding: EdgeInsets.all(4),
+                      child: Icon(
+                        Icons.delete_outline,
+                        size: 18,
+                        color: AppColors.error,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          )
+        else
+          const SizedBox(width: 4),
       ],
     );
   }

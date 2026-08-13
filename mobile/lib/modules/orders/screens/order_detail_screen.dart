@@ -114,15 +114,25 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(AppSpacing.screenPadding),
               children: [
-                PgDetailHeader(
-                  title: detail.orderNo,
-                  subtitle: detail.dealerName,
-                  badgeLabel: OrderStatusRules.badgeLabel(
-                    detail.status,
-                    rejectedByRole: detail.rejectedByRole,
-                    statusLabel: detail.statusLabel,
+                PgCard(
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          detail.displayOrderNo,
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ),
+                      PgStatusBadge(
+                        label: OrderStatusRules.badgeLabel(
+                          detail.status,
+                          rejectedByRole: detail.rejectedByRole,
+                          statusLabel: detail.statusLabel,
+                        ),
+                        tone: _statusTone(detail.status),
+                      ),
+                    ],
                   ),
-                  badgeTone: _statusTone(detail.status),
                 ),
                 const SizedBox(height: AppSpacing.md),
                 PgCard(
@@ -139,53 +149,19 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                         value: DateFormat('d MMM yyyy').format(detail.orderDate),
                       ),
                       PgInvoiceRow(
-                        label: 'Created By Employee',
+                        label: 'Created By',
                         value: detail.salesEmployeeName,
                       ),
-                      if ((detail.approvedByName ?? '').isNotEmpty) ...[
-                        PgInvoiceRow(
-                          label: 'Approved By',
-                          value: detail.approvedByRole ?? 'Sales Manager',
-                        ),
-                        PgInvoiceRow(
-                          label: 'Name',
-                          value: detail.approvedByName!,
-                        ),
-                        if ((detail.approvedAtLabel ?? detail.approvedAt ?? '')
-                            .isNotEmpty)
-                          PgInvoiceRow(
-                            label: 'Approved On',
-                            value:
-                                detail.approvedAtLabel ?? detail.approvedAt!,
-                          ),
-                      ],
-                      if ((detail.sentForBillByName ?? '').isNotEmpty) ...[
-                        PgInvoiceRow(
-                          label: 'Sent for Bill By',
-                          value: detail.sentForBillByName!,
-                        ),
-                        if ((detail.sentForBillAtLabel ??
-                                detail.sentForBillAt ??
-                                '')
-                            .isNotEmpty)
-                          PgInvoiceRow(
-                            label: 'Sent On',
-                            value: detail.sentForBillAtLabel ??
-                                detail.sentForBillAt!,
-                          ),
-                      ],
-                      if ((detail.billedByName ?? '').isNotEmpty) ...[
-                        PgInvoiceRow(
-                          label: 'Billed By',
-                          value: detail.billedByName!,
-                        ),
-                        if ((detail.billedAtLabel ?? detail.billedAt ?? '')
-                            .isNotEmpty)
-                          PgInvoiceRow(
-                            label: 'Billed On',
-                            value: detail.billedAtLabel ?? detail.billedAt!,
-                          ),
-                      ],
+                      PgInvoiceRow(
+                        label: 'Dealer Name',
+                        value: detail.dealerName,
+                      ),
+                      PgInvoiceRow(
+                        label: 'Dealer Village',
+                        value: (detail.dealer?.village ?? '').trim().isEmpty
+                            ? '—'
+                            : detail.dealer!.village!.trim(),
+                      ),
                       PgInvoiceRow(
                         label: 'Remarks',
                         value: detail.remarks.trim().isEmpty
@@ -221,65 +197,6 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                     ),
                     icon: const Icon(Icons.picture_as_pdf_outlined),
                     label: const Text('View Bill / Open Bill PDF'),
-                  ),
-                ],
-                if (detail.dealer != null) ...[
-                  const SizedBox(height: AppSpacing.md),
-                  PgCard(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Dealer Details',
-                          style: Theme.of(context).textTheme.titleMedium,
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        if ((detail.dealer!.dealerCode ?? '').isNotEmpty)
-                          PgInvoiceRow(
-                            label: 'Dealer Code',
-                            value: detail.dealer!.dealerCode!,
-                          ),
-                        PgInvoiceRow(
-                          label: 'Firm Name',
-                          value: detail.dealer!.name,
-                        ),
-                        if ((detail.dealer!.ownerName ?? '').isNotEmpty)
-                          PgInvoiceRow(
-                            label: 'Owner Name',
-                            value: detail.dealer!.ownerName!,
-                          ),
-                        if ((detail.dealer!.mobile ?? '').isNotEmpty)
-                          PgInvoiceRow(
-                            label: 'Mobile Number',
-                            value: detail.dealer!.mobile!,
-                          ),
-                        if ((detail.dealer!.address ?? '').isNotEmpty)
-                          PgInvoiceRow(
-                            label: 'Address',
-                            value: detail.dealer!.address!,
-                          ),
-                        if ((detail.dealer!.village ?? '').isNotEmpty)
-                          PgInvoiceRow(
-                            label: 'Village',
-                            value: detail.dealer!.village!,
-                          ),
-                        if ((detail.dealer!.taluka ?? '').isNotEmpty)
-                          PgInvoiceRow(
-                            label: 'Taluka',
-                            value: detail.dealer!.taluka!,
-                          ),
-                        if ((detail.dealer!.district ?? '').isNotEmpty)
-                          PgInvoiceRow(
-                            label: 'District',
-                            value: detail.dealer!.district!,
-                          ),
-                        if ((detail.dealer!.state ?? '').isNotEmpty)
-                          PgInvoiceRow(
-                            label: 'State',
-                            value: detail.dealer!.state!,
-                          ),
-                      ],
-                    ),
                   ),
                 ],
                 if ((detail.rejectionRemark ?? '').trim().isNotEmpty) ...[
@@ -319,6 +236,9 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                 ],
                 const SizedBox(height: AppSpacing.md),
                 OrderInvoiceProductsCard(
+                  freezeProductColumn: true,
+                  showTotalCases: true,
+                  spaciousLayout: true,
                   title: 'Order Items',
                   lines: detail.items
                       .map(OrderInvoiceLine.fromDetailItem)

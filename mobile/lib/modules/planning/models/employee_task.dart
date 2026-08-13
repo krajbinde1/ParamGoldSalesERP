@@ -106,6 +106,8 @@ class EmployeeTaskListResult {
     required this.todayPending,
     required this.todayCompleted,
     required this.overdueCount,
+    required this.upcomingCount,
+    required this.completedCount,
     this.pending = const [],
     this.completed = const [],
     this.overdue = const [],
@@ -116,6 +118,8 @@ class EmployeeTaskListResult {
   final int todayPending;
   final int todayCompleted;
   final int overdueCount;
+  final int upcomingCount;
+  final int completedCount;
   final List<EmployeeTask> pending;
   final List<EmployeeTask> completed;
   final List<EmployeeTask> overdue;
@@ -136,6 +140,8 @@ class EmployeeTaskListResult {
       todayPending: int.tryParse('${counts['today_pending'] ?? 0}') ?? 0,
       todayCompleted: int.tryParse('${counts['today_completed'] ?? 0}') ?? 0,
       overdueCount: int.tryParse('${counts['overdue_count'] ?? 0}') ?? 0,
+      upcomingCount: int.tryParse('${counts['upcoming_count'] ?? 0}') ?? 0,
+      completedCount: int.tryParse('${counts['completed_count'] ?? 0}') ?? 0,
       pending: parseList(json['pending']),
       completed: parseList(json['completed']),
       overdue: parseList(json['overdue']),
