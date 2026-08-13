@@ -156,6 +156,15 @@ class OrdersTable
                             ->success()
                             ->send();
                     }),
+                Action::make('viewBill')
+                    ->label('View Bill')
+                    ->icon('heroicon-o-document-arrow-down')
+                    ->color('primary')
+                    ->url(fn (Order $record): ?string => $record->billUrl())
+                    ->openUrlInNewTab()
+                    ->visible(fn (Order $record): bool => $isProductionSupervisor
+                        && filled($record->bill_path)
+                        && filled($record->billUrl())),
                 Action::make('bill')
                     ->label('Mark as Billed')
                     ->color('warning')

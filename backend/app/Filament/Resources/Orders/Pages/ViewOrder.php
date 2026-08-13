@@ -99,6 +99,15 @@ class ViewOrder extends ViewRecord
                         'sent_for_bill_at',
                     ]);
                 }),
+            Action::make('viewBill')
+                ->label('View / Download Bill')
+                ->icon('heroicon-o-document-arrow-down')
+                ->color('primary')
+                ->url(fn (): ?string => $record->billUrl())
+                ->openUrlInNewTab()
+                ->visible(fn (): bool => (auth()->user()?->canActAsProductionSupervisor() ?? false)
+                    && filled($record->bill_path)
+                    && filled($record->billUrl())),
             Action::make('bill')
                 ->label('Mark as Billed')
                 ->color('warning')

@@ -244,17 +244,24 @@ class OrderInfolist
 
                 Section::make('Billing Details')
                     ->columns(3)
-                    ->visible(fn (Order $record): bool => filled($record->billed_at) || filled($record->bill_path))
+                    ->visible(fn (Order $record): bool => $record->status === Order::STATUS_BILLED
+                        || $record->status === Order::STATUS_DISPATCHED
+                        || filled($record->billed_at)
+                        || filled($record->bill_path))
                     ->schema([
                         TextEntry::make('bill_number')->label('Bill Number')->placeholder('-'),
                         TextEntry::make('bill_date')->label('Bill Date')->date('d/m/Y')->placeholder('-'),
                         TextEntry::make('billed_at')->label('Billed At')->dateTime()->placeholder('-'),
                         TextEntry::make('billedByUser.name')->label('Billed By')->placeholder('-'),
                         TextEntry::make('bill_path')
-                            ->label('Bill')
-                            ->formatStateUsing(fn (Order $record): string => $record->billUrl() ? 'View Bill' : '-')
-                            ->url(fn (Order $record): ?string => $record->billUrl())
+                            ->label('Bill PDF')
+                            ->formatStateUsing(fn (?string $state, Order $record): string => filled($record->billUrl())
+                                ? 'View / Download Bill PDF'
+                                : '-')
+                            ->url(fn (?string $state, Order $record): ?string => $record->billUrl())
                             ->openUrlInNewTab()
+                            ->color('primary')
+                            ->weight(FontWeight::SemiBold)
                             ->placeholder('-'),
                         TextEntry::make('billing_remark')->label('Billing Remark')->placeholder('-')->columnSpanFull(),
                     ]),
