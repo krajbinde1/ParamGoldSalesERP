@@ -67,7 +67,11 @@ class OrdersTable
             ])
             ->filters([
                 SelectFilter::make('payment_type')->options(['Cash' => 'Cash', 'Credit' => 'Credit']),
-                SelectFilter::make('status')->options(Order::statusLabels()),
+                // Status tabs already scope the query. A sticky status SelectFilter
+                // (e.g. from dashboard deep-links) AND a different tab empty the table.
+                SelectFilter::make('status')
+                    ->options(Order::statusLabels())
+                    ->visible(fn (): bool => ! $isProductionSupervisor()),
                 TrashedFilter::make(),
             ])
             ->recordActions([

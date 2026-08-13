@@ -37,31 +37,19 @@ class ProductionOrderStatsWidget extends StatsOverviewWidget
                 ->description('Ready for production planning')
                 ->color('success')
                 ->url(OrderResource::getUrl('index', [
-                    'filters' => [
-                        'status' => [
-                            'value' => Order::STATUS_APPROVED,
-                        ],
-                    ],
+                    'tab' => Order::STATUS_APPROVED,
                 ])),
             Stat::make('Billed Orders', (string) $billedCount)
                 ->description('Ready for dispatch')
                 ->color('warning')
                 ->url(OrderResource::getUrl('index', [
-                    'filters' => [
-                        'status' => [
-                            'value' => Order::STATUS_BILLED,
-                        ],
-                    ],
+                    'tab' => Order::STATUS_BILLED,
                 ])),
             Stat::make('Dispatched Orders', (string) $dispatchedCount)
                 ->description('Completed dispatches')
                 ->color('info')
                 ->url(OrderResource::getUrl('index', [
-                    'filters' => [
-                        'status' => [
-                            'value' => Order::STATUS_DISPATCHED,
-                        ],
-                    ],
+                    'tab' => Order::STATUS_DISPATCHED,
                 ])),
         ];
     }
