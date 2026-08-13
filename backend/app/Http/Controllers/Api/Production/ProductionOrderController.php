@@ -66,6 +66,7 @@ class ProductionOrderController extends Controller
             'data' => collect($orders->items())->map(fn (Order $order): array => [
                 'id' => $order->id,
                 'order_no' => $order->order_no,
+                'short_order_no' => $order->shortOrderNo(),
                 'order_date' => $order->order_date?->toDateString(),
                 'created_at' => $order->created_at?->toDateTimeString(),
                 'approved_at' => $order->approved_at?->toDateTimeString(),
@@ -79,6 +80,7 @@ class ProductionOrderController extends Controller
                 'employee_name' => $order->salesEmployee?->full_name,
                 'payment_type' => $order->payment_type,
                 'grand_total' => (float) $order->grand_total,
+                'vehicle_id' => $order->vehicle_id,
                 'vehicle_number' => $order->vehicle_number,
                 'transport_amount' => $order->transport_amount !== null
                     ? (float) $order->transport_amount
@@ -117,7 +119,8 @@ class ProductionOrderController extends Controller
     public function sendForBill(Request $request, Order $order): JsonResponse
     {
         $validated = $request->validate([
-            'vehicle_number' => ['required', 'string', 'max:50'],
+            'vehicle_id' => ['nullable', 'integer', 'exists:vehicles,id'],
+            'vehicle_number' => ['nullable', 'string', 'max:50', 'required_without:vehicle_id'],
             'transport_freight' => ['required', 'numeric', 'min:0'],
             'transport_amount' => ['nullable', 'numeric', 'min:0'],
             'transport_remark' => ['nullable', 'string', 'max:2000'],
@@ -128,9 +131,10 @@ class ProductionOrderController extends Controller
         $result = app(SendOrderForBilling::class)->execute(
             order: $order,
             actor: $request->user(),
-            vehicleNumber: $validated['vehicle_number'],
+            vehicleNumber: $validated['vehicle_number'] ?? null,
             transportFreight: $freight,
             transportRemark: $validated['transport_remark'] ?? null,
+            vehicleId: isset($validated['vehicle_id']) ? (int) $validated['vehicle_id'] : null,
         );
 
         return response()->json([

@@ -86,7 +86,7 @@ class Order extends Model
         'sent_for_bill_by', 'sent_for_bill_at', 'transport_remark',
         'billed_by', 'billed_at', 'bill_path', 'bill_number', 'bill_date', 'billing_remark',
         'dispatched_by', 'dispatched_at', 'dispatch_date', 'dispatch_remark',
-        'transport_type', 'transport_amount', 'transporter_name', 'vehicle_number', 'lr_number', 'lr_document_path',
+        'transport_type', 'transport_amount', 'transporter_name', 'vehicle_id', 'vehicle_number', 'lr_number', 'lr_document_path',
         'subtotal_before_transport', 'taxable_amount_after_transport',
     ];
 
@@ -152,9 +152,29 @@ class Order extends Model
         return $this->belongsTo(User::class, 'sent_for_bill_by');
     }
 
+    public function vehicle(): BelongsTo
+    {
+        return $this->belongsTo(Vehicle::class);
+    }
+
     public function dispatchedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'dispatched_by');
+    }
+
+    /**
+     * Display-only short order number for Production Supervisor lists.
+     * Example: PG-20260813-0001 → PG-0001. Does not change stored order_no.
+     */
+    public function shortOrderNo(): string
+    {
+        $orderNo = (string) $this->order_no;
+
+        if (preg_match('/^([A-Za-z]+)-(\d{8})-(\d+)$/', $orderNo, $matches) === 1) {
+            return $matches[1].'-'.$matches[3];
+        }
+
+        return $orderNo;
     }
 
     public function items(): HasMany
@@ -358,7 +378,7 @@ class Order extends Model
 
         $steps[] = [
             'key' => 'pending_for_billing',
-            'label' => 'Sent for Bill',
+            'label' => 'Sent for Bill by Production Supervisor',
             'actor' => $isSentForBilling ? $this->sentForBillByUser?->name : null,
             'actor_role' => $isSentForBilling
                 ? ($this->displayActorRole($this->sentForBillByUser) ?? 'Production Supervisor')
@@ -375,7 +395,7 @@ class Order extends Model
 
         $steps[] = [
             'key' => 'billed',
-            'label' => 'Billed',
+            'label' => 'Billed by Admin',
             'actor' => $isBilled ? $this->billedByUser?->name : null,
             'actor_role' => $isBilled
                 ? ($this->displayActorRole($this->billedByUser) ?? 'Admin')
@@ -529,6 +549,7 @@ class Order extends Model
         ?string $vehicleNumber = null,
         ?float $transportFreight = null,
         ?string $transportRemark = null,
+        ?int $vehicleId = null,
     ): void {
         if (! $this->canBeSentForBilling()) {
             throw ValidationException::withMessages([
@@ -550,6 +571,7 @@ class Order extends Model
 
         $this->update([
             'status' => self::STATUS_PENDING_FOR_BILLING,
+            'vehicle_id' => $vehicleId,
             'vehicle_number' => trim($vehicleNumber),
             'transport_amount' => $transportFreight,
             'transport_remark' => filled($transportRemark) ? trim($transportRemark) : null,

@@ -38,6 +38,7 @@ use App\Http\Controllers\Api\Production\SemiFinishedMaterialApiController;
 use App\Http\Controllers\Api\Production\ShortageApiController;
 use App\Http\Controllers\Api\Production\StockItemLedgerApiController;
 use App\Http\Controllers\Api\Production\StockReportApiController;
+use App\Http\Controllers\Api\Production\VehicleApiController;
 use Illuminate\Support\Facades\Route;
 
 Route::post('login', [EmployeeAuthController::class, 'login']);
@@ -113,6 +114,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('orders/{order}/send-for-bill', [ProductionOrderController::class, 'sendForBill']);
         Route::post('orders/{order}/dispatch-calculation', [ProductionOrderController::class, 'calculateDispatch']);
         Route::post('orders/{order}/dispatch', [ProductionOrderController::class, 'dispatch']);
+
+        Route::get('vehicles', [VehicleApiController::class, 'index']);
+        Route::post('vehicles', [VehicleApiController::class, 'store']);
 
         Route::get('inventory/dashboard', InventoryDashboardApiController::class);
         Route::get('inventory/raw-materials', [RawMaterialApiController::class, 'index']);

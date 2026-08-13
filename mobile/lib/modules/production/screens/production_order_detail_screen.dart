@@ -9,6 +9,7 @@ import '../../../core/api/api_errors.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/utils/bill_document.dart';
+import '../../../core/utils/order_number.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_detail_widgets.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
@@ -180,9 +181,11 @@ class _ProductionOrderDetailScreenState
   }
 
   Future<void> _showSendForBillModal() async {
-    final vehicleController = TextEditingController(
-      text: _order?['vehicle_number']?.toString() ?? '',
-    );
+    var vehicles = <Map<String, dynamic>>[];
+    String? formError;
+    var submitting = false;
+    int? selectedVehicleId;
+
     final freightController = TextEditingController(
       text: (_order?['transport_amount'] != null &&
               (double.tryParse('${_order?['transport_amount']}') ?? 0) > 0)
@@ -193,8 +196,161 @@ class _ProductionOrderDetailScreenState
     final remarkController = TextEditingController(
       text: _order?['transport_remark']?.toString() ?? '',
     );
-    String? formError;
-    var submitting = false;
+
+    try {
+      vehicles = await _api.listVehicles();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage(error))),
+      );
+      freightController.dispose();
+      remarkController.dispose();
+      return;
+    }
+
+    if (!mounted) {
+      freightController.dispose();
+      remarkController.dispose();
+      return;
+    }
+
+    Future<void> reloadVehicles(
+      void Function(void Function()) setModalState, {
+      int? selectId,
+    }) async {
+      try {
+        final loaded = await _api.listVehicles();
+        setModalState(() {
+          vehicles = loaded;
+          if (selectId != null) {
+            selectedVehicleId = selectId;
+          }
+          formError = null;
+        });
+      } catch (error) {
+        setModalState(() => formError = errorMessage(error));
+      }
+    }
+
+    Future<void> showAddVehicle(
+      void Function(void Function()) setModalState,
+    ) async {
+      final numberController = TextEditingController();
+      final nameController = TextEditingController();
+      final typeController = TextEditingController();
+      String? addError;
+      var saving = false;
+
+      final created = await showDialog<Map<String, dynamic>>(
+        context: context,
+        barrierDismissible: false,
+        builder: (context) {
+          return StatefulBuilder(
+            builder: (context, setAddState) {
+              return AlertDialog(
+                title: const Text('Add Vehicle'),
+                content: SingleChildScrollView(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      TextField(
+                        controller: numberController,
+                        textCapitalization: TextCapitalization.characters,
+                        decoration: const InputDecoration(
+                          labelText: 'Vehicle Number *',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: nameController,
+                        decoration: const InputDecoration(
+                          labelText: 'Vehicle Name / Model',
+                        ),
+                      ),
+                      const SizedBox(height: 12),
+                      TextField(
+                        controller: typeController,
+                        decoration: const InputDecoration(
+                          labelText: 'Vehicle Type',
+                        ),
+                      ),
+                      if (addError != null) ...[
+                        const SizedBox(height: 12),
+                        Text(
+                          addError!,
+                          style: TextStyle(
+                            color: Theme.of(context).colorScheme.error,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed:
+                        saving ? null : () => Navigator.pop(context),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: saving
+                        ? null
+                        : () async {
+                            final number = numberController.text.trim();
+                            if (number.isEmpty) {
+                              setAddState(
+                                () => addError = 'Vehicle number is required.',
+                              );
+                              return;
+                            }
+                            setAddState(() {
+                              saving = true;
+                              addError = null;
+                            });
+                            try {
+                              final vehicle = await _api.createVehicle(
+                                vehicleNumber: number,
+                                vehicleName: nameController.text.trim().isEmpty
+                                    ? null
+                                    : nameController.text.trim(),
+                                vehicleType: typeController.text.trim().isEmpty
+                                    ? null
+                                    : typeController.text.trim(),
+                              );
+                              if (context.mounted) {
+                                Navigator.pop(context, vehicle);
+                              }
+                            } catch (error) {
+                              setAddState(() {
+                                saving = false;
+                                addError = errorMessage(error);
+                              });
+                            }
+                          },
+                    child: saving
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Text('Save Vehicle'),
+                  ),
+                ],
+              );
+            },
+          );
+        },
+      );
+
+      numberController.dispose();
+      nameController.dispose();
+      typeController.dispose();
+
+      if (created == null) return;
+      final newId = int.tryParse('${created['id']}');
+      await reloadVehicles(setModalState, selectId: newId);
+    }
 
     final confirmed = await showDialog<bool>(
       context: context,
@@ -210,18 +366,45 @@ class _ProductionOrderDetailScreenState
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Order ${_order?['order_no'] ?? '-'}',
+                      'Order ${productionOrderListNo(_order ?? const {})}',
                       style: Theme.of(context).textTheme.titleSmall,
                     ),
                     const SizedBox(height: 12),
-                    TextField(
-                      controller: vehicleController,
-                      textCapitalization: TextCapitalization.characters,
+                    DropdownButtonFormField<int>(
+                      value: selectedVehicleId,
+                      isExpanded: true,
                       decoration: const InputDecoration(
                         labelText: 'Vehicle Number *',
                       ),
+                      items: vehicles.map((vehicle) {
+                        final id = int.tryParse('${vehicle['id']}') ?? 0;
+                        final label =
+                            vehicle['display_label']?.toString() ??
+                                vehicle['vehicle_number']?.toString() ??
+                                '-';
+                        return DropdownMenuItem<int>(
+                          value: id,
+                          child: Text(label, overflow: TextOverflow.ellipsis),
+                        );
+                      }).toList(),
+                      onChanged: (value) {
+                        setModalState(() {
+                          selectedVehicleId = value;
+                          formError = null;
+                        });
+                      },
                     ),
-                    const SizedBox(height: 12),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        onPressed: submitting
+                            ? null
+                            : () => showAddVehicle(setModalState),
+                        icon: const Icon(Icons.add, size: 18),
+                        label: const Text('+ Add Vehicle'),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
                     TextField(
                       controller: freightController,
                       keyboardType: const TextInputType.numberWithOptions(
@@ -233,7 +416,7 @@ class _ProductionOrderDetailScreenState
                         ),
                       ],
                       decoration: const InputDecoration(
-                        labelText: 'Transport Freight *',
+                        labelText: 'Transport Charges *',
                         prefixText: '₹ ',
                       ),
                     ),
@@ -268,20 +451,19 @@ class _ProductionOrderDetailScreenState
                   onPressed: submitting
                       ? null
                       : () {
-                          final vehicle = vehicleController.text.trim();
                           final freight = double.tryParse(
                             freightController.text.trim(),
                           );
-                          if (vehicle.isEmpty) {
+                          if (selectedVehicleId == null) {
                             setModalState(
-                              () => formError = 'Vehicle number is required.',
+                              () => formError = 'Select a vehicle.',
                             );
                             return;
                           }
                           if (freight == null || freight < 0) {
                             setModalState(
                               () => formError =
-                                  'Enter a valid transport freight amount.',
+                                  'Enter a valid transport charge amount.',
                             );
                             return;
                           }
@@ -293,7 +475,7 @@ class _ProductionOrderDetailScreenState
                           height: 18,
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
-                      : const Text('Confirm & Send for Bill'),
+                      : const Text('Send for Bill'),
                 ),
               ],
             );
@@ -302,21 +484,20 @@ class _ProductionOrderDetailScreenState
       },
     );
 
-    final vehicle = vehicleController.text.trim();
     final freight =
         double.tryParse(freightController.text.trim()) ?? 0;
     final remark = remarkController.text.trim();
-    vehicleController.dispose();
+    final vehicleId = selectedVehicleId;
     freightController.dispose();
     remarkController.dispose();
 
-    if (confirmed != true || !mounted) return;
+    if (confirmed != true || !mounted || vehicleId == null) return;
 
     setState(() => _submitting = true);
     try {
       final updated = await _api.sendForBill(
         widget.orderId,
-        vehicleNumber: vehicle,
+        vehicleId: vehicleId,
         transportFreight: freight,
         transportRemark: remark.isEmpty ? null : remark,
       );

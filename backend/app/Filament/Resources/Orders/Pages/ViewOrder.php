@@ -5,8 +5,10 @@ namespace App\Filament\Resources\Orders\Pages;
 use App\Actions\Orders\BillOrderWithDocument;
 use App\Actions\Orders\DispatchOrderWithTransport;
 use App\Actions\Orders\RejectOrderWithRemarks;
+use App\Actions\Orders\SendOrderForBilling;
 use App\Enums\TransportType;
 use App\Filament\Resources\Orders\OrderResource;
+use App\Filament\Support\SendForBillForm;
 use App\Models\Order;
 use Filament\Actions\Action;
 use Filament\Actions\EditAction;
@@ -15,6 +17,7 @@ use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Illuminate\Support\Facades\Gate;
 
@@ -59,6 +62,41 @@ class ViewOrder extends ViewRecord
                         'rejected_by_role',
                         'rejected_at',
                         'rejection_remark',
+                    ]);
+                }),
+            Action::make('sendForBill')
+                ->label('Send for Bill')
+                ->color('warning')
+                ->visible(fn (): bool => Gate::forUser(auth()->user())->allows('sendForBill', $record))
+                ->authorize(fn (): bool => Gate::forUser(auth()->user())->allows('sendForBill', $record))
+                ->modalHeading('Send for Bill')
+                ->modalSubmitActionLabel('Send for Bill')
+                ->form(SendForBillForm::schema())
+                ->action(function (array $data) use ($record): void {
+                    $payload = SendForBillForm::resolvePayload($data);
+
+                    app(SendOrderForBilling::class)->execute(
+                        order: $record,
+                        actor: auth()->user(),
+                        vehicleNumber: $payload['vehicle']->vehicle_number,
+                        transportFreight: $payload['transport_freight'],
+                        transportRemark: $payload['transport_remark'],
+                        vehicleId: $payload['vehicle']->id,
+                    );
+
+                    Notification::make()
+                        ->title('Order sent for billing')
+                        ->success()
+                        ->send();
+
+                    $this->refreshFormData([
+                        'status',
+                        'vehicle_id',
+                        'vehicle_number',
+                        'transport_amount',
+                        'transport_remark',
+                        'sent_for_bill_by',
+                        'sent_for_bill_at',
                     ]);
                 }),
             Action::make('bill')

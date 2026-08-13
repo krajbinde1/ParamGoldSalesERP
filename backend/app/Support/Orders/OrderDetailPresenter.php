@@ -58,6 +58,7 @@ final class OrderDetailPresenter
         return [
             'id' => $order->id,
             'order_no' => $order->order_no,
+            'short_order_no' => $order->shortOrderNo(),
             'order_date' => $order->order_date?->toDateString(),
             'created_at' => $order->created_at?->toDateTimeString(),
             'status' => $order->status,
@@ -128,6 +129,7 @@ final class OrderDetailPresenter
             'dispatched_by_role' => $order->displayActorRole($order->dispatchedByUser),
             'dispatch_remark' => $order->dispatch_remark,
             'transporter_name' => $order->transporter_name,
+            'vehicle_id' => $order->vehicle_id,
             'vehicle_number' => $order->vehicle_number,
             'lr_number' => $order->lr_number,
             'lr_document_path' => $order->lr_document_path,

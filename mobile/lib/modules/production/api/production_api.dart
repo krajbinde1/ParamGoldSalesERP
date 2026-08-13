@@ -298,7 +298,8 @@ class ProductionApi {
 
   Future<Map<String, dynamic>> sendForBill(
     int orderId, {
-    required String vehicleNumber,
+    int? vehicleId,
+    String? vehicleNumber,
     required double transportFreight,
     String? transportRemark,
   }) async {
@@ -306,10 +307,55 @@ class ProductionApi {
       final response = await _dio.post(
         '/production/orders/$orderId/send-for-bill',
         data: {
-          'vehicle_number': vehicleNumber,
+          if (vehicleId != null) 'vehicle_id': vehicleId,
+          if (vehicleNumber != null && vehicleNumber.trim().isNotEmpty)
+            'vehicle_number': vehicleNumber.trim(),
           'transport_freight': transportFreight,
           if (transportRemark != null && transportRemark.trim().isNotEmpty)
             'transport_remark': transportRemark.trim(),
+        },
+      );
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> listVehicles({String? search}) async {
+    try {
+      final response = await _dio.get(
+        '/production/vehicles',
+        queryParameters: search != null && search.trim().isNotEmpty
+            ? {'search': search.trim()}
+            : null,
+      );
+      final data = (response.data as Map)['data'];
+      if (data is! List) return const [];
+      return data
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList();
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> createVehicle({
+    required String vehicleNumber,
+    String? vehicleName,
+    String? vehicleType,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/production/vehicles',
+        data: {
+          'vehicle_number': vehicleNumber.trim(),
+          if (vehicleName != null && vehicleName.trim().isNotEmpty)
+            'vehicle_name': vehicleName.trim(),
+          if (vehicleType != null && vehicleType.trim().isNotEmpty)
+            'vehicle_type': vehicleType.trim(),
         },
       );
       return Map<String, dynamic>.from(

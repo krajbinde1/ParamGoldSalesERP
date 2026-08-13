@@ -64,6 +64,7 @@ class ProductionDashboardController extends Controller
         return [
             'id' => $order->id,
             'order_no' => $order->order_no,
+            'short_order_no' => $order->shortOrderNo(),
             'order_date' => $order->order_date?->toDateString(),
             'approved_at' => $order->approved_at?->toDateTimeString(),
             'billed_at' => $order->billed_at?->toDateTimeString(),

@@ -428,9 +428,17 @@ it('allows production to send approved order for billing then admin bills', func
 
     $order->approve($manager->user->id);
 
+    $vehicle = \App\Models\Vehicle::query()->create([
+        'vehicle_number' => 'MH12AB1234',
+        'vehicle_name' => 'Tata Ace',
+        'vehicle_type' => 'Pickup',
+        'is_active' => true,
+        'created_by' => $production->user->id,
+    ]);
+
     $this->actingAs($production->user, 'sanctum')
         ->postJson("/api/production/orders/{$order->id}/send-for-bill", [
-            'vehicle_number' => 'MH12AB1234',
+            'vehicle_id' => $vehicle->id,
             'transport_freight' => 250,
             'transport_remark' => 'Ready for Tally billing',
         ])
@@ -438,16 +446,22 @@ it('allows production to send approved order for billing then admin bills', func
         ->assertJsonPath('data.status', Order::STATUS_PENDING_FOR_BILLING)
         ->assertJsonPath('data.status_label', 'Pending for Billing')
         ->assertJsonPath('data.vehicle_number', 'MH12AB1234')
+        ->assertJsonPath('data.vehicle_id', $vehicle->id)
         ->assertJsonPath('data.transport_amount', 250);
 
     $fresh = $order->fresh();
     expect($fresh->status)->toBe(Order::STATUS_PENDING_FOR_BILLING)
         ->and($fresh->sent_for_bill_by)->toBe($production->user->id)
+        ->and($fresh->vehicle_id)->toBe($vehicle->id)
         ->and((float) $fresh->transport_amount)->toBe(250.0)
         ->and($fresh->transport_remark)->toBe('Ready for Tally billing');
 
-    $timelineKeys = collect($fresh->workflowTimeline())->pluck('key')->all();
-    expect($timelineKeys)->toContain('pending_for_billing');
+    $timeline = collect($fresh->workflowTimeline());
+    expect($timeline->pluck('key')->all())->toContain('pending_for_billing');
+    expect($timeline->firstWhere('key', 'pending_for_billing')['label'])
+        ->toBe('Sent for Bill by Production Supervisor');
+    expect($timeline->firstWhere('key', 'billed')['label'])->toBe('Billed by Admin');
+    expect($timeline->firstWhere('key', 'billed')['completed'])->toBeFalse();
 
     app(BillOrderWithDocument::class)->execute(
         order: $fresh,
@@ -459,6 +473,49 @@ it('allows production to send approved order for billing then admin bills', func
 
     expect($order->fresh()->status)->toBe(Order::STATUS_BILLED)
         ->and($order->fresh()->bill_number)->toBe('BILL-SFB-1');
+});
+
+it('allows production to create vehicle and list active vehicles', function () {
+    $production = orderWorkflowEmployee(UserRole::ProductionSupervisor, '9200000091');
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson('/api/production/vehicles', [
+            'vehicle_number' => 'mh 20 ab 1234',
+            'vehicle_name' => 'Tata Ace',
+            'vehicle_type' => 'Pickup',
+        ])
+        ->assertCreated()
+        ->assertJsonPath('data.vehicle_number', 'MH20AB1234')
+        ->assertJsonPath('data.display_label', 'MH20AB1234 - Tata Ace');
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson('/api/production/vehicles', [
+            'vehicle_number' => 'MH20AB1234',
+        ])
+        ->assertUnprocessable();
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson('/api/production/vehicles')
+        ->assertOk()
+        ->assertJsonCount(1, 'data');
+});
+
+it('formats short order number for production lists without changing stored order_no', function () {
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000092');
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000093');
+    $production = orderWorkflowEmployee(UserRole::ProductionSupervisor, '9200000094');
+    $order = orderWorkflowPending($employee->id);
+    $order->update(['order_no' => 'PG-20260813-0001']);
+    $order->approve($manager->user->id);
+
+    expect($order->fresh()->shortOrderNo())->toBe('PG-0001')
+        ->and($order->fresh()->order_no)->toBe('PG-20260813-0001');
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson('/api/production/orders?status=approved')
+        ->assertOk()
+        ->assertJsonPath('data.0.order_no', 'PG-20260813-0001')
+        ->assertJsonPath('data.0.short_order_no', 'PG-0001');
 });
 
 it('blocks non-production roles from send-for-bill and requires vehicle + freight', function () {

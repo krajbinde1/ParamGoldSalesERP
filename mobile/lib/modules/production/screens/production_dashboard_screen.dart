@@ -7,6 +7,7 @@ import '../../../core/api/api_errors.dart';
 import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/storage/session_store.dart';
+import '../../../core/utils/order_number.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
 import '../../../core/widgets/design/pg_metric_card.dart';
@@ -407,7 +408,7 @@ class _OrderList extends StatelessWidget {
                         children: [
                           Expanded(
                             child: Text(
-                              order['order_no']?.toString() ?? '-',
+                              productionOrderListNo(order),
                               style: Theme.of(context).textTheme.titleSmall,
                             ),
                           ),
@@ -430,7 +431,7 @@ class _OrderList extends StatelessWidget {
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       Text(
-                        'Date: ${_formatDateTime(order['created_at'] ?? order['order_date'])} • ${currency.format(amount)}',
+                        'Date: ${_formatDateTime(order['order_date'] ?? order['created_at'])} • ${currency.format(amount)}',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               color: AppColors.textSecondary,
                             ),

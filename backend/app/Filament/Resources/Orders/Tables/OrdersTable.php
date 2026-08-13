@@ -5,7 +5,9 @@ namespace App\Filament\Resources\Orders\Tables;
 use App\Actions\Orders\BillOrderWithDocument;
 use App\Actions\Orders\DispatchOrderWithTransport;
 use App\Actions\Orders\RejectOrderWithRemarks;
+use App\Actions\Orders\SendOrderForBilling;
 use App\Enums\TransportType;
+use App\Filament\Support\SendForBillForm;
 use App\Models\Order;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
@@ -19,6 +21,7 @@ use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TrashedFilter;
@@ -30,13 +33,24 @@ class OrdersTable
     public static function configure(Table $table): Table
     {
         $ordersOnlyUser = fn (): bool => auth()->user()?->hasOrdersOnlyFilamentAccess() ?? false;
+        $isProductionSupervisor = fn (): bool => auth()->user()?->canActAsProductionSupervisor() ?? false;
 
         return $table
             ->defaultSort('created_at', 'desc')
             ->columns([
-                TextColumn::make('order_no')->searchable()->sortable(),
+                TextColumn::make('order_no')
+                    ->label('Order No')
+                    ->searchable()
+                    ->sortable()
+                    ->formatStateUsing(function (string $state, Order $record) use ($isProductionSupervisor): string {
+                        return $isProductionSupervisor() ? $record->shortOrderNo() : $state;
+                    }),
                 TextColumn::make('order_date')->date()->sortable(),
-                TextColumn::make('created_at')->label('Created')->dateTime()->sortable(),
+                TextColumn::make('created_at')
+                    ->label('Created')
+                    ->dateTime()
+                    ->sortable()
+                    ->visible(fn () => ! $isProductionSupervisor()),
                 TextColumn::make('dealer.firm_name')->label('Dealer')->searchable()->sortable(),
                 TextColumn::make('salesEmployee.full_name')->label('Sales Employee')->placeholder('-')->searchable(),
                 TextColumn::make('payment_type')->badge(),
@@ -45,7 +59,11 @@ class OrdersTable
                     ->formatStateUsing(fn (string $state, Order $record): string => $record->displayStatusLabel())
                     ->color(fn (string $state): string => Order::statusColor($state))
                     ->sortable(),
-                TextColumn::make('grand_total')->label('Grand Total')->money('INR')->sortable(),
+                TextColumn::make('grand_total')
+                    ->label('Grand Total')
+                    ->money('INR')
+                    ->sortable()
+                    ->visible(fn () => ! $isProductionSupervisor()),
             ])
             ->filters([
                 SelectFilter::make('payment_type')->options(['Cash' => 'Cash', 'Credit' => 'Credit']),
@@ -93,6 +111,31 @@ class OrdersTable
                             remark: $data['rejection_reason'],
                             rejectedByRole: $role,
                         );
+                    }),
+                Action::make('sendForBill')
+                    ->label('Send for Bill')
+                    ->color('warning')
+                    ->visible(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('sendForBill', $record))
+                    ->authorize(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('sendForBill', $record))
+                    ->modalHeading('Send for Bill')
+                    ->modalSubmitActionLabel('Send for Bill')
+                    ->form(SendForBillForm::schema())
+                    ->action(function (Order $record, array $data): void {
+                        $payload = SendForBillForm::resolvePayload($data);
+
+                        app(SendOrderForBilling::class)->execute(
+                            order: $record,
+                            actor: auth()->user(),
+                            vehicleNumber: $payload['vehicle']->vehicle_number,
+                            transportFreight: $payload['transport_freight'],
+                            transportRemark: $payload['transport_remark'],
+                            vehicleId: $payload['vehicle']->id,
+                        );
+
+                        Notification::make()
+                            ->title('Order sent for billing')
+                            ->success()
+                            ->send();
                     }),
                 Action::make('bill')
                     ->label('Mark as Billed')
