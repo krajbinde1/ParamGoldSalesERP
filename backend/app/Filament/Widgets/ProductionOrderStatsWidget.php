@@ -24,6 +24,10 @@ class ProductionOrderStatsWidget extends StatsOverviewWidget
             ->where('status', Order::STATUS_APPROVED)
             ->count();
 
+        $pendingForBillingCount = Order::query()
+            ->where('status', Order::STATUS_PENDING_FOR_BILLING)
+            ->count();
+
         $billedCount = Order::query()
             ->where('status', Order::STATUS_BILLED)
             ->count();
@@ -32,24 +36,40 @@ class ProductionOrderStatsWidget extends StatsOverviewWidget
             ->where('status', Order::STATUS_DISPATCHED)
             ->count();
 
+        $rejectedCount = Order::query()
+            ->where('status', Order::STATUS_REJECTED)
+            ->count();
+
         return [
-            Stat::make('Approved Orders', (string) $approvedCount)
-                ->description('Ready for production planning')
+            Stat::make('Approved', (string) $approvedCount)
+                ->description('Ready to send for bill')
                 ->color('success')
                 ->url(OrderResource::getUrl('index', [
                     'tab' => Order::STATUS_APPROVED,
                 ])),
-            Stat::make('Billed Orders', (string) $billedCount)
-                ->description('Ready for dispatch')
+            Stat::make('Pending for Billing', (string) $pendingForBillingCount)
+                ->description('Awaiting Admin billing')
                 ->color('warning')
+                ->url(OrderResource::getUrl('index', [
+                    'tab' => Order::STATUS_PENDING_FOR_BILLING,
+                ])),
+            Stat::make('Billed', (string) $billedCount)
+                ->description('Ready for dispatch')
+                ->color('info')
                 ->url(OrderResource::getUrl('index', [
                     'tab' => Order::STATUS_BILLED,
                 ])),
-            Stat::make('Dispatched Orders', (string) $dispatchedCount)
+            Stat::make('Dispatched', (string) $dispatchedCount)
                 ->description('Completed dispatches')
-                ->color('info')
+                ->color('primary')
                 ->url(OrderResource::getUrl('index', [
                     'tab' => Order::STATUS_DISPATCHED,
+                ])),
+            Stat::make('Rejected', (string) $rejectedCount)
+                ->description('Rejected orders')
+                ->color('danger')
+                ->url(OrderResource::getUrl('index', [
+                    'tab' => Order::STATUS_REJECTED,
                 ])),
         ];
     }

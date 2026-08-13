@@ -80,7 +80,8 @@ class ListOrders extends ListRecords
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_DISPATCHED))
                 ->badge(fn (): int => Order::query()->where('status', Order::STATUS_DISPATCHED)->count()),
             'rejected' => Tab::make('Rejected')
-                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_REJECTED)),
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_REJECTED))
+                ->badge(fn (): int => Order::query()->where('status', Order::STATUS_REJECTED)->count()),
         ];
     }
 

@@ -3,10 +3,8 @@
 namespace App\Filament\Resources\Orders\Tables;
 
 use App\Actions\Orders\BillOrderWithDocument;
-use App\Actions\Orders\DispatchOrderWithTransport;
 use App\Actions\Orders\RejectOrderWithRemarks;
 use App\Actions\Orders\SendOrderForBilling;
-use App\Enums\TransportType;
 use App\Filament\Support\SendForBillForm;
 use App\Models\Order;
 use Filament\Actions\Action;
@@ -18,7 +16,6 @@ use Filament\Actions\RestoreBulkAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
-use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
@@ -201,50 +198,28 @@ class OrdersTable
                 Action::make('dispatch')
                     ->label('Mark as Dispatched')
                     ->color('info')
+                    ->modalHeading('Mark as Dispatched')
+                    ->modalSubmitActionLabel('Dispatched')
                     ->visible(fn (Order $record): bool => $record->status === Order::STATUS_BILLED
                         && auth()->user()?->canActAsProductionSupervisor()
                         && Gate::forUser(auth()->user())->allows('dispatch', $record))
                     ->authorize(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('dispatch', $record))
                     ->form([
-                        DatePicker::make('dispatch_date')
-                            ->label('Dispatch Date')
-                            ->default(now('Asia/Kolkata')->toDateString())
-                            ->native(false),
-                        Select::make('transport_type')
-                            ->label('Transport Type')
-                            ->options(TransportType::options())
-                            ->required(),
-                        TextInput::make('transport_amount')
-                            ->label('Transport Amount')
-                            ->numeric()
-                            ->minValue(0)
-                            ->prefix('₹')
-                            ->required(),
-                        TextInput::make('transporter_name')
-                            ->label('Transport Name')
-                            ->maxLength(255),
-                        TextInput::make('vehicle_number')
-                            ->label('Vehicle Number')
-                            ->maxLength(50),
-                        TextInput::make('lr_number')
-                            ->label('LR Number')
-                            ->maxLength(100),
                         Textarea::make('dispatch_remark')
-                            ->label('Dispatch Remark')
-                            ->rows(3),
+                            ->label('Remark')
+                            ->rows(3)
+                            ->maxLength(2000),
                     ])
                     ->action(function (Order $record, array $data): void {
-                        app(DispatchOrderWithTransport::class)->execute(
-                            order: $record,
-                            actor: auth()->user(),
-                            transportType: $data['transport_type'],
-                            transportAmount: (float) $data['transport_amount'],
+                        $record->dispatch(
+                            userId: auth()->id(),
                             remark: $data['dispatch_remark'] ?? null,
-                            dispatchDate: $data['dispatch_date'] ?? null,
-                            transporterName: $data['transporter_name'] ?? null,
-                            vehicleNumber: $data['vehicle_number'] ?? null,
-                            lrNumber: $data['lr_number'] ?? null,
                         );
+
+                        Notification::make()
+                            ->title('Order marked as dispatched')
+                            ->success()
+                            ->send();
                     }),
                 Action::make('cancel')
                     ->label('Cancel')
