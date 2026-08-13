@@ -33,7 +33,19 @@ class OrdersTable
     public static function configure(Table $table): Table
     {
         $ordersOnlyUser = fn (): bool => auth()->user()?->hasOrdersOnlyFilamentAccess() ?? false;
-        $isProductionSupervisor = fn (): bool => auth()->user()?->canActAsProductionSupervisor() ?? false;
+        $isProductionSupervisor = auth()->user()?->canActAsProductionSupervisor() ?? false;
+
+        $filters = [
+            SelectFilter::make('payment_type')->options(['Cash' => 'Cash', 'Credit' => 'Credit']),
+        ];
+
+        // Do not register a status SelectFilter for PS at all.
+        // A hidden-but-registered filter still applies leftover filters[status]
+        // state and empties tabs (e.g. tab=billed AND status=approved).
+        if (! $isProductionSupervisor) {
+            $filters[] = SelectFilter::make('status')->options(Order::statusLabels());
+            $filters[] = TrashedFilter::make();
+        }
 
         return $table
             ->defaultSort('created_at', 'desc')
@@ -43,14 +55,14 @@ class OrdersTable
                     ->searchable()
                     ->sortable()
                     ->formatStateUsing(function (string $state, Order $record) use ($isProductionSupervisor): string {
-                        return $isProductionSupervisor() ? $record->shortOrderNo() : $state;
+                        return $isProductionSupervisor ? $record->shortOrderNo() : $state;
                     }),
                 TextColumn::make('order_date')->date()->sortable(),
                 TextColumn::make('created_at')
                     ->label('Created')
                     ->dateTime()
                     ->sortable()
-                    ->visible(fn () => ! $isProductionSupervisor()),
+                    ->visible(fn () => ! $isProductionSupervisor),
                 TextColumn::make('dealer.firm_name')->label('Dealer')->searchable()->sortable(),
                 TextColumn::make('salesEmployee.full_name')->label('Sales Employee')->placeholder('-')->searchable(),
                 TextColumn::make('payment_type')->badge(),
@@ -59,21 +71,24 @@ class OrdersTable
                     ->formatStateUsing(fn (string $state, Order $record): string => $record->displayStatusLabel())
                     ->color(fn (string $state): string => Order::statusColor($state))
                     ->sortable(),
+                TextColumn::make('bill_number')
+                    ->label('Bill No')
+                    ->placeholder('-')
+                    ->toggleable()
+                    ->visible(fn () => $isProductionSupervisor),
+                TextColumn::make('bill_date')
+                    ->label('Bill Date')
+                    ->date()
+                    ->placeholder('-')
+                    ->toggleable()
+                    ->visible(fn () => $isProductionSupervisor),
                 TextColumn::make('grand_total')
                     ->label('Grand Total')
                     ->money('INR')
                     ->sortable()
-                    ->visible(fn () => ! $isProductionSupervisor()),
+                    ->visible(fn () => ! $isProductionSupervisor),
             ])
-            ->filters([
-                SelectFilter::make('payment_type')->options(['Cash' => 'Cash', 'Credit' => 'Credit']),
-                // Status tabs already scope the query. A sticky status SelectFilter
-                // (e.g. from dashboard deep-links) AND a different tab empty the table.
-                SelectFilter::make('status')
-                    ->options(Order::statusLabels())
-                    ->visible(fn (): bool => ! $isProductionSupervisor()),
-                TrashedFilter::make(),
-            ])
+            ->filters($filters)
             ->recordActions([
                 ViewAction::make(),
                 EditAction::make()

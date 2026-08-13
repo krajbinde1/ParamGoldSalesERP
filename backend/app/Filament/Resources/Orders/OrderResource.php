@@ -39,6 +39,32 @@ class OrderResource extends Resource
         return parent::canAccess();
     }
 
+    /**
+     * Production Supervisor web list is scoped to the dispatch workflow statuses.
+     * Must include billed + dispatched (not only approved / pending_for_billing).
+     */
+    public static function getEloquentQuery(): Builder
+    {
+        $query = parent::getEloquentQuery();
+
+        $user = auth()->user();
+
+        if (
+            $user?->canActAsProductionSupervisor()
+            && ! $user->isAdminUser()
+            && ! $user->isDirectorUser()
+        ) {
+            $query->whereIn('status', [
+                Order::STATUS_APPROVED,
+                Order::STATUS_PENDING_FOR_BILLING,
+                Order::STATUS_BILLED,
+                Order::STATUS_DISPATCHED,
+            ]);
+        }
+
+        return $query;
+    }
+
     public static function form(Schema $schema): Schema
     {
         return OrderForm::configure($schema);
