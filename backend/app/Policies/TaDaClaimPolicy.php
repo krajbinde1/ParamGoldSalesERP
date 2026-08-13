@@ -5,6 +5,7 @@ namespace App\Policies;
 use App\Enums\UserRole;
 use App\Models\TaDaClaim;
 use App\Models\User;
+use App\Services\Orders\ManagerOrderAccessService;
 
 class TaDaClaimPolicy
 {
@@ -21,7 +22,8 @@ class TaDaClaimPolicy
     {
         return match ($user->roleEnum()) {
             UserRole::Employee => $claim->employee_id === $user->employee_id,
-            UserRole::Manager, UserRole::Director => true,
+            UserRole::Manager => $this->managerOwnsClaim($user, $claim),
+            UserRole::Director => true,
             default => false,
         };
     }
@@ -33,16 +35,27 @@ class TaDaClaimPolicy
 
     public function approve(User $user, TaDaClaim $claim): bool
     {
-        return $user->hasRole(UserRole::Manager) && $claim->canApprove();
+        return $user->hasRole(UserRole::Manager)
+            && $claim->canApprove()
+            && $this->managerOwnsClaim($user, $claim);
     }
 
     public function reject(User $user, TaDaClaim $claim): bool
     {
-        return $user->hasRole(UserRole::Manager) && $claim->canReject();
+        return $user->hasRole(UserRole::Manager)
+            && $claim->canReject()
+            && $this->managerOwnsClaim($user, $claim);
     }
 
     public function markPaid(User $user, TaDaClaim $claim): bool
     {
         return false;
+    }
+
+    private function managerOwnsClaim(User $user, TaDaClaim $claim): bool
+    {
+        $reportIds = app(ManagerOrderAccessService::class)->directReportEmployeeIds($user);
+
+        return in_array((int) $claim->employee_id, $reportIds, true);
     }
 }

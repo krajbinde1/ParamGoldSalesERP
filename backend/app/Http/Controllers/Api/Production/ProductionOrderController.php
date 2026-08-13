@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Production;
 
 use App\Actions\Orders\DispatchOrderWithTransport;
+use App\Actions\Orders\SendOrderForBilling;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Services\Orders\OrderDispatchCalculationService;
@@ -23,16 +24,39 @@ class ProductionOrderController extends Controller
 
         $allowed = [
             Order::STATUS_APPROVED,
+            Order::STATUS_PENDING_FOR_BILLING,
             Order::STATUS_BILLED,
             Order::STATUS_DISPATCHED,
         ];
 
+        // Map UI / legacy filter aliases → canonical DB statuses.
+        $status = $request->string('status')->toString();
+        if ($status === 'sent_for_bill') {
+            $status = Order::STATUS_PENDING_FOR_BILLING;
+        }
+        if (in_array($status, [
+            'approved_by_manager',
+            'manager_approved',
+            'approved_by_sales_manager',
+        ], true)) {
+            $status = Order::STATUS_APPROVED;
+        }
+
         $orders = Order::query()
             ->whereIn('status', $allowed)
-            ->with(['dealer:id,firm_name,village,address,mobile', 'salesEmployee:id,full_name'])
+            ->with([
+                'dealer:id,firm_name,village,address,mobile',
+                'salesEmployee:id,full_name',
+                'approvedByUser:id,name',
+            ])
             ->when(
-                $request->filled('status') && in_array($request->string('status')->toString(), $allowed, true),
-                fn ($q) => $q->where('status', $request->string('status')),
+                filled($status) && in_array($status, $allowed, true),
+                function ($q) use ($status): void {
+                    $q->where('status', $status);
+                    if ($status === Order::STATUS_APPROVED) {
+                        $q->orderByDesc('approved_at');
+                    }
+                },
             )
             ->orderByDesc('created_at')
             ->orderByDesc('id')
@@ -45,15 +69,25 @@ class ProductionOrderController extends Controller
                 'order_date' => $order->order_date?->toDateString(),
                 'created_at' => $order->created_at?->toDateTimeString(),
                 'approved_at' => $order->approved_at?->toDateTimeString(),
+                'approved_by_name' => $order->approvedByUser?->name,
+                'sent_for_bill_at' => $order->sent_for_bill_at?->toDateTimeString(),
                 'billed_at' => $order->billed_at?->toDateTimeString(),
                 'dispatched_at' => $order->dispatched_at?->toDateTimeString(),
                 'dealer_name' => $order->dealer?->firm_name,
                 'dealer_village' => $order->dealer?->village,
                 'delivery_address' => $order->dealer?->address,
                 'employee_name' => $order->salesEmployee?->full_name,
+                'payment_type' => $order->payment_type,
                 'grand_total' => (float) $order->grand_total,
+                'vehicle_number' => $order->vehicle_number,
+                'transport_amount' => $order->transport_amount !== null
+                    ? (float) $order->transport_amount
+                    : null,
+                'bill_number' => $order->bill_number,
+                'bill_date' => $order->bill_date?->toDateString(),
                 'status' => $order->status,
                 'status_label' => $order->displayStatusLabel(),
+                'can_send_for_bill' => $order->canBeSentForBilling(),
                 'can_dispatch' => $order->canBeDispatched(),
             ])->values(),
             'meta' => [
@@ -62,6 +96,8 @@ class ProductionOrderController extends Controller
                 'total' => $orders->total(),
                 'counts' => [
                     'approved' => Order::query()->where('status', Order::STATUS_APPROVED)->count(),
+                    'sent_for_bill' => Order::query()->where('status', Order::STATUS_PENDING_FOR_BILLING)->count(),
+                    'pending_for_billing' => Order::query()->where('status', Order::STATUS_PENDING_FOR_BILLING)->count(),
                     'billed' => Order::query()->where('status', Order::STATUS_BILLED)->count(),
                     'dispatched' => Order::query()->where('status', Order::STATUS_DISPATCHED)->count(),
                 ],
@@ -75,6 +111,31 @@ class ProductionOrderController extends Controller
 
         return response()->json([
             'data' => $this->presenter->present($order),
+        ]);
+    }
+
+    public function sendForBill(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate([
+            'vehicle_number' => ['required', 'string', 'max:50'],
+            'transport_freight' => ['required', 'numeric', 'min:0'],
+            'transport_amount' => ['nullable', 'numeric', 'min:0'],
+            'transport_remark' => ['nullable', 'string', 'max:2000'],
+        ]);
+
+        $freight = (float) ($validated['transport_freight'] ?? $validated['transport_amount'] ?? 0);
+
+        $result = app(SendOrderForBilling::class)->execute(
+            order: $order,
+            actor: $request->user(),
+            vehicleNumber: $validated['vehicle_number'],
+            transportFreight: $freight,
+            transportRemark: $validated['transport_remark'] ?? null,
+        );
+
+        return response()->json([
+            'message' => 'Order sent for billing successfully.',
+            'data' => $this->presenter->present($result['order']),
         ]);
     }
 
@@ -121,7 +182,7 @@ class ProductionOrderController extends Controller
             transporterName: $validated['transporter_name'] ?? null,
             vehicleNumber: $validated['vehicle_number'] ?? null,
             lrNumber: $validated['lr_number'] ?? null,
-            lrDocument: $request->file('lr_document'),
+            lrDocument: $validated['lr_document'] ?? null,
         );
 
         return response()->json([

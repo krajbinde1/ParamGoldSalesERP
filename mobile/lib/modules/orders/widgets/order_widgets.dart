@@ -171,9 +171,18 @@ class OrderTimelineRow extends StatelessWidget {
   Widget build(BuildContext context) {
     final isCompleted = step.isComplete && !step.isRejected;
     final isActive = step.isCurrent;
-    final parts = <String>[
+    final actorLine = [
       if ((step.actor ?? '').trim().isNotEmpty) step.actor!.trim(),
+      if ((step.actorRole ?? '').trim().isNotEmpty) step.actorRole!.trim(),
+    ].join(' • ');
+    final statusText = (step.statusText ?? '').trim();
+    final parts = <String>[
+      if (actorLine.isNotEmpty) actorLine,
       if ((step.at ?? '').trim().isNotEmpty) step.at!.trim(),
+      if (statusText.isNotEmpty)
+        statusText
+      else if (!step.isComplete && actorLine.isEmpty)
+        'Pending',
       if ((step.remark ?? '').trim().isNotEmpty) 'Remarks: ${step.remark!.trim()}',
     ];
 
@@ -183,6 +192,7 @@ class OrderTimelineRow extends StatelessWidget {
       isCompleted: isCompleted,
       isActive: isActive,
       isLast: isLast,
+      isRejected: step.isRejected,
     );
   }
 }

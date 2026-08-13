@@ -14,7 +14,7 @@ use Illuminate\Validation\ValidationException;
 final class BillOrderWithDocument
 {
     /**
-     * Admin marks an approved order as billed and uploads the bill document.
+     * Admin marks a pending-for-billing order as billed and uploads the bill document.
      *
      * @return array{order: Order}
      */
@@ -24,6 +24,7 @@ final class BillOrderWithDocument
         UploadedFile $bill,
         ?string $billNumber = null,
         ?string $remark = null,
+        ?string $billDate = null,
     ): array {
         if (! Gate::forUser($actor)->allows('bill', $order)) {
             throw new AuthorizationException('You are not allowed to bill this order.');
@@ -31,7 +32,7 @@ final class BillOrderWithDocument
 
         if (! $order->canBeBilled()) {
             throw ValidationException::withMessages([
-                'status' => 'Only approved orders can be marked as billed.',
+                'status' => 'Only pending-for-billing orders can be marked as billed.',
             ]);
         }
 
@@ -40,15 +41,17 @@ final class BillOrderWithDocument
                 'bill' => $bill,
                 'bill_number' => $billNumber,
                 'billing_remark' => $remark,
+                'bill_date' => $billDate,
             ],
             [
                 'bill' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf,webp', 'max:10240'],
                 'bill_number' => ['nullable', 'string', 'max:100'],
                 'billing_remark' => ['nullable', 'string', 'max:2000'],
+                'bill_date' => ['nullable', 'date'],
             ],
         )->validate();
 
-        return DB::transaction(function () use ($order, $actor, $bill, $billNumber, $remark): array {
+        return DB::transaction(function () use ($order, $actor, $bill, $billNumber, $remark, $billDate): array {
             $path = str_replace('\\', '/', $bill->store('order-bills', 'public'));
 
             $order->markAsBilled(
@@ -56,6 +59,7 @@ final class BillOrderWithDocument
                 billPath: $path,
                 billNumber: $billNumber,
                 remark: $remark,
+                billDate: $billDate,
             );
 
             return [

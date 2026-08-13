@@ -1,11 +1,14 @@
 import 'dart:async';
 
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'core/api/api_config.dart';
 import 'core/design/app_theme.dart';
 import 'core/design/material_icon_retention.dart';
+import 'core/notifications/notification_navigator.dart';
+import 'core/notifications/push_notification_service.dart';
 import 'core/routing/app_router.dart';
 import 'modules/attendance/route_tracking/route_tracking_config.dart';
 import 'modules/attendance/route_tracking/route_tracking_lifecycle.dart';
@@ -14,7 +17,11 @@ import 'modules/attendance/route_tracking/route_tracking_service.dart';
 import 'modules/auth/providers/auth_controller.dart';
 
 final authController = AuthController();
-final appRouter = createRouter(authController);
+final rootNavigatorKey = GlobalKey<NavigatorState>();
+
+/// Built once per process start. After adding/changing routes, do a full
+/// hot **restart** (not hot reload) so this instance is recreated.
+final appRouter = createRouter(authController, navigatorKey: rootNavigatorKey);
 
 void main() {
   runZonedGuarded(() async {
@@ -28,8 +35,14 @@ void main() {
       debugPrint('API base URL: ${ApiConfig.baseUrl}');
     }
 
+    // Register FCM background handler early (no-op if Firebase not configured).
+    try {
+      FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
+    } catch (error) {
+      debugPrint('FCM background handler registration skipped: $error');
+    }
+
     // Never block the first frame on route-tracking / native plugin setup.
-    // Heavy recovery or FGS must not run before Login/Dashboard is reachable.
     unawaited(_safeStartupHousekeeping());
 
     runApp(const ProviderScope(child: ParamGoldApp()));
@@ -51,8 +64,28 @@ Future<void> _safeStartupHousekeeping() async {
   }
 }
 
-class ParamGoldApp extends StatelessWidget {
+class ParamGoldApp extends StatefulWidget {
   const ParamGoldApp({super.key});
+
+  @override
+  State<ParamGoldApp> createState() => _ParamGoldAppState();
+}
+
+class _ParamGoldAppState extends State<ParamGoldApp> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      unawaited(
+        NotificationNavigator.start(
+          auth: authController,
+          router: appRouter,
+          navigatorKey: rootNavigatorKey,
+        ),
+      );
+    });
+  }
+
   @override
   Widget build(BuildContext context) => RouteTrackingLifecycle(
     child: MaterialApp.router(
@@ -64,7 +97,6 @@ class ParamGoldApp extends StatelessWidget {
       darkTheme: AppTheme.dark(),
       builder: (context, child) => Stack(
         children: [
-          // Keeps Material icon glyphs in release APKs (Flutter 3.44 tree-shake).
           const MaterialIconRetention(),
           ?child,
         ],

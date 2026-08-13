@@ -17,6 +17,8 @@ class Order extends Model
 
     public const STATUS_APPROVED = 'approved';
 
+    public const STATUS_PENDING_FOR_BILLING = 'pending_for_billing';
+
     public const STATUS_BILLED = 'billed';
 
     public const STATUS_DISPATCHED = 'dispatched';
@@ -31,9 +33,10 @@ class Order extends Model
 
     public const STATUS_LABELS = [
         'draft' => 'Draft',
-        'pending_approval' => 'Pending Sales Manager Approval',
+        'pending_approval' => 'Pending for Manager Approval',
         'approved' => 'Approved by Sales Manager',
-        'billed' => 'Billed by Admin',
+        'pending_for_billing' => 'Pending for Billing',
+        'billed' => 'Billed',
         'dispatched' => 'Dispatched',
         'delivered' => 'Delivered',
         'rejected' => 'Rejected',
@@ -43,7 +46,9 @@ class Order extends Model
     private const STATUS_TRANSITIONS = [
         'draft' => ['pending_approval'],
         'pending_approval' => ['approved', 'rejected', 'cancelled'],
-        'approved' => ['billed', 'rejected'],
+        // Billing requires Production Supervisor "Send for Bill" first.
+        'approved' => ['pending_for_billing', 'rejected'],
+        'pending_for_billing' => ['billed', 'rejected'],
         'billed' => ['dispatched'],
         'dispatched' => [],
         'rejected' => [],
@@ -77,7 +82,9 @@ class Order extends Model
         'order_no', 'order_date', 'dealer_id', 'sales_employee_id', 'payment_type',
         'remarks', 'status', 'subtotal', 'discount_amount', 'gst_amount', 'grand_total',
         'approved_by', 'approved_at', 'rejected_by', 'rejected_by_role', 'rejected_at', 'rejection_remark',
-        'billed_by', 'billed_at', 'bill_path', 'bill_number', 'billing_remark',
+        'last_edited_by', 'last_edited_at', 'last_edited_by_role',
+        'sent_for_bill_by', 'sent_for_bill_at', 'transport_remark',
+        'billed_by', 'billed_at', 'bill_path', 'bill_number', 'bill_date', 'billing_remark',
         'dispatched_by', 'dispatched_at', 'dispatch_date', 'dispatch_remark',
         'transport_type', 'transport_amount', 'transporter_name', 'vehicle_number', 'lr_number', 'lr_document_path',
         'subtotal_before_transport', 'taxable_amount_after_transport',
@@ -88,6 +95,7 @@ class Order extends Model
         return [
             'order_date' => 'date',
             'dispatch_date' => 'date',
+            'bill_date' => 'date',
             'subtotal' => 'decimal:2',
             'discount_amount' => 'decimal:2',
             'gst_amount' => 'decimal:2',
@@ -97,6 +105,8 @@ class Order extends Model
             'taxable_amount_after_transport' => 'decimal:2',
             'approved_at' => 'datetime',
             'rejected_at' => 'datetime',
+            'last_edited_at' => 'datetime',
+            'sent_for_bill_at' => 'datetime',
             'billed_at' => 'datetime',
             'dispatched_at' => 'datetime',
         ];
@@ -127,9 +137,19 @@ class Order extends Model
         return $this->belongsTo(User::class, 'rejected_by');
     }
 
+    public function lastEditedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'last_edited_by');
+    }
+
     public function billedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'billed_by');
+    }
+
+    public function sentForBillByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'sent_for_bill_by');
     }
 
     public function dispatchedByUser(): BelongsTo
@@ -166,7 +186,8 @@ class Order extends Model
             'draft' => 'gray',
             'pending_approval' => 'warning',
             'approved' => 'success',
-            'billed' => 'warning',
+            'pending_for_billing' => 'warning',
+            'billed' => 'info',
             'dispatched' => 'info',
             'delivered' => 'primary',
             'rejected', 'cancelled' => 'danger',
@@ -204,10 +225,21 @@ class Order extends Model
         return in_array($this->status, [
             self::STATUS_PENDING_APPROVAL,
             self::STATUS_APPROVED,
+            self::STATUS_PENDING_FOR_BILLING,
         ], true);
     }
 
+    public function canBeSentForBilling(): bool
+    {
+        return $this->status === self::STATUS_APPROVED;
+    }
+
     public function canBeBilled(): bool
+    {
+        return $this->status === self::STATUS_PENDING_FOR_BILLING;
+    }
+
+    public function isAwaitingSendForBill(): bool
     {
         return $this->status === self::STATUS_APPROVED;
     }
@@ -222,117 +254,183 @@ class Order extends Model
      *     key: string,
      *     label: string,
      *     actor: ?string,
+     *     actor_role: ?string,
      *     at: ?string,
+     *     status_text: ?string,
      *     remark: ?string,
      *     completed: bool,
+     *     is_current: bool,
      *     is_rejection: bool
      * }>
      */
     public function workflowTimeline(): array
     {
         $this->loadMissing([
-            'salesEmployee:id,full_name',
-            'approvedByUser:id,name',
-            'rejectedByUser:id,name',
-            'billedByUser:id,name',
-            'dispatchedByUser:id,name',
+            'salesEmployee:id,full_name,designation',
+            'approvedByUser:id,name,role,job_role,employee_id',
+            'approvedByUser.employee:id,full_name,designation',
+            'rejectedByUser:id,name,role,job_role,employee_id',
+            'rejectedByUser.employee:id,full_name,designation',
+            'sentForBillByUser:id,name,role,job_role,employee_id',
+            'sentForBillByUser.employee:id,full_name,designation',
+            'billedByUser:id,name,role,job_role,employee_id',
+            'billedByUser.employee:id,full_name,designation',
+            'dispatchedByUser:id,name,role,job_role,employee_id',
+            'dispatchedByUser.employee:id,full_name,designation',
         ]);
 
         $format = fn ($value): ?string => $value === null
             ? null
-            : Carbon::parse($value)->timezone(self::BUSINESS_TIMEZONE)->format('d M Y, h:i A');
+            : Carbon::parse($value)->timezone(self::BUSINESS_TIMEZONE)->format('d M Y • h:i A');
+
+        $salesRole = filled($this->salesEmployee?->designation)
+            ? (string) $this->salesEmployee->designation
+            : 'Sales Officer';
 
         $steps = [[
             'key' => 'created',
-            'label' => 'Order Created',
+            'label' => 'Order Placed',
             'actor' => $this->salesEmployee?->full_name,
+            'actor_role' => $salesRole,
             'at' => $format($this->created_at),
+            'status_text' => null,
             'remark' => null,
             'completed' => true,
+            'is_current' => false,
             'is_rejection' => false,
         ]];
-
-        if (filled($this->approved_at)) {
-            $steps[] = [
-                'key' => 'approved',
-                'label' => 'Approved by Sales Manager',
-                'actor' => $this->approvedByUser?->name,
-                'at' => $format($this->approved_at),
-                'remark' => null,
-                'completed' => true,
-                'is_rejection' => false,
-            ];
-        } elseif ($this->status === self::STATUS_PENDING_APPROVAL) {
-            $steps[] = [
-                'key' => 'pending_approval',
-                'label' => 'Pending Sales Manager Approval',
-                'actor' => null,
-                'at' => null,
-                'remark' => null,
-                'completed' => false,
-                'is_rejection' => false,
-            ];
-        }
 
         if (filled($this->rejected_at) || $this->status === self::STATUS_REJECTED) {
             $steps[] = [
                 'key' => 'rejected',
                 'label' => $this->displayStatusLabel(),
                 'actor' => $this->rejectedByUser?->name,
+                'actor_role' => $this->rejected_by_role
+                    ?: $this->displayActorRole($this->rejectedByUser),
                 'at' => $format($this->rejected_at),
+                'status_text' => null,
                 'remark' => $this->rejection_remark,
                 'completed' => true,
+                'is_current' => true,
                 'is_rejection' => true,
             ];
 
             return $steps;
         }
 
-        if (filled($this->billed_at) || $this->status === self::STATUS_BILLED || $this->status === self::STATUS_DISPATCHED) {
-            $steps[] = [
-                'key' => 'billed',
-                'label' => 'Billed by Admin',
-                'actor' => $this->billedByUser?->name,
-                'at' => $format($this->billed_at),
-                'remark' => $this->billing_remark,
-                'completed' => filled($this->billed_at),
-                'is_rejection' => false,
-            ];
-        }
+        $isApproved = filled($this->approved_at)
+            || in_array($this->status, [
+                self::STATUS_APPROVED,
+                self::STATUS_PENDING_FOR_BILLING,
+                self::STATUS_BILLED,
+                self::STATUS_DISPATCHED,
+            ], true);
 
-        if (filled($this->dispatched_at) || $this->status === self::STATUS_DISPATCHED) {
-            $steps[] = [
-                'key' => 'dispatched',
-                'label' => 'Dispatched',
-                'actor' => $this->dispatchedByUser?->name,
-                'at' => $format($this->dispatched_at),
-                'remark' => $this->dispatch_remark,
-                'completed' => filled($this->dispatched_at),
-                'is_rejection' => false,
-            ];
-        } elseif ($this->status === self::STATUS_BILLED) {
-            $steps[] = [
-                'key' => 'awaiting_dispatch',
-                'label' => 'Awaiting Dispatch',
-                'actor' => null,
-                'at' => null,
-                'remark' => null,
-                'completed' => false,
-                'is_rejection' => false,
-            ];
-        } elseif ($this->status === self::STATUS_APPROVED) {
-            $steps[] = [
-                'key' => 'awaiting_billing',
-                'label' => 'Awaiting Billing by Admin',
-                'actor' => null,
-                'at' => null,
-                'remark' => null,
-                'completed' => false,
-                'is_rejection' => false,
-            ];
-        }
+        $isSentForBilling = filled($this->sent_for_bill_at)
+            || in_array($this->status, [
+                self::STATUS_PENDING_FOR_BILLING,
+                self::STATUS_BILLED,
+                self::STATUS_DISPATCHED,
+            ], true);
+
+        $isBilled = filled($this->billed_at)
+            || in_array($this->status, [
+                self::STATUS_BILLED,
+                self::STATUS_DISPATCHED,
+            ], true);
+
+        $isDispatched = filled($this->dispatched_at) || $this->status === self::STATUS_DISPATCHED;
+
+        $steps[] = [
+            'key' => 'approved',
+            'label' => 'Approved by Sales Manager',
+            'actor' => $isApproved ? $this->approvedByUser?->name : null,
+            'actor_role' => $isApproved
+                ? ($this->displayActorRole($this->approvedByUser) ?? 'Sales Manager')
+                : null,
+            'at' => $isApproved ? $format($this->approved_at) : null,
+            'status_text' => $isApproved ? null : 'Pending',
+            'remark' => null,
+            'completed' => $isApproved,
+            'is_current' => ! $isApproved,
+            'is_rejection' => false,
+        ];
+
+        $steps[] = [
+            'key' => 'pending_for_billing',
+            'label' => 'Sent for Bill',
+            'actor' => $isSentForBilling ? $this->sentForBillByUser?->name : null,
+            'actor_role' => $isSentForBilling
+                ? ($this->displayActorRole($this->sentForBillByUser) ?? 'Production Supervisor')
+                : null,
+            'at' => $isSentForBilling ? $format($this->sent_for_bill_at) : null,
+            'status_text' => $isSentForBilling
+                ? ($isBilled ? null : 'Pending for Billing')
+                : 'Pending',
+            'remark' => $isSentForBilling ? $this->transport_remark : null,
+            'completed' => $isSentForBilling,
+            'is_current' => $isApproved && ! $isSentForBilling,
+            'is_rejection' => false,
+        ];
+
+        $steps[] = [
+            'key' => 'billed',
+            'label' => 'Billed',
+            'actor' => $isBilled ? $this->billedByUser?->name : null,
+            'actor_role' => $isBilled
+                ? ($this->displayActorRole($this->billedByUser) ?? 'Admin')
+                : null,
+            'at' => $isBilled ? $format($this->billed_at) : null,
+            'status_text' => $isBilled ? null : 'Pending',
+            'remark' => $isBilled ? $this->billing_remark : null,
+            'completed' => $isBilled,
+            'is_current' => $isSentForBilling && ! $isBilled,
+            'is_rejection' => false,
+        ];
+
+        $steps[] = [
+            'key' => 'dispatched',
+            'label' => 'Dispatched',
+            'actor' => $isDispatched ? $this->dispatchedByUser?->name : null,
+            'actor_role' => $isDispatched
+                ? ($this->displayActorRole($this->dispatchedByUser) ?? 'Production Supervisor')
+                : null,
+            'at' => $isDispatched ? $format($this->dispatched_at) : null,
+            'status_text' => $isDispatched ? null : 'Pending',
+            'remark' => $isDispatched ? $this->dispatch_remark : null,
+            'completed' => $isDispatched,
+            'is_current' => $isBilled && ! $isDispatched,
+            'is_rejection' => false,
+        ];
 
         return $steps;
+    }
+
+    public function displayActorRole(?User $user): ?string
+    {
+        if ($user === null) {
+            return null;
+        }
+
+        if ($user->isAdminUser()) {
+            return 'Admin';
+        }
+
+        if ($user->isDirectorUser()) {
+            return 'Director';
+        }
+
+        $jobRole = $user->resolvedJobRole();
+        if (filled($jobRole)) {
+            return $jobRole;
+        }
+
+        $designation = $user->employee?->designation;
+        if (filled($designation)) {
+            return (string) $designation;
+        }
+
+        return $user->roleEnum()->label();
     }
 
     public function billUrl(): ?string
@@ -401,10 +499,11 @@ class Order extends Model
         ?string $billPath = null,
         ?string $billNumber = null,
         ?string $remark = null,
+        ?string $billDate = null,
     ): void {
         if (! $this->canBeBilled()) {
             throw ValidationException::withMessages([
-                'status' => ['Only approved orders can be marked as billed.'],
+                'status' => ['Only orders pending for billing can be marked as billed. Waiting for Production Supervisor to Send for Bill.'],
             ]);
         }
 
@@ -420,7 +519,42 @@ class Order extends Model
             'billed_at' => Carbon::now(self::BUSINESS_TIMEZONE),
             'bill_path' => $billPath,
             'bill_number' => filled($billNumber) ? trim($billNumber) : null,
+            'bill_date' => filled($billDate) ? $billDate : Carbon::now(self::BUSINESS_TIMEZONE)->toDateString(),
             'billing_remark' => filled($remark) ? trim($remark) : null,
+        ]);
+    }
+
+    public function sendForBilling(
+        ?int $userId = null,
+        ?string $vehicleNumber = null,
+        ?float $transportFreight = null,
+        ?string $transportRemark = null,
+    ): void {
+        if (! $this->canBeSentForBilling()) {
+            throw ValidationException::withMessages([
+                'status' => ['Only orders approved by Sales Manager can be sent for billing.'],
+            ]);
+        }
+
+        if (blank($vehicleNumber)) {
+            throw ValidationException::withMessages([
+                'vehicle_number' => ['Vehicle number is required.'],
+            ]);
+        }
+
+        if ($transportFreight === null || $transportFreight < 0) {
+            throw ValidationException::withMessages([
+                'transport_freight' => ['Transport freight must be a valid non-negative amount.'],
+            ]);
+        }
+
+        $this->update([
+            'status' => self::STATUS_PENDING_FOR_BILLING,
+            'vehicle_number' => trim($vehicleNumber),
+            'transport_amount' => $transportFreight,
+            'transport_remark' => filled($transportRemark) ? trim($transportRemark) : null,
+            'sent_for_bill_by' => $userId,
+            'sent_for_bill_at' => Carbon::now(self::BUSINESS_TIMEZONE),
         ]);
     }
 

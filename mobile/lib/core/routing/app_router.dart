@@ -1,6 +1,8 @@
+import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../auth/user_role.dart';
 import 'route_permissions.dart';
+import '../../modules/notifications/screens/notification_history_screen.dart';
 import '../../modules/attendance/models/attendance.dart';
 import '../../modules/attendance/screens/attendance_detail.dart';
 import '../../modules/attendance/screens/attendance_history.dart';
@@ -33,9 +35,13 @@ import '../../modules/orders/screens/order_detail_screen.dart';
 import '../../modules/orders/screens/order_list_screen.dart';
 import '../../modules/orders/screens/review_order_screen.dart';
 import '../../modules/director/screens/director_dashboard_screen.dart';
+import '../../modules/manager/screens/manager_edit_order_screen.dart';
 import '../../modules/manager/screens/manager_employee_performance_screen.dart';
 import '../../modules/manager/screens/manager_orders_screen.dart';
 import '../../modules/manager/screens/manager_ta_da_screen.dart';
+import '../../modules/manager/screens/manager_targets_screen.dart';
+import '../../modules/manager/screens/manager_team_activity_screen.dart';
+import '../../modules/manager/screens/manager_team_attendance_screen.dart';
 import '../../modules/production/screens/production_dashboard_screen.dart';
 import '../../modules/production/screens/production_order_detail_screen.dart';
 import '../../modules/production/screens/inventory/inventory_dashboard_screen.dart';
@@ -55,7 +61,11 @@ import '../../modules/production/screens/inventory/packaging_material_inward_scr
 import '../../modules/production/screens/production_entry/production_entry_wizard_screen.dart';
 import '../../modules/profile/screens/profile_screen.dart';
 
-GoRouter createRouter(AuthController auth) => GoRouter(
+GoRouter createRouter(
+  AuthController auth, {
+  GlobalKey<NavigatorState>? navigatorKey,
+}) => GoRouter(
+  navigatorKey: navigatorKey,
   initialLocation: '/dashboard',
   refreshListenable: auth,
   redirect: (_, state) {
@@ -98,6 +108,10 @@ GoRouter createRouter(AuthController auth) => GoRouter(
     GoRoute(
       path: '/profile',
       builder: (_, _) => ProfileScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/notifications',
+      builder: (_, _) => NotificationHistoryScreen(auth: auth),
     ),
     GoRoute(
       path: '/coming/:module',
@@ -248,7 +262,10 @@ GoRouter createRouter(AuthController auth) => GoRouter(
     ),
     GoRoute(
       path: '/manager/orders',
-      builder: (_, _) => ManagerOrdersScreen(auth: auth),
+      builder: (_, state) => ManagerOrdersScreen(
+        auth: auth,
+        initialTab: state.uri.queryParameters['tab'] ?? 'pending',
+      ),
       routes: [
         GoRoute(
           path: ':orderId',
@@ -256,6 +273,46 @@ GoRouter createRouter(AuthController auth) => GoRouter(
             auth: auth,
             orderId: int.parse(state.pathParameters['orderId']!),
           ),
+          routes: [
+            GoRoute(
+              path: 'edit',
+              builder: (_, state) => ManagerEditOrderScreen(
+                auth: auth,
+                orderId: int.parse(state.pathParameters['orderId']!),
+                order: Map<String, dynamic>.from(state.extra! as Map),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/manager/team-attendance',
+      builder: (_, _) => ManagerTeamAttendanceScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: 'employees/:employeeId',
+          builder: (_, state) => ManagerEmployeeAttendanceScreen(
+            auth: auth,
+            employeeId: int.parse(state.pathParameters['employeeId']!),
+            initialDate: state.uri.queryParameters['date'],
+          ),
+        ),
+        GoRoute(
+          path: ':attendanceId',
+          builder: (_, state) => ManagerTeamAttendanceDetailScreen(
+            auth: auth,
+            attendanceId: int.parse(state.pathParameters['attendanceId']!),
+          ),
+          routes: [
+            GoRoute(
+              path: 'route',
+              builder: (_, state) => ManagerTeamRouteMapScreen(
+                auth: auth,
+                attendanceId: int.parse(state.pathParameters['attendanceId']!),
+              ),
+            ),
+          ],
         ),
       ],
     ),
@@ -292,8 +349,41 @@ GoRouter createRouter(AuthController auth) => GoRouter(
       ],
     ),
     GoRoute(
+      path: '/manager/targets',
+      builder: (_, _) => ManagerTargetsScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/manager/team-activity',
+      builder: (_, _) => ManagerTeamActivityScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: 'employees/:employeeId',
+          builder: (_, state) {
+            final extra = state.extra as Map?;
+            return ManagerEmployeeTeamActivityScreen(
+              auth: auth,
+              employeeId: int.parse(state.pathParameters['employeeId']!),
+              date: extra?['date']?.toString() ??
+                  DateTime.now().toIso8601String().substring(0, 10),
+              type: extra?['type']?.toString() ?? 'all',
+              employeeName: extra?['name']?.toString(),
+              employeeCode: extra?['code']?.toString(),
+            );
+          },
+        ),
+      ],
+    ),
+    GoRoute(
       path: '/production/orders',
-      builder: (_, _) => ProductionOrdersScreen(auth: auth),
+      builder: (_, _) {
+        // TEMP DEBUG — alternate route entry (same screen class).
+        // ignore: avoid_print
+        print(
+          '[PS ApprovedOrders DEBUG] GoRoute /production/orders → '
+          'ProductionOrdersScreen (production_dashboard_screen.dart)',
+        );
+        return ProductionOrdersScreen(auth: auth);
+      },
       routes: [
         GoRoute(
           path: ':orderId',

@@ -100,8 +100,9 @@ enum UserRole: string
             ],
             self::Manager => [
                 'manager_dashboard', 'orders_approve', 'orders_reject', 'orders_view_all',
-                'ta_da_approve', 'ta_da_reject', 'ta_da_view_all', 'attendance_view_all',
-                'collections_view_all', 'dealer_visits_view_all', 'field_activities_view_all',
+                'ta_da_approve', 'ta_da_reject', 'ta_da_view_all', 'attendance', 'route_tracking',
+                'attendance_view_all', 'collections_view_all', 'dealer_visits_view_all',
+                'field_activities_view_all',
             ],
             self::ProductionSupervisor => [
                 'production_dashboard', 'orders_dispatch', 'orders_view_production',

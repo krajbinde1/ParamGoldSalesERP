@@ -279,6 +279,7 @@ class DashboardMetricsService
         ?int $employeeId = null,
         ?string $role = null,
         ?string $search = null,
+        ?int $reportingManagerId = null,
     ): array {
         $employees = Employee::query()
             ->with([
@@ -286,6 +287,7 @@ class DashboardMetricsService
                 'reportingManager:id,full_name',
             ])
             ->when($employeeId !== null, fn ($q) => $q->where('id', $employeeId))
+            ->when($reportingManagerId !== null, fn ($q) => $q->where('reporting_manager_id', $reportingManagerId))
             ->when($role !== null, fn ($q) => $q->whereHas(
                 'user',
                 fn ($userQuery) => $userQuery->where('role', $role),
@@ -379,6 +381,7 @@ class DashboardMetricsService
         ?Carbon $start = null,
         ?Carbon $end = null,
         ?int $employeeId = null,
+        ?int $reportingManagerId = null,
     ): array {
         $start ??= Carbon::now(self::BUSINESS_TIMEZONE)->startOfMonth();
         $end ??= Carbon::now(self::BUSINESS_TIMEZONE)->endOfMonth();
@@ -388,8 +391,21 @@ class DashboardMetricsService
             $end,
             $employeeId,
             role: UserRole::Employee->value,
+            reportingManagerId: $reportingManagerId,
         );
 
+        return $this->aggregateTeamPerformance($employees);
+    }
+
+    /**
+     * Aggregate employee performance rows into team target totals.
+     * Reuses the same per-employee sales/collection values as Team Performance.
+     *
+     * @param  list<array<string, mixed>>  $employees
+     * @return array<string, float>
+     */
+    public function aggregateTeamPerformance(array $employees): array
+    {
         $salesTarget = round(array_sum(array_map(
             fn (array $row): float => (float) $row['sales_target'],
             $employees,
@@ -413,9 +429,11 @@ class DashboardMetricsService
         return [
             'sales_target' => $salesTarget,
             'sales_achieved' => $salesAchieved,
+            'sales_pending' => round(max($salesTarget - $salesAchieved, 0), 2),
             'sales_percentage' => $this->percentage($salesTarget, $salesAchieved),
             'collection_target' => $collectionTarget,
             'collection_achieved' => $collectionAchieved,
+            'collection_pending' => round(max($collectionTarget - $collectionAchieved, 0), 2),
             'collection_percentage' => $this->percentage($collectionTarget, $collectionAchieved),
         ];
     }

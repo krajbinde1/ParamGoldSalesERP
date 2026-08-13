@@ -12,6 +12,7 @@ import '../models/order_draft.dart';
 import '../models/order_dealer.dart';
 import '../models/order_line_item.dart';
 import '../models/product.dart';
+import '../widgets/order_invoice_products_table.dart';
 import '../widgets/order_line_item_card.dart';
 
 class NewOrderScreen extends StatefulWidget {
@@ -257,18 +258,16 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
         _itemKeys[product.id] = GlobalKey();
       }
     });
+  }
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      final key = _itemKeys[product.id];
-      final context = key?.currentContext;
-      if (context != null) {
-        Scrollable.ensureVisible(
-          context,
-          duration: const Duration(milliseconds: 250),
-          curve: Curves.easeInOut,
-        );
-      }
-    });
+  Future<void> _editItem(OrderLineItem item) async {
+    await showOrderLineItemEditor(
+      context: context,
+      item: item,
+      onChanged: _refreshItems,
+      onRemove: () => _removeItem(item.productId),
+    );
+    if (mounted) _refreshItems();
   }
 
   void _removeItem(int productId) {
@@ -296,11 +295,6 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final currency = NumberFormat.currency(
-      locale: 'en_IN',
-      symbol: '₹',
-      decimalDigits: 2,
-    );
     final summary = _summary;
 
     return PgPageScaffold(
@@ -390,13 +384,14 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
                       ),
                     )
                   else
-                    ..._items.map(
-                      (item) => OrderLineItemCard(
-                        key: _itemKeys[item.productId],
-                        item: item,
-                        onChanged: _refreshItems,
-                        onRemove: () => _removeItem(item.productId),
-                      ),
+                    OrderInvoiceProductsTable(
+                      lines: _items
+                          .map(OrderInvoiceLine.fromLineItem)
+                          .toList(growable: false),
+                      showTitle: false,
+                      onEdit: (index) => _editItem(_items[index]),
+                      onDelete: (index) =>
+                          _removeItem(_items[index].productId),
                     ),
                 ],
               ),
@@ -429,24 +424,12 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
                     value: '${summary.totalQuantityNos}',
                   ),
                   const SizedBox(height: 8),
-                  _SummaryRow(
-                    label: 'Subtotal',
-                    value: currency.format(summary.subtotal),
-                  ),
-                  const SizedBox(height: 8),
-                  _SummaryRow(
-                    label: 'Total Discount',
-                    value: currency.format(summary.totalDiscount),
-                  ),
-                  const SizedBox(height: 8),
-                  _SummaryRow(
-                    label: 'Total GST',
-                    value: currency.format(summary.totalGst),
-                  ),
-                  const SizedBox(height: 8),
-                  _SummaryRow(
-                    label: 'Grand Total',
-                    value: currency.format(summary.grandTotal),
+                  OrderInvoiceSummaryBlock(
+                    showTitle: false,
+                    subtotal: summary.subtotal,
+                    discount: summary.totalDiscount,
+                    gst: summary.totalGst,
+                    grandTotal: summary.grandTotal,
                   ),
                 ],
               ),

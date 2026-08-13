@@ -5,6 +5,7 @@ namespace App\Policies;
 use App\Enums\UserRole;
 use App\Models\Order;
 use App\Models\User;
+use App\Services\Orders\ManagerOrderAccessService;
 use Filament\Facades\Filament;
 
 class OrderPolicy
@@ -32,6 +33,7 @@ class OrderPolicy
         if ($user->canActAsProductionSupervisor()) {
             return in_array($order->status, [
                 Order::STATUS_APPROVED,
+                Order::STATUS_PENDING_FOR_BILLING,
                 Order::STATUS_BILLED,
                 Order::STATUS_DISPATCHED,
             ], true);
@@ -39,9 +41,11 @@ class OrderPolicy
 
         return match ($user->roleEnum()) {
             UserRole::Employee => $order->sales_employee_id === $user->employee_id,
-            UserRole::Manager, UserRole::Director => true,
+            UserRole::Manager => $this->managerOwnsOrder($user, $order),
+            UserRole::Director => true,
             UserRole::ProductionSupervisor => in_array($order->status, [
                 Order::STATUS_APPROVED,
+                Order::STATUS_PENDING_FOR_BILLING,
                 Order::STATUS_BILLED,
                 Order::STATUS_DISPATCHED,
             ], true),
@@ -64,6 +68,10 @@ class OrderPolicy
             return false;
         }
 
+        if ($user->hasRole(UserRole::Manager)) {
+            return $order->canBeEdited() && $this->managerOwnsOrder($user, $order);
+        }
+
         return $user->hasRole(UserRole::Employee)
             && $order->sales_employee_id === $user->employee_id
             && $order->canBeEdited();
@@ -79,7 +87,9 @@ class OrderPolicy
             return $order->canBeApproved();
         }
 
-        return $user->hasRole(UserRole::Manager) && $order->canBeApproved();
+        return $user->hasRole(UserRole::Manager)
+            && $order->canBeApproved()
+            && $this->managerOwnsOrder($user, $order);
     }
 
     public function reject(User $user, Order $order): bool
@@ -100,7 +110,9 @@ class OrderPolicy
             return $order->canBeRejectedByManager();
         }
 
-        return $user->hasRole(UserRole::Manager) && $order->canBeRejectedByManager();
+        return $user->hasRole(UserRole::Manager)
+            && $order->canBeRejectedByManager()
+            && $this->managerOwnsOrder($user, $order);
     }
 
     public function bill(User $user, Order $order): bool
@@ -111,6 +123,23 @@ class OrderPolicy
 
         // Admin (Filament job role) only — Director remains view-only.
         return $user->isAdminUser();
+    }
+
+    public function sendForBill(User $user, Order $order): bool
+    {
+        if (! $order->canBeSentForBilling()) {
+            return false;
+        }
+
+        if ($user->isAdminUser() || $user->isDirectorUser()) {
+            return false;
+        }
+
+        if ($user->canActAsProductionSupervisor()) {
+            return true;
+        }
+
+        return $user->hasRole(UserRole::ProductionSupervisor);
     }
 
     public function dispatch(User $user, Order $order): bool
@@ -128,6 +157,11 @@ class OrderPolicy
         }
 
         return $user->hasRole(UserRole::ProductionSupervisor);
+    }
+
+    private function managerOwnsOrder(User $user, Order $order): bool
+    {
+        return app(ManagerOrderAccessService::class)->managerCanAccessOrder($user, $order);
     }
 
     private function filamentProductionOrderUser(User $user): bool

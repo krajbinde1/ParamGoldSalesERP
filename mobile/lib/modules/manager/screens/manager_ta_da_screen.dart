@@ -15,6 +15,8 @@ import '../../../core/widgets/role_shell_widgets.dart';
 import '../../auth/providers/auth_controller.dart';
 import '../api/manager_api.dart';
 
+enum _ManagerTaDaTabKey { pending, approved, rejected }
+
 class ManagerTaDaClaimsScreen extends StatefulWidget {
   const ManagerTaDaClaimsScreen({super.key, required this.auth});
   final AuthController auth;
@@ -24,48 +26,211 @@ class ManagerTaDaClaimsScreen extends StatefulWidget {
       _ManagerTaDaClaimsScreenState();
 }
 
-class _ManagerTaDaClaimsScreenState extends State<ManagerTaDaClaimsScreen> {
-  late Future<List<Map<String, dynamic>>> _future;
+class _ManagerTaDaClaimsScreenState extends State<ManagerTaDaClaimsScreen>
+    with SingleTickerProviderStateMixin {
+  late TabController _tabController;
+  late ManagerApi _api;
+
+  Future<ManagerTaDaListResult>? _pendingFuture;
+  Future<ManagerTaDaListResult>? _approvedFuture;
+  Future<ManagerTaDaListResult>? _rejectedFuture;
+
+  int _pendingCount = 0;
+  int _approvedCount = 0;
+  int _rejectedCount = 0;
+
+  static const _tabs = [
+    _ManagerTaDaTabKey.pending,
+    _ManagerTaDaTabKey.approved,
+    _ManagerTaDaTabKey.rejected,
+  ];
 
   @override
   void initState() {
     super.initState();
-    _future = ManagerApi(
-      ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired)
-          .dio,
-    ).listTaDaClaims(status: 'pending');
+    _tabController = TabController(length: _tabs.length, vsync: this);
+    _api = ManagerApi(
+      ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
+    );
+    _reloadAll();
   }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<ManagerTaDaListResult> _loadTab(_ManagerTaDaTabKey tab) {
+    return _api.listTaDaClaimsWithCounts(
+      status: switch (tab) {
+        _ManagerTaDaTabKey.pending => 'pending',
+        _ManagerTaDaTabKey.approved => 'approved',
+        _ManagerTaDaTabKey.rejected => 'rejected',
+      },
+    );
+  }
+
+  void _reloadAll() {
+    setState(() {
+      _pendingFuture = _loadTab(_ManagerTaDaTabKey.pending);
+      _approvedFuture = _loadTab(_ManagerTaDaTabKey.approved);
+      _rejectedFuture = _loadTab(_ManagerTaDaTabKey.rejected);
+    });
+  }
+
+  Future<void> _refreshAll() async {
+    _reloadAll();
+    await Future.wait([
+      _pendingFuture!,
+      _approvedFuture!,
+      _rejectedFuture!,
+    ]);
+  }
+
+  void _updateCounts(ManagerTaDaListResult result) {
+    if (_pendingCount == result.pending &&
+        _approvedCount == result.approved &&
+        _rejectedCount == result.rejected) {
+      return;
+    }
+    setState(() {
+      _pendingCount = result.pending;
+      _approvedCount = result.approved;
+      _rejectedCount = result.rejected;
+    });
+  }
+
+  Future<void> _openClaimDetail(int claimId, {required int tabIndex}) async {
+    final result = await context.push<bool>('/manager/ta-da-claims/$claimId');
+    if (!mounted || result != true) return;
+    await _refreshAll();
+    if (tabIndex == 0) {
+      _tabController.animateTo(1);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: RoleAppBar(
+        title: 'TA Approval',
+        auth: widget.auth,
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: [
+            Tab(text: 'Pending ($_pendingCount)'),
+            Tab(text: 'Approved ($_approvedCount)'),
+            Tab(text: 'Rejected ($_rejectedCount)'),
+          ],
+        ),
+      ),
+      body: TabBarView(
+        controller: _tabController,
+        children: [
+          _ManagerTaDaTab(
+            future: _pendingFuture,
+            emptyMessage: 'No pending TA/DA claims.',
+            onCounts: _updateCounts,
+            onRefresh: _refreshAll,
+            onTap: (id) => _openClaimDetail(id, tabIndex: 0),
+          ),
+          _ManagerTaDaTab(
+            future: _approvedFuture,
+            emptyMessage: 'No approved TA/DA claims.',
+            onCounts: _updateCounts,
+            onRefresh: _refreshAll,
+            onTap: (id) => _openClaimDetail(id, tabIndex: 1),
+          ),
+          _ManagerTaDaTab(
+            future: _rejectedFuture,
+            emptyMessage: 'No rejected TA/DA claims.',
+            onCounts: _updateCounts,
+            onRefresh: _refreshAll,
+            onTap: (id) => _openClaimDetail(id, tabIndex: 2),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ManagerTaDaTab extends StatelessWidget {
+  const _ManagerTaDaTab({
+    required this.future,
+    required this.emptyMessage,
+    required this.onCounts,
+    required this.onRefresh,
+    required this.onTap,
+  });
+
+  final Future<ManagerTaDaListResult>? future;
+  final String emptyMessage;
+  final void Function(ManagerTaDaListResult result) onCounts;
+  final Future<void> Function() onRefresh;
+  final void Function(int id) onTap;
 
   @override
   Widget build(BuildContext context) {
     final currency = NumberFormat.currency(locale: 'en_IN', symbol: '₹');
 
-    return Scaffold(
-      appBar: RoleAppBar(title: 'Pending TA/DA Claims', auth: widget.auth),
-      body: FutureBuilder<List<Map<String, dynamic>>>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const PgLoadingState();
-          }
-          if (snapshot.hasError) {
-            return PgErrorState(message: errorMessage(snapshot.error));
-          }
-          final claims = snapshot.data ?? const [];
-          if (claims.isEmpty) {
-            return const PgEmptyState(
-              message: 'No pending TA/DA claims.',
-              icon: const Icon(Icons.receipt_long_outlined),
-            );
-          }
-          return ListView.builder(
+    return FutureBuilder<ManagerTaDaListResult>(
+      future: future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return const PgLoadingState();
+        }
+
+        if (snapshot.hasError) {
+          return RefreshIndicator(
+            onRefresh: onRefresh,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(AppSpacing.screenPadding),
+              children: [
+                PgErrorState(message: errorMessage(snapshot.error)),
+              ],
+            ),
+          );
+        }
+
+        final result = snapshot.data!;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          onCounts(result);
+        });
+        final claims = result.claims;
+
+        if (claims.isEmpty) {
+          return RefreshIndicator(
+            onRefresh: onRefresh,
+            child: ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              children: [
+                SizedBox(
+                  height: MediaQuery.sizeOf(context).height * 0.5,
+                  child: PgEmptyState(
+                    message: emptyMessage,
+                    icon: const Icon(Icons.receipt_long_outlined),
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
+
+        return RefreshIndicator(
+          onRefresh: onRefresh,
+          child: ListView.builder(
+            physics: const AlwaysScrollableScrollPhysics(),
             padding: const EdgeInsets.all(AppSpacing.screenPadding),
             itemCount: claims.length,
             itemBuilder: (context, index) {
               final claim = claims[index];
+              final status = claim['status']?.toString() ?? '';
               return PgCard(
                 onTap: () =>
-                    context.push('/manager/ta-da-claims/${claim['id']}'),
+                    onTap(int.tryParse('${claim['id'] ?? 0}') ?? 0),
                 margin: const EdgeInsets.only(bottom: AppSpacing.sm),
                 child: Row(
                   children: [
@@ -81,6 +246,13 @@ class _ManagerTaDaClaimsScreenState extends State<ManagerTaDaClaimsScreen> {
                             claim['claim_date']?.toString() ?? '-',
                             style: Theme.of(context).textTheme.bodySmall,
                           ),
+                          if (claim['status_label'] != null) ...[
+                            const SizedBox(height: 6),
+                            PgStatusBadge(
+                              label: claim['status_label'].toString(),
+                              tone: PgStatusRules.claimTone(status),
+                            ),
+                          ],
                         ],
                       ),
                     ),
@@ -94,9 +266,9 @@ class _ManagerTaDaClaimsScreenState extends State<ManagerTaDaClaimsScreen> {
                 ),
               );
             },
-          );
-        },
-      ),
+          ),
+        );
+      },
     );
   }
 }
@@ -270,4 +442,3 @@ class _ManagerTaDaClaimDetailScreenState
     );
   }
 }
-

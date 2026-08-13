@@ -3,17 +3,52 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import '../models/order_line_item.dart';
 
+Future<void> showOrderLineItemEditor({
+  required BuildContext context,
+  required OrderLineItem item,
+  required VoidCallback onChanged,
+  VoidCallback? onRemove,
+}) {
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    showDragHandle: true,
+    builder: (sheetContext) {
+      return Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
+        ),
+        child: SafeArea(
+          child: SingleChildScrollView(
+            child: OrderLineItemCard(
+              item: item,
+              embedded: true,
+              onChanged: onChanged,
+              onRemove: () {
+                onRemove?.call();
+                Navigator.of(sheetContext).pop();
+              },
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
+
 class OrderLineItemCard extends StatefulWidget {
   const OrderLineItemCard({
     super.key,
     required this.item,
     required this.onChanged,
     required this.onRemove,
+    this.embedded = false,
   });
 
   final OrderLineItem item;
   final VoidCallback onChanged;
   final VoidCallback onRemove;
+  final bool embedded;
 
   @override
   State<OrderLineItemCard> createState() => _OrderLineItemCardState();
@@ -70,7 +105,9 @@ class _OrderLineItemCardState extends State<OrderLineItemCard> {
     final discountEnabled = item.isDiscountEnabled;
 
     return Card(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: widget.embedded
+          ? const EdgeInsets.fromLTRB(12, 0, 12, 12)
+          : const EdgeInsets.only(bottom: 12),
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(
@@ -224,6 +261,16 @@ class _OrderLineItemCardState extends State<OrderLineItemCard> {
                 (error) => Text(
                   error,
                   style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            ],
+            if (widget.embedded) ...[
+              const SizedBox(height: 12),
+              SizedBox(
+                width: double.infinity,
+                child: FilledButton(
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  child: const Text('Done'),
                 ),
               ),
             ],

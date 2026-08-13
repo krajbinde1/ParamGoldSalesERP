@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -12,6 +13,7 @@ import '../../../core/widgets/design/pg_metric_card.dart';
 import '../../../core/widgets/design/pg_status_badge.dart';
 import '../../../core/widgets/role_shell_widgets.dart';
 import '../../auth/providers/auth_controller.dart';
+import '../../orders/models/order.dart';
 import '../api/production_api.dart';
 
 class ProductionOrdersScreen extends StatefulWidget {
@@ -26,22 +28,36 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
     with SingleTickerProviderStateMixin {
   late TabController _tabController;
   late ProductionApi _api;
-  late Future<List<Map<String, dynamic>>> _approvedFuture;
-  late Future<List<Map<String, dynamic>>> _billedFuture;
-  late Future<List<Map<String, dynamic>>> _dispatchedFuture;
-  int _approvedCount = 0;
-  int _billedCount = 0;
-  int _dispatchedCount = 0;
+  late Future<_ProductionOrdersBundle> _bundleFuture;
 
   @override
   void initState() {
     super.initState();
+    // TEMP DEBUG — actual runtime Orders screen.
+    // ignore: avoid_print
+    print(
+      '[PS ApprovedOrders DEBUG] ProductionOrdersScreen.initState '
+      'file=production_dashboard_screen.dart '
+      'service=ProductionApi.listOrders',
+    );
+    debugPrint(
+      '[PS ApprovedOrders DEBUG] ProductionOrdersScreen.initState '
+      'file=production_dashboard_screen.dart',
+    );
     _tabController = TabController(length: 3, vsync: this);
+    _tabController.addListener(() {
+      if (_tabController.indexIsChanging) return;
+      // ignore: avoid_print
+      print(
+        '[PS ApprovedOrders DEBUG] Orders TabBar index=${_tabController.index} '
+        '(0=Approved Orders, 1=Sent for Bill, 2=Billed)',
+      );
+    });
     _api = ProductionApi(
       ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired)
           .dio,
     );
-    _reload();
+    _bundleFuture = _loadBundle();
   }
 
   @override
@@ -50,49 +66,135 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
     super.dispose();
   }
 
-  void _reload() {
-    setState(() {
-      _approvedFuture = _loadStatus('approved');
-      _billedFuture = _loadStatus('billed');
-      _dispatchedFuture = _loadStatus('dispatched');
-    });
-    _loadDashboardCounts();
-  }
+  Future<_ProductionOrdersBundle> _loadBundle() async {
+    // TEMP DEBUG
+    // ignore: avoid_print
+    print(
+      '[PS ApprovedOrders DEBUG] ProductionOrdersScreen._loadBundle START',
+    );
+    // Load Approved first / independently so other tab failures cannot blank it.
+    final approvedResult = await _loadApprovedOrders();
 
-  Future<List<Map<String, dynamic>>> _loadStatus(String status) async {
-    final result = await _api.listOrders(status: status);
-    final counts = result.counts;
-    if (mounted && counts != null) {
-      setState(() {
-        _approvedCount = counts.approved;
-        _billedCount = counts.billed;
-        _dispatchedCount = counts.dispatched;
-      });
-    }
-    return result.orders;
-  }
-
-  Future<void> _loadDashboardCounts() async {
+    ProductionOrderListResult sent;
+    ProductionOrderListResult billed;
     try {
-      final dashboard = await _api.loadDashboard();
-      if (!mounted) return;
-      setState(() {
-        _approvedCount = dashboard.approvedOrders;
-        _billedCount = dashboard.billedOrders;
-        _dispatchedCount = dashboard.dispatchedOrders;
-      });
+      sent = await _api.listOrders(status: 'sent_for_bill');
     } catch (_) {
-      // Counts remain from list meta when available.
+      sent = const ProductionOrderListResult(orders: []);
+    }
+    try {
+      billed = await _api.listOrders(status: 'billed');
+    } catch (_) {
+      billed = const ProductionOrderListResult(orders: []);
+    }
+
+    final counts =
+        approvedResult.counts ?? sent.counts ?? billed.counts;
+
+    // ignore: avoid_print
+    print(
+      '[PS ApprovedOrders DEBUG] ProductionOrdersScreen._loadBundle DONE '
+      'approvedCount=${approvedResult.orders.length} '
+      'sent=${sent.orders.length} billed=${billed.orders.length}',
+    );
+
+    if (kDebugMode) {
+      debugPrint(
+        'Production orders loaded: '
+        'approved=${approvedResult.orders.length}, '
+        'sent=${sent.orders.length}, '
+        'billed=${billed.orders.length}, '
+        'counts=${counts?.approved}/${counts?.sentForBill}/${counts?.billed}',
+      );
+    }
+
+    return _ProductionOrdersBundle(
+      approved: approvedResult.orders,
+      sentForBill: sent.orders,
+      billed: billed.orders,
+      approvedCount: counts?.approved ?? approvedResult.orders.length,
+      sentForBillCount: counts?.sentForBill ?? sent.orders.length,
+      billedCount: counts?.billed ?? billed.orders.length,
+    );
+  }
+
+  Future<ProductionOrderListResult> _loadApprovedOrders() async {
+    // ignore: avoid_print
+    print(
+      '[PS ApprovedOrders DEBUG] _loadApprovedOrders → '
+      'ProductionApi.listOrders(status: approved)',
+    );
+    try {
+      final primary = await _api.listOrders(status: 'approved');
+      // ignore: avoid_print
+      print(
+        '[PS ApprovedOrders DEBUG] _loadApprovedOrders primary count='
+        '${primary.orders.length}',
+      );
+      if (primary.orders.isNotEmpty) {
+        return primary;
+      }
+
+      // Fallback: unfiltered production list, then keep Manager-approved statuses.
+      final all = await _api.listOrders();
+      late final List<Map<String, dynamic>> approvedOnly;
+      try {
+        approvedOnly = all.orders
+            .where(
+              (order) => ProductionApi.isApprovedTabStatus(
+                order['status']?.toString(),
+              ),
+            )
+            .toList(growable: false);
+      } catch (error, stackTrace) {
+        // TEMP DEBUG: Approved Orders client filter only.
+        // ignore: avoid_print
+        print(
+          '[PS ApprovedOrders DEBUG] Parsing/filter exception: $error',
+        );
+        // ignore: avoid_print
+        print(
+          '[PS ApprovedOrders DEBUG] Stack: $stackTrace',
+        );
+        rethrow;
+      }
+
+      // ignore: avoid_print
+      print(
+        '[PS ApprovedOrders DEBUG] Primary approved list empty; '
+        'fallback filtered count=${approvedOnly.length}',
+      );
+      for (final order in approvedOnly) {
+        // ignore: avoid_print
+        print(
+          '[PS ApprovedOrders DEBUG] fallback order '
+          'id=${order['id']} '
+          'order_number=${order['order_no'] ?? order['order_number']} '
+          'status=${order['status']}',
+        );
+      }
+
+      return ProductionOrderListResult(
+        orders: approvedOnly,
+        counts: all.counts ?? primary.counts,
+      );
+    } catch (error, stackTrace) {
+      // ignore: avoid_print
+      print(
+        '[PS ApprovedOrders DEBUG] Parsing/filter exception: $error',
+      );
+      // ignore: avoid_print
+      print(
+        '[PS ApprovedOrders DEBUG] Stack: $stackTrace',
+      );
+      rethrow;
     }
   }
 
   Future<void> _refresh() async {
-    _reload();
-    await Future.wait([
-      _approvedFuture,
-      _billedFuture,
-      _dispatchedFuture,
-    ]);
+    final next = _loadBundle();
+    setState(() => _bundleFuture = next);
+    await next;
   }
 
   @override
@@ -102,6 +204,7 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
       symbol: '₹',
       decimalDigits: 0,
     );
+    final dateTime = DateFormat('d MMM yyyy, h:mm a');
 
     return Scaffold(
       appBar: RoleAppBar(
@@ -109,187 +212,289 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
         auth: widget.auth,
         bottom: TabBar(
           controller: _tabController,
+          isScrollable: true,
           tabs: const [
-            Tab(text: 'Approved'),
-            Tab(text: 'Billed'),
-            Tab(text: 'Dispatched'),
+            Tab(text: 'Approved Orders'),
+            Tab(text: 'Sent for Bill'),
+            Tab(text: 'Billed Orders'),
           ],
         ),
       ),
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              AppSpacing.screenPadding,
-              AppSpacing.md,
-              AppSpacing.screenPadding,
-              AppSpacing.sm,
-            ),
-            child: Row(
-              children: [
-                Expanded(
-                  child: PgMetricCard(
-                    title: 'Approved',
-                    value: '$_approvedCount',
-                    icon: const Icon(Icons.verified_outlined),
-                    gradient: AppColors.greenGradient,
-                  ),
+      body: FutureBuilder<_ProductionOrdersBundle>(
+        future: _bundleFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
+            return const PgLoadingState();
+          }
+
+          if (snapshot.hasError) {
+            return PgErrorState(
+              message: 'Unable to load orders. Tap to retry.\n'
+                  '${errorMessage(snapshot.error)}',
+              onRetry: _refresh,
+            );
+          }
+
+          final bundle = snapshot.data!;
+          return Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.screenPadding,
+                  AppSpacing.md,
+                  AppSpacing.screenPadding,
+                  AppSpacing.sm,
                 ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: PgMetricCard(
-                    title: 'Billed',
-                    value: '$_billedCount',
-                    icon: const Icon(Icons.receipt_long_outlined),
-                    gradient: AppColors.amberGradient,
-                  ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: PgMetricCard(
+                        title: 'Approved',
+                        value: '${bundle.approvedCount}',
+                        icon: const Icon(Icons.verified_outlined),
+                        gradient: AppColors.greenGradient,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: PgMetricCard(
+                        title: 'Sent for Bill',
+                        value: '${bundle.sentForBillCount}',
+                        icon: const Icon(Icons.send_outlined),
+                        gradient: AppColors.amberGradient,
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: PgMetricCard(
+                        title: 'Billed',
+                        value: '${bundle.billedCount}',
+                        icon: const Icon(Icons.receipt_long_outlined),
+                        gradient: AppColors.blueGradient,
+                      ),
+                    ),
+                  ],
                 ),
-                const SizedBox(width: AppSpacing.sm),
-                Expanded(
-                  child: PgMetricCard(
-                    title: 'Dispatched',
-                    value: '$_dispatchedCount',
-                    icon: const Icon(Icons.local_shipping_outlined),
-                    gradient: AppColors.blueGradient,
-                  ),
+              ),
+              Expanded(
+                child: TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _OrderList(
+                      orders: bundle.approved,
+                      currency: currency,
+                      dateTime: dateTime,
+                      emptyMessage: 'No approved orders.',
+                      mode: _OrderListMode.approved,
+                      onRefresh: _refresh,
+                      onTap: (id) async {
+                        await context.push('/production/orders/$id');
+                        if (mounted) await _refresh();
+                      },
+                    ),
+                    _OrderList(
+                      orders: bundle.sentForBill,
+                      currency: currency,
+                      dateTime: dateTime,
+                      emptyMessage: 'No orders sent for billing.',
+                      mode: _OrderListMode.sentForBill,
+                      onRefresh: _refresh,
+                      onTap: (id) async {
+                        await context.push('/production/orders/$id');
+                        if (mounted) await _refresh();
+                      },
+                    ),
+                    _OrderList(
+                      orders: bundle.billed,
+                      currency: currency,
+                      dateTime: dateTime,
+                      emptyMessage: 'No billed orders.',
+                      mode: _OrderListMode.billed,
+                      onRefresh: _refresh,
+                      onTap: (id) async {
+                        await context.push('/production/orders/$id');
+                        if (mounted) await _refresh();
+                      },
+                    ),
+                  ],
                 ),
-              ],
-            ),
-          ),
-          Expanded(
-            child: TabBarView(
-              controller: _tabController,
-              children: [
-                _OrderList(
-                  future: _approvedFuture,
-                  currency: currency,
-                  emptyMessage: 'No approved orders.',
-                  onRefresh: _refresh,
-                  onTap: (id) async {
-                    await context.push('/production/orders/$id');
-                    if (mounted) _refresh();
-                  },
-                ),
-                _OrderList(
-                  future: _billedFuture,
-                  currency: currency,
-                  emptyMessage: 'No billed orders ready for dispatch.',
-                  onRefresh: _refresh,
-                  onTap: (id) async {
-                    await context.push('/production/orders/$id');
-                    if (mounted) _refresh();
-                  },
-                ),
-                _OrderList(
-                  future: _dispatchedFuture,
-                  currency: currency,
-                  emptyMessage: 'No dispatched orders.',
-                  onRefresh: _refresh,
-                  onTap: (id) async {
-                    await context.push('/production/orders/$id');
-                    if (mounted) _refresh();
-                  },
-                ),
-              ],
-            ),
-          ),
-        ],
+              ),
+            ],
+          );
+        },
       ),
     );
   }
 }
 
+enum _OrderListMode { approved, sentForBill, billed }
+
+class _ProductionOrdersBundle {
+  const _ProductionOrdersBundle({
+    required this.approved,
+    required this.sentForBill,
+    required this.billed,
+    required this.approvedCount,
+    required this.sentForBillCount,
+    required this.billedCount,
+  });
+
+  final List<Map<String, dynamic>> approved;
+  final List<Map<String, dynamic>> sentForBill;
+  final List<Map<String, dynamic>> billed;
+  final int approvedCount;
+  final int sentForBillCount;
+  final int billedCount;
+}
+
 class _OrderList extends StatelessWidget {
   const _OrderList({
-    required this.future,
+    required this.orders,
     required this.currency,
+    required this.dateTime,
     required this.emptyMessage,
+    required this.mode,
     required this.onTap,
     required this.onRefresh,
   });
 
-  final Future<List<Map<String, dynamic>>> future;
+  final List<Map<String, dynamic>> orders;
   final NumberFormat currency;
+  final DateFormat dateTime;
   final String emptyMessage;
+  final _OrderListMode mode;
   final void Function(int id) onTap;
   final Future<void> Function() onRefresh;
+
+  String _formatDateTime(Object? raw) {
+    if (raw == null) return '-';
+    final parsed = DateTime.tryParse(raw.toString());
+    if (parsed == null) return raw.toString();
+    return dateTime.format(parsed.toLocal());
+  }
 
   @override
   Widget build(BuildContext context) {
     return RefreshIndicator(
       onRefresh: onRefresh,
-      child: FutureBuilder<List<Map<String, dynamic>>>(
-        future: future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const PgLoadingState();
-          }
-          if (snapshot.hasError) {
-            return PgErrorState(message: errorMessage(snapshot.error));
-          }
-          final orders = snapshot.data ?? const [];
-          if (orders.isEmpty) {
-            return ListView(
+      child: orders.isEmpty
+          ? ListView(
               physics: const AlwaysScrollableScrollPhysics(),
               children: [PgEmptyState(message: emptyMessage)],
-            );
-          }
-          return ListView.builder(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(AppSpacing.screenPadding),
-            itemCount: orders.length,
-            itemBuilder: (context, index) {
-              final order = orders[index];
-              final id = int.tryParse('${order['id'] ?? 0}') ?? 0;
-              final amount =
-                  double.tryParse('${order['grand_total'] ?? 0}') ?? 0;
-              return PgCard(
-                margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-                onTap: () => onTap(id),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            order['order_no']?.toString() ?? '-',
-                            style: Theme.of(context).textTheme.titleSmall,
+            )
+          : ListView.builder(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(AppSpacing.screenPadding),
+              itemCount: orders.length,
+              itemBuilder: (context, index) {
+                final order = orders[index];
+                final id = int.tryParse('${order['id'] ?? 0}') ?? 0;
+                final amount =
+                    double.tryParse('${order['grand_total'] ?? 0}') ?? 0;
+                final status = order['status']?.toString() ?? '';
+                final freight = double.tryParse(
+                      '${order['transport_amount'] ?? order['transport_freight'] ?? ''}',
+                    );
+
+                return PgCard(
+                  margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  onTap: () => onTap(id),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              order['order_no']?.toString() ?? '-',
+                              style: Theme.of(context).textTheme.titleSmall,
+                            ),
                           ),
+                          PgStatusBadge(
+                            label: OrderStatusRules.badgeLabel(
+                              status,
+                              statusLabel: order['status_label']?.toString(),
+                            ),
+                            tone: PgStatusRules.orderTone(status),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        'Dealer: ${order['dealer_name'] ?? '-'}',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      Text(
+                        'Sales: ${order['employee_name'] ?? '-'}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      Text(
+                        'Date: ${_formatDateTime(order['created_at'] ?? order['order_date'])} • ${currency.format(amount)}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: AppColors.textSecondary,
+                            ),
+                      ),
+                      if ((order['payment_type']?.toString() ?? '').isNotEmpty)
+                        Text(
+                          'Payment: ${order['payment_type']}',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
                         ),
-                        PgStatusBadge(
-                          label:
-                              order['status_label']?.toString() ??
-                              order['status']?.toString() ??
-                              '-',
-                          tone: PgStatusRules.orderTone(
-                            order['status']?.toString() ?? '',
+                      if (mode != _OrderListMode.approved) ...[
+                        if ((order['vehicle_number']?.toString() ?? '')
+                            .isNotEmpty)
+                          Text(
+                            'Vehicle: ${order['vehicle_number']}',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: AppColors.textSecondary),
                           ),
+                        if (freight != null)
+                          Text(
+                            'Freight: ${currency.format(freight)}',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: AppColors.textSecondary),
+                          ),
+                      ],
+                      if (mode == _OrderListMode.sentForBill)
+                        Text(
+                          'Sent: ${_formatDateTime(order['sent_for_bill_at'])}',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                        ),
+                      if (mode == _OrderListMode.billed) ...[
+                        if ((order['bill_number']?.toString() ?? '').isNotEmpty)
+                          Text(
+                            'Bill No: ${order['bill_number']}',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: AppColors.textSecondary),
+                          ),
+                        Text(
+                          'Bill Date: ${order['bill_date'] ?? '-'}',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
+                        ),
+                        Text(
+                          'Billed: ${_formatDateTime(order['billed_at'])}',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: AppColors.textSecondary,
+                              ),
                         ),
                       ],
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      'Dealer: ${order['dealer_name'] ?? '-'}',
-                      style: Theme.of(context).textTheme.bodyMedium,
-                    ),
-                    Text(
-                      'Employee: ${order['employee_name'] ?? '-'}',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    Text(
-                      'Date: ${order['order_date'] ?? '-'} • ${currency.format(amount)}',
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
-                ),
-              );
-            },
-          );
-        },
-      ),
+                    ],
+                  ),
+                );
+              },
+            ),
     );
   }
 }

@@ -1,4 +1,8 @@
+import 'dart:convert';
+
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+import '../../../core/api/api_config.dart';
 import '../../../core/api/api_errors.dart';
 
 class ProductionDashboardData {
@@ -59,17 +63,24 @@ class ProductionOrderListResult {
 class ProductionOrderCounts {
   const ProductionOrderCounts({
     required this.approved,
+    required this.sentForBill,
     required this.billed,
     required this.dispatched,
   });
 
   final int approved;
+  final int sentForBill;
   final int billed;
   final int dispatched;
 
   factory ProductionOrderCounts.fromJson(Map<String, dynamic> json) =>
       ProductionOrderCounts(
         approved: int.tryParse('${json['approved'] ?? 0}') ?? 0,
+        sentForBill:
+            int.tryParse(
+                  '${json['sent_for_bill'] ?? json['pending_for_billing'] ?? 0}',
+                ) ??
+                0,
         billed: int.tryParse('${json['billed'] ?? 0}') ?? 0,
         dispatched: int.tryParse('${json['dispatched'] ?? 0}') ?? 0,
       );
@@ -91,36 +102,216 @@ class ProductionApi {
   }
 
   Future<ProductionOrderListResult> listOrders({String? status}) async {
+    // TEMP DEBUG: Production Supervisor → Approved Orders only.
+    final isApprovedOrdersDebug = status == 'approved';
+
+    void log(String message) {
+      // ignore: avoid_print
+      print(message);
+      debugPrint(message);
+    }
+
     try {
+      if (isApprovedOrdersDebug) {
+        log(
+          '[PS ApprovedOrders DEBUG] ApiConfig.baseUrl=${ApiConfig.baseUrl}',
+        );
+        final query = status != null && status.isNotEmpty
+            ? {'status': status}
+            : null;
+        final previewUri = Uri.parse(
+          '${_dio.options.baseUrl}/production/orders',
+        ).replace(queryParameters: query);
+        log(
+          '[PS ApprovedOrders DEBUG] Full API URL called: $previewUri',
+        );
+      }
+
       final response = await _dio.get(
         '/production/orders',
-        queryParameters: status != null ? {'status': status} : null,
+        queryParameters: status != null && status.isNotEmpty
+            ? {'status': status}
+            : null,
       );
-      final body = response.data as Map;
-      final meta = body['meta'] is Map
-          ? Map<String, dynamic>.from(body['meta'] as Map)
-          : <String, dynamic>{};
-      final countsJson = meta['counts'] is Map
-          ? Map<String, dynamic>.from(meta['counts'] as Map)
-          : null;
+
+      if (isApprovedOrdersDebug) {
+        log(
+          '[PS ApprovedOrders DEBUG] HTTP status code: ${response.statusCode}',
+        );
+        log(
+          '[PS ApprovedOrders DEBUG] Full API URL (resolved): '
+          '${response.requestOptions.uri}',
+        );
+        log(
+          '[PS ApprovedOrders DEBUG] Raw response body: '
+          '${_debugEncodeBody(response.data)}',
+        );
+      }
+
+      final raw = response.data;
+      if (raw is! Map) {
+        if (isApprovedOrdersDebug) {
+          log(
+            '[PS ApprovedOrders DEBUG] Parsing exception: '
+            'Unexpected orders response format '
+            '(type=${raw.runtimeType}).',
+          );
+        }
+        throw DioException(
+          requestOptions: response.requestOptions,
+          message: 'Unexpected orders response format.',
+          response: response,
+        );
+      }
+
+      final body = Map<String, dynamic>.from(raw);
+      late final List<Map<String, dynamic>> orders;
+      late final ProductionOrderCounts? counts;
+      try {
+        orders = _extractOrderMaps(body);
+        counts = _extractCounts(body);
+      } catch (error, stackTrace) {
+        if (isApprovedOrdersDebug) {
+          log(
+            '[PS ApprovedOrders DEBUG] Parsing/filter exception: $error',
+          );
+          log(
+            '[PS ApprovedOrders DEBUG] Stack: $stackTrace',
+          );
+        }
+        rethrow;
+      }
+
+      if (isApprovedOrdersDebug) {
+        log(
+          '[PS ApprovedOrders DEBUG] Parsed approved order count: '
+          '${orders.length}',
+        );
+        for (final order in orders) {
+          log(
+            '[PS ApprovedOrders DEBUG] order '
+            'id=${order['id']} '
+            'order_number=${order['order_no'] ?? order['order_number']} '
+            'status=${order['status']}',
+          );
+        }
+      }
 
       return ProductionOrderListResult(
-        orders: (body['data'] as List?)
-                ?.map((item) => Map<String, dynamic>.from(item as Map))
-                .toList() ??
-            const [],
-        counts: countsJson == null
-            ? null
-            : ProductionOrderCounts.fromJson(countsJson),
+        orders: orders,
+        counts: counts,
+      );
+    } on DioException catch (error) {
+      if (isApprovedOrdersDebug) {
+        log(
+          '[PS ApprovedOrders DEBUG] DioException: '
+          'status=${error.response?.statusCode} '
+          'url=${error.requestOptions.uri} '
+          'message=${error.message} '
+          'body=${_debugEncodeBody(error.response?.data)}',
+        );
+      }
+      throw mapApiError(error);
+    } catch (error, stackTrace) {
+      if (isApprovedOrdersDebug) {
+        log(
+          '[PS ApprovedOrders DEBUG] Parsing/filter exception: $error',
+        );
+        log(
+          '[PS ApprovedOrders DEBUG] Stack: $stackTrace',
+        );
+      }
+      rethrow;
+    }
+  }
+
+  static String _debugEncodeBody(Object? data) {
+    try {
+      if (data == null) return 'null';
+      if (data is String) return data;
+      return jsonEncode(data);
+    } catch (error) {
+      return '<<unencodable body: $error | $data>>';
+    }
+  }
+
+  static ProductionOrderCounts? _extractCounts(Map<String, dynamic> body) {
+    Map<String, dynamic>? meta;
+    if (body['meta'] is Map) {
+      meta = Map<String, dynamic>.from(body['meta'] as Map);
+    }
+
+    final nestedData = body['data'];
+    if (meta == null && nestedData is Map && nestedData['meta'] is Map) {
+      meta = Map<String, dynamic>.from(nestedData['meta'] as Map);
+    }
+
+    final countsJson = meta?['counts'];
+    if (countsJson is Map) {
+      return ProductionOrderCounts.fromJson(
+        Map<String, dynamic>.from(countsJson),
+      );
+    }
+    return null;
+  }
+
+  static List<Map<String, dynamic>> _extractOrderMaps(
+    Map<String, dynamic> body,
+  ) {
+    dynamic listRaw = body['data'] ?? body['orders'] ?? body['items'];
+
+    // Laravel paginator / double-wrapped payloads: { data: { data: [...] } }
+    if (listRaw is Map) {
+      listRaw = listRaw['data'] ?? listRaw['orders'] ?? listRaw['items'];
+    }
+
+    final orders = <Map<String, dynamic>>[];
+    if (listRaw is List) {
+      for (final item in listRaw) {
+        if (item is Map) {
+          orders.add(Map<String, dynamic>.from(item));
+        }
+      }
+    }
+    return orders;
+  }
+
+  /// Statuses that belong on the Production "Approved Orders" tab.
+  static bool isApprovedTabStatus(String? status) {
+    final value = (status ?? '').trim().toLowerCase();
+    return value == 'approved' ||
+        value == 'approved_by_manager' ||
+        value == 'manager_approved' ||
+        value == 'approved_by_sales_manager';
+  }
+
+  Future<Map<String, dynamic>> getOrder(int orderId) async {
+    try {
+      final response = await _dio.get('/production/orders/$orderId');
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
       );
     } on DioException catch (error) {
       throw mapApiError(error);
     }
   }
 
-  Future<Map<String, dynamic>> getOrder(int orderId) async {
+  Future<Map<String, dynamic>> sendForBill(
+    int orderId, {
+    required String vehicleNumber,
+    required double transportFreight,
+    String? transportRemark,
+  }) async {
     try {
-      final response = await _dio.get('/production/orders/$orderId');
+      final response = await _dio.post(
+        '/production/orders/$orderId/send-for-bill',
+        data: {
+          'vehicle_number': vehicleNumber,
+          'transport_freight': transportFreight,
+          if (transportRemark != null && transportRemark.trim().isNotEmpty)
+            'transport_remark': transportRemark.trim(),
+        },
+      );
       return Map<String, dynamic>.from(
         (response.data as Map)['data'] as Map,
       );

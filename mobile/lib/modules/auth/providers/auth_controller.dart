@@ -6,6 +6,7 @@ import '../../../core/api/api_errors.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/auth/permission_service.dart';
 import '../../../core/auth/user_role.dart';
+import '../../../core/notifications/push_notification_service.dart';
 import '../../../core/storage/session_store.dart';
 import '../api/auth_api.dart';
 import '../models/auth_session.dart';
@@ -104,9 +105,10 @@ class AuthController extends ChangeNotifier {
       session = await _repository.login(loginId, password);
       return true;
     } catch (error) {
-      message = error is AuthApiException
-          ? _shortConnectionMessage(error.message)
-          : _shortConnectionMessage(errorMessage(error));
+      final raw = error is AuthApiException
+          ? error.message
+          : errorMessage(error);
+      message = _friendlyLoginMessage(raw);
       return false;
     } finally {
       loading = false;
@@ -145,6 +147,12 @@ class AuthController extends ChangeNotifier {
     loading = true;
     _notify();
     try {
+      try {
+        await PushNotificationService.instance.unregisterToken(
+          store: SessionStore(),
+          onUnauthorized: null,
+        );
+      } catch (_) {}
       await _repository.logout();
     } finally {
       session = null;
@@ -178,6 +186,14 @@ class AuthController extends ChangeNotifier {
       return connectionFailureMessage();
     }
     return raw;
+  }
+
+  /// User-facing login failure copy (never expose raw server/API text).
+  String _friendlyLoginMessage(String raw) {
+    final shortened = _shortConnectionMessage(raw);
+    final lower = shortened.toLowerCase();
+    if (lower.contains('session expired')) return shortened;
+    return 'Unable to login. Please check your credentials or connection.';
   }
 }
 

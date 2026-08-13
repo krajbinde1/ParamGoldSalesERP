@@ -6,6 +6,12 @@ plugins {
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+// Apply Google Services only when google-services.json is present (Firebase FCM).
+val googleServicesFile = file("google-services.json")
+if (googleServicesFile.exists()) {
+    apply(plugin = "com.google.gms.google-services")
+}
+
 android {
     namespace = "com.example.mobile"
     compileSdk = flutter.compileSdkVersion
@@ -14,14 +20,16 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
+        // Specify the application ID.
         applicationId = "com.example.mobile"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
-        minSdk = maxOf(21, flutter.minSdkVersion)
+
+        // Firebase Messaging requires minSdk 21+.
+        minSdk = maxOf(23, flutter.minSdkVersion)
+
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
         versionName = flutter.versionName
@@ -29,22 +37,24 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // Signing with debug keys for now.
             signingConfig = signingConfigs.getByName("debug")
-            // Keep R8 off unless a release keystore + keep rules are configured.
-            // Current ANR was caused by startup GPS/FGS recovery, not minify.
+
             isMinifyEnabled = false
             isShrinkResources = false
         }
     }
 
-    // Avoid AGP lintVital crash on plugin sources (e.g. shared_preferences_android)
-    // that blocks release APK assembly; does not change app logic.
+    // Avoid AGP lintVital crash on plugin sources that can block release APK assembly.
     lint {
         checkReleaseBuilds = false
         abortOnError = false
     }
+}
+
+// Required by flutter_local_notifications.
+dependencies {
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 
 kotlin {
@@ -57,12 +67,7 @@ flutter {
     source = "../.."
 }
 
-// Flutter 3.44 release icon tree-shaking drops Material glyphs used through
-// shared widgets (IconData fields / IconTheme), which made dashboard and
-// bottom-nav icons appear as empty squares. Keep the full MaterialIcons font
-// so `flutter build apk --release` works without `--no-tree-shake-icons`.
-//
-// Force this at task-graph time so it wins over Flutter's -Ptree-shake-icons.
+// Keep the full MaterialIcons font so release builds do not lose icons.
 gradle.taskGraph.whenReady {
     allTasks.filterIsInstance<FlutterTask>().forEach { task ->
         task.treeShakeIcons = false

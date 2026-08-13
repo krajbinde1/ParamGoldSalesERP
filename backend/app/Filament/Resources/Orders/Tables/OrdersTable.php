@@ -109,6 +109,10 @@ class OrdersTable
                         TextInput::make('bill_number')
                             ->label('Bill Number')
                             ->maxLength(100),
+                        DatePicker::make('bill_date')
+                            ->label('Bill Date')
+                            ->default(now('Asia/Kolkata')->toDateString())
+                            ->native(false),
                         Textarea::make('billing_remark')
                             ->label('Billing Remark')
                             ->rows(3),
@@ -120,6 +124,7 @@ class OrdersTable
                             bill: $data['bill'],
                             billNumber: $data['bill_number'] ?? null,
                             remark: $data['billing_remark'] ?? null,
+                            billDate: $data['bill_date'] ?? null,
                         );
                     }),
                 Action::make('dispatch')

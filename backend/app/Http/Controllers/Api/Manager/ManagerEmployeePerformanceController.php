@@ -36,13 +36,46 @@ class ManagerEmployeePerformanceController extends Controller
                 $range['end'],
                 role: UserRole::Employee->value,
                 search: $validated['search'] ?? null,
+                reportingManagerId: $request->user()->employee_id,
             ),
+        ]);
+    }
+
+    /**
+     * Team-level sales/collection targets for the manager's reporting employees.
+     * Reuses the same employeePerformance rows as Team Performance (no duplicate calc).
+     */
+    public function targets(Request $request): JsonResponse
+    {
+        $validated = $this->validatedPeriod($request);
+
+        $range = $this->metrics->resolveDateRange(
+            $validated['period'] ?? 'month',
+            $validated['start_date'] ?? null,
+            $validated['end_date'] ?? null,
+        );
+
+        $employees = $this->metrics->employeePerformance(
+            $range['start'],
+            $range['end'],
+            role: UserRole::Employee->value,
+            reportingManagerId: $request->user()->employee_id,
+        );
+
+        return response()->json([
+            'success' => true,
+            'period' => $range['label'],
+            'period_key' => $validated['period'] ?? 'month',
+            'start_date' => $range['start']->toDateString(),
+            'end_date' => $range['end']->toDateString(),
+            'summary' => $this->metrics->aggregateTeamPerformance($employees),
+            'data' => $employees,
         ]);
     }
 
     public function show(Request $request, Employee $employee): JsonResponse
     {
-        $this->ensureEmployeeRoleTarget($employee);
+        $this->ensureEmployeeRoleTarget($request, $employee);
 
         $validated = $this->validatedPeriod($request);
 
@@ -96,7 +129,7 @@ class ManagerEmployeePerformanceController extends Controller
         ]);
     }
 
-    private function ensureEmployeeRoleTarget(Employee $employee): void
+    private function ensureEmployeeRoleTarget(Request $request, Employee $employee): void
     {
         if (! $employee->status || $employee->trashed()) {
             abort(404, 'Employee not found.');
@@ -106,6 +139,10 @@ class ManagerEmployeePerformanceController extends Controller
 
         if ($user === null || ! $user->hasRole(UserRole::Employee)) {
             abort(403, 'You can only view employee-role performance.');
+        }
+
+        if ((int) $employee->reporting_manager_id !== (int) $request->user()->employee_id) {
+            abort(403, 'You can only view employees reporting to you.');
         }
     }
 }

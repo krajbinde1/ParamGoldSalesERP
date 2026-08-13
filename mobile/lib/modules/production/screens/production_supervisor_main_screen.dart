@@ -19,7 +19,24 @@ class _ProductionSupervisorMainScreenState
   int _tabIndex = 0;
 
   @override
+  void initState() {
+    super.initState();
+    // TEMP DEBUG — actual PS shell entry (Orders is default tab).
+    // ignore: avoid_print
+    print(
+      '[PS ApprovedOrders DEBUG] ProductionSupervisorMainScreen.initState '
+      'tabIndex=$_tabIndex (0=Orders)',
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    // TEMP DEBUG
+    // ignore: avoid_print
+    print(
+      '[PS ApprovedOrders DEBUG] ProductionSupervisorMainScreen.build '
+      'file=production_supervisor_main_screen.dart tabIndex=$_tabIndex',
+    );
     return Scaffold(
       body: IndexedStack(
         index: _tabIndex,
@@ -30,7 +47,14 @@ class _ProductionSupervisorMainScreenState
       ),
       bottomNavigationBar: NavigationBar(
         selectedIndex: _tabIndex,
-        onDestinationSelected: (index) => setState(() => _tabIndex = index),
+        onDestinationSelected: (index) {
+          // ignore: avoid_print
+          print(
+            '[PS ApprovedOrders DEBUG] PS bottom nav selected index=$index '
+            '(0=Orders, 1=Inventory)',
+          );
+          setState(() => _tabIndex = index);
+        },
         destinations: const [
           NavigationDestination(
             icon: Icon(Icons.local_shipping_outlined),

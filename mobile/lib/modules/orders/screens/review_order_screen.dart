@@ -1,8 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/navigation/navigation_guard.dart';
-import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/widgets/design/pg_card.dart';
@@ -11,6 +9,7 @@ import '../../../core/widgets/design/pg_scaffold.dart';
 import '../../auth/providers/auth_controller.dart';
 import '../api/order_api.dart';
 import '../models/order_draft.dart';
+import '../widgets/order_invoice_products_table.dart';
 
 class ReviewOrderScreen extends StatefulWidget {
   const ReviewOrderScreen({super.key, required this.draft, required this.auth});
@@ -66,11 +65,6 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final currency = NumberFormat.currency(
-      locale: 'en_IN',
-      symbol: '₹',
-      decimalDigits: 2,
-    );
     final summary = widget.draft.summary;
     final draft = widget.draft;
 
@@ -103,72 +97,32 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
             ),
           ),
           const SizedBox(height: AppSpacing.md),
-          PgCard(
-            child: Column(
+          OrderInvoiceProductsCard(
+            lines: draft.items
+                .map(OrderInvoiceLine.fromLineItem)
+                .toList(growable: false),
+            summary: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text('Products', style: Theme.of(context).textTheme.titleMedium),
+                PgInvoiceRow(
+                  label: 'Total Products',
+                  value: '${summary.totalProducts}',
+                ),
+                PgInvoiceRow(
+                  label: 'Total Cases',
+                  value: '${summary.totalCases}',
+                ),
+                PgInvoiceRow(
+                  label: 'Total Quantity (Nos)',
+                  value: '${summary.totalQuantityNos}',
+                ),
                 const SizedBox(height: AppSpacing.sm),
-                ...draft.items.map(
-                  (item) => Padding(
-                    padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          item.productName,
-                          style: Theme.of(context).textTheme.titleSmall,
-                        ),
-                        Text(
-                          item.productCode,
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: AppColors.textSecondary,
-                          ),
-                        ),
-                        const SizedBox(height: AppSpacing.sm),
-                        PgInvoiceRow(
-                          label: 'Quantity',
-                          value: item.displaySummary,
-                        ),
-                        PgInvoiceRow(
-                          label: 'Cases',
-                          value: '${item.caseQuantity}',
-                        ),
-                        PgInvoiceRow(
-                          label: 'Nos Per Case',
-                          value: '${item.nosPerCase}',
-                        ),
-                        PgInvoiceRow(
-                          label: 'Total Nos',
-                          value: '${item.totalQuantityNos}',
-                        ),
-                        PgInvoiceRow(
-                          label: 'Original Dealer Price',
-                          value: currency.format(item.originalDealerPrice),
-                        ),
-                        PgInvoiceRow(
-                          label: 'Rate Per No',
-                          value: currency.format(item.ratePerNo),
-                        ),
-                        PgInvoiceRow(
-                          label: 'Discount Percentage',
-                          value:
-                              '${item.discountValue.toStringAsFixed(item.discountValue % 1 == 0 ? 0 : 2)}%',
-                        ),
-                        PgInvoiceRow(
-                          label: 'GST',
-                          value: '${item.gstPercent.toStringAsFixed(0)}%',
-                        ),
-                        PgInvoiceRow(
-                          label: 'Item Final Amount',
-                          value: currency.format(item.finalAmount),
-                          emphasize: true,
-                        ),
-                        if (item != draft.items.last)
-                          const Divider(height: AppSpacing.lg),
-                      ],
-                    ),
-                  ),
+                OrderInvoiceSummaryBlock(
+                  showTitle: false,
+                  subtotal: summary.subtotal,
+                  discount: summary.totalDiscount,
+                  gst: summary.totalGst,
+                  grandTotal: summary.grandTotal,
                 ),
               ],
             ),
@@ -182,49 +136,6 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
                 const SizedBox(height: AppSpacing.sm),
                 Text(
                   draft.remarks.trim().isEmpty ? '—' : draft.remarks.trim(),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          PgCard(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  'Order Summary',
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                PgInvoiceRow(
-                  label: 'Total Products',
-                  value: '${summary.totalProducts}',
-                ),
-                PgInvoiceRow(
-                  label: 'Total Cases',
-                  value: '${summary.totalCases}',
-                ),
-                PgInvoiceRow(
-                  label: 'Total Quantity (Nos)',
-                  value: '${summary.totalQuantityNos}',
-                ),
-                PgInvoiceRow(
-                  label: 'Subtotal',
-                  value: currency.format(summary.subtotal),
-                ),
-                PgInvoiceRow(
-                  label: 'Total Discount',
-                  value: currency.format(summary.totalDiscount),
-                ),
-                PgInvoiceRow(
-                  label: 'Total GST',
-                  value: currency.format(summary.totalGst),
-                ),
-                const Divider(height: AppSpacing.lg),
-                PgInvoiceRow(
-                  label: 'Grand Total',
-                  value: currency.format(summary.grandTotal),
-                  isTotal: true,
                 ),
               ],
             ),

@@ -28,9 +28,25 @@ class RoleAppBar extends AppBar {
           ),
           actions: [
             ...?actions,
+            _RoleNotificationsButton(auth: auth),
             _RoleProfileMenuButton(auth: auth),
           ],
         );
+}
+
+class _RoleNotificationsButton extends StatelessWidget {
+  const _RoleNotificationsButton({required this.auth});
+
+  final AuthController auth;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: 'Notifications',
+      onPressed: () => context.push('/notifications'),
+      icon: const Icon(Icons.notifications_none_rounded),
+    );
+  }
 }
 
 class _RoleProfileMenuButton extends StatelessWidget {

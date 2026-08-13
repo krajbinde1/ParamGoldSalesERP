@@ -2,6 +2,7 @@
 
 use App\Actions\Employees\CreateEmployeeWithUserAccount;
 use App\Actions\Orders\BillOrderWithDocument;
+use App\Actions\Orders\SendOrderForBilling;
 use App\Enums\UserRole;
 use App\Models\Order;
 use App\Models\User;
@@ -92,6 +93,7 @@ it('allows employee to create order but not approve or dispatch', function () {
 it('allows manager to approve and reject pending orders only', function () {
     $employee = roleTestEmployee(UserRole::Employee, '9100000002');
     $manager = roleTestEmployee(UserRole::Manager, '9100000003');
+    $employee->update(['reporting_manager_id' => $manager->id]);
     $order = seedPendingOrder($employee->id);
 
     $this->actingAs($manager->user, 'sanctum')
@@ -114,6 +116,7 @@ it('hides pending orders from production supervisor and blocks dispatch until bi
     $employee = roleTestEmployee(UserRole::Employee, '9100000004');
     $manager = roleTestEmployee(UserRole::Manager, '9100000005');
     $production = roleTestEmployee(UserRole::ProductionSupervisor, '9100000006');
+    $employee->update(['reporting_manager_id' => $manager->id]);
     $order = seedPendingOrder($employee->id);
 
     $this->actingAs($production->user, 'sanctum')
@@ -136,6 +139,21 @@ it('hides pending orders from production supervisor and blocks dispatch until bi
             'transport_amount' => 0,
         ])
         ->assertForbidden();
+
+    app(SendOrderForBilling::class)->execute(
+        order: $order->fresh(),
+        actor: $production->user,
+        vehicleNumber: 'MH14CD5678',
+        transportFreight: 150,
+    );
+
+    expect($order->fresh()->status)->toBe(Order::STATUS_PENDING_FOR_BILLING);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson('/api/production/orders?status=sent_for_bill')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $order->id)
+        ->assertJsonPath('data.0.status', Order::STATUS_PENDING_FOR_BILLING);
 
     $admin = makeAdminUser();
     app(BillOrderWithDocument::class)->execute(
@@ -166,6 +184,7 @@ it('blocks production supervisor from approve reject and bill actions', function
     $employee = roleTestEmployee(UserRole::Employee, '9100000010');
     $manager = roleTestEmployee(UserRole::Manager, '9100000011');
     $production = roleTestEmployee(UserRole::ProductionSupervisor, '9100000012');
+    $employee->update(['reporting_manager_id' => $manager->id]);
     $order = seedPendingOrder($employee->id);
 
     $this->actingAs($production->user, 'sanctum')

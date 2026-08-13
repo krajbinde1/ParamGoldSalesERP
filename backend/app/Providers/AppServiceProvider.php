@@ -16,6 +16,7 @@ use App\Models\SemiFinishedMaterial;
 use App\Models\StockAdjustment;
 use App\Models\StockLedger;
 use App\Models\TaDaClaim;
+use App\Observers\OrderObserver;
 use App\Policies\BomPolicy;
 use App\Policies\DealerPolicy;
 use App\Policies\EmployeeLoginAccessPolicy;
@@ -62,5 +63,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(ProductionBatch::class, ProductionBatchPolicy::class);
         Gate::policy(StockLedger::class, StockLedgerPolicy::class);
         Gate::policy(StockAdjustment::class, StockAdjustmentPolicy::class);
+
+        Order::observe(OrderObserver::class);
     }
 }

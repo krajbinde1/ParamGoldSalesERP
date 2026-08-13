@@ -76,6 +76,10 @@ class ViewOrder extends ViewRecord
                     TextInput::make('bill_number')
                         ->label('Bill Number')
                         ->maxLength(100),
+                    DatePicker::make('bill_date')
+                        ->label('Bill Date')
+                        ->default(now('Asia/Kolkata')->toDateString())
+                        ->native(false),
                     Textarea::make('billing_remark')
                         ->label('Billing Remark')
                         ->rows(3),
@@ -87,6 +91,7 @@ class ViewOrder extends ViewRecord
                         bill: $data['bill'],
                         billNumber: $data['bill_number'] ?? null,
                         remark: $data['billing_remark'] ?? null,
+                        billDate: $data['bill_date'] ?? null,
                     );
 
                     $this->refreshFormData([
@@ -95,6 +100,7 @@ class ViewOrder extends ViewRecord
                         'billed_by',
                         'bill_path',
                         'bill_number',
+                        'bill_date',
                         'billing_remark',
                     ]);
                 }),

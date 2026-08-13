@@ -66,6 +66,9 @@ abstract final class OrderStatusRules {
       return OrderBadgeTone.dispatched;
     }
     if (value == 'approved' || value == 'billed') return OrderBadgeTone.approved;
+    if (value == 'pending_for_billing' || value == 'sent_for_bill') {
+      return OrderBadgeTone.pending;
+    }
     return OrderBadgeTone.pending;
   }
 
@@ -85,15 +88,17 @@ abstract final class OrderStatusRules {
     }
 
     return switch (value) {
-      'draft' => 'Pending Sales Manager Approval',
-      'pending_approval' => 'Pending Sales Manager Approval',
+      'draft' => 'Pending for Manager Approval',
+      'pending_approval' => 'Pending for Manager Approval',
       'approved' => 'Approved by Sales Manager',
-      'billed' => 'Billed by Admin',
+      'pending_for_billing' => 'Pending for Billing',
+      'sent_for_bill' => 'Pending for Billing',
+      'billed' => 'Billed',
       'processing' => 'Processing',
       'dispatched' => 'Dispatched',
       'delivered' => 'Delivered',
       'cancelled' => 'Cancelled',
-      'pending' => 'Pending Sales Manager Approval',
+      'pending' => 'Pending for Manager Approval',
       _ => status,
     };
   }

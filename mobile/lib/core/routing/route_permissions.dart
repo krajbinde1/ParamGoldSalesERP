@@ -4,7 +4,9 @@ class RoutePermissions {
   const RoutePermissions._();
 
   static bool canAccessPath(String path, UserRole role) {
-    if (path.startsWith('/profile') || path.startsWith('/change-password')) {
+    if (path.startsWith('/profile') ||
+        path.startsWith('/change-password') ||
+        path.startsWith('/notifications')) {
       return true;
     }
 
@@ -12,8 +14,12 @@ class RoutePermissions {
       return true;
     }
 
+    // Manager self-attendance reuses the employee attendance screens.
+    if (path.startsWith('/attendance')) {
+      return role.isEmployee || role.isManager;
+    }
+
     final employeeOnlyPrefixes = [
-      '/attendance',
       '/orders',
       '/collections',
       '/field-activities',

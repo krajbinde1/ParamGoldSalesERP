@@ -3,6 +3,7 @@
 use App\Actions\Employees\CreateEmployeeWithUserAccount;
 use App\Actions\Orders\BillOrderWithDocument;
 use App\Actions\Orders\RejectOrderWithRemarks;
+use App\Actions\Orders\SendOrderForBilling;
 use App\Enums\UserRole;
 use App\Models\Order;
 use App\Models\User;
@@ -16,9 +17,9 @@ uses(RefreshDatabase::class);
 function orderWorkflowEmployee(UserRole $role, string $mobile): \App\Models\Employee
 {
     return app(CreateEmployeeWithUserAccount::class)->execute([
-        'full_name' => $role->label().' User',
+        'full_name' => $role->label().' User '.$mobile,
         'mobile' => $mobile,
-        'email' => str_replace('_', '.', $role->value).'.ow@example.com',
+        'email' => str_replace('_', '.', $role->value).'.'.$mobile.'.ow@example.com',
         'department' => 'Sales',
         'designation' => $role->label(),
         'joining_date' => '2026-07-01',
@@ -100,13 +101,14 @@ it('shows user-facing pending status label', function () {
     $this->actingAs($employee->user, 'sanctum')
         ->getJson("/api/employee/orders/{$order->id}")
         ->assertOk()
-        ->assertJsonPath('data.status_label', 'Pending Sales Manager Approval')
+        ->assertJsonPath('data.status_label', 'Pending for Manager Approval')
         ->assertJsonStructure(['data' => ['timeline', 'dealer' => ['firm_name', 'village', 'mobile']]]);
 });
 
 it('blocks manager reject without remarks and accepts with remarks', function () {
     $employee = orderWorkflowEmployee(UserRole::Employee, '9200000003');
     $manager = orderWorkflowEmployee(UserRole::Manager, '9200000004');
+    $employee->update(['reporting_manager_id' => $manager->id]);
     $order = orderWorkflowPending($employee->id);
 
     $this->actingAs($manager->user, 'sanctum')
@@ -122,6 +124,125 @@ it('blocks manager reject without remarks and accepts with remarks', function ()
         ->and($fresh->rejected_by_role)->toBe(Order::REJECTED_BY_ROLE_SALES_MANAGER)
         ->and($fresh->rejection_remark)->toBe('Incorrect quantity')
         ->and($fresh->displayStatusLabel())->toBe('Rejected by Sales Manager');
+});
+
+it('scopes manager order list to direct reports only', function () {
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000011');
+    $report = orderWorkflowEmployee(UserRole::Employee, '9200000012');
+    $other = orderWorkflowEmployee(UserRole::Employee, '9200000013');
+    $report->update(['reporting_manager_id' => $manager->id]);
+
+    $visible = orderWorkflowPending($report->id);
+    orderWorkflowPending($other->id);
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->getJson('/api/manager/orders?status=pending_approval')
+        ->assertOk()
+        ->assertJsonCount(1, 'data')
+        ->assertJsonPath('data.0.id', $visible->id)
+        ->assertJsonPath('counts.pending_approval', 1);
+});
+
+it('allows manager to edit a pending team order and stores edit audit', function () {
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000014');
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000015');
+    $employee->update(['reporting_manager_id' => $manager->id]);
+
+    $dealer = \App\Models\Dealer::query()->create([
+        'firm_name' => 'Edit Dealer',
+        'owner_name' => 'Owner',
+        'mobile' => '9777777777',
+        'address' => 'Edit Street',
+        'state' => 'Maharashtra',
+        'district' => 'Pune',
+        'taluka' => 'Haveli',
+        'pincode' => '411001',
+        'village' => 'Edit Village',
+        'status' => true,
+        'assigned_employee_id' => $employee->id,
+    ]);
+
+    $product = \App\Models\Product::query()->create([
+        'product_code' => 'PG-EDIT-1',
+        'product_name' => 'Edit Product',
+        'dealer_price' => 10,
+        'gst_percentage' => 18,
+        'uom' => 'Nos',
+        'nos_per_case' => 10,
+        'status' => true,
+    ]);
+
+    $order = Order::query()->create([
+        'order_no' => 'ORD'.str_pad((string) random_int(100000, 999999), 6, '0', STR_PAD_LEFT),
+        'order_date' => now('Asia/Kolkata')->toDateString(),
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'status' => Order::STATUS_PENDING_APPROVAL,
+        'payment_type' => 'Credit',
+        'subtotal' => 100,
+        'discount_amount' => 0,
+        'gst_amount' => 18,
+        'grand_total' => 118,
+    ]);
+
+    $order->items()->create([
+        'product_id' => $product->id,
+        'case_quantity' => 1,
+        'nos_per_case' => 10,
+        'total_quantity_nos' => 10,
+        'quantity' => 10,
+        'unit' => 'Nos',
+        'rate_per_no' => 10,
+        'rate' => 10,
+        'discount_percentage' => 0,
+        'discount_amount' => 0,
+        'gst_percentage' => 18,
+        'base_amount' => 100,
+        'taxable_amount' => 100,
+        'gst_amount' => 18,
+        'final_amount' => 118,
+        'line_total' => 118,
+    ]);
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->putJson("/api/manager/orders/{$order->id}", [
+            'dealer_id' => $dealer->id,
+            'remarks' => 'Manager corrected qty',
+            'items' => [[
+                'product_id' => $product->id,
+                'case_quantity' => 2,
+                'rate_per_no' => 10,
+                'discount_type' => 'percentage',
+                'discount_value' => 0,
+                'gst_percentage' => 18,
+            ]],
+        ])
+        ->assertOk()
+        ->assertJsonPath('grand_total', 236);
+
+    $fresh = $order->fresh();
+    expect((float) $fresh->grand_total)->toBe(236.0)
+        ->and($fresh->last_edited_by)->toBe($manager->user->id)
+        ->and($fresh->last_edited_by_role)->toBe(Order::REJECTED_BY_ROLE_SALES_MANAGER)
+        ->and($fresh->items()->count())->toBe(1)
+        ->and((int) $fresh->items()->first()->case_quantity)->toBe(2);
+});
+
+it('allows manager to approve team order', function () {
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000016');
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000017');
+    $employee->update(['reporting_manager_id' => $manager->id]);
+    $order = orderWorkflowPending($employee->id);
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson("/api/manager/orders/{$order->id}/approve")
+        ->assertOk()
+        ->assertJsonPath('data.status', Order::STATUS_APPROVED);
+
+    $fresh = $order->fresh();
+    expect($fresh->approved_by)->toBe($manager->user->id)
+        ->and($fresh->approved_at)->not->toBeNull()
+        ->and($fresh->displayStatusLabel())->toBe('Approved by Sales Manager');
 });
 
 it('allows admin to reject pending and approved orders with remarks', function () {
@@ -173,6 +294,13 @@ it('blocks admin reject after billed or dispatched', function () {
     $order = orderWorkflowPending($employee->id);
 
     $order->approve($manager->user->id);
+    app(SendOrderForBilling::class)->execute(
+        order: $order->fresh(),
+        actor: $production->user,
+        vehicleNumber: 'MH12XY9999',
+        transportFreight: 100,
+    );
+
     app(BillOrderWithDocument::class)->execute(
         order: $order->fresh(),
         actor: $admin,
@@ -218,6 +346,61 @@ it('blocks admin from approving and manager from billing', function () {
     ))->toThrow(\Illuminate\Auth\Access\AuthorizationException::class);
 });
 
+it('blocks admin from billing manager-approved orders before send-for-bill', function () {
+    Storage::fake('public');
+
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000020');
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000021');
+    $admin = orderWorkflowAdmin();
+    $order = orderWorkflowPending($employee->id);
+    $order->approve($manager->user->id);
+
+    expect($order->fresh()->status)->toBe(Order::STATUS_APPROVED)
+        ->and($order->fresh()->canBeBilled())->toBeFalse()
+        ->and($order->fresh()->canTransitionTo(Order::STATUS_BILLED))->toBeFalse();
+
+    expect(fn () => app(BillOrderWithDocument::class)->execute(
+        order: $order->fresh(),
+        actor: $admin,
+        bill: UploadedFile::fake()->create('bill.pdf', 100, 'application/pdf'),
+        billNumber: 'BILL-TOO-EARLY',
+    ))->toThrow(\Illuminate\Auth\Access\AuthorizationException::class);
+
+    expect($order->fresh()->status)->toBe(Order::STATUS_APPROVED);
+});
+
+it('exposes approved orders to production supervisor immediately after manager approval', function () {
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000022');
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000023');
+    $production = orderWorkflowEmployee(UserRole::ProductionSupervisor, '9200000024');
+    $employee->update(['reporting_manager_id' => $manager->id]);
+    $order = orderWorkflowPending($employee->id);
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson("/api/manager/orders/{$order->id}/approve")
+        ->assertOk()
+        ->assertJsonPath('data.status', Order::STATUS_APPROVED)
+        ->assertJsonPath('data.status_label', 'Approved by Sales Manager');
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson('/api/production/orders?status=approved')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $order->id)
+        ->assertJsonPath('data.0.status', Order::STATUS_APPROVED)
+        ->assertJsonPath('data.0.status_label', 'Approved by Sales Manager')
+        ->assertJsonPath('data.0.approved_by_name', $manager->user->name);
+
+    $detail = $this->actingAs($production->user, 'sanctum')
+        ->getJson("/api/production/orders/{$order->id}")
+        ->assertOk()
+        ->json('data');
+
+    expect($detail['can_send_for_bill'])->toBeTrue()
+        ->and($detail['can_bill'])->toBeFalse()
+        ->and($detail['awaiting_send_for_bill'])->toBeTrue()
+        ->and($detail['approved_by_name'])->toBe($manager->user->name);
+});
+
 it('keeps rejected orders visible in employee history', function () {
     $employee = orderWorkflowEmployee(UserRole::Employee, '9200000012');
     $manager = orderWorkflowEmployee(UserRole::Manager, '9200000013');
@@ -232,4 +415,91 @@ it('keeps rejected orders visible in employee history', function () {
         ->assertJsonPath('orders.0.status_label', 'Rejected by Sales Manager');
 
     expect(Order::query()->whereKey($order->id)->exists())->toBeTrue();
+});
+
+it('allows production to send approved order for billing then admin bills', function () {
+    Storage::fake('public');
+
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000014');
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000015');
+    $production = orderWorkflowEmployee(UserRole::ProductionSupervisor, '9200000016');
+    $admin = orderWorkflowAdmin();
+    $order = orderWorkflowPending($employee->id);
+
+    $order->approve($manager->user->id);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/send-for-bill", [
+            'vehicle_number' => 'MH12AB1234',
+            'transport_freight' => 250,
+            'transport_remark' => 'Ready for Tally billing',
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.status', Order::STATUS_PENDING_FOR_BILLING)
+        ->assertJsonPath('data.status_label', 'Pending for Billing')
+        ->assertJsonPath('data.vehicle_number', 'MH12AB1234')
+        ->assertJsonPath('data.transport_amount', 250);
+
+    $fresh = $order->fresh();
+    expect($fresh->status)->toBe(Order::STATUS_PENDING_FOR_BILLING)
+        ->and($fresh->sent_for_bill_by)->toBe($production->user->id)
+        ->and((float) $fresh->transport_amount)->toBe(250.0)
+        ->and($fresh->transport_remark)->toBe('Ready for Tally billing');
+
+    $timelineKeys = collect($fresh->workflowTimeline())->pluck('key')->all();
+    expect($timelineKeys)->toContain('pending_for_billing');
+
+    app(BillOrderWithDocument::class)->execute(
+        order: $fresh,
+        actor: $admin,
+        bill: UploadedFile::fake()->create('bill.pdf', 100, 'application/pdf'),
+        billNumber: 'BILL-SFB-1',
+        billDate: now('Asia/Kolkata')->toDateString(),
+    );
+
+    expect($order->fresh()->status)->toBe(Order::STATUS_BILLED)
+        ->and($order->fresh()->bill_number)->toBe('BILL-SFB-1');
+});
+
+it('blocks non-production roles from send-for-bill and requires vehicle + freight', function () {
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000017');
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000018');
+    $production = orderWorkflowEmployee(UserRole::ProductionSupervisor, '9200000019');
+    $admin = orderWorkflowAdmin();
+    $order = orderWorkflowPending($employee->id);
+    $order->approve($manager->user->id);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/send-for-bill", [
+            'vehicle_number' => 'MH12AB1234',
+            'transport_freight' => 100,
+        ])
+        ->assertForbidden();
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/send-for-bill", [
+            'vehicle_number' => 'MH12AB1234',
+            'transport_freight' => 100,
+        ])
+        ->assertForbidden();
+
+    $this->actingAs($admin, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/send-for-bill", [
+            'vehicle_number' => 'MH12AB1234',
+            'transport_freight' => 100,
+        ])
+        ->assertForbidden();
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/send-for-bill", [
+            'transport_freight' => 100,
+        ])
+        ->assertUnprocessable();
+
+    expect(fn () => app(SendOrderForBilling::class)->execute(
+        order: $order->fresh(),
+        actor: $admin,
+        vehicleNumber: 'MH12AB9999',
+        transportFreight: 50,
+    ))->toThrow(\Illuminate\Auth\Access\AuthorizationException::class);
 });

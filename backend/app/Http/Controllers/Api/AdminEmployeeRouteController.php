@@ -21,6 +21,15 @@ class AdminEmployeeRouteController extends Controller
             abort(403, 'Admin access required.');
         }
 
+        if ($request->user()->role === 'manager') {
+            $reportIds = app(\App\Services\Orders\ManagerOrderAccessService::class)
+                ->directReportEmployeeIds($request->user());
+
+            if (! in_array((int) $attendance->employee_id, $reportIds, true)) {
+                abort(403, 'You can only view routes of employees reporting to you.');
+            }
+        }
+
         $attendance->load([
             'employee:id,employee_code,full_name,mobile,designation,department',
         ]);

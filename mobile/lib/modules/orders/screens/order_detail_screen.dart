@@ -2,9 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
-import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/storage/session_store.dart';
+import '../../../core/utils/bill_document.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_detail_widgets.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
@@ -15,6 +15,7 @@ import '../api/order_api.dart';
 import '../models/order.dart';
 import '../models/order_draft.dart';
 import '../models/order_detail.dart';
+import '../widgets/order_invoice_products_table.dart';
 import '../widgets/order_widgets.dart';
 
 class OrderDetailScreen extends StatefulWidget {
@@ -76,12 +77,6 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final currency = NumberFormat.currency(
-      locale: 'en_IN',
-      symbol: '₹',
-      decimalDigits: 2,
-    );
-
     return PgPageScaffold(
       title: 'Order Details',
       showBack: true,
@@ -113,6 +108,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
 
             final detail = snapshot.data!;
             final timeline = detail.timeline;
+            final billUrl = detail.billUrl?.trim() ?? '';
 
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -146,11 +142,50 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                         label: 'Created By Employee',
                         value: detail.salesEmployeeName,
                       ),
-                      if ((detail.approvedByName ?? '').isNotEmpty)
+                      if ((detail.approvedByName ?? '').isNotEmpty) ...[
                         PgInvoiceRow(
-                          label: 'Sales Manager',
+                          label: 'Approved By',
+                          value: detail.approvedByRole ?? 'Sales Manager',
+                        ),
+                        PgInvoiceRow(
+                          label: 'Name',
                           value: detail.approvedByName!,
                         ),
+                        if ((detail.approvedAtLabel ?? detail.approvedAt ?? '')
+                            .isNotEmpty)
+                          PgInvoiceRow(
+                            label: 'Approved On',
+                            value:
+                                detail.approvedAtLabel ?? detail.approvedAt!,
+                          ),
+                      ],
+                      if ((detail.sentForBillByName ?? '').isNotEmpty) ...[
+                        PgInvoiceRow(
+                          label: 'Sent for Bill By',
+                          value: detail.sentForBillByName!,
+                        ),
+                        if ((detail.sentForBillAtLabel ??
+                                detail.sentForBillAt ??
+                                '')
+                            .isNotEmpty)
+                          PgInvoiceRow(
+                            label: 'Sent On',
+                            value: detail.sentForBillAtLabel ??
+                                detail.sentForBillAt!,
+                          ),
+                      ],
+                      if ((detail.billedByName ?? '').isNotEmpty) ...[
+                        PgInvoiceRow(
+                          label: 'Billed By',
+                          value: detail.billedByName!,
+                        ),
+                        if ((detail.billedAtLabel ?? detail.billedAt ?? '')
+                            .isNotEmpty)
+                          PgInvoiceRow(
+                            label: 'Billed On',
+                            value: detail.billedAtLabel ?? detail.billedAt!,
+                          ),
+                      ],
                       PgInvoiceRow(
                         label: 'Remarks',
                         value: detail.remarks.trim().isEmpty
@@ -160,6 +195,34 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                     ],
                   ),
                 ),
+                if ((detail.approvalSummary ?? '').trim().isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  PgCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Approval Information',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        Text(detail.approvalSummary!.trim()),
+                      ],
+                    ),
+                  ),
+                ],
+                if (billUrl.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  FilledButton.icon(
+                    onPressed: () => openBillDocument(
+                      context,
+                      url: billUrl,
+                      title: 'Bill PDF',
+                    ),
+                    icon: const Icon(Icons.picture_as_pdf_outlined),
+                    label: const Text('View Bill / Open Bill PDF'),
+                  ),
+                ],
                 if (detail.dealer != null) ...[
                   const SizedBox(height: AppSpacing.md),
                   PgCard(
@@ -255,112 +318,18 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                   ),
                 ],
                 const SizedBox(height: AppSpacing.md),
-                PgCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Order Items',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      ...detail.items.map(
-                        (item) => Padding(
-                          padding: const EdgeInsets.only(bottom: AppSpacing.md),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                item.productName,
-                                style: Theme.of(context).textTheme.titleSmall,
-                              ),
-                              if (item.productCode.isNotEmpty)
-                                Text(
-                                  item.productCode,
-                                  style: Theme.of(context).textTheme.bodySmall
-                                      ?.copyWith(color: AppColors.textSecondary),
-                                ),
-                              const SizedBox(height: AppSpacing.sm),
-                              PgInvoiceRow(
-                                label: 'Quantity',
-                                value: item.quantitySummary,
-                              ),
-                              if ((item.unit ?? '').isNotEmpty)
-                                PgInvoiceRow(label: 'Unit', value: item.unit!),
-                              PgInvoiceRow(
-                                label: 'Rate',
-                                value: currency.format(item.ratePerNo),
-                              ),
-                              PgInvoiceRow(
-                                label: 'Discount',
-                                value: currency.format(item.discountAmount ?? 0),
-                              ),
-                              PgInvoiceRow(
-                                label: 'Taxable Amount',
-                                value: currency.format(
-                                  item.taxableAmount ??
-                                      ((item.baseAmount ?? 0) -
-                                          (item.discountAmount ?? 0)),
-                                ),
-                              ),
-                              PgInvoiceRow(
-                                label: 'GST %',
-                                value:
-                                    '${item.gstPercentage.toStringAsFixed(0)}%',
-                              ),
-                              PgInvoiceRow(
-                                label: 'GST Amount',
-                                value: currency.format(item.gstAmount ?? 0),
-                              ),
-                              PgInvoiceRow(
-                                label: 'Final Amount',
-                                value: currency.format(
-                                  item.finalAmount ?? item.lineTotal,
-                                ),
-                                emphasize: true,
-                              ),
-                              if (item != detail.items.last)
-                                const Divider(height: AppSpacing.lg),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                PgCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Order Summary',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      PgInvoiceRow(
-                        label: 'Subtotal',
-                        value: currency.format(detail.subtotal),
-                      ),
-                      PgInvoiceRow(
-                        label: 'Discount',
-                        value: currency.format(detail.discountAmount),
-                      ),
-                      PgInvoiceRow(
-                        label: 'Transport Charges',
-                        value: currency.format(detail.transportAmount ?? 0),
-                      ),
-                      PgInvoiceRow(
-                        label: 'GST',
-                        value: currency.format(detail.gstAmount),
-                      ),
-                      const Divider(height: AppSpacing.lg),
-                      PgInvoiceRow(
-                        label: 'Grand Total',
-                        value: currency.format(detail.grandTotal),
-                        isTotal: true,
-                      ),
-                    ],
+                OrderInvoiceProductsCard(
+                  title: 'Order Items',
+                  lines: detail.items
+                      .map(OrderInvoiceLine.fromDetailItem)
+                      .toList(growable: false),
+                  summary: OrderInvoiceSummaryBlock(
+                    showTitle: true,
+                    subtotal: detail.subtotal,
+                    discount: detail.discountAmount,
+                    gst: detail.gstAmount,
+                    grandTotal: detail.grandTotal,
+                    transport: detail.transportAmount,
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),

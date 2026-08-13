@@ -12,6 +12,7 @@ class PgTimelineStep extends StatelessWidget {
     required this.isCompleted,
     required this.isActive,
     required this.isLast,
+    this.isRejected = false,
   });
 
   final String title;
@@ -19,10 +20,13 @@ class PgTimelineStep extends StatelessWidget {
   final bool isCompleted;
   final bool isActive;
   final bool isLast;
+  final bool isRejected;
 
   @override
   Widget build(BuildContext context) {
-    final color = isCompleted || isActive ? AppColors.primary : AppColors.border;
+    final color = isRejected
+        ? AppColors.error
+        : (isCompleted || isActive ? AppColors.primary : AppColors.border);
 
     return IntrinsicHeight(
       child: Row(
@@ -37,17 +41,21 @@ class PgTimelineStep extends StatelessWidget {
                   height: 20,
                   decoration: BoxDecoration(
                     shape: BoxShape.circle,
-                    color: isCompleted
+                    color: isRejected
+                        ? AppColors.error
+                        : isCompleted
                         ? AppColors.primary
                         : isActive
                         ? AppColors.primary.withValues(alpha: 0.15)
                         : AppColors.border,
                     border: Border.all(
                       color: color,
-                      width: isActive && !isCompleted ? 2 : 0,
+                      width: isActive && !isCompleted && !isRejected ? 2 : 0,
                     ),
                   ),
-                  child: isCompleted
+                  child: isRejected
+                      ? const Icon(Icons.close, size: 12, color: Colors.white)
+                      : isCompleted
                       ? const Icon(Icons.check, size: 12, color: Colors.white)
                       : null,
                 ),
@@ -55,7 +63,9 @@ class PgTimelineStep extends StatelessWidget {
                   Expanded(
                     child: Container(
                       width: 2,
-                      color: isCompleted ? AppColors.primary : AppColors.border,
+                      color: isCompleted && !isRejected
+                          ? AppColors.primary
+                          : AppColors.border,
                     ),
                   ),
               ],
@@ -71,7 +81,9 @@ class PgTimelineStep extends StatelessWidget {
                   Text(
                     title,
                     style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: isCompleted || isActive
+                      color: isRejected
+                          ? AppColors.error
+                          : isCompleted || isActive
                           ? AppColors.textPrimary
                           : AppColors.textMuted,
                     ),
@@ -108,10 +120,13 @@ class PgInvoiceRow extends StatelessWidget {
   Widget build(BuildContext context) => Padding(
     padding: EdgeInsets.symmetric(vertical: isTotal ? 8 : 4),
     child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Expanded(
+          flex: 2,
           child: Text(
             label,
+            softWrap: true,
             style: isTotal
                 ? Theme.of(context).textTheme.titleMedium
                 : Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -119,16 +134,22 @@ class PgInvoiceRow extends StatelessWidget {
                   ),
           ),
         ),
-        Text(
-          value,
-          style: isTotal
-              ? Theme.of(context).textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
-                  color: AppColors.primary,
-                )
-              : Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: emphasize ? FontWeight.w700 : FontWeight.w500,
-                ),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          flex: 3,
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            softWrap: true,
+            style: isTotal
+                ? Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primary,
+                  )
+                : Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: emphasize ? FontWeight.w700 : FontWeight.w500,
+                  ),
+          ),
         ),
       ],
     ),

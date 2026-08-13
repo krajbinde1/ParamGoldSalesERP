@@ -1,0 +1,30 @@
+{
+  "_comment": "Replace this file with your real Firebase google-services.json from the Firebase Console (Project settings → Your apps → Android). Rename/copy to google-services.json. Application ID must match com.example.mobile (or update applicationId in build.gradle.kts).",
+  "project_info": {
+    "project_number": "000000000000",
+    "project_id": "YOUR_FIREBASE_PROJECT_ID",
+    "storage_bucket": "YOUR_FIREBASE_PROJECT_ID.appspot.com"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:000000000000:android:0000000000000000000000",
+        "android_client_info": {
+          "package_name": "com.example.mobile"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "REPLACE_ME"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

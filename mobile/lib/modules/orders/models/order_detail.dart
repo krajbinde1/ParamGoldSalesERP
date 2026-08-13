@@ -110,12 +110,19 @@ class OrderDetail {
     this.totalQuantityNos,
     this.dealer,
     this.approvedAt,
+    this.approvedAtLabel,
     this.approvedByName,
+    this.approvedByRole,
+    this.approvalSummary,
     this.rejectedAt,
     this.rejectedByName,
     this.rejectedByRole,
     this.rejectionRemark,
+    this.sentForBillAt,
+    this.sentForBillAtLabel,
+    this.sentForBillByName,
     this.billedAt,
+    this.billedAtLabel,
     this.billedByName,
     this.billUrl,
     this.dispatchedAt,
@@ -142,12 +149,19 @@ class OrderDetail {
   final List<OrderDetailItem> items;
   final OrderDealer? dealer;
   final String? approvedAt;
+  final String? approvedAtLabel;
   final String? approvedByName;
+  final String? approvedByRole;
+  final String? approvalSummary;
   final String? rejectedAt;
   final String? rejectedByName;
   final String? rejectedByRole;
   final String? rejectionRemark;
+  final String? sentForBillAt;
+  final String? sentForBillAtLabel;
+  final String? sentForBillByName;
   final String? billedAt;
+  final String? billedAtLabel;
   final String? billedByName;
   final String? billUrl;
   final String? dispatchedAt;
@@ -187,14 +201,21 @@ class OrderDetail {
           : int.tryParse('${json['total_quantity_nos']}'),
       canEdit: json['can_edit'] == true,
       approvedAt: json['approved_at']?.toString(),
+      approvedAtLabel: json['approved_at_label']?.toString(),
       approvedByName: json['approved_by_name']?.toString(),
+      approvedByRole: json['approved_by_role']?.toString(),
+      approvalSummary: json['approval_summary']?.toString(),
       rejectedAt: json['rejected_at']?.toString(),
       rejectedByName: json['rejected_by_name']?.toString(),
       rejectedByRole: json['rejected_by_role']?.toString(),
       rejectionRemark:
           json['rejection_remark']?.toString() ??
           json['rejection_reason']?.toString(),
+      sentForBillAt: json['sent_for_bill_at']?.toString(),
+      sentForBillAtLabel: json['sent_for_bill_at_label']?.toString(),
+      sentForBillByName: json['sent_for_bill_by_name']?.toString(),
       billedAt: json['billed_at']?.toString(),
+      billedAtLabel: json['billed_at_label']?.toString(),
       billedByName: json['billed_by_name']?.toString(),
       billUrl: json['bill_url']?.toString(),
       dispatchedAt: json['dispatched_at']?.toString(),
@@ -202,27 +223,30 @@ class OrderDetail {
       transportAmount: json['transport_amount'] == null
           ? null
           : double.tryParse('${json['transport_amount']}'),
-      dealer: dealerJson is Map
-          ? OrderDealer.fromJson(Map<String, dynamic>.from(dealerJson))
-          : null,
+      dealer: dealerJson is Map<String, dynamic>
+          ? OrderDealer.fromJson(dealerJson)
+          : (dealerJson is Map
+              ? OrderDealer.fromJson(Map<String, dynamic>.from(dealerJson))
+              : null),
       items: rawItems is List
           ? rawItems
-                .map(
-                  (item) => OrderDetailItem.fromJson(
-                    Map<String, dynamic>.from(item as Map),
-                  ),
-                )
-                .toList()
+              .whereType<Map>()
+              .map(
+                (item) => OrderDetailItem.fromJson(
+                  Map<String, dynamic>.from(item),
+                ),
+              )
+              .toList()
           : const [],
       timelineSteps: rawTimeline is List
           ? rawTimeline
-                .whereType<Map>()
-                .map(
-                  (step) => OrderTimelineStep.fromApi(
-                    Map<String, dynamic>.from(step),
-                  ),
-                )
-                .toList()
+              .whereType<Map>()
+              .map(
+                (step) => OrderTimelineStep.fromApi(
+                  Map<String, dynamic>.from(step),
+                ),
+              )
+              .toList()
           : const [],
     );
   }
@@ -242,7 +266,9 @@ class OrderTimelineStep {
     required this.isCurrent,
     required this.isRejected,
     this.actor,
+    this.actorRole,
     this.at,
+    this.statusText,
     this.remark,
   });
 
@@ -251,20 +277,25 @@ class OrderTimelineStep {
   final bool isCurrent;
   final bool isRejected;
   final String? actor;
+  final String? actorRole;
   final String? at;
+  final String? statusText;
   final String? remark;
 
   factory OrderTimelineStep.fromApi(Map<String, dynamic> json) {
     final completed = json['completed'] == true;
     final isRejection = json['is_rejection'] == true;
+    final isCurrent = json['is_current'] == true || (!completed || isRejection);
 
     return OrderTimelineStep(
       label: json['label']?.toString() ?? '',
       actor: json['actor']?.toString(),
+      actorRole: json['actor_role']?.toString(),
       at: json['at']?.toString(),
+      statusText: json['status_text']?.toString(),
       remark: json['remark']?.toString(),
       isComplete: completed,
-      isCurrent: !completed || isRejection,
+      isCurrent: isCurrent,
       isRejected: isRejection,
     );
   }
@@ -278,7 +309,7 @@ class OrderTimelineStep {
     if (OrderStatusRules.isRejectedBucket(value)) {
       return [
         const OrderTimelineStep(
-          label: 'Order Created',
+          label: 'Order Placed',
           isComplete: true,
           isCurrent: false,
           isRejected: false,
@@ -295,40 +326,58 @@ class OrderTimelineStep {
       ];
     }
 
+    final approvedDone = {
+      'approved',
+      'pending_for_billing',
+      'billed',
+      'dispatched',
+      'delivered',
+    }.contains(value);
+    final sentDone = {
+      'pending_for_billing',
+      'billed',
+      'dispatched',
+      'delivered',
+    }.contains(value);
+    final billedDone = {'billed', 'dispatched', 'delivered'}.contains(value);
+    final dispatchedDone = {'dispatched', 'delivered'}.contains(value);
+
     return [
-      OrderTimelineStep(
-        label: 'Pending Sales Manager Approval',
-        isComplete: !{
-          'pending_approval',
-          'pending',
-          'draft',
-          'processing',
-        }.contains(value),
-        isCurrent: {
-          'pending_approval',
-          'pending',
-          'draft',
-          'processing',
-        }.contains(value),
+      const OrderTimelineStep(
+        label: 'Order Placed',
+        isComplete: true,
+        isCurrent: false,
         isRejected: false,
       ),
       OrderTimelineStep(
         label: 'Approved by Sales Manager',
-        isComplete: {'billed', 'dispatched', 'delivered'}.contains(value),
-        isCurrent: value == 'approved',
+        isComplete: approvedDone,
+        isCurrent: !approvedDone,
         isRejected: false,
+        statusText: approvedDone ? null : 'Pending',
       ),
       OrderTimelineStep(
-        label: 'Billed by Admin',
-        isComplete: {'dispatched', 'delivered'}.contains(value),
-        isCurrent: value == 'billed',
+        label: 'Sent for Bill',
+        isComplete: sentDone,
+        isCurrent: approvedDone && !sentDone,
         isRejected: false,
+        statusText: sentDone
+            ? (billedDone ? null : 'Pending for Billing')
+            : 'Pending',
+      ),
+      OrderTimelineStep(
+        label: 'Billed',
+        isComplete: billedDone,
+        isCurrent: sentDone && !billedDone,
+        isRejected: false,
+        statusText: billedDone ? null : 'Pending',
       ),
       OrderTimelineStep(
         label: 'Dispatched',
-        isComplete: value == 'delivered',
-        isCurrent: value == 'dispatched',
+        isComplete: dispatchedDone,
+        isCurrent: billedDone && !dispatchedDone,
         isRejected: false,
+        statusText: dispatchedDone ? null : 'Pending',
       ),
     ];
   }

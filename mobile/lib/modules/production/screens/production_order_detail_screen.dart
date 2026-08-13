@@ -8,12 +8,17 @@ import '../../../core/api/api_client.dart';
 import '../../../core/api/api_errors.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/storage/session_store.dart';
+import '../../../core/utils/bill_document.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_detail_widgets.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
 import '../../../core/widgets/design/pg_status_badge.dart';
 import '../../../core/widgets/role_shell_widgets.dart';
 import '../../auth/providers/auth_controller.dart';
+import '../../orders/models/order.dart';
+import '../../orders/models/order_detail.dart';
+import '../../orders/widgets/order_invoice_products_table.dart';
+import '../../orders/widgets/order_widgets.dart';
 import '../api/production_api.dart';
 
 class ProductionOrderDetailScreen extends StatefulWidget {
@@ -85,11 +90,16 @@ class _ProductionOrderDetailScreenState
     return const {};
   }
 
-  bool get _isBilled =>
-      _order?['status']?.toString() == 'billed' &&
-      _order?['can_dispatch'] == true;
+  String get _status => _order?['status']?.toString() ?? '';
 
-  bool get _isDispatched => _order?['status']?.toString() == 'dispatched';
+  bool get _isPendingForBilling => _status == 'pending_for_billing';
+
+  bool get _isBilled =>
+      _status == 'billed' && (_order?['can_dispatch'] == true);
+
+  bool get _isDispatched => _status == 'dispatched';
+
+  bool get _canSendForBill => _order?['can_send_for_bill'] == true;
 
   bool get _canDispatch =>
       _isBilled && widget.auth.permissions.canDispatchOrders;
@@ -167,6 +177,165 @@ class _ProductionOrderDetailScreenState
     _validateAmount();
     return _amountError == null &&
         _transportAmountController.text.trim().isNotEmpty;
+  }
+
+  Future<void> _showSendForBillModal() async {
+    final vehicleController = TextEditingController(
+      text: _order?['vehicle_number']?.toString() ?? '',
+    );
+    final freightController = TextEditingController(
+      text: (_order?['transport_amount'] != null &&
+              (double.tryParse('${_order?['transport_amount']}') ?? 0) > 0)
+          ? (double.tryParse('${_order?['transport_amount']}') ?? 0)
+                .toStringAsFixed(2)
+          : '',
+    );
+    final remarkController = TextEditingController(
+      text: _order?['transport_remark']?.toString() ?? '',
+    );
+    String? formError;
+    var submitting = false;
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setModalState) {
+            return AlertDialog(
+              title: const Text('Send for Bill'),
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Order ${_order?['order_no'] ?? '-'}',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: vehicleController,
+                      textCapitalization: TextCapitalization.characters,
+                      decoration: const InputDecoration(
+                        labelText: 'Vehicle Number *',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: freightController,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(
+                          RegExp(r'^\d*\.?\d{0,2}'),
+                        ),
+                      ],
+                      decoration: const InputDecoration(
+                        labelText: 'Transport Freight *',
+                        prefixText: '₹ ',
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: remarkController,
+                      maxLines: 3,
+                      decoration: const InputDecoration(
+                        labelText: 'Transport Remark (optional)',
+                      ),
+                    ),
+                    if (formError != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        formError!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: submitting
+                      ? null
+                      : () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: submitting
+                      ? null
+                      : () {
+                          final vehicle = vehicleController.text.trim();
+                          final freight = double.tryParse(
+                            freightController.text.trim(),
+                          );
+                          if (vehicle.isEmpty) {
+                            setModalState(
+                              () => formError = 'Vehicle number is required.',
+                            );
+                            return;
+                          }
+                          if (freight == null || freight < 0) {
+                            setModalState(
+                              () => formError =
+                                  'Enter a valid transport freight amount.',
+                            );
+                            return;
+                          }
+                          Navigator.pop(context, true);
+                        },
+                  child: submitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Text('Confirm & Send for Bill'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    final vehicle = vehicleController.text.trim();
+    final freight =
+        double.tryParse(freightController.text.trim()) ?? 0;
+    final remark = remarkController.text.trim();
+    vehicleController.dispose();
+    freightController.dispose();
+    remarkController.dispose();
+
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _submitting = true);
+    try {
+      final updated = await _api.sendForBill(
+        widget.orderId,
+        vehicleNumber: vehicle,
+        transportFreight: freight,
+        transportRemark: remark.isEmpty ? null : remark,
+      );
+      if (!mounted) return;
+      setState(() {
+        _order = updated;
+        _future = Future.value(updated);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Order sent for billing.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(errorMessage(error))));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
   }
 
   Future<void> _dispatch() async {
@@ -269,6 +438,7 @@ class _ProductionOrderDetailScreenState
       decimalDigits: 2,
     );
     final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
+    final shortDate = DateFormat('dd MMM yyyy');
 
     return Scaffold(
       appBar: RoleAppBar(title: 'Order Details', auth: widget.auth),
@@ -288,6 +458,7 @@ class _ProductionOrderDetailScreenState
           final items = (order['items'] as List?) ?? const [];
           final dealer = order['dealer'] as Map?;
           final status = order['status']?.toString() ?? '';
+          final billUrl = order['bill_url']?.toString().trim() ?? '';
 
           return ListView(
             padding: const EdgeInsets.all(AppSpacing.screenPadding),
@@ -295,7 +466,10 @@ class _ProductionOrderDetailScreenState
               PgDetailHeader(
                 title: order['order_no']?.toString() ?? '-',
                 subtitle: dealer?['firm_name']?.toString() ?? '-',
-                badgeLabel: order['status_label']?.toString(),
+                badgeLabel: OrderStatusRules.badgeLabel(
+                  status,
+                  statusLabel: order['status_label']?.toString(),
+                ),
                 badgeTone: PgStatusRules.orderTone(status),
               ),
               const SizedBox(height: AppSpacing.md),
@@ -310,11 +484,16 @@ class _ProductionOrderDetailScreenState
                     const SizedBox(height: AppSpacing.sm),
                     PgInvoiceRow(
                       label: 'Order Date',
-                      value: _formatDate(order['order_date'], dateFormat),
+                      value: _formatDate(order['order_date'], shortDate),
                     ),
                     PgInvoiceRow(
                       label: 'Employee',
                       value: order['employee_name']?.toString() ?? '-',
+                    ),
+                    PgInvoiceRow(
+                      label: 'Payment Type',
+                      value: order['payment_type']?.toString() ?? '-',
+                      emphasize: true,
                     ),
                     PgInvoiceRow(
                       label: 'Dealer Mobile',
@@ -324,260 +503,200 @@ class _ProductionOrderDetailScreenState
                       label: 'Delivery Address',
                       value: dealer?['address']?.toString() ?? '-',
                     ),
-                      if (order['approved_at'] != null) ...[
-                        PgInvoiceRow(
-                          label: 'Approval Date',
-                          value: _formatDate(order['approved_at'], dateFormat),
+                    if (order['approved_at'] != null) ...[
+                      PgInvoiceRow(
+                        label: 'Approved By',
+                        value: order['approved_by_role']?.toString() ??
+                            'Sales Manager',
+                      ),
+                      PgInvoiceRow(
+                        label: 'Name',
+                        value: order['approved_by_name']?.toString() ?? '-',
+                      ),
+                      PgInvoiceRow(
+                        label: 'Approved On',
+                        value: order['approved_at_label']?.toString() ??
+                            _formatDate(order['approved_at'], dateFormat),
+                      ),
+                    ],
+                    if (order['sent_for_bill_at'] != null) ...[
+                      PgInvoiceRow(
+                        label: 'Sent for Bill By',
+                        value:
+                            order['sent_for_bill_by_name']?.toString() ?? '-',
+                      ),
+                      PgInvoiceRow(
+                        label: 'Sent On',
+                        value: order['sent_for_bill_at_label']?.toString() ??
+                            _formatDate(order['sent_for_bill_at'], dateFormat),
+                      ),
+                    ],
+                    if (order['billed_at'] != null) ...[
+                      PgInvoiceRow(
+                        label: 'Billed By',
+                        value: order['billed_by_name']?.toString() ?? '-',
+                      ),
+                      PgInvoiceRow(
+                        label: 'Billed On',
+                        value: order['billed_at_label']?.toString() ??
+                            _formatDate(order['billed_at'], dateFormat),
+                      ),
+                    ],
+                    if (_isPendingForBilling ||
+                        _isBilled ||
+                        _isDispatched ||
+                        order['vehicle_number'] != null) ...[
+                      PgInvoiceRow(
+                        label: 'Vehicle Number',
+                        value: order['vehicle_number']?.toString() ?? '-',
+                      ),
+                      PgInvoiceRow(
+                        label: 'Transport Freight',
+                        value: currency.format(
+                          double.tryParse(
+                                '${order['transport_amount'] ?? order['transport_freight'] ?? 0}',
+                              ) ??
+                              0,
                         ),
+                      ),
+                      if ((order['transport_remark']?.toString() ?? '')
+                          .isNotEmpty)
                         PgInvoiceRow(
-                          label: 'Approved By',
-                          value: order['approved_by_name']?.toString() ?? '-',
+                          label: 'Transport Remark',
+                          value: order['transport_remark'].toString(),
                         ),
-                      ],
-                      if (order['approval_remark'] != null &&
-                          order['approval_remark'].toString().isNotEmpty)
-                        PgInvoiceRow(
-                          label: 'Approval Remark',
-                          value: order['approval_remark'].toString(),
+                    ],
+                    if (order['billed_at'] != null ||
+                        order['bill_number'] != null) ...[
+                      PgInvoiceRow(
+                        label: 'Bill Number',
+                        value: order['bill_number']?.toString() ?? '-',
+                      ),
+                      PgInvoiceRow(
+                        label: 'Bill Date',
+                        value: _formatDate(
+                          order['bill_date'] ?? order['billed_at'],
+                          shortDate,
                         ),
-                      if (order['billed_at'] != null) ...[
-                        PgInvoiceRow(
-                          label: 'Billed At',
-                          value: _formatDate(order['billed_at'], dateFormat),
-                        ),
-                        PgInvoiceRow(
-                          label: 'Bill Number',
-                          value: order['bill_number']?.toString() ?? '-',
-                        ),
+                      ),
+                      if (order['billed_by_name'] != null)
                         PgInvoiceRow(
                           label: 'Billed By',
                           value: order['billed_by_name']?.toString() ?? '-',
                         ),
-                      ],
-                      if (_isDispatched) ...[
-                        PgInvoiceRow(
-                          label: 'Dispatched At',
-                          value: _formatDate(order['dispatched_at'], dateFormat),
-                        ),
-                        PgInvoiceRow(
-                          label: 'Dispatched By',
-                          value: order['dispatched_by_name']?.toString() ?? '-',
-                        ),
-                        if (order['dispatch_remark'] != null &&
-                            order['dispatch_remark'].toString().isNotEmpty)
-                          PgInvoiceRow(
-                            label: 'Dispatch Remark',
-                            value: order['dispatch_remark'].toString(),
-                          ),
-                      ],
                     ],
+                    if (_isDispatched) ...[
+                      PgInvoiceRow(
+                        label: 'Dispatched At',
+                        value: _formatDate(order['dispatched_at'], dateFormat),
+                      ),
+                      PgInvoiceRow(
+                        label: 'Dispatched By',
+                        value: order['dispatched_by_name']?.toString() ?? '-',
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (billUrl.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.md),
+                OutlinedButton.icon(
+                  onPressed: () => openBillDocument(
+                    context,
+                    url: billUrl,
+                    title: 'Bill ${order['bill_number'] ?? ''}'.trim(),
+                  ),
+                  icon: const Icon(Icons.picture_as_pdf_outlined),
+                  label: const Text('View Bill'),
+                ),
+              ],
+              if (_canSendForBill) ...[
+                const SizedBox(height: AppSpacing.md),
+                FilledButton.icon(
+                  onPressed: _submitting ? null : _showSendForBillModal,
+                  icon: _submitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.send_outlined),
+                  label: Text(
+                    _submitting ? 'Sending...' : 'Send for Bill',
                   ),
                 ),
-              if (status == 'approved') ...[
+              ],
+              if (_isPendingForBilling) ...[
                 const SizedBox(height: AppSpacing.md),
                 PgCard(
                   child: Text(
-                    'Approved for production planning. Mark as Dispatched becomes available after Admin marks this order as Billed.',
+                    'This order is pending for Admin billing.',
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ),
               ],
-              if (order['bill_url'] != null) ...[
-                const SizedBox(height: AppSpacing.md),
-                PgCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Uploaded Bill',
-                        style: Theme.of(context).textTheme.titleMedium,
+              const SizedBox(height: AppSpacing.md),
+              OrderInvoiceProductsCard(
+                lines: items
+                    .map(
+                      (raw) => OrderInvoiceLine.fromMap(
+                        Map<String, dynamic>.from(raw as Map),
                       ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        order['bill_number']?.toString().isNotEmpty == true
-                            ? 'Bill No: ${order['bill_number']}'
-                            : 'Bill document available',
-                      ),
-                    ],
-                  ),
+                    )
+                    .toList(growable: false),
+                summary: OrderInvoiceSummaryBlock(
+                  subtotal: double.tryParse(
+                        '${calc['gross_amount'] ?? order['gross_amount'] ?? order['subtotal'] ?? 0}',
+                      ) ??
+                      0,
+                  discount: double.tryParse(
+                        '${calc['total_discount'] ?? order['total_discount'] ?? order['discount_amount'] ?? 0}',
+                      ) ??
+                      0,
+                  gst: double.tryParse(
+                        '${calc['total_gst'] ?? order['total_gst'] ?? order['gst_amount'] ?? 0}',
+                      ) ??
+                      0,
+                  grandTotal: double.tryParse(
+                        '${calc['grand_total'] ?? order['grand_total'] ?? 0}',
+                      ) ??
+                      0,
+                  transport: order['transport_amount'] == null
+                      ? null
+                      : double.tryParse('${order['transport_amount']}') ?? 0,
                 ),
-              ],
+              ),
               const SizedBox(height: AppSpacing.md),
               PgCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Products',
+                      'Status Timeline',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
                     const SizedBox(height: AppSpacing.sm),
-                      ...items.map((raw) {
-                        final item = Map<String, dynamic>.from(raw as Map);
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 14),
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                item['product_name']?.toString() ?? '-',
-                                style: Theme.of(context).textTheme.titleSmall,
-                              ),
-                              if (item['product_code'] != null)
-                                Text(
-                                  item['product_code'].toString(),
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              const SizedBox(height: 8),
-                              PgInvoiceRow(
-                                label: 'Quantity',
-                                value: _caseWiseSummary(item),
-                              ),
-                              PgInvoiceRow(
-                                label: 'Rate Per No',
-                                value: currency.format(
-                                  double.tryParse(
-                                        '${item['rate_per_no'] ?? item['rate'] ?? 0}',
-                                      ) ??
-                                      0,
-                                ),
-                              ),
-                              PgInvoiceRow(
-                                label: 'Discount %',
-                                value:
-                                    '${_formatPercent(item['discount_percentage'])}%',
-                              ),
-                              PgInvoiceRow(
-                                label: 'Discount Amount',
-                                value: currency.format(
-                                  double.tryParse(
-                                        '${item['discount_amount'] ?? 0}',
-                                      ) ??
-                                      0,
-                                ),
-                              ),
-                              PgInvoiceRow(
-                                label: 'Taxable Amount',
-                                value: currency.format(
-                                  double.tryParse(
-                                        '${item['taxable_after_transport'] ?? item['taxable_before_transport'] ?? 0}',
-                                      ) ??
-                                      0,
-                                ),
-                              ),
-                              PgInvoiceRow(
-                                label: 'GST %',
-                                value:
-                                    '${_formatPercent(item['gst_percentage'])}%',
-                              ),
-                              PgInvoiceRow(
-                                label: 'GST Amount',
-                                value: currency.format(
-                                  double.tryParse(
-                                        '${item['gst_amount'] ?? 0}',
-                                      ) ??
-                                      0,
-                                ),
-                              ),
-                              PgInvoiceRow(
-                                label: 'Line Total',
-                                value: currency.format(
-                                  double.tryParse(
-                                        '${item['line_total'] ?? 0}',
-                                      ) ??
-                                      0,
-                                ),
-                                emphasize: true,
-                              ),
-                              if (item != items.last) const Divider(),
-                            ],
-                          ),
-                        );
-                      }),
-                    ],
-                  ),
-                ),
-              const SizedBox(height: AppSpacing.md),
-              PgCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Order Summary',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    PgInvoiceRow(
-                      label: 'Gross Product Amount',
-                      value: currency.format(
-                        double.tryParse(
-                              '${calc['gross_amount'] ?? order['gross_amount'] ?? 0}',
-                            ) ??
-                            0,
-                      ),
-                    ),
-                    PgInvoiceRow(
-                      label: 'Total Discount',
-                      value: currency.format(
-                        double.tryParse(
-                              '${calc['total_discount'] ?? order['total_discount'] ?? 0}',
-                            ) ??
-                            0,
-                      ),
-                    ),
-                    PgInvoiceRow(
-                      label: 'Subtotal Before Transport',
-                      value: currency.format(
-                        double.tryParse(
-                              '${calc['subtotal_before_transport'] ?? 0}',
-                            ) ??
-                            0,
-                      ),
-                      emphasize: true,
-                    ),
-                    if (_transportType != null ||
-                        order['transport_type'] != null) ...[
-                      PgInvoiceRow(
-                        label: 'Transport Type',
-                        value: order['transport_type_label']?.toString() ??
-                            (_transportType == 'outside_transport'
-                                ? 'Outside Transport'
-                                : 'Company Transport'),
-                      ),
-                      PgInvoiceRow(
-                        label: 'Transport Amount',
-                        value:
-                            '- ${currency.format(double.tryParse('${calc['transport_amount'] ?? order['transport_amount'] ?? 0}') ?? 0)}',
-                      ),
-                    ],
-                    PgInvoiceRow(
-                      label: 'Taxable After Transport',
-                      value: currency.format(
-                        double.tryParse(
-                              '${calc['taxable_amount_after_transport'] ?? order['taxable_amount_after_transport'] ?? 0}',
-                            ) ??
-                            0,
-                      ),
-                    ),
-                    PgInvoiceRow(
-                      label: 'Total GST',
-                      value: currency.format(
-                        double.tryParse(
-                              '${calc['total_gst'] ?? order['total_gst'] ?? order['gst_amount'] ?? 0}',
-                            ) ??
-                            0,
-                      ),
-                    ),
-                    PgInvoiceRow(
-                      label: 'Grand Total',
-                      value: currency.format(
-                        double.tryParse(
-                              '${calc['grand_total'] ?? order['grand_total'] ?? 0}',
-                            ) ??
-                            0,
-                      ),
-                      isTotal: true,
-                    ),
+                    ...() {
+                      final rawTimeline =
+                          (order['timeline'] as List?) ?? const [];
+                      final timeline = rawTimeline
+                          .whereType<Map>()
+                          .map(
+                            (step) => OrderTimelineStep.fromApi(
+                              Map<String, dynamic>.from(step),
+                            ),
+                          )
+                          .toList();
+                      final steps = timeline.isNotEmpty
+                          ? timeline
+                          : OrderTimelineStep.build(status);
+                      return steps.asMap().entries.map(
+                        (entry) => OrderTimelineRow(
+                          step: entry.value,
+                          isLast: entry.key == steps.length - 1,
+                        ),
+                      );
+                    }(),
                   ],
                 ),
               ),
@@ -588,65 +707,65 @@ class _ProductionOrderDetailScreenState
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Transport Details',
+                        'Dispatch Transport',
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: AppSpacing.sm),
-                        Text(
-                          'Transport Type *',
-                          style: Theme.of(context).textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 8),
-                        SegmentedButton<String>(
-                          segments: const [
-                            ButtonSegment(
-                              value: 'company_transport',
-                              label: Text('Company'),
-                            ),
-                            ButtonSegment(
-                              value: 'outside_transport',
-                              label: Text('Outside'),
-                            ),
-                          ],
-                          selected: _transportType != null
-                              ? {_transportType!}
-                              : const {},
-                          emptySelectionAllowed: true,
-                          onSelectionChanged: (selection) {
-                            if (selection.isEmpty) return;
-                            _onTransportTypeChanged(selection.first);
-                          },
-                        ),
-                        const SizedBox(height: 16),
-                        TextField(
-                          controller: _transportAmountController,
-                          enabled: _transportType != null,
-                          keyboardType: const TextInputType.numberWithOptions(
-                            decimal: true,
+                      Text(
+                        'Transport Type *',
+                        style: Theme.of(context).textTheme.bodyMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      SegmentedButton<String>(
+                        segments: const [
+                          ButtonSegment(
+                            value: 'company_transport',
+                            label: Text('Company'),
                           ),
-                          inputFormatters: [
-                            FilteringTextInputFormatter.allow(
-                              RegExp(r'^\d*\.?\d{0,2}'),
-                            ),
-                          ],
-                          decoration: InputDecoration(
-                            labelText: 'Transport Amount *',
-                            prefixText: '₹ ',
-                            errorText: _amountError,
-                            suffixIcon: _calculating
-                                ? const Padding(
-                                    padding: EdgeInsets.all(12),
-                                    child: SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
+                          ButtonSegment(
+                            value: 'outside_transport',
+                            label: Text('Outside'),
+                          ),
+                        ],
+                        selected: _transportType != null
+                            ? {_transportType!}
+                            : const {},
+                        emptySelectionAllowed: true,
+                        onSelectionChanged: (selection) {
+                          if (selection.isEmpty) return;
+                          _onTransportTypeChanged(selection.first);
+                        },
+                      ),
+                      const SizedBox(height: 16),
+                      TextField(
+                        controller: _transportAmountController,
+                        enabled: _transportType != null,
+                        keyboardType: const TextInputType.numberWithOptions(
+                          decimal: true,
+                        ),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(
+                            RegExp(r'^\d*\.?\d{0,2}'),
+                          ),
+                        ],
+                        decoration: InputDecoration(
+                          labelText: 'Transport Amount *',
+                          prefixText: '₹ ',
+                          errorText: _amountError,
+                          suffixIcon: _calculating
+                              ? const Padding(
+                                  padding: EdgeInsets.all(12),
+                                  child: SizedBox(
+                                    width: 18,
+                                    height: 18,
+                                    child: CircularProgressIndicator(
+                                      strokeWidth: 2,
                                     ),
-                                  )
-                                : null,
-                          ),
+                                  ),
+                                )
+                              : null,
                         ),
+                      ),
                     ],
                   ),
                 ),
@@ -673,24 +792,6 @@ class _ProductionOrderDetailScreenState
     if (value == null) return '-';
     final parsed = DateTime.tryParse(value.toString());
     return parsed == null ? value.toString() : format.format(parsed.toLocal());
-  }
-
-  String _formatPercent(Object? value) {
-    final parsed = double.tryParse('$value') ?? 0;
-    return parsed % 1 == 0
-        ? parsed.toStringAsFixed(0)
-        : parsed.toStringAsFixed(2);
-  }
-
-  String _caseWiseSummary(Map<String, dynamic> item) {
-    final display = item['display_summary']?.toString();
-    if (display != null && display.isNotEmpty) return display;
-
-    final cases = int.tryParse('${item['case_quantity'] ?? 0}') ?? 0;
-    final nosPerCase = int.tryParse('${item['nos_per_case'] ?? 0}') ?? 0;
-    final totalNos =
-        int.tryParse('${item['total_quantity_nos'] ?? 0}') ?? cases * nosPerCase;
-    return '$cases Cases × $nosPerCase Nos = $totalNos Nos';
   }
 }
 
