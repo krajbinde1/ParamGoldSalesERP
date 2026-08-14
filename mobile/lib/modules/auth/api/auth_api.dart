@@ -2,11 +2,18 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/api/api_errors.dart';
+import '../../../core/storage/device_id_store.dart';
 import '../models/auth_session.dart';
 
 class AuthApiException implements Exception {
-  const AuthApiException(this.message);
+  const AuthApiException(this.message, {this.code});
   final String message;
+  final String? code;
+
+  bool get isSessionReplaced =>
+      code == SessionReplacedException.code ||
+      message.toLowerCase().contains('signed in on another device');
+
   @override
   String toString() => message;
 }
@@ -17,9 +24,17 @@ class AuthApi {
 
   Future<AuthSession> login(String loginId, String password) async {
     try {
+      final deviceId = await DeviceIdStore().getOrCreate();
       final response = await _dio.post(
         '/login',
-        data: {'login_id': loginId, 'password': password},
+        data: {
+          'login_id': loginId,
+          'password': password,
+          'device_id': deviceId,
+        },
+        options: Options(
+          headers: {'X-Device-Id': deviceId},
+        ),
       );
       debugPrint('AuthApi.login HTTP status=${response.statusCode}');
       final data = response.data;
@@ -84,6 +99,7 @@ class AuthApi {
   AuthApiException _exception(DioException error) {
     final body = error.response?.data;
     final message = body is Map ? body['message']?.toString() : null;
+    final code = body is Map ? body['code']?.toString() : null;
     if (error.type == DioExceptionType.connectionTimeout ||
         error.type == DioExceptionType.sendTimeout ||
         error.type == DioExceptionType.receiveTimeout) {
@@ -91,6 +107,14 @@ class AuthApi {
     }
     if (isConnectionFailure(error)) {
       return AuthApiException(connectionFailureMessage());
+    }
+    if (error.response?.statusCode == 401 &&
+        (code == SessionReplacedException.code ||
+            isSessionReplacedResponse(body))) {
+      return const AuthApiException(
+        SessionReplacedException.userMessage,
+        code: SessionReplacedException.code,
+      );
     }
     if (error.response?.statusCode == 401) {
       return const AuthApiException('Session expired. Please login again.');
@@ -101,6 +125,6 @@ class AuthApi {
     if (error.response?.statusCode == 422) {
       return const AuthApiException('Invalid mobile number or password');
     }
-    return AuthApiException(message ?? connectionFailureMessage());
+    return AuthApiException(message ?? connectionFailureMessage(), code: code);
   }
 }

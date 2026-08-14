@@ -10,9 +10,17 @@ use Throwable;
 /**
  * Minimal FCM HTTP v1 client using a Google service-account JSON.
  * Does not throw into business flows — failures are logged only.
+ *
+ * Android delivery uses HIGH-priority data messages (title/body in data).
+ * The Flutter app renders system/local notifications on the high-importance
+ * channel so heads-up, sound, vibration, and action buttons work reliably.
  */
 final class FcmHttpClient
 {
+    public const CHANNEL_APPROVALS = 'paramgold_approvals_v2';
+
+    public const CHANNEL_STATUS = 'paramgold_status_v2';
+
     public function isConfigured(): bool
     {
         if (! config('firebase.enabled', true)) {
@@ -54,20 +62,32 @@ final class FcmHttpClient
         $url = "https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send";
 
         foreach ($tokens as $token) {
+            $channelId = (string) ($data['channel_id']
+                ?? ($android['notification']['channel_id'] ?? self::CHANNEL_STATUS));
+
+            // Normalize legacy channel IDs to the high-importance v2 channels.
+            $channelId = match ($channelId) {
+                'order_approvals', 'paramgold_approvals' => self::CHANNEL_APPROVALS,
+                'order_status', 'paramgold_status' => self::CHANNEL_STATUS,
+                default => $channelId !== '' ? $channelId : self::CHANNEL_STATUS,
+            };
+
+            $dataPayload = $this->stringifyData(array_merge($data, [
+                'title' => (string) ($notification['title'] ?? ($data['title'] ?? '')),
+                'body' => (string) ($notification['body'] ?? ($data['body'] ?? '')),
+                'channel_id' => $channelId,
+            ]));
+
+            // Data-only + HIGH priority: Flutter shows the system notification
+            // (avoids low-importance auto-created FCM channels and enables actions).
             $payload = [
                 'message' => [
                     'token' => $token,
-                    'notification' => $notification,
-                    'data' => $this->stringifyData($data),
-                    'android' => array_replace_recursive([
+                    'data' => $dataPayload,
+                    'android' => [
                         'priority' => 'HIGH',
-                        'notification' => [
-                            'channel_id' => $data['channel_id'] ?? 'order_status',
-                            'sound' => 'default',
-                            'default_vibrate_timings' => true,
-                            'notification_priority' => 'PRIORITY_MAX',
-                        ],
-                    ], $android),
+                        'ttl' => '86400s',
+                    ],
                 ],
             ];
 

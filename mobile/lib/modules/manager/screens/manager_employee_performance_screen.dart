@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/api/api_errors.dart';
+import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/widgets/design/pg_card.dart';
@@ -116,31 +117,22 @@ class _ManagerEmployeePerformanceScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (final period in ['today', 'week', 'month'])
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(_periodLabel(period)),
-                            selected: _period == period,
-                            onSelected: (selected) {
-                              if (selected) _setPeriod(period);
-                            },
-                          ),
-                        ),
-                      ChoiceChip(
-                        label: const Text('Custom'),
-                        selected: _period == 'custom',
-                        onSelected: (selected) {
-                          if (selected) _pickCustomRange();
-                        },
-                      ),
-                    ],
-                  ),
+                _PeriodSelector(
+                  selected: _period,
+                  onSelected: _setPeriod,
+                  onCustom: _pickCustomRange,
                 ),
+                if (_period == 'custom' &&
+                    _startDate != null &&
+                    _endDate != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '$_startDate → $_endDate',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 TextField(
                   controller: _searchController,
@@ -300,15 +292,126 @@ class _ManagerEmployeePerformanceScreenState
     );
   }
 
-  String _periodLabel(String period) => switch (period) {
-    'today' => 'Today',
-    'week' => 'This Week',
-    'month' => 'This Month',
-    _ => period,
-  };
-
   double _toDouble(Object? value) =>
       double.tryParse('$value') ?? 0;
+}
+
+/// Responsive period pills for Employee Performance (UI only).
+class _PeriodSelector extends StatelessWidget {
+  const _PeriodSelector({
+    required this.selected,
+    required this.onSelected,
+    required this.onCustom,
+  });
+
+  final String selected;
+  final ValueChanged<String> onSelected;
+  final VoidCallback onCustom;
+
+  static const _options = <(String label, String value)>[
+    ('Today', 'today'),
+    ('This Week', 'week'),
+    ('This Month', 'month'),
+    ('Custom', 'custom'),
+  ];
+
+  static const double _height = 40;
+  static const double _gap = 8;
+  static const double _radius = 20;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        // Approximate natural widths so we know when to switch to scroll mode.
+        const approxWidths = [72.0, 96.0, 104.0, 80.0];
+        final needed = approxWidths.reduce((a, b) => a + b) +
+            (_gap * (_options.length - 1));
+        final useScroll = constraints.maxWidth < needed;
+
+        Widget pill(
+          String label,
+          String value, {
+          bool compact = false,
+        }) {
+          final isSelected = selected == value;
+          return Material(
+            color: isSelected
+                ? AppColors.primary.withValues(alpha: 0.12)
+                : AppColors.surface,
+            borderRadius: BorderRadius.circular(_radius),
+            child: InkWell(
+              onTap: () {
+                if (value == 'custom') {
+                  onCustom();
+                } else {
+                  onSelected(value);
+                }
+              },
+              borderRadius: BorderRadius.circular(_radius),
+              child: Container(
+                height: _height,
+                alignment: Alignment.center,
+                padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 12),
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(_radius),
+                  border: Border.all(
+                    color: isSelected ? AppColors.primary : AppColors.border,
+                    width: isSelected ? 1.5 : 1,
+                  ),
+                ),
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  softWrap: false,
+                  overflow: compact
+                      ? TextOverflow.ellipsis
+                      : TextOverflow.visible,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: compact ? 12 : 13,
+                    height: 1.1,
+                    fontWeight:
+                        isSelected ? FontWeight.w700 : FontWeight.w500,
+                    color: isSelected
+                        ? AppColors.primary
+                        : AppColors.textSecondary,
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
+        if (!useScroll) {
+          return Row(
+            children: [
+              for (var i = 0; i < _options.length; i++) ...[
+                if (i > 0) const SizedBox(width: _gap),
+                Expanded(
+                  child: pill(_options[i].$1, _options[i].$2, compact: true),
+                ),
+              ],
+            ],
+          );
+        }
+
+        return SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          physics: const BouncingScrollPhysics(),
+          clipBehavior: Clip.hardEdge,
+          child: Row(
+            children: [
+              for (var i = 0; i < _options.length; i++) ...[
+                if (i > 0) const SizedBox(width: _gap),
+                pill(_options[i].$1, _options[i].$2),
+              ],
+            ],
+          ),
+        );
+      },
+    );
+  }
 }
 
 class ManagerEmployeeDetailScreen extends StatefulWidget {

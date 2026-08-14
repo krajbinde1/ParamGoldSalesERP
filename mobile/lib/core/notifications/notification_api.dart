@@ -9,6 +9,7 @@ class NotificationApi {
     String token, {
     required String platform,
     String? deviceName,
+    String? installationId,
   }) async {
     try {
       await _dio.post(
@@ -17,6 +18,8 @@ class NotificationApi {
           'token': token,
           'platform': platform,
           'device_name': ?deviceName,
+          'installation_id': ?installationId,
+          'device_id': ?installationId,
         },
       );
     } on DioException catch (error) {

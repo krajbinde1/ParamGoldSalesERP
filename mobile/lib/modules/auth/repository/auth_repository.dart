@@ -43,7 +43,15 @@ class AuthRepository {
       }
       // Auth rejected (401/403/etc.) — clear stale credentials.
       await store.clear();
-      return AuthRestoreResult(session: null, connectionError: error);
+      return AuthRestoreResult(
+        session: null,
+        connectionError: error.isSessionReplaced
+            ? const AuthApiException(
+                SessionReplacedException.userMessage,
+                code: SessionReplacedException.code,
+              )
+            : error,
+      );
     } catch (_) {
       return AuthRestoreResult(
         session: stored,

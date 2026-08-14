@@ -5,21 +5,19 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
-class DeviceToken extends Model
+class RevokedMobileToken extends Model
 {
     protected $fillable = [
         'user_id',
-        'token',
-        'platform',
-        'device_name',
-        'installation_id',
-        'last_used_at',
+        'token_hash',
+        'device_id',
+        'revoked_at',
     ];
 
     protected function casts(): array
     {
         return [
-            'last_used_at' => 'datetime',
+            'revoked_at' => 'datetime',
         ];
     }
 

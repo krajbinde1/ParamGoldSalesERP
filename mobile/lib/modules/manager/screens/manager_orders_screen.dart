@@ -657,18 +657,8 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
     }
   }
 
-  String _dealerLocation(Map<String, dynamic> dealer) {
-    return [
-      dealer['village'],
-      dealer['taluka'],
-      dealer['district'],
-    ].whereType<Object>().map((part) => part.toString().trim()).where((part) => part.isNotEmpty).join(', ');
-  }
-
   @override
   Widget build(BuildContext context) {
-    final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
-
     return Scaffold(
       appBar: RoleAppBar(title: 'Order Review', auth: widget.auth),
       body: FutureBuilder<Map<String, dynamic>>(
@@ -693,7 +683,6 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
           final dealer = order['dealer'] is Map
               ? Map<String, dynamic>.from(order['dealer'] as Map)
               : <String, dynamic>{};
-          final dealerLocation = _dealerLocation(dealer);
           final billUrl = order['bill_url']?.toString() ?? '';
           final timeline = ((order['timeline'] as List?) ?? const [])
               .map(
@@ -725,99 +714,36 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
                     ),
                     const SizedBox(height: AppSpacing.sm),
                     PgInvoiceRow(
-                      label: 'Order Number',
-                      value: order['order_no']?.toString() ?? '-',
+                      label: 'Order Date',
+                      value: _formatDate(
+                        order['order_date'] ?? order['created_at'],
+                        DateFormat('dd MMM yyyy'),
+                      ),
                     ),
                     PgInvoiceRow(
-                      label: 'Order Date & Time',
-                      value: _formatDate(order['created_at'], dateFormat),
+                      label: 'Created By',
+                      value: order['employee_name']?.toString() ??
+                          order['created_by_name']?.toString() ??
+                          '-',
                     ),
-                    PgInvoiceRow(
-                      label: 'Sales Person',
-                      value: order['employee_name']?.toString() ?? '-',
-                    ),
-                    PgInvoiceRow(
-                      label: 'Employee Code',
-                      value: order['employee_code']?.toString() ?? '-',
-                    ),
-                    if (order['approved_at'] != null) ...[
-                      PgInvoiceRow(
-                        label: 'Approved By',
-                        value: order['approved_by_role']?.toString() ??
-                            'Sales Manager',
-                      ),
-                      PgInvoiceRow(
-                        label: 'Name',
-                        value: order['approved_by_name']?.toString() ?? '-',
-                      ),
-                      PgInvoiceRow(
-                        label: 'Approved On',
-                        value: order['approved_at_label']?.toString() ??
-                            _formatDate(order['approved_at'], dateFormat),
-                      ),
-                    ],
-                    if (order['sent_for_bill_at'] != null) ...[
-                      PgInvoiceRow(
-                        label: 'Sent for Bill By',
-                        value:
-                            order['sent_for_bill_by_name']?.toString() ?? '-',
-                      ),
-                      PgInvoiceRow(
-                        label: 'Sent On',
-                        value: order['sent_for_bill_at_label']?.toString() ??
-                            _formatDate(order['sent_for_bill_at'], dateFormat),
-                      ),
-                    ],
-                    if (order['billed_at'] != null) ...[
-                      PgInvoiceRow(
-                        label: 'Billed By',
-                        value: order['billed_by_name']?.toString() ?? '-',
-                      ),
-                      PgInvoiceRow(
-                        label: 'Billed On',
-                        value: order['billed_at_label']?.toString() ??
-                            _formatDate(order['billed_at'], dateFormat),
-                      ),
-                    ],
                     PgInvoiceRow(
                       label: 'Dealer Name',
-                      value: dealer['firm_name']?.toString() ?? '-',
+                      value: dealer['firm_name']?.toString() ??
+                          order['dealer_name']?.toString() ??
+                          '-',
                     ),
                     PgInvoiceRow(
-                      label: 'Dealer Code',
-                      value: dealer['dealer_code']?.toString() ?? '-',
+                      label: 'Dealer Village',
+                      value: (dealer['village']?.toString() ?? '')
+                              .trim()
+                              .isNotEmpty
+                          ? dealer['village'].toString().trim()
+                          : '-',
                     ),
-                    PgInvoiceRow(
-                      label: 'Dealer Location',
-                      value: dealerLocation.isEmpty ? '-' : dealerLocation,
-                    ),
-                    if (order['last_edited_by_name'] != null) ...[
-                      PgInvoiceRow(
-                        label: 'Last Edited By',
-                        value: order['last_edited_by_name'].toString(),
-                      ),
-                      PgInvoiceRow(
-                        label: 'Last Edited At',
-                        value: _formatDate(order['last_edited_at'], dateFormat),
-                      ),
-                    ],
-                    if (order['rejected_at'] != null) ...[
-                      PgInvoiceRow(
-                        label: 'Rejected By',
-                        value: order['rejected_by_name']?.toString() ?? '-',
-                      ),
-                      PgInvoiceRow(
-                        label: 'Rejection Remark',
-                        value: order['rejection_remark']?.toString() ?? '-',
-                      ),
-                      PgInvoiceRow(
-                        label: 'Rejected At',
-                        value: _formatDate(order['rejected_at'], dateFormat),
-                      ),
-                    ],
                   ],
                 ),
               ),
+
               if (billUrl.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.md),
                 FilledButton.icon(
@@ -832,6 +758,9 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
               ],
               const SizedBox(height: AppSpacing.md),
               OrderInvoiceProductsCard(
+                freezeProductColumn: true,
+                spaciousLayout: true,
+                showSplitTaxColumns: true,
                 lines: items
                     .map(
                       (item) => OrderInvoiceLine.fromMap(

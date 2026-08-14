@@ -30,6 +30,7 @@ class _LoginScreenState extends State<LoginScreen> {
   @override
   void initState() {
     super.initState();
+    widget.auth.addListener(_onAuthMessage);
     WidgetsBinding.instance.addPostFrameCallback((_) => _showStartupMessage());
   }
 
@@ -42,12 +43,33 @@ class _LoginScreenState extends State<LoginScreen> {
       SnackBar(
         content: Text(message),
         behavior: SnackBarBehavior.floating,
+        backgroundColor: message.toLowerCase().contains('signed in on another device')
+            ? AppColors.error
+            : null,
       ),
     );
+    widget.auth.clearMessage();
+  }
+
+  void _onAuthMessage() {
+    if (!mounted) return;
+    final message = widget.auth.message;
+    if (message == null || message.isEmpty) return;
+    if (message.toLowerCase().contains('signed in on another device')) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          behavior: SnackBarBehavior.floating,
+          backgroundColor: AppColors.error,
+        ),
+      );
+      widget.auth.clearMessage();
+    }
   }
 
   @override
   void dispose() {
+    widget.auth.removeListener(_onAuthMessage);
     _mobile.dispose();
     _password.dispose();
     super.dispose();
@@ -85,6 +107,7 @@ class _LoginScreenState extends State<LoginScreen> {
     if (raw == null || raw.trim().isEmpty) return _friendlyLoginError;
     final lower = raw.toLowerCase();
     if (lower.contains('session expired')) return raw;
+    if (lower.contains('signed in on another device')) return raw;
     return _friendlyLoginError;
   }
 

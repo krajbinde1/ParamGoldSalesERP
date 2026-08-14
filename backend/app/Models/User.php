@@ -36,6 +36,10 @@ class User extends Authenticatable implements FilamentUser
         'password_reset_at',
         'login_id_changed_by',
         'login_id_changed_at',
+        'active_mobile_session_id',
+        'active_mobile_device_id',
+        'active_mobile_token_id',
+        'active_mobile_login_at',
     ];
 
     /**
@@ -55,6 +59,7 @@ class User extends Authenticatable implements FilamentUser
             'can_view_production_costs' => 'boolean',
             'password_reset_at' => 'datetime',
             'login_id_changed_at' => 'datetime',
+            'active_mobile_login_at' => 'datetime',
         ];
     }
 

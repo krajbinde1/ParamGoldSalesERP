@@ -245,7 +245,7 @@ final class PaymentRequestPushNotifier
                         'status' => $status,
                         'route' => '/director/payment-requests',
                         'action' => 'review',
-                        'channel_id' => 'order_approvals',
+                        'channel_id' => 'paramgold_approvals_v2',
                         'fullscreen' => '1',
                     ],
                 ]);
@@ -259,7 +259,7 @@ final class PaymentRequestPushNotifier
                 'status' => $status,
                 'route' => '/director/payment-requests',
                 'action' => 'review',
-                'channel_id' => 'order_approvals',
+                'channel_id' => 'paramgold_approvals_v2',
                 'fullscreen' => '1',
             ];
 
@@ -270,7 +270,7 @@ final class PaymentRequestPushNotifier
                 data: $data,
                 android: [
                     'notification' => [
-                        'channel_id' => 'order_approvals',
+                        'channel_id' => 'paramgold_approvals_v2',
                         'notification_priority' => 'PRIORITY_MAX',
                         'default_vibrate_timings' => true,
                         'sound' => 'default',
@@ -322,7 +322,7 @@ final class PaymentRequestPushNotifier
                 'status_label' => $paymentRequest->displayStatusLabel(),
                 'route' => "/director/payment-requests/{$paymentRequest->id}",
                 'action' => 'view_payment_request',
-                'channel_id' => 'order_status',
+                'channel_id' => 'paramgold_status_v2',
                 'fullscreen' => '0',
             ], $extra);
 

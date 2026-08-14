@@ -16,6 +16,30 @@ class ApiForbiddenException implements Exception {
   String toString() => message;
 }
 
+class SessionReplacedException implements Exception {
+  const SessionReplacedException([
+    this.message =
+        'You have been logged out because your account was signed in on another device.',
+  ]);
+
+  static const code = 'SESSION_REPLACED';
+  static const userMessage =
+      'You have been logged out because your account was signed in on another device.';
+
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
+bool isSessionReplacedResponse(Object? data) {
+  if (data is! Map) return false;
+  final code = data['code']?.toString().trim().toUpperCase();
+  if (code == SessionReplacedException.code) return true;
+  final message = data['message']?.toString().toLowerCase() ?? '';
+  return message.contains('signed in on another device');
+}
+
 bool isConnectionFailure(DioException error) {
   return error.response == null &&
       (error.type == DioExceptionType.connectionError ||
@@ -37,6 +61,16 @@ String connectionFailureMessage({String prefix = 'Unable to connect to server'})
 }
 
 DioException mapApiError(DioException error) {
+  if (error.response?.statusCode == 401 &&
+      isSessionReplacedResponse(error.response?.data)) {
+    return DioException(
+      requestOptions: error.requestOptions,
+      response: error.response,
+      error: const SessionReplacedException(),
+      message: SessionReplacedException.userMessage,
+    );
+  }
+
   if (error.response?.statusCode == 403) {
     final data = error.response?.data;
     final message = data is Map ? data['message']?.toString() : null;
@@ -78,13 +112,21 @@ DioException mapApiError(DioException error) {
 }
 
 String errorMessage(Object? error) {
+  if (error is SessionReplacedException) return error.message;
   if (error is ApiForbiddenException) return error.message;
   if (error is DioException) {
+    if (error.error is SessionReplacedException) {
+      return (error.error as SessionReplacedException).message;
+    }
     if (error.error is ApiForbiddenException) {
       return (error.error as ApiForbiddenException).message;
     }
     if (isConnectionFailure(error)) {
       return connectionFailureMessage();
+    }
+    if (error.response?.statusCode == 401 &&
+        isSessionReplacedResponse(error.response?.data)) {
+      return SessionReplacedException.userMessage;
     }
     return error.message ?? '$error';
   }

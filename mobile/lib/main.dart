@@ -91,10 +91,11 @@ class _ParamGoldAppState extends State<ParamGoldApp> {
     child: MaterialApp.router(
       title: 'ParamGold ERP',
       debugShowCheckedModeBanner: false,
-      themeMode: ThemeMode.system,
+      // Always Light Theme — ignore Android/iOS system Dark Mode.
+      themeMode: ThemeMode.light,
       routerConfig: appRouter,
       theme: AppTheme.light(),
-      darkTheme: AppTheme.dark(),
+      darkTheme: AppTheme.light(),
       builder: (context, child) => Stack(
         children: [
           const MaterialIconRetention(),

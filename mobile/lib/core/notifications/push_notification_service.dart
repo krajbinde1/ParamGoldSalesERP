@@ -10,6 +10,7 @@ import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../api/api_client.dart';
+import '../storage/device_id_store.dart';
 import '../storage/session_store.dart';
 import 'notification_api.dart';
 import 'notification_payload.dart';
@@ -29,9 +30,18 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     return;
   }
 
-  // When FCM includes a notification payload, Android already shows the system
-  // tray notification. Only create a local notification for data-only messages.
-  if (message.notification != null) {
+  // Always render via local notifications on the high-importance v2 channel.
+  // FCM is sent as data-only from the backend so this is the system tray UI
+  // (heads-up, sound, vibration, Ignore/Review actions) — no duplicates.
+  final data = message.data;
+  final type = data['type']?.toString().trim().toLowerCase();
+  final code = data['code']?.toString().trim().toUpperCase();
+  if (type == 'session_replaced' || code == 'SESSION_REPLACED') {
+    // Clear local session so next open lands on Login. Full UI logout happens
+    // when the app resumes / next API call hits SESSION_REPLACED.
+    try {
+      await SessionStore().clear();
+    } catch (_) {}
     return;
   }
 
@@ -53,33 +63,43 @@ class PushNotificationService {
   bool _localReady = false;
   bool _handlersBound = false;
   bool _tokenRefreshBound = false;
+  void Function()? _onSessionReplaced;
 
   Stream<NotificationPayload> get taps => _taps.stream;
   bool get isFirebaseReady => _firebaseReady;
 
+  /// Called when FCM delivers a session_replaced event (best-effort fast logout).
+  void setSessionReplacedHandler(void Function()? handler) {
+    _onSessionReplaced = handler;
+  }
+
   /// Shared plugin for local-only reminders (e.g. Today's Planning).
   FlutterLocalNotificationsPlugin get localPlugin => _local;
 
+  /// New MAX channel — replaces legacy `order_approvals` which may have been
+  /// created at low importance (Android cannot raise channel importance later).
   static const AndroidNotificationChannel approvalsChannel =
       AndroidNotificationChannel(
-    'order_approvals',
-    'Order Approvals',
-    description: 'High-priority new order alerts for managers',
+    'paramgold_approvals_v2',
+    'ParamGold Approvals',
+    description: 'High-priority order and payment approval alerts',
     importance: Importance.max,
     playSound: true,
     enableVibration: true,
     showBadge: true,
+    enableLights: true,
   );
 
   static const AndroidNotificationChannel statusChannel =
       AndroidNotificationChannel(
-    'order_status',
-    'Order Status Updates',
-    description: 'Order approved, billed, dispatched and rejected updates',
+    'paramgold_status_v2',
+    'ParamGold Status Updates',
+    description: 'Order and payment status updates',
     importance: Importance.high,
     playSound: true,
     enableVibration: true,
     showBadge: true,
+    enableLights: true,
   );
 
   Future<void> initialize() async {
@@ -140,7 +160,10 @@ class PushNotificationService {
     if (Platform.isAndroid) {
       final android = _local.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
-      await android?.requestNotificationsPermission();
+      final granted = await android?.requestNotificationsPermission();
+      debugPrint('Android POST_NOTIFICATIONS granted=$granted');
+      final enabled = await android?.areNotificationsEnabled();
+      debugPrint('Android notifications enabled=$enabled');
     }
   }
 
@@ -151,6 +174,11 @@ class PushNotificationService {
     // Background handler is registered from main() before runApp.
 
     FirebaseMessaging.onMessage.listen((message) async {
+      if (_isSessionReplacedMessage(message)) {
+        _onSessionReplaced?.call();
+        return;
+      }
+      // Foreground: always show a system/local notification (not inbox-only).
       await showFromRemoteMessage(message);
     });
 
@@ -201,13 +229,19 @@ class PushNotificationService {
         ).dio,
       );
       final platform = Platform.isIOS ? 'ios' : 'android';
-      await api.registerDeviceToken(token, platform: platform);
+      final installationId = await DeviceIdStore().getOrCreate();
+      await api.registerDeviceToken(
+        token,
+        platform: platform,
+        installationId: installationId,
+      );
       debugPrint('FCM registration result: success');
 
       if (!_tokenRefreshBound) {
         _tokenRefreshBound = true;
         FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
           try {
+            final refreshId = await DeviceIdStore().getOrCreate();
             await NotificationApi(
               ApiClient(
                 store,
@@ -217,6 +251,7 @@ class PushNotificationService {
             ).registerDeviceToken(
               newToken,
               platform: Platform.isIOS ? 'ios' : 'android',
+              installationId: refreshId,
             );
           } catch (error) {
             debugPrint('FCM token refresh register failed: $error');
@@ -249,35 +284,52 @@ class PushNotificationService {
   }
 
   Future<void> showFromRemoteMessage(RemoteMessage message) async {
+    if (_isSessionReplacedMessage(message)) {
+      _onSessionReplaced?.call();
+      return;
+    }
     await ensureLocalInitialized();
     final payload = NotificationPayload.fromRemoteMessage(message);
+    if (payload.title.trim().isEmpty && payload.body.trim().isEmpty) {
+      debugPrint('Skipping empty FCM notification payload');
+      return;
+    }
+
     final isPaymentApproval = payload.type == 'payment_approval_required' ||
         payload.type == 'payment_request_reminder' ||
         payload.type == 'payment_request_created' ||
         payload.type == 'payment_request_first_approved';
-    final isFullScreen =
-        payload.fullscreen || payload.type == 'new_order' || isPaymentApproval;
-    final channel = isFullScreen ? approvalsChannel : statusChannel;
+    final isApproval = payload.fullscreen ||
+        payload.type == 'new_order' ||
+        isPaymentApproval;
+    final channelId = payload.raw['channel_id']?.toString();
+    final useApprovalsChannel = isApproval ||
+        channelId == approvalsChannel.id ||
+        channelId == 'order_approvals' ||
+        channelId == 'paramgold_approvals';
+    final channel = useApprovalsChannel ? approvalsChannel : statusChannel;
 
     final androidDetails = AndroidNotificationDetails(
       channel.id,
       channel.name,
       channelDescription: channel.description,
-      importance: Importance.max,
-      priority: Priority.max,
-      category: isFullScreen
-          ? AndroidNotificationCategory.call
+      importance: useApprovalsChannel ? Importance.max : Importance.high,
+      priority: useApprovalsChannel ? Priority.max : Priority.high,
+      category: useApprovalsChannel
+          ? AndroidNotificationCategory.alarm
           : AndroidNotificationCategory.message,
-      fullScreenIntent: isFullScreen,
+      visibility: NotificationVisibility.public,
       playSound: true,
       enableVibration: true,
+      enableLights: true,
       ticker: payload.title,
+      icon: '@mipmap/ic_launcher',
       styleInformation: BigTextStyleInformation(
         payload.body,
         contentTitle: payload.title,
         summaryText: payload.orderNo,
       ),
-      actions: isFullScreen
+      actions: useApprovalsChannel
           ? <AndroidNotificationAction>[
               const AndroidNotificationAction(
                 'ignore',
@@ -363,6 +415,13 @@ class PushNotificationService {
       billUrl: billUrl,
       actionId: billUrl != null ? 'view_bill' : 'view_order',
     );
+  }
+
+  bool _isSessionReplacedMessage(RemoteMessage message) {
+    final data = message.data;
+    final type = data['type']?.toString().trim().toLowerCase();
+    final code = data['code']?.toString().trim().toUpperCase();
+    return type == 'session_replaced' || code == 'SESSION_REPLACED';
   }
 }
 

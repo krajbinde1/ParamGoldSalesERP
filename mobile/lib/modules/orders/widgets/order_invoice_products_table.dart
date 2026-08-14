@@ -151,6 +151,7 @@ class OrderInvoiceProductsTable extends StatelessWidget {
     this.padding = EdgeInsets.zero,
     this.freezeProductColumn = false,
     this.spaciousLayout = false,
+    this.showSplitTaxColumns = false,
   });
 
   final List<OrderInvoiceLine> lines;
@@ -159,10 +160,12 @@ class OrderInvoiceProductsTable extends StatelessWidget {
   final void Function(int index)? onEdit;
   final void Function(int index)? onDelete;
   final EdgeInsetsGeometry padding;
-  /// When true, # / Product / Code stay fixed while metrics scroll horizontally.
+  /// When true, Product name/code stay fixed while metrics scroll horizontally.
   final bool freezeProductColumn;
   /// Slightly wider columns and roomier row padding (Order Details).
   final bool spaciousLayout;
+  /// When true with frozen layout: Amt w/o GST, CGST, SGST, Total (Manager).
+  final bool showSplitTaxColumns;
 
   bool get _editable => onEdit != null || onDelete != null;
 
@@ -210,9 +213,11 @@ class OrderInvoiceProductsTable extends StatelessWidget {
       );
     }
 
-    final layout = spaciousLayout
-        ? _FrozenTableLayout.spacious
-        : _FrozenTableLayout.compact;
+    final layout = showSplitTaxColumns
+        ? _FrozenTableLayout.spaciousSplitTax
+        : spaciousLayout
+            ? _FrozenTableLayout.spacious
+            : _FrozenTableLayout.compact;
 
     return Padding(
       padding: padding,
@@ -228,6 +233,7 @@ class OrderInvoiceProductsTable extends StatelessWidget {
               lines: lines,
               editable: _editable,
               layout: layout,
+              showSplitTaxColumns: showSplitTaxColumns,
               onTapRow: (index) => _showLineDetails(context, lines[index]),
               onEdit: onEdit,
               onDelete: onDelete,
@@ -433,6 +439,7 @@ class OrderInvoiceProductsCard extends StatelessWidget {
     this.freezeProductColumn = false,
     this.showTotalCases = false,
     this.spaciousLayout = false,
+    this.showSplitTaxColumns = false,
   });
 
   final List<OrderInvoiceLine> lines;
@@ -444,6 +451,7 @@ class OrderInvoiceProductsCard extends StatelessWidget {
   final bool freezeProductColumn;
   final bool showTotalCases;
   final bool spaciousLayout;
+  final bool showSplitTaxColumns;
 
   int get _totalCases =>
       lines.fold<int>(0, (sum, line) => sum + line.caseQuantity);
@@ -464,6 +472,7 @@ class OrderInvoiceProductsCard extends StatelessWidget {
               onDelete: onDelete,
               freezeProductColumn: freezeProductColumn,
               spaciousLayout: spaciousLayout,
+              showSplitTaxColumns: showSplitTaxColumns,
             ),
             if (showTotalCases) ...[
               const SizedBox(height: AppSpacing.md),
@@ -490,11 +499,15 @@ class _FrozenTableLayout {
   const _FrozenTableLayout({
     required this.frozenWidth,
     required this.srWidth,
+    required this.showSr,
     required this.casesWidth,
     required this.qtyWidth,
     required this.rateWidth,
     required this.discWidth,
     required this.gstWidth,
+    required this.taxableWidth,
+    required this.cgstWidth,
+    required this.sgstWidth,
     required this.amountWidth,
     required this.actionsWidth,
     required this.headerVertical,
@@ -504,11 +517,15 @@ class _FrozenTableLayout {
 
   final double frozenWidth;
   final double srWidth;
+  final bool showSr;
   final double casesWidth;
   final double qtyWidth;
   final double rateWidth;
   final double discWidth;
   final double gstWidth;
+  final double taxableWidth;
+  final double cgstWidth;
+  final double sgstWidth;
   final double amountWidth;
   final double actionsWidth;
   final double headerVertical;
@@ -518,11 +535,15 @@ class _FrozenTableLayout {
   static const compact = _FrozenTableLayout(
     frozenWidth: OrderInvoiceProductsTable.frozenProductWidth,
     srWidth: 22,
+    showSr: true,
     casesWidth: 44,
     qtyWidth: 42,
     rateWidth: 54,
     discWidth: 36,
     gstWidth: 34,
+    taxableWidth: 0,
+    cgstWidth: 0,
+    sgstWidth: 0,
     amountWidth: 72,
     actionsWidth: 64,
     headerVertical: 6,
@@ -533,28 +554,57 @@ class _FrozenTableLayout {
   static const spacious = _FrozenTableLayout(
     frozenWidth: OrderInvoiceProductsTable.frozenProductWidthSpacious,
     srWidth: 26,
-    casesWidth: 56,
-    qtyWidth: 56,
-    rateWidth: 68,
+    showSr: true,
+    casesWidth: 52,
+    qtyWidth: 52,
+    rateWidth: 64,
     discWidth: 48,
     gstWidth: 48,
-    amountWidth: 92,
+    taxableWidth: 0,
+    cgstWidth: 0,
+    sgstWidth: 0,
+    amountWidth: 88,
     actionsWidth: 64,
     headerVertical: 10,
     rowVertical: 12,
     columnGap: 6,
   );
 
-  double scrollContentWidth({required bool editable}) {
+  /// Manager Order Review: split tax + taxable amount columns.
+  static const spaciousSplitTax = _FrozenTableLayout(
+    frozenWidth: 168,
+    srWidth: 24,
+    showSr: true,
+    casesWidth: 48,
+    qtyWidth: 48,
+    rateWidth: 64,
+    discWidth: 52,
+    gstWidth: 0,
+    taxableWidth: 92,
+    cgstWidth: 64,
+    sgstWidth: 64,
+    amountWidth: 88,
+    actionsWidth: 64,
+    headerVertical: 10,
+    rowVertical: 12,
+    columnGap: 8,
+  );
+
+  double scrollContentWidth({
+    required bool editable,
+    required bool splitTax,
+  }) {
     final metrics = casesWidth +
         qtyWidth +
         rateWidth +
         discWidth +
-        gstWidth +
+        (splitTax
+            ? (taxableWidth + cgstWidth + sgstWidth)
+            : gstWidth) +
         amountWidth +
         (editable ? actionsWidth : 4);
-    // 6 metric gaps when columnGap > 0 (between the 6 value columns).
-    return metrics + (columnGap * 5);
+    final gaps = splitTax ? 7 : 5;
+    return metrics + (columnGap * gaps);
   }
 }
 
@@ -601,12 +651,13 @@ class _InvoiceTable extends StatelessWidget {
   }
 }
 
-/// Products table with frozen # / Product / Code and horizontally scrollable metrics.
+/// Products table with frozen Product / Code and horizontally scrollable metrics.
 class _FrozenInvoiceTable extends StatefulWidget {
   const _FrozenInvoiceTable({
     required this.lines,
     required this.editable,
     required this.layout,
+    required this.showSplitTaxColumns,
     required this.onTapRow,
     this.onEdit,
     this.onDelete,
@@ -615,6 +666,7 @@ class _FrozenInvoiceTable extends StatefulWidget {
   final List<OrderInvoiceLine> lines;
   final bool editable;
   final _FrozenTableLayout layout;
+  final bool showSplitTaxColumns;
   final void Function(int index) onTapRow;
   final void Function(int index)? onEdit;
   final void Function(int index)? onDelete;
@@ -628,8 +680,10 @@ class _FrozenInvoiceTableState extends State<_FrozenInvoiceTable> {
   late final List<ScrollController> _rowScrolls;
   bool _syncing = false;
 
-  double get _scrollContentWidth =>
-      widget.layout.scrollContentWidth(editable: widget.editable);
+  double get _scrollContentWidth => widget.layout.scrollContentWidth(
+        editable: widget.editable,
+        splitTax: widget.showSplitTaxColumns,
+      );
 
   @override
   void initState() {
@@ -685,13 +739,32 @@ class _FrozenInvoiceTableState extends State<_FrozenInvoiceTable> {
     super.dispose();
   }
 
+  BoxDecoration get _frozenDecoration => BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          right: BorderSide(
+            color: AppColors.border.withValues(alpha: 0.9),
+            width: 1,
+          ),
+        ),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: 0.06),
+            offset: const Offset(3, 0),
+            blurRadius: 4,
+          ),
+        ],
+      );
+
   @override
   Widget build(BuildContext context) {
     final layout = widget.layout;
     final headerStyle = Theme.of(context).textTheme.labelSmall?.copyWith(
           color: AppColors.textSecondary,
           fontWeight: FontWeight.w700,
-          letterSpacing: 0.2,
+          letterSpacing: 0.15,
+          fontSize: 11,
+          height: 1.15,
         );
 
     return Column(
@@ -701,31 +774,26 @@ class _FrozenInvoiceTableState extends State<_FrozenInvoiceTable> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               DecoratedBox(
-                decoration: BoxDecoration(
-                  border: Border(
-                    right: BorderSide(
-                      color: AppColors.border.withValues(alpha: 0.85),
-                    ),
-                  ),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black.withValues(alpha: 0.04),
-                      offset: const Offset(2, 0),
-                      blurRadius: 3,
-                    ),
-                  ],
-                ),
+                decoration: _frozenDecoration,
                 child: SizedBox(
                   width: layout.frozenWidth,
                   child: Padding(
-                    padding: EdgeInsets.symmetric(vertical: layout.headerVertical),
+                    padding: EdgeInsets.fromLTRB(
+                      0,
+                      layout.headerVertical,
+                      8,
+                      layout.headerVertical,
+                    ),
                     child: Row(
                       children: [
-                        SizedBox(
-                          width: layout.srWidth,
-                          child: Text('#', style: headerStyle),
+                        if (layout.showSr)
+                          SizedBox(
+                            width: layout.srWidth,
+                            child: Text('#', style: headerStyle),
+                          ),
+                        Expanded(
+                          child: Text('Product', style: headerStyle),
                         ),
-                        Expanded(child: Text('Product', style: headerStyle)),
                       ],
                     ),
                   ),
@@ -735,15 +803,18 @@ class _FrozenInvoiceTableState extends State<_FrozenInvoiceTable> {
                 child: SingleChildScrollView(
                   controller: _headerScroll,
                   scrollDirection: Axis.horizontal,
+                  physics: const ClampingScrollPhysics(),
                   child: SizedBox(
                     width: _scrollContentWidth,
                     child: Padding(
-                      padding:
-                          EdgeInsets.symmetric(vertical: layout.headerVertical),
+                      padding: EdgeInsets.symmetric(
+                        vertical: layout.headerVertical,
+                      ),
                       child: _MetricsHeaderRow(
                         editable: widget.editable,
                         layout: layout,
                         style: headerStyle,
+                        splitTax: widget.showSplitTaxColumns,
                       ),
                     ),
                   ),
@@ -762,33 +833,23 @@ class _FrozenInvoiceTableState extends State<_FrozenInvoiceTable> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Theme.of(context).colorScheme.surface,
-                        border: Border(
-                          right: BorderSide(
-                            color: AppColors.border.withValues(alpha: 0.85),
-                          ),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.04),
-                            offset: const Offset(2, 0),
-                            blurRadius: 3,
-                          ),
-                        ],
-                      ),
+                      decoration: _frozenDecoration,
                       child: SizedBox(
                         width: layout.frozenWidth,
                         child: InkWell(
                           onTap: () => widget.onTapRow(index),
                           child: Padding(
-                            padding: EdgeInsets.symmetric(
-                              vertical: layout.rowVertical,
+                            padding: EdgeInsets.fromLTRB(
+                              0,
+                              layout.rowVertical,
+                              8,
+                              layout.rowVertical,
                             ),
                             child: _FrozenProductCell(
                               index: index + 1,
                               line: line,
                               srWidth: layout.srWidth,
+                              showSr: layout.showSr,
                             ),
                           ),
                         ),
@@ -798,6 +859,7 @@ class _FrozenInvoiceTableState extends State<_FrozenInvoiceTable> {
                       child: SingleChildScrollView(
                         controller: _rowScrolls[index],
                         scrollDirection: Axis.horizontal,
+                        physics: const ClampingScrollPhysics(),
                         child: SizedBox(
                           width: _scrollContentWidth,
                           child: InkWell(
@@ -810,6 +872,7 @@ class _FrozenInvoiceTableState extends State<_FrozenInvoiceTable> {
                                 line: line,
                                 editable: widget.editable,
                                 layout: layout,
+                                splitTax: widget.showSplitTaxColumns,
                                 onEdit: widget.onEdit == null
                                     ? null
                                     : () => widget.onEdit!(index),
@@ -843,11 +906,13 @@ class _FrozenProductCell extends StatelessWidget {
     required this.index,
     required this.line,
     required this.srWidth,
+    required this.showSr,
   });
 
   final int index;
   final OrderInvoiceLine line;
   final double srWidth;
+  final bool showSr;
 
   @override
   Widget build(BuildContext context) {
@@ -861,37 +926,36 @@ class _FrozenProductCell extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        SizedBox(
-          width: srWidth,
-          child: Text('$index', style: body),
-        ),
+        if (showSr)
+          SizedBox(
+            width: srWidth,
+            child: Text('$index', style: body),
+          ),
         Expanded(
-          child: Padding(
-            padding: const EdgeInsets.only(right: 4),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  line.productName,
-                  maxLines: 2,
-                  overflow: TextOverflow.ellipsis,
-                  style: body?.copyWith(
-                    fontWeight: FontWeight.w600,
-                    color: AppColors.textPrimary,
-                    height: 1.3,
-                  ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                line.productName,
+                maxLines: 2,
+                softWrap: true,
+                overflow: TextOverflow.ellipsis,
+                style: body?.copyWith(
+                  fontWeight: FontWeight.w600,
+                  color: AppColors.textPrimary,
+                  height: 1.3,
                 ),
-                if (line.productCode.isNotEmpty) ...[
-                  const SizedBox(height: 2),
-                  Text(
-                    line.productCode,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: muted,
-                  ),
-                ],
+              ),
+              if (line.productCode.isNotEmpty) ...[
+                const SizedBox(height: 2),
+                Text(
+                  line.productCode,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: muted,
+                ),
               ],
-            ),
+            ],
           ),
         ),
       ],
@@ -904,15 +968,23 @@ class _MetricsHeaderRow extends StatelessWidget {
     required this.editable,
     required this.layout,
     required this.style,
+    required this.splitTax,
   });
 
   final bool editable;
   final _FrozenTableLayout layout;
   final TextStyle? style;
+  final bool splitTax;
 
   Widget _col(double width, String label) => SizedBox(
         width: width,
-        child: Text(label, style: style, textAlign: TextAlign.right),
+        child: Text(
+          label,
+          style: style,
+          textAlign: TextAlign.right,
+          maxLines: 2,
+          softWrap: true,
+        ),
       );
 
   @override
@@ -926,11 +998,18 @@ class _MetricsHeaderRow extends StatelessWidget {
         if (gap > 0) SizedBox(width: gap),
         _col(layout.rateWidth, 'Rate'),
         if (gap > 0) SizedBox(width: gap),
-        _col(layout.discWidth, 'Disc'),
+        _col(layout.discWidth, splitTax ? 'Disc %' : 'Disc'),
         if (gap > 0) SizedBox(width: gap),
-        _col(layout.gstWidth, 'GST'),
+        if (splitTax) ...[
+          _col(layout.taxableWidth, 'Amt w/o GST'),
+          if (gap > 0) SizedBox(width: gap),
+          _col(layout.cgstWidth, 'CGST'),
+          if (gap > 0) SizedBox(width: gap),
+          _col(layout.sgstWidth, 'SGST'),
+        ] else
+          _col(layout.gstWidth, 'GST'),
         if (gap > 0) SizedBox(width: gap),
-        _col(layout.amountWidth, 'Amount'),
+        _col(layout.amountWidth, splitTax ? 'Total' : 'Amount'),
         SizedBox(width: editable ? layout.actionsWidth : 4),
       ],
     );
@@ -942,6 +1021,7 @@ class _MetricsDataRow extends StatelessWidget {
     required this.line,
     required this.editable,
     required this.layout,
+    required this.splitTax,
     this.onEdit,
     this.onDelete,
   });
@@ -949,8 +1029,29 @@ class _MetricsDataRow extends StatelessWidget {
   final OrderInvoiceLine line;
   final bool editable;
   final _FrozenTableLayout layout;
+  final bool splitTax;
   final VoidCallback? onEdit;
   final VoidCallback? onDelete;
+
+  double get _gstAmount {
+    if (line.gstAmount != null) return line.gstAmount!;
+    final taxable = _taxableAmount;
+    return taxable * line.gstPercent / 100;
+  }
+
+  double get _taxableAmount {
+    if (line.taxableAmount != null) return line.taxableAmount!;
+    if (line.baseAmount != null) {
+      return line.baseAmount! - (line.discountAmount ?? 0);
+    }
+    return (line.amount - _gstAmountFromFinal).clamp(0, double.infinity);
+  }
+
+  double get _gstAmountFromFinal {
+    if (line.gstAmount != null) return line.gstAmount!;
+    if (line.gstPercent <= 0) return 0;
+    return line.amount * line.gstPercent / (100 + line.gstPercent);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -965,6 +1066,10 @@ class _MetricsDataRow extends StatelessWidget {
       height: 1.2,
     );
     final gap = layout.columnGap;
+    final taxable = _taxableAmount;
+    final gst = _gstAmount;
+    final cgst = gst / 2;
+    final sgst = gst / 2;
 
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -1021,16 +1126,50 @@ class _MetricsDataRow extends StatelessWidget {
           ),
         ),
         if (gap > 0) SizedBox(width: gap),
-        SizedBox(
-          width: layout.gstWidth,
-          child: Text(
-            OrderInvoiceProductsTable.percent(line.gstPercent),
-            textAlign: TextAlign.right,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: body,
+        if (splitTax) ...[
+          SizedBox(
+            width: layout.taxableWidth,
+            child: Text(
+              OrderInvoiceProductsTable.money(taxable),
+              textAlign: TextAlign.right,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: body,
+            ),
           ),
-        ),
+          if (gap > 0) SizedBox(width: gap),
+          SizedBox(
+            width: layout.cgstWidth,
+            child: Text(
+              OrderInvoiceProductsTable.money(cgst),
+              textAlign: TextAlign.right,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: body,
+            ),
+          ),
+          if (gap > 0) SizedBox(width: gap),
+          SizedBox(
+            width: layout.sgstWidth,
+            child: Text(
+              OrderInvoiceProductsTable.money(sgst),
+              textAlign: TextAlign.right,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: body,
+            ),
+          ),
+        ] else
+          SizedBox(
+            width: layout.gstWidth,
+            child: Text(
+              OrderInvoiceProductsTable.percent(line.gstPercent),
+              textAlign: TextAlign.right,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: body,
+            ),
+          ),
         if (gap > 0) SizedBox(width: gap),
         SizedBox(
           width: layout.amountWidth,

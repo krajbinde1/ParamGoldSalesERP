@@ -30,6 +30,7 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
   late TabController _tabController;
   late ProductionApi _api;
   late Future<_ProductionOrdersBundle> _bundleFuture;
+  int _dispatchedCount = 0;
 
   @override
   void initState() {
@@ -45,13 +46,13 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
       '[PS ApprovedOrders DEBUG] ProductionOrdersScreen.initState '
       'file=production_dashboard_screen.dart',
     );
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 4, vsync: this);
     _tabController.addListener(() {
       if (_tabController.indexIsChanging) return;
       // ignore: avoid_print
       print(
         '[PS ApprovedOrders DEBUG] Orders TabBar index=${_tabController.index} '
-        '(0=Approved Orders, 1=Sent for Bill, 2=Billed)',
+        '(0=Approved Orders, 1=Sent for Bill, 2=Billed, 3=Dispatched)',
       );
     });
     _api = ProductionApi(
@@ -78,6 +79,7 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
 
     ProductionOrderListResult sent;
     ProductionOrderListResult billed;
+    ProductionOrderListResult dispatched;
     try {
       sent = await _api.listOrders(status: 'sent_for_bill');
     } catch (_) {
@@ -88,15 +90,29 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
     } catch (_) {
       billed = const ProductionOrderListResult(orders: []);
     }
+    try {
+      // Exact backend status: Order::STATUS_DISPATCHED = 'dispatched'
+      dispatched = await _api.listOrders(status: 'dispatched');
+    } catch (_) {
+      dispatched = const ProductionOrderListResult(orders: []);
+    }
 
-    final counts =
-        approvedResult.counts ?? sent.counts ?? billed.counts;
+    final counts = approvedResult.counts ??
+        sent.counts ??
+        billed.counts ??
+        dispatched.counts;
+
+    final approvedCount = counts?.approved ?? approvedResult.orders.length;
+    final sentForBillCount = counts?.sentForBill ?? sent.orders.length;
+    final billedCount = counts?.billed ?? billed.orders.length;
+    final dispatchedCount = counts?.dispatched ?? dispatched.orders.length;
 
     // ignore: avoid_print
     print(
       '[PS ApprovedOrders DEBUG] ProductionOrdersScreen._loadBundle DONE '
       'approvedCount=${approvedResult.orders.length} '
-      'sent=${sent.orders.length} billed=${billed.orders.length}',
+      'sent=${sent.orders.length} billed=${billed.orders.length} '
+      'dispatched=${dispatched.orders.length}',
     );
 
     if (kDebugMode) {
@@ -105,17 +121,27 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
         'approved=${approvedResult.orders.length}, '
         'sent=${sent.orders.length}, '
         'billed=${billed.orders.length}, '
-        'counts=${counts?.approved}/${counts?.sentForBill}/${counts?.billed}',
+        'dispatched=${dispatched.orders.length}, '
+        'counts=${counts?.approved}/${counts?.sentForBill}/'
+        '${counts?.billed}/${counts?.dispatched}',
       );
+    }
+
+    if (mounted) {
+      setState(() {
+        _dispatchedCount = dispatchedCount;
+      });
     }
 
     return _ProductionOrdersBundle(
       approved: approvedResult.orders,
       sentForBill: sent.orders,
       billed: billed.orders,
-      approvedCount: counts?.approved ?? approvedResult.orders.length,
-      sentForBillCount: counts?.sentForBill ?? sent.orders.length,
-      billedCount: counts?.billed ?? billed.orders.length,
+      dispatched: dispatched.orders,
+      approvedCount: approvedCount,
+      sentForBillCount: sentForBillCount,
+      billedCount: billedCount,
+      dispatchedCount: dispatchedCount,
     );
   }
 
@@ -213,11 +239,46 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
         auth: widget.auth,
         bottom: TabBar(
           controller: _tabController,
-          isScrollable: true,
-          tabs: const [
-            Tab(text: 'Approved Orders'),
-            Tab(text: 'Sent for Bill'),
-            Tab(text: 'Billed Orders'),
+          isScrollable: false,
+          labelPadding: const EdgeInsets.symmetric(horizontal: 2),
+          labelStyle: const TextStyle(
+            fontSize: 11,
+            fontWeight: FontWeight.w600,
+            height: 1.1,
+          ),
+          unselectedLabelStyle: const TextStyle(
+            fontSize: 11,
+            height: 1.1,
+          ),
+          tabs: [
+            const Tab(
+              child: Text(
+                'Approved Orders',
+                textAlign: TextAlign.center,
+                maxLines: 2,
+              ),
+            ),
+            const Tab(
+              child: Text(
+                'Sent for Bill',
+                textAlign: TextAlign.center,
+                maxLines: 2,
+              ),
+            ),
+            const Tab(
+              child: Text(
+                'Billed',
+                textAlign: TextAlign.center,
+                maxLines: 2,
+              ),
+            ),
+            Tab(
+              child: Text(
+                'Dispatched  $_dispatchedCount',
+                textAlign: TextAlign.center,
+                maxLines: 2,
+              ),
+            ),
           ],
         ),
       ),
@@ -247,33 +308,50 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
                   AppSpacing.screenPadding,
                   AppSpacing.sm,
                 ),
-                child: Row(
+                child: Column(
                   children: [
-                    Expanded(
-                      child: PgMetricCard(
-                        title: 'Approved',
-                        value: '${bundle.approvedCount}',
-                        icon: const Icon(Icons.verified_outlined),
-                        gradient: AppColors.greenGradient,
-                      ),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: PgMetricCard(
+                            title: 'Approved',
+                            value: '${bundle.approvedCount}',
+                            icon: const Icon(Icons.verified_outlined),
+                            gradient: AppColors.greenGradient,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: PgMetricCard(
+                            title: 'Sent for Bill',
+                            value: '${bundle.sentForBillCount}',
+                            icon: const Icon(Icons.send_outlined),
+                            gradient: AppColors.amberGradient,
+                          ),
+                        ),
+                      ],
                     ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: PgMetricCard(
-                        title: 'Sent for Bill',
-                        value: '${bundle.sentForBillCount}',
-                        icon: const Icon(Icons.send_outlined),
-                        gradient: AppColors.amberGradient,
-                      ),
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    Expanded(
-                      child: PgMetricCard(
-                        title: 'Billed',
-                        value: '${bundle.billedCount}',
-                        icon: const Icon(Icons.receipt_long_outlined),
-                        gradient: AppColors.blueGradient,
-                      ),
+                    const SizedBox(height: AppSpacing.sm),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: PgMetricCard(
+                            title: 'Billed',
+                            value: '${bundle.billedCount}',
+                            icon: const Icon(Icons.receipt_long_outlined),
+                            gradient: AppColors.blueGradient,
+                          ),
+                        ),
+                        const SizedBox(width: AppSpacing.sm),
+                        Expanded(
+                          child: PgMetricCard(
+                            title: 'Dispatched',
+                            value: '${bundle.dispatchedCount}',
+                            icon: const Icon(Icons.local_shipping_outlined),
+                            gradient: AppColors.greenGradient,
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -318,6 +396,18 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
                         if (mounted) await _refresh();
                       },
                     ),
+                    _OrderList(
+                      orders: bundle.dispatched,
+                      currency: currency,
+                      dateTime: dateTime,
+                      emptyMessage: 'No dispatched orders.',
+                      mode: _OrderListMode.dispatched,
+                      onRefresh: _refresh,
+                      onTap: (id) async {
+                        await context.push('/production/orders/$id');
+                        if (mounted) await _refresh();
+                      },
+                    ),
                   ],
                 ),
               ),
@@ -329,24 +419,28 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
   }
 }
 
-enum _OrderListMode { approved, sentForBill, billed }
+enum _OrderListMode { approved, sentForBill, billed, dispatched }
 
 class _ProductionOrdersBundle {
   const _ProductionOrdersBundle({
     required this.approved,
     required this.sentForBill,
     required this.billed,
+    required this.dispatched,
     required this.approvedCount,
     required this.sentForBillCount,
     required this.billedCount,
+    required this.dispatchedCount,
   });
 
   final List<Map<String, dynamic>> approved;
   final List<Map<String, dynamic>> sentForBill;
   final List<Map<String, dynamic>> billed;
+  final List<Map<String, dynamic>> dispatched;
   final int approvedCount;
   final int sentForBillCount;
   final int billedCount;
+  final int dispatchedCount;
 }
 
 class _OrderList extends StatelessWidget {
@@ -422,74 +516,102 @@ class _OrderList extends StatelessWidget {
                         ],
                       ),
                       const SizedBox(height: 6),
-                      Text(
-                        'Dealer: ${order['dealer_name'] ?? '-'}',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                      Text(
-                        'Sales: ${order['employee_name'] ?? '-'}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                      Text(
-                        'Date: ${_formatDateTime(order['order_date'] ?? order['created_at'])} • ${currency.format(amount)}',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AppColors.textSecondary,
+                      if (mode == _OrderListMode.dispatched) ...[
+                        Text(
+                          'Dealer: ${order['dealer_name'] ?? '-'}',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        Text(
+                          'Village: ${order['dealer_village'] ?? '-'}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        Text(
+                          'Sales Person: ${order['employee_name'] ?? '-'}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        Text(
+                          'Dispatch Date: ${_formatDateTime(order['dispatched_at'])}',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: AppColors.textSecondary,
+                                  ),
+                        ),
+                      ] else ...[
+                        Text(
+                          'Dealer: ${order['dealer_name'] ?? '-'}',
+                          style: Theme.of(context).textTheme.bodyMedium,
+                        ),
+                        Text(
+                          'Sales: ${order['employee_name'] ?? '-'}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
+                        Text(
+                          'Date: ${_formatDateTime(order['order_date'] ?? order['created_at'])} • ${currency.format(amount)}',
+                          style:
+                              Theme.of(context).textTheme.bodySmall?.copyWith(
+                                    color: AppColors.textSecondary,
+                                  ),
+                        ),
+                        if ((order['payment_type']?.toString() ?? '').isNotEmpty)
+                          Text(
+                            'Payment: ${order['payment_type']}',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: AppColors.textSecondary),
+                          ),
+                        if (mode != _OrderListMode.approved) ...[
+                          if ((order['vehicle_number']?.toString() ?? '')
+                              .isNotEmpty)
+                            Text(
+                              'Vehicle: ${order['vehicle_number']}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: AppColors.textSecondary),
                             ),
-                      ),
-                      if ((order['payment_type']?.toString() ?? '').isNotEmpty)
-                        Text(
-                          'Payment: ${order['payment_type']}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: AppColors.textSecondary,
-                              ),
-                        ),
-                      if (mode != _OrderListMode.approved) ...[
-                        if ((order['vehicle_number']?.toString() ?? '')
-                            .isNotEmpty)
+                          if (freight != null)
+                            Text(
+                              'Freight: ${currency.format(freight)}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: AppColors.textSecondary),
+                            ),
+                        ],
+                        if (mode == _OrderListMode.sentForBill)
                           Text(
-                            'Vehicle: ${order['vehicle_number']}',
+                            'Sent: ${_formatDateTime(order['sent_for_bill_at'])}',
                             style: Theme.of(context)
                                 .textTheme
                                 .bodySmall
                                 ?.copyWith(color: AppColors.textSecondary),
                           ),
-                        if (freight != null)
+                        if (mode == _OrderListMode.billed) ...[
+                          if ((order['bill_number']?.toString() ?? '')
+                              .isNotEmpty)
+                            Text(
+                              'Bill No: ${order['bill_number']}',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: AppColors.textSecondary),
+                            ),
                           Text(
-                            'Freight: ${currency.format(freight)}',
+                            'Bill Date: ${order['bill_date'] ?? '-'}',
                             style: Theme.of(context)
                                 .textTheme
                                 .bodySmall
                                 ?.copyWith(color: AppColors.textSecondary),
                           ),
-                      ],
-                      if (mode == _OrderListMode.sentForBill)
-                        Text(
-                          'Sent: ${_formatDateTime(order['sent_for_bill_at'])}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: AppColors.textSecondary,
-                              ),
-                        ),
-                      if (mode == _OrderListMode.billed) ...[
-                        if ((order['bill_number']?.toString() ?? '').isNotEmpty)
                           Text(
-                            'Bill No: ${order['bill_number']}',
+                            'Billed: ${_formatDateTime(order['billed_at'])}',
                             style: Theme.of(context)
                                 .textTheme
                                 .bodySmall
                                 ?.copyWith(color: AppColors.textSecondary),
                           ),
-                        Text(
-                          'Bill Date: ${order['bill_date'] ?? '-'}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: AppColors.textSecondary,
-                              ),
-                        ),
-                        Text(
-                          'Billed: ${_formatDateTime(order['billed_at'])}',
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: AppColors.textSecondary,
-                              ),
-                        ),
+                        ],
                       ],
                     ],
                   ),

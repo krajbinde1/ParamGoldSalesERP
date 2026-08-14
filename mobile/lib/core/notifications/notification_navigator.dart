@@ -25,6 +25,9 @@ class NotificationNavigator {
     _started = true;
 
     await PushNotificationService.instance.initialize();
+    PushNotificationService.instance.setSessionReplacedHandler(() {
+      auth.sessionReplaced();
+    });
 
     _sub = PushNotificationService.instance.taps.listen((payload) {
       unawaited(_handle(auth, router, navigatorKey, payload));

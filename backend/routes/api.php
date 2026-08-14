@@ -45,7 +45,7 @@ use Illuminate\Support\Facades\Route;
 
 Route::post('login', [EmployeeAuthController::class, 'login']);
 
-Route::middleware('auth:sanctum')->group(function () {
+Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
     Route::post('logout', [EmployeeAuthController::class, 'logout']);
     Route::get('me', [EmployeeAuthController::class, 'me']);
     Route::post('change-password', [EmployeeAuthController::class, 'changePassword']);

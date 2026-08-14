@@ -54,12 +54,12 @@ final class OrderPushNotifier
                 'sales_person_name' => $sales,
                 'route' => "/manager/orders/{$order->id}",
                 'action' => 'review',
-                'channel_id' => 'order_approvals',
+                'channel_id' => 'paramgold_approvals_v2',
                 'fullscreen' => '1',
             ]),
             android: [
                 'notification' => [
-                    'channel_id' => 'order_approvals',
+                    'channel_id' => 'paramgold_approvals_v2',
                     'notification_priority' => 'PRIORITY_MAX',
                     'default_vibrate_timings' => true,
                     'sound' => 'default',
@@ -90,7 +90,7 @@ final class OrderPushNotifier
             extra: [
                 'route' => "/orders/{$order->id}",
                 'action' => 'view_order',
-                'channel_id' => 'order_status',
+                'channel_id' => 'paramgold_status_v2',
             ],
         );
 
@@ -106,7 +106,7 @@ final class OrderPushNotifier
                     'sales_person_name' => $order->salesEmployee?->full_name ?? '',
                     'route' => "/production/orders/{$order->id}",
                     'action' => 'view_order',
-                    'channel_id' => 'order_status',
+                    'channel_id' => 'paramgold_status_v2',
                     'fullscreen' => '0',
                 ]),
             );
@@ -143,7 +143,7 @@ final class OrderPushNotifier
                 data: $this->baseData($order, self::TYPE_SENT_FOR_BILL, [
                     'route' => '/dashboard',
                     'action' => 'view_order',
-                    'channel_id' => 'order_status',
+                    'channel_id' => 'paramgold_status_v2',
                     'fullscreen' => '0',
                     'vehicle_number' => (string) ($order->vehicle_number ?? ''),
                 ]),
@@ -163,7 +163,7 @@ final class OrderPushNotifier
             'bill_number' => $billNumber,
             'bill_url' => (string) ($order->billUrl() ?? ''),
             'action' => 'view_order',
-            'channel_id' => 'order_status',
+            'channel_id' => 'paramgold_status_v2',
             'fullscreen' => '0',
         ];
 
@@ -210,7 +210,7 @@ final class OrderPushNotifier
             'remark' => $remark,
             'dispatch_remark' => $remark,
             'action' => 'view_order',
-            'channel_id' => 'order_status',
+            'channel_id' => 'paramgold_status_v2',
             'fullscreen' => '0',
         ];
 
@@ -275,7 +275,7 @@ final class OrderPushNotifier
                 'rejected_by' => $managerName,
                 'route' => "/orders/{$order->id}",
                 'action' => 'view_order',
-                'channel_id' => 'order_status',
+                'channel_id' => 'paramgold_status_v2',
             ],
         );
     }
@@ -302,7 +302,7 @@ final class OrderPushNotifier
             'rejection_reason' => $reason,
             'rejected_by' => $order->rejectedByUser?->name ?: 'Admin',
             'action' => 'view_order',
-            'channel_id' => 'order_status',
+            'channel_id' => 'paramgold_status_v2',
             'fullscreen' => '0',
         ];
 

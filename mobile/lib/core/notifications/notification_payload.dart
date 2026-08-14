@@ -36,8 +36,12 @@ class NotificationPayload {
   final bool fullscreen;
   final Map<String, dynamic> raw;
 
-  int get notificationId =>
-      orderId ?? DateTime.now().millisecondsSinceEpoch.remainder(100000);
+  int get notificationId {
+    if (orderId != null) return orderId!;
+    final paymentId = int.tryParse('${raw['payment_request_id'] ?? ''}');
+    if (paymentId != null) return 700000 + paymentId;
+    return Object.hash(type, title, body).abs().remainder(100000);
+  }
 
   String? get resolvedRoute {
     if (actionId == 'ignore') return null;

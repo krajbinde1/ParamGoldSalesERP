@@ -15,7 +15,11 @@ import '../repository/auth_repository.dart';
 class AuthController extends ChangeNotifier {
   AuthController() {
     final store = SessionStore();
-    final client = ApiClient(store, onUnauthorized: sessionExpired);
+    final client = ApiClient(
+      store,
+      onUnauthorized: sessionExpired,
+      onSessionReplaced: sessionReplaced,
+    );
     _repository = AuthRepository(AuthApi(client.dio), store);
     unawaited(initialize());
   }
@@ -79,7 +83,11 @@ class AuthController extends ChangeNotifier {
       // Prefer cached/validated session so cold start always reaches a screen.
       session = result.session;
       if (result.connectionError != null) {
-        message = _shortConnectionMessage(result.connectionError!.message);
+        if (result.connectionError!.isSessionReplaced) {
+          message = SessionReplacedException.userMessage;
+        } else {
+          message = _shortConnectionMessage(result.connectionError!.message);
+        }
       }
     } catch (error) {
       debugPrint('Auth initialize failed: $error');
@@ -178,6 +186,13 @@ class AuthController extends ChangeNotifier {
     _notify();
   }
 
+  void sessionReplaced() {
+    session = null;
+    loading = false;
+    message = SessionReplacedException.userMessage;
+    _notify();
+  }
+
   void clearMessage() {
     if (message == null) return;
     message = null;
@@ -201,6 +216,7 @@ class AuthController extends ChangeNotifier {
     final shortened = _shortConnectionMessage(raw);
     final lower = shortened.toLowerCase();
     if (lower.contains('session expired')) return shortened;
+    if (lower.contains('signed in on another device')) return shortened;
     return 'Unable to login. Please check your credentials or connection.';
   }
 }

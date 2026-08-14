@@ -6,19 +6,26 @@ use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\Employee;
 use App\Models\User;
+use App\Services\Auth\MobileSessionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rules\Password;
+use Laravel\Sanctum\PersonalAccessToken;
 
 class EmployeeAuthController extends Controller
 {
+    public function __construct(
+        private readonly MobileSessionService $mobileSessions,
+    ) {}
+
     public function login(Request $request): JsonResponse
     {
         $credentials = $request->validate([
             'login_id' => ['required', 'string', 'min:4', 'max:32', 'regex:/^[A-Za-z0-9]+$/'],
             'password' => ['required', 'string'],
+            'device_id' => ['nullable', 'string', 'max:64'],
         ]);
 
         $user = User::query()
@@ -41,12 +48,17 @@ class EmployeeAuthController extends Controller
             ], 403);
         }
 
-        $user->tokens()->where('name', 'employee-mobile')->delete();
-        $token = $user->createToken('employee-mobile', ['employee-mobile'])->plainTextToken;
+        $session = $this->mobileSessions->startSession(
+            $user,
+            $credentials['device_id'] ?? $request->header('X-Device-Id'),
+        );
+
+        $user->load(['employee.reportingManager']);
 
         return response()->json([
             'success' => true,
-            'token' => $token,
+            'token' => $session['token'],
+            'session_id' => $session['session_id'],
             'user' => $this->userData($user),
             'employee' => $this->employeeData($user->employee),
             'permissions' => $this->mobilePermissions($user),
@@ -108,7 +120,12 @@ class EmployeeAuthController extends Controller
 
     public function logout(Request $request): JsonResponse
     {
-        $request->user()->currentAccessToken()?->delete();
+        $user = $request->user();
+        $token = $user->currentAccessToken();
+        $this->mobileSessions->endSession(
+            $user,
+            $token instanceof PersonalAccessToken ? $token : null,
+        );
 
         return response()->json([
             'success' => true,
