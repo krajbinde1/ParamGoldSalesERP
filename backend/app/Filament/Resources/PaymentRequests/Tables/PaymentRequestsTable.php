@@ -10,7 +10,9 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\ViewAction;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Gate;
 
@@ -18,6 +20,9 @@ class PaymentRequestsTable
 {
     public static function configure(Table $table): Table
     {
+        $firstName = (string) config('payment_requests.first_approver_name', 'Krishna Rajbinde');
+        $secondName = (string) config('payment_requests.second_approver_name', 'Bhagwan Kakde');
+
         return $table
             ->defaultSort('id', 'desc')
             ->columns([
@@ -26,10 +31,6 @@ class PaymentRequestsTable
                     ->searchable()
                     ->sortable()
                     ->weight('semibold'),
-                TextColumn::make('created_at')
-                    ->label('Date')
-                    ->dateTime('d M Y')
-                    ->sortable(),
                 TextColumn::make('vendor_name')
                     ->label('Vendor Name')
                     ->searchable()
@@ -47,16 +48,43 @@ class PaymentRequestsTable
                     ->toggleable()
                     ->placeholder('—'),
                 TextColumn::make('status')
-                    ->label('Current Status')
+                    ->label('Current Stage')
                     ->badge()
-                    ->formatStateUsing(fn (string $state): string => PaymentRequest::statusLabel($state))
+                    ->formatStateUsing(fn (PaymentRequest $record): string => $record->currentStageLabel())
                     ->color(fn (string $state): string => PaymentRequest::statusColor($state)),
-                TextColumn::make('first_approver_name')
-                    ->label('First Approver')
+                TextColumn::make('current_approver')
+                    ->label('Current Approver')
+                    ->state(fn (PaymentRequest $record): string => $record->currentApproverLabel())
                     ->placeholder('—'),
-                TextColumn::make('second_approver_name')
-                    ->label('Second Approver')
-                    ->placeholder('—'),
+                TextColumn::make('first_approval_status')
+                    ->label('First Approval')
+                    ->state(fn (PaymentRequest $record): string => $record->firstApprovalStatusLabel())
+                    ->badge()
+                    ->color(fn (string $state): string => match ($state) {
+                        'Approved' => 'success',
+                        'Rejected' => 'danger',
+                        'Pending' => 'warning',
+                        default => 'gray',
+                    }),
+                TextColumn::make('second_approval_status')
+                    ->label('Second Approval')
+                    ->state(fn (PaymentRequest $record): string => $record->secondApprovalStatusLabel())
+                    ->badge()
+                    ->color(fn (string $state): string => match ($state) {
+                        'Approved' => 'success',
+                        'Rejected' => 'danger',
+                        'Pending' => 'warning',
+                        default => 'gray',
+                    }),
+                TextColumn::make('reminder_count')
+                    ->label('Reminder Count')
+                    ->alignCenter()
+                    ->sortable(),
+                TextColumn::make('last_reminded_at')
+                    ->label('Last Reminder')
+                    ->dateTime('d M Y, h:i A')
+                    ->placeholder('—')
+                    ->toggleable(),
                 TextColumn::make('payment_status')
                     ->label('Payment Status')
                     ->state(fn (PaymentRequest $record): string => $record->paymentStatusLabel())
@@ -66,15 +94,32 @@ class PaymentRequestsTable
                         'Pending Payment' => 'warning',
                         default => 'gray',
                     }),
-                TextColumn::make('reminder_count')
-                    ->label('Reminders')
-                    ->alignCenter()
-                    ->toggleable(),
-                TextColumn::make('last_reminded_at')
-                    ->label('Last Reminder')
-                    ->dateTime('d M Y, h:i A')
-                    ->placeholder('—')
-                    ->toggleable(isToggledHiddenByDefault: true),
+            ])
+            ->filters([
+                SelectFilter::make('workflow_status')
+                    ->label('Status')
+                    ->options([
+                        'pending_krishna' => "Pending {$firstName} Approval",
+                        'pending_bhagwan' => "Pending {$secondName} Approval",
+                        'approved_for_payment' => 'Approved for Payment',
+                        'rejected' => 'Rejected',
+                        'payment_done' => 'Payment Done',
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        $value = $data['value'] ?? null;
+
+                        return match ($value) {
+                            'pending_krishna' => $query->where('status', PaymentRequest::STATUS_PENDING_FIRST),
+                            'pending_bhagwan' => $query->where('status', PaymentRequest::STATUS_PENDING_SECOND),
+                            'approved_for_payment' => $query->where('status', PaymentRequest::STATUS_APPROVED_FOR_PAYMENT),
+                            'rejected' => $query->whereIn('status', [
+                                PaymentRequest::STATUS_REJECTED_FIRST,
+                                PaymentRequest::STATUS_REJECTED_SECOND,
+                            ]),
+                            'payment_done' => $query->where('status', PaymentRequest::STATUS_PAYMENT_DONE),
+                            default => $query,
+                        };
+                    }),
             ])
             ->recordActions([
                 Action::make('sendReminder')
@@ -92,7 +137,7 @@ class PaymentRequestsTable
             ->toolbarActions([
                 BulkActionGroup::make([
                     BulkAction::make('sendReminderSelected')
-                        ->label('Send Reminder')
+                        ->label('Remind All Pending for Current Approver')
                         ->icon('heroicon-o-bell-alert')
                         ->color('warning')
                         ->requiresConfirmation()
@@ -111,7 +156,6 @@ class PaymentRequestsTable
                                 return;
                             }
 
-                            // Group by status so each approver queue gets its own reminder.
                             foreach ($pending->groupBy('status') as $status => $group) {
                                 app(SendPaymentRequestReminder::class)->executeForApproverQueue(
                                     actor: auth()->user(),

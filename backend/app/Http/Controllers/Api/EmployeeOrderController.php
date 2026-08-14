@@ -199,6 +199,7 @@ class EmployeeOrderController extends Controller
             'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
             'items.*.case_quantity' => ['required', 'integer', 'min:1'],
             'items.*.rate_per_no' => ['required', 'numeric', 'min:0'],
+            'items.*.rate_type' => ['nullable', 'in:price_list,fixed_rate'],
             'items.*.quantity' => ['prohibited'],
             'items.*.rate' => ['prohibited'],
             'items.*.total_quantity_nos' => ['prohibited'],
@@ -291,6 +292,7 @@ class EmployeeOrderController extends Controller
                 'quantity' => $item['quantity'],
                 'unit' => $item['unit'],
                 'rate_per_no' => $item['rate_per_no'],
+                'rate_type' => $item['rate_type'] ?? 'price_list',
                 'rate' => $item['rate'],
                 'discount_percentage' => $item['discount_percentage'],
                 'discount_amount' => $item['discount_amount'],
@@ -410,6 +412,7 @@ class EmployeeOrderController extends Controller
                 ratePerNo: (float) $item['rate_per_no'],
                 requestedDiscountPercentage: (float) $item['discount_value'],
                 requestedGstPercentage: (float) $item['gst_percentage'],
+                rateType: (string) ($item['rate_type'] ?? 'price_list'),
             );
         } catch (ValidationException $exception) {
             $messages = $exception->errors();

@@ -31,9 +31,19 @@ class DirectorPaymentRequestController extends Controller
         if ($this->approvers->isFirstApprover($user) && ! $this->approvers->isSecondApprover($user)) {
             if ($status === 'pending') {
                 $query->where('status', PaymentRequest::STATUS_PENDING_FIRST);
-            } elseif ($status === 'actioned') {
-                $query->where(function ($q): void {
-                    $q->whereNotNull('first_approved_by')
+            } elseif ($status === 'approved') {
+                $query->where('first_approved_by', $user->id)
+                    ->whereIn('status', [
+                        PaymentRequest::STATUS_PENDING_SECOND,
+                        PaymentRequest::STATUS_APPROVED_FOR_PAYMENT,
+                        PaymentRequest::STATUS_PAYMENT_DONE,
+                    ]);
+            } elseif ($status === 'rejected') {
+                $query->where('status', PaymentRequest::STATUS_REJECTED_FIRST)
+                    ->where('first_approved_by', $user->id);
+            } elseif ($status === 'history' || $status === 'actioned') {
+                $query->where(function ($q) use ($user): void {
+                    $q->where('first_approved_by', $user->id)
                         ->where('status', '!=', PaymentRequest::STATUS_PENDING_FIRST);
                 });
             } else {
@@ -45,9 +55,18 @@ class DirectorPaymentRequestController extends Controller
         } elseif ($this->approvers->isSecondApprover($user) && ! $this->approvers->isFirstApprover($user)) {
             if ($status === 'pending') {
                 $query->where('status', PaymentRequest::STATUS_PENDING_SECOND);
-            } elseif ($status === 'actioned') {
-                $query->where(function ($q): void {
-                    $q->whereNotNull('second_approved_by')
+            } elseif ($status === 'approved') {
+                $query->where('second_approved_by', $user->id)
+                    ->whereIn('status', [
+                        PaymentRequest::STATUS_APPROVED_FOR_PAYMENT,
+                        PaymentRequest::STATUS_PAYMENT_DONE,
+                    ]);
+            } elseif ($status === 'rejected') {
+                $query->where('status', PaymentRequest::STATUS_REJECTED_SECOND)
+                    ->where('second_approved_by', $user->id);
+            } elseif ($status === 'history' || $status === 'actioned') {
+                $query->where(function ($q) use ($user): void {
+                    $q->where('second_approved_by', $user->id)
                         ->where('status', '!=', PaymentRequest::STATUS_PENDING_SECOND);
                 });
             } else {
@@ -62,10 +81,40 @@ class DirectorPaymentRequestController extends Controller
                     PaymentRequest::STATUS_PENDING_FIRST,
                     PaymentRequest::STATUS_PENDING_SECOND,
                 ]);
+            } elseif ($status === 'approved') {
+                $query->whereIn('status', [
+                    PaymentRequest::STATUS_APPROVED_FOR_PAYMENT,
+                    PaymentRequest::STATUS_PAYMENT_DONE,
+                ]);
+            } elseif ($status === 'rejected') {
+                $query->whereIn('status', [
+                    PaymentRequest::STATUS_REJECTED_FIRST,
+                    PaymentRequest::STATUS_REJECTED_SECOND,
+                ]);
+            } elseif ($status === 'history') {
+                $query->whereNotIn('status', [
+                    PaymentRequest::STATUS_PENDING_FIRST,
+                    PaymentRequest::STATUS_PENDING_SECOND,
+                ]);
             }
         } else {
             if ($status === 'pending') {
                 $query->whereIn('status', [
+                    PaymentRequest::STATUS_PENDING_FIRST,
+                    PaymentRequest::STATUS_PENDING_SECOND,
+                ]);
+            } elseif ($status === 'approved') {
+                $query->whereIn('status', [
+                    PaymentRequest::STATUS_APPROVED_FOR_PAYMENT,
+                    PaymentRequest::STATUS_PAYMENT_DONE,
+                ]);
+            } elseif ($status === 'rejected') {
+                $query->whereIn('status', [
+                    PaymentRequest::STATUS_REJECTED_FIRST,
+                    PaymentRequest::STATUS_REJECTED_SECOND,
+                ]);
+            } elseif ($status === 'history') {
+                $query->whereNotIn('status', [
                     PaymentRequest::STATUS_PENDING_FIRST,
                     PaymentRequest::STATUS_PENDING_SECOND,
                 ]);

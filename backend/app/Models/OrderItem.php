@@ -16,6 +16,7 @@ class OrderItem extends Model
         'quantity',
         'unit',
         'rate_per_no',
+        'rate_type',
         'rate',
         'discount_percentage',
         'discount_amount',
@@ -56,13 +57,23 @@ class OrderItem extends Model
                     : Product::query()->find($item->product_id);
 
                 if ($product !== null) {
+                    $submittedRate = (float) ($item->rate_per_no ?? $item->rate ?? 0);
+                    $rateType = filled($item->rate_type)
+                        ? (string) $item->rate_type
+                        : (
+                            abs($submittedRate - (float) $product->dealer_price) >= 0.001
+                                ? OrderLineCalculationService::RATE_TYPE_FIXED
+                                : OrderLineCalculationService::RATE_TYPE_PRICE_LIST
+                        );
+
                     $calculated = app(OrderLineCalculationService::class)->calculateForProduct(
                         product: $product,
                         caseQuantity: (int) $item->case_quantity,
-                        ratePerNo: (float) ($item->rate_per_no ?? $item->rate ?? 0),
+                        ratePerNo: $submittedRate,
                         requestedDiscountPercentage: (float) ($item->discount_percentage ?? 0),
                         requestedGstPercentage: (float) ($item->gst_percentage ?? 0),
                         enforceDiscountRule: false,
+                        rateType: $rateType,
                     );
 
                     $item->fill($calculated);

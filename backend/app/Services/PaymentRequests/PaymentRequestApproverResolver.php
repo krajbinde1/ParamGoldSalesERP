@@ -12,8 +12,8 @@ final class PaymentRequestApproverResolver
     {
         return $this->resolveUserId(
             configuredId: config('payment_requests.first_approver_user_id'),
-            name: (string) config('payment_requests.first_approver_name', 'Bhagwan Kakde'),
-            cacheKey: 'payment_request_first_approver_user_id',
+            name: (string) config('payment_requests.first_approver_name', 'Krishna Rajbinde'),
+            cacheKey: 'payment_request_first_approver_user_id_v2',
         );
     }
 
@@ -21,8 +21,8 @@ final class PaymentRequestApproverResolver
     {
         return $this->resolveUserId(
             configuredId: config('payment_requests.second_approver_user_id'),
-            name: (string) config('payment_requests.second_approver_name', 'Krishna Rajbinde'),
-            cacheKey: 'payment_request_second_approver_user_id',
+            name: (string) config('payment_requests.second_approver_name', 'Bhagwan Kakde'),
+            cacheKey: 'payment_request_second_approver_user_id_v2',
         );
     }
 
@@ -62,13 +62,13 @@ final class PaymentRequestApproverResolver
     public function firstApproverDisplayName(): string
     {
         return $this->firstApprover()?->name
-            ?: (string) config('payment_requests.first_approver_name', 'Bhagwan Kakde');
+            ?: (string) config('payment_requests.first_approver_name', 'Krishna Rajbinde');
     }
 
     public function secondApproverDisplayName(): string
     {
         return $this->secondApprover()?->name
-            ?: (string) config('payment_requests.second_approver_name', 'Krishna Rajbinde');
+            ?: (string) config('payment_requests.second_approver_name', 'Bhagwan Kakde');
     }
 
     private function resolveUserId(mixed $configuredId, string $name, string $cacheKey): ?int

@@ -18,6 +18,7 @@ import '../../../core/widgets/role_shell_widgets.dart';
 import '../../auth/providers/auth_controller.dart';
 import '../../orders/models/order.dart';
 import '../../orders/models/order_detail.dart';
+import '../../orders/widgets/order_info_card.dart';
 import '../../orders/widgets/order_invoice_products_table.dart';
 import '../../orders/widgets/order_widgets.dart';
 import '../api/production_api.dart';
@@ -97,8 +98,6 @@ class _ProductionOrderDetailScreenState
 
   bool get _isBilled =>
       _status == 'billed' && (_order?['can_dispatch'] == true);
-
-  bool get _isDispatched => _status == 'dispatched';
 
   bool get _canSendForBill => _order?['can_send_for_bill'] == true;
 
@@ -613,14 +612,6 @@ class _ProductionOrderDetailScreenState
 
   @override
   Widget build(BuildContext context) {
-    final currency = NumberFormat.currency(
-      locale: 'en_IN',
-      symbol: '₹',
-      decimalDigits: 2,
-    );
-    final dateFormat = DateFormat('dd MMM yyyy, hh:mm a');
-    final shortDate = DateFormat('dd MMM yyyy');
-
     return Scaffold(
       appBar: RoleAppBar(title: 'Order Details', auth: widget.auth),
       body: FutureBuilder<Map<String, dynamic>>(
@@ -654,130 +645,11 @@ class _ProductionOrderDetailScreenState
                 badgeTone: PgStatusRules.orderTone(status),
               ),
               const SizedBox(height: AppSpacing.md),
-              PgCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Order Info',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    PgInvoiceRow(
-                      label: 'Order Date',
-                      value: _formatDate(order['order_date'], shortDate),
-                    ),
-                    PgInvoiceRow(
-                      label: 'Employee',
-                      value: order['employee_name']?.toString() ?? '-',
-                    ),
-                    PgInvoiceRow(
-                      label: 'Payment Type',
-                      value: order['payment_type']?.toString() ?? '-',
-                      emphasize: true,
-                    ),
-                    PgInvoiceRow(
-                      label: 'Dealer Mobile',
-                      value: dealer?['mobile']?.toString() ?? '-',
-                    ),
-                    PgInvoiceRow(
-                      label: 'Delivery Address',
-                      value: dealer?['address']?.toString() ?? '-',
-                    ),
-                    if (order['approved_at'] != null) ...[
-                      PgInvoiceRow(
-                        label: 'Approved By',
-                        value: order['approved_by_role']?.toString() ??
-                            'Sales Manager',
-                      ),
-                      PgInvoiceRow(
-                        label: 'Name',
-                        value: order['approved_by_name']?.toString() ?? '-',
-                      ),
-                      PgInvoiceRow(
-                        label: 'Approved On',
-                        value: order['approved_at_label']?.toString() ??
-                            _formatDate(order['approved_at'], dateFormat),
-                      ),
-                    ],
-                    if (order['sent_for_bill_at'] != null) ...[
-                      PgInvoiceRow(
-                        label: 'Sent for Bill By',
-                        value:
-                            order['sent_for_bill_by_name']?.toString() ?? '-',
-                      ),
-                      PgInvoiceRow(
-                        label: 'Sent On',
-                        value: order['sent_for_bill_at_label']?.toString() ??
-                            _formatDate(order['sent_for_bill_at'], dateFormat),
-                      ),
-                    ],
-                    if (order['billed_at'] != null) ...[
-                      PgInvoiceRow(
-                        label: 'Billed By',
-                        value: order['billed_by_name']?.toString() ?? '-',
-                      ),
-                      PgInvoiceRow(
-                        label: 'Billed On',
-                        value: order['billed_at_label']?.toString() ??
-                            _formatDate(order['billed_at'], dateFormat),
-                      ),
-                    ],
-                    if (_isPendingForBilling ||
-                        _isBilled ||
-                        _isDispatched ||
-                        order['vehicle_number'] != null) ...[
-                      PgInvoiceRow(
-                        label: 'Vehicle Number',
-                        value: order['vehicle_number']?.toString() ?? '-',
-                      ),
-                      PgInvoiceRow(
-                        label: 'Transport Freight',
-                        value: currency.format(
-                          double.tryParse(
-                                '${order['transport_amount'] ?? order['transport_freight'] ?? 0}',
-                              ) ??
-                              0,
-                        ),
-                      ),
-                      if ((order['transport_remark']?.toString() ?? '')
-                          .isNotEmpty)
-                        PgInvoiceRow(
-                          label: 'Transport Remark',
-                          value: order['transport_remark'].toString(),
-                        ),
-                    ],
-                    if (order['billed_at'] != null ||
-                        order['bill_number'] != null) ...[
-                      PgInvoiceRow(
-                        label: 'Bill Number',
-                        value: order['bill_number']?.toString() ?? '-',
-                      ),
-                      PgInvoiceRow(
-                        label: 'Bill Date',
-                        value: _formatDate(
-                          order['bill_date'] ?? order['billed_at'],
-                          shortDate,
-                        ),
-                      ),
-                      if (order['billed_by_name'] != null)
-                        PgInvoiceRow(
-                          label: 'Billed By',
-                          value: order['billed_by_name']?.toString() ?? '-',
-                        ),
-                    ],
-                    if (_isDispatched) ...[
-                      PgInvoiceRow(
-                        label: 'Dispatched At',
-                        value: _formatDate(order['dispatched_at'], dateFormat),
-                      ),
-                      PgInvoiceRow(
-                        label: 'Dispatched By',
-                        value: order['dispatched_by_name']?.toString() ?? '-',
-                      ),
-                    ],
-                  ],
-                ),
+              OrderInfoCard.fromOrderMap(
+                Map<String, dynamic>.from(order),
+                dealer: dealer is Map
+                    ? Map<String, dynamic>.from(dealer)
+                    : null,
               ),
               if (billUrl.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.md),
@@ -817,7 +689,7 @@ class _ProductionOrderDetailScreenState
                 ),
               ],
               const SizedBox(height: AppSpacing.md),
-              OrderInvoiceProductsCard(
+              OrderInvoiceProductsCard.sharedReview(
                 lines: items
                     .map(
                       (raw) => OrderInvoiceLine.fromMap(
@@ -967,12 +839,6 @@ class _ProductionOrderDetailScreenState
         },
       ),
     );
-  }
-
-  String _formatDate(Object? value, DateFormat format) {
-    if (value == null) return '-';
-    final parsed = DateTime.tryParse(value.toString());
-    return parsed == null ? value.toString() : format.format(parsed.toLocal());
   }
 }
 

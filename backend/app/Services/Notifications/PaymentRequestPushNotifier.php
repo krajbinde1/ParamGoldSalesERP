@@ -242,10 +242,21 @@ final class PaymentRequestPushNotifier
                         'payment_request_id' => (string) $dedupePaymentRequest->id,
                         'pending_count' => (string) $count,
                         'pending_amount' => (string) $total,
+                        'amount' => (string) $total,
+                        'request_no' => (string) $dedupePaymentRequest->request_no,
+                        'vendor_name' => $count === 1
+                            ? (string) $dedupePaymentRequest->vendor_name
+                            : '',
                         'status' => $status,
+                        'status_label' => $dedupePaymentRequest->displayStatusLabel(),
+                        'approval_stage' => $status === PaymentRequest::STATUS_PENDING_FIRST
+                            ? 'First Approval'
+                            : 'Second Approval',
+                        'event_at' => (string) ($dedupePaymentRequest->updated_at?->toIso8601String()
+                            ?? now()->toIso8601String()),
                         'route' => '/director/payment-requests',
                         'action' => 'review',
-                        'channel_id' => 'paramgold_approvals_v2',
+                        'channel_id' => 'paramgold_critical_alerts_v3',
                         'fullscreen' => '1',
                     ],
                 ]);
@@ -256,10 +267,21 @@ final class PaymentRequestPushNotifier
                 'payment_request_id' => (string) $dedupePaymentRequest->id,
                 'pending_count' => (string) $count,
                 'pending_amount' => (string) $total,
+                'amount' => (string) $total,
+                'request_no' => (string) $dedupePaymentRequest->request_no,
+                'vendor_name' => $count === 1
+                    ? (string) $dedupePaymentRequest->vendor_name
+                    : '',
                 'status' => $status,
+                'status_label' => $dedupePaymentRequest->displayStatusLabel(),
+                'approval_stage' => $status === PaymentRequest::STATUS_PENDING_FIRST
+                    ? 'First Approval'
+                    : 'Second Approval',
+                'event_at' => (string) ($dedupePaymentRequest->updated_at?->toIso8601String()
+                    ?? now()->toIso8601String()),
                 'route' => '/director/payment-requests',
                 'action' => 'review',
-                'channel_id' => 'paramgold_approvals_v2',
+                'channel_id' => 'paramgold_critical_alerts_v3',
                 'fullscreen' => '1',
             ];
 
@@ -270,7 +292,7 @@ final class PaymentRequestPushNotifier
                 data: $data,
                 android: [
                     'notification' => [
-                        'channel_id' => 'paramgold_approvals_v2',
+                        'channel_id' => 'paramgold_critical_alerts_v3',
                         'notification_priority' => 'PRIORITY_MAX',
                         'default_vibrate_timings' => true,
                         'sound' => 'default',
@@ -322,7 +344,7 @@ final class PaymentRequestPushNotifier
                 'status_label' => $paymentRequest->displayStatusLabel(),
                 'route' => "/director/payment-requests/{$paymentRequest->id}",
                 'action' => 'view_payment_request',
-                'channel_id' => 'paramgold_status_v2',
+                'channel_id' => 'paramgold_critical_alerts_v3',
                 'fullscreen' => '0',
             ], $extra);
 

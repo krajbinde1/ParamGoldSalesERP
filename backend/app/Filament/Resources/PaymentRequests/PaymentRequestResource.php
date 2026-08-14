@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\PaymentRequests;
 
+use App\Filament\Resources\PaymentRequests\Pages\CreateBulkPaymentRequest;
 use App\Filament\Resources\PaymentRequests\Pages\CreatePaymentRequest;
 use App\Filament\Resources\PaymentRequests\Pages\ListPaymentRequests;
 use App\Filament\Resources\PaymentRequests\Pages\ViewPaymentRequest;
@@ -67,6 +68,7 @@ class PaymentRequestResource extends Resource
         return [
             'index' => ListPaymentRequests::route('/'),
             'create' => CreatePaymentRequest::route('/create'),
+            'bulk-create' => CreateBulkPaymentRequest::route('/bulk-create'),
             'view' => ViewPaymentRequest::route('/{record}'),
         ];
     }

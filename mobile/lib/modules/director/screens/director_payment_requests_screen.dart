@@ -23,9 +23,16 @@ typedef _PaymentListResult = ({
 });
 
 class DirectorPaymentRequestsScreen extends StatefulWidget {
-  const DirectorPaymentRequestsScreen({super.key, required this.auth});
+  const DirectorPaymentRequestsScreen({
+    super.key,
+    required this.auth,
+    this.initialFilter = 'pending',
+    this.selectAllOnLoad = false,
+  });
 
   final AuthController auth;
+  final String initialFilter;
+  final bool selectAllOnLoad;
 
   @override
   State<DirectorPaymentRequestsScreen> createState() =>
@@ -40,6 +47,7 @@ class _DirectorPaymentRequestsScreenState
   late Future<_PaymentListResult> _all;
   final Set<int> _selectedIds = {};
   bool _busy = false;
+  bool _didApplySelectAll = false;
 
   DirectorApi get _api => DirectorApi(
         ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired)
@@ -52,12 +60,31 @@ class _DirectorPaymentRequestsScreenState
     decimalDigits: 0,
   );
 
+  String get _filter {
+    final f = widget.initialFilter.trim().toLowerCase();
+    if (f == 'approved' ||
+        f == 'rejected' ||
+        f == 'history' ||
+        f == 'pending') {
+      return f;
+    }
+    return 'pending';
+  }
+
+  bool get _isPendingFilter => _filter == 'pending';
+
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 2, vsync: this);
+    _tabs = TabController(
+      length: 2,
+      vsync: this,
+      initialIndex: _isPendingFilter ? 0 : 1,
+    );
     _pending = _api.listPaymentRequests(status: 'pending');
-    _all = _api.listPaymentRequests();
+    _all = _api.listPaymentRequests(
+      status: _isPendingFilter ? null : _filter,
+    );
   }
 
   @override
@@ -69,10 +96,51 @@ class _DirectorPaymentRequestsScreenState
   Future<void> _reload() async {
     setState(() {
       _selectedIds.clear();
+      _didApplySelectAll = false;
       _pending = _api.listPaymentRequests(status: 'pending');
-      _all = _api.listPaymentRequests();
+      _all = _api.listPaymentRequests(
+        status: _isPendingFilter ? null : _filter,
+      );
     });
     await Future.wait([_pending, _all]);
+  }
+
+  Future<void> _rejectFromList(Map<String, dynamic> item) async {
+    final id = int.tryParse('${item['id']}') ?? 0;
+    if (id <= 0 || item['can_reject'] != true) return;
+
+    final confirmed = await confirmAction(
+      context,
+      title: 'Reject Payment Request',
+      message:
+          'Reject ${item['request_no'] ?? 'this request'} for ${item['vendor_name'] ?? 'vendor'}?',
+    );
+    if (!confirmed || !mounted) return;
+
+    final remark = await promptRemarkDialog(
+      context,
+      title: 'Rejection Remark (required)',
+      submitLabel: 'Reject',
+      required: true,
+    );
+    if (remark == null || !mounted) return;
+
+    setState(() => _busy = true);
+    try {
+      await _api.rejectPaymentRequest(id, remark: remark);
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Payment request rejected')),
+      );
+      await _reload();
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage(error))),
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
   }
 
   Future<void> _approveSelected(List<Map<String, dynamic>> items) async {
@@ -162,15 +230,29 @@ class _DirectorPaymentRequestsScreenState
 
   @override
   Widget build(BuildContext context) {
+    final title = switch (_filter) {
+      'approved' => 'Approved Payments',
+      'rejected' => 'Rejected Payments',
+      'history' => 'Payment Approval History',
+      _ => 'Payment Request Approval',
+    };
+
     return Scaffold(
       appBar: RoleAppBar(
-        title: 'Payment Request Approval',
+        title: title,
         auth: widget.auth,
         bottom: TabBar(
           controller: _tabs,
-          tabs: const [
-            Tab(text: 'Pending'),
-            Tab(text: 'All'),
+          tabs: [
+            const Tab(text: 'Pending'),
+            Tab(
+              text: switch (_filter) {
+                'approved' => 'Approved',
+                'rejected' => 'Rejected',
+                'history' => 'History',
+                _ => 'All',
+              },
+            ),
           ],
         ),
       ),
@@ -178,7 +260,15 @@ class _DirectorPaymentRequestsScreenState
         controller: _tabs,
         children: [
           _pendingTab(),
-          _simpleList(_all, empty: 'No payment requests'),
+          _simpleList(
+            _all,
+            empty: switch (_filter) {
+              'approved' => 'No approved payment requests',
+              'rejected' => 'No rejected payment requests',
+              'history' => 'No payment approval history',
+              _ => 'No payment requests',
+            },
+          ),
         ],
       ),
     );
@@ -214,6 +304,19 @@ class _DirectorPaymentRequestsScreenState
               .map((item) => int.tryParse('${item['id']}') ?? 0)
               .where((id) => id > 0)
               .toList();
+          if (widget.selectAllOnLoad &&
+              !_didApplySelectAll &&
+              selectable.isNotEmpty) {
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted || _didApplySelectAll) return;
+              setState(() {
+                _selectedIds
+                  ..clear()
+                  ..addAll(selectable);
+                _didApplySelectAll = true;
+              });
+            });
+          }
           final allSelected = selectable.isNotEmpty &&
               selectable.every(_selectedIds.contains);
 
@@ -299,6 +402,7 @@ class _DirectorPaymentRequestsScreenState
   Widget _pendingCard(Map<String, dynamic> item) {
     final id = int.tryParse('${item['id']}') ?? 0;
     final canApprove = item['can_approve'] == true;
+    final canReject = item['can_reject'] == true;
     final selected = _selectedIds.contains(id);
 
     return PgCard(
@@ -308,58 +412,75 @@ class _DirectorPaymentRequestsScreenState
           await _reload();
         }
       },
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (canApprove)
-            Checkbox(
-              value: selected,
-              onChanged: _busy
-                  ? null
-                  : (value) {
-                      setState(() {
-                        if (value == true) {
-                          _selectedIds.add(id);
-                        } else {
-                          _selectedIds.remove(id);
-                        }
-                      });
-                    },
-            ),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  '${item['request_no'] ?? '-'}',
-                  style: const TextStyle(fontWeight: FontWeight.w800),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              if (canApprove)
+                Checkbox(
+                  value: selected,
+                  onChanged: _busy
+                      ? null
+                      : (value) {
+                          setState(() {
+                            if (value == true) {
+                              _selectedIds.add(id);
+                            } else {
+                              _selectedIds.remove(id);
+                            }
+                          });
+                        },
                 ),
-                const SizedBox(height: 4),
-                Text('${item['vendor_name'] ?? '-'}'),
-                const SizedBox(height: 4),
-                Text(
-                  _currency.format(
-                    double.tryParse('${item['amount'] ?? 0}') ?? 0,
-                  ),
-                  style: const TextStyle(fontWeight: FontWeight.w700),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${item['request_no'] ?? '-'}',
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                    const SizedBox(height: 4),
+                    Text('${item['vendor_name'] ?? '-'}'),
+                    const SizedBox(height: 4),
+                    Text(
+                      _currency.format(
+                        double.tryParse('${item['amount'] ?? 0}') ?? 0,
+                      ),
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    if ('${item['remark'] ?? ''}'.trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        '${item['remark']}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                    if (item['created_at'] != null) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        _formatDate('${item['created_at']}'),
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    ],
+                  ],
                 ),
-                if ('${item['remark'] ?? ''}'.trim().isNotEmpty) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    '${item['remark']}',
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-                if (item['created_at'] != null) ...[
-                  const SizedBox(height: 4),
-                  Text(
-                    _formatDate('${item['created_at']}'),
-                    style: Theme.of(context).textTheme.bodySmall,
-                  ),
-                ],
-              ],
-            ),
+              ),
+            ],
           ),
+          if (canReject) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: _busy ? null : () => _rejectFromList(item),
+                icon: const Icon(Icons.close_rounded, size: 18),
+                label: const Text('Reject'),
+                style: TextButton.styleFrom(foregroundColor: Colors.red.shade700),
+              ),
+            ),
+          ],
         ],
       ),
     );

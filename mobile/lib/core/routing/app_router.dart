@@ -46,6 +46,7 @@ import '../../modules/manager/screens/manager_team_activity_screen.dart';
 import '../../modules/manager/screens/manager_team_attendance_screen.dart';
 import '../../modules/production/screens/production_dashboard_screen.dart';
 import '../../modules/production/screens/production_order_detail_screen.dart';
+import '../../modules/production/screens/production_status_orders_screen.dart';
 import '../../modules/production/screens/inventory/inventory_dashboard_screen.dart';
 import '../../modules/production/screens/inventory/inventory_hub_screens.dart';
 import '../../modules/production/screens/inventory/raw_material_form_screen.dart';
@@ -62,6 +63,8 @@ import '../../modules/production/screens/inventory/raw_material_inward_screens.d
 import '../../modules/production/screens/inventory/packaging_material_inward_screens.dart';
 import '../../modules/production/screens/production_entry/production_entry_wizard_screen.dart';
 import '../../modules/profile/screens/profile_screen.dart';
+import '../notifications/critical_approval_alert_screen.dart';
+import '../notifications/notification_payload.dart';
 
 GoRouter createRouter(
   AuthController auth, {
@@ -102,6 +105,24 @@ GoRouter createRouter(
     GoRoute(
       path: '/change-password',
       builder: (_, _) => ChangePasswordScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/critical-approval-alert',
+      builder: (_, state) {
+        final extra = state.extra;
+        final payload = extra is NotificationPayload
+            ? extra
+            : NotificationPayload.fromJson(
+                extra is Map
+                    ? Map<String, dynamic>.from(extra)
+                    : <String, dynamic>{
+                        'type': 'pending',
+                        'title': 'Critical Alert',
+                        'body': '',
+                      },
+              );
+        return CriticalApprovalAlertScreen(payload: payload, auth: auth);
+      },
     ),
     GoRoute(
       path: '/dashboard',
@@ -278,6 +299,7 @@ GoRouter createRouter(
           builder: (_, state) => ManagerOrderDetailScreen(
             auth: auth,
             orderId: int.parse(state.pathParameters['orderId']!),
+            initialAction: state.uri.queryParameters['action'],
           ),
           routes: [
             GoRoute(
@@ -391,6 +413,13 @@ GoRouter createRouter(
         return ProductionOrdersScreen(auth: auth);
       },
       routes: [
+        GoRoute(
+          path: 'by-status/:status',
+          builder: (_, state) => ProductionStatusOrdersScreen(
+            auth: auth,
+            status: state.pathParameters['status'] ?? 'approved',
+          ),
+        ),
         GoRoute(
           path: ':orderId',
           builder: (_, state) => ProductionOrderDetailScreen(
@@ -592,7 +621,12 @@ GoRouter createRouter(
     ),
     GoRoute(
       path: '/director/payment-requests',
-      builder: (_, _) => DirectorPaymentRequestsScreen(auth: auth),
+      builder: (_, state) => DirectorPaymentRequestsScreen(
+        auth: auth,
+        initialFilter: state.uri.queryParameters['filter'] ?? 'pending',
+        selectAllOnLoad: state.uri.queryParameters['select_all'] == '1' ||
+            state.uri.queryParameters['action'] == 'approve',
+      ),
       routes: [
         GoRoute(
           path: ':requestId',

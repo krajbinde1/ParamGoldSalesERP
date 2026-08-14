@@ -1,5 +1,28 @@
 import 'product.dart';
 
+enum OrderItemRateType {
+  priceList,
+  fixedRate;
+
+  String get apiValue => switch (this) {
+        OrderItemRateType.priceList => 'price_list',
+        OrderItemRateType.fixedRate => 'fixed_rate',
+      };
+
+  String get label => switch (this) {
+        OrderItemRateType.priceList => 'Price List',
+        OrderItemRateType.fixedRate => 'Fixed Rate',
+      };
+
+  static OrderItemRateType fromApi(Object? value) {
+    final raw = value?.toString().trim().toLowerCase();
+    if (raw == 'fixed_rate' || raw == 'fixed') {
+      return OrderItemRateType.fixedRate;
+    }
+    return OrderItemRateType.priceList;
+  }
+}
+
 class OrderLineItem {
   OrderLineItem({
     required this.productId,
@@ -11,6 +34,7 @@ class OrderLineItem {
     required this.originalDealerPrice,
     required this.discountValue,
     required this.gstPercent,
+    this.rateType = OrderItemRateType.priceList,
   });
 
   final int productId;
@@ -22,6 +46,7 @@ class OrderLineItem {
   double ratePerNo;
   double discountValue;
   final double gstPercent;
+  OrderItemRateType rateType;
 
   /// Qty = Cases × Qty Per Case (nos_per_case).
   int get totalQuantityNos =>
@@ -41,9 +66,14 @@ class OrderLineItem {
         originalDealerPrice: product.dealerPrice,
         discountValue: 0,
         gstPercent: product.orderGst,
+        rateType: OrderItemRateType.priceList,
       );
 
-  bool get isDiscountEnabled => _sameAmount(ratePerNo, originalDealerPrice);
+  bool get isPriceList => rateType == OrderItemRateType.priceList;
+
+  bool get isFixedRate => rateType == OrderItemRateType.fixedRate;
+
+  bool get isDiscountEnabled => isPriceList;
 
   double get baseAmount => totalQuantityNos * ratePerNo;
 
@@ -65,11 +95,22 @@ class OrderLineItem {
 
   bool get isValid => validationErrors.isEmpty;
 
-  void updateRatePerNo(double value) {
-    ratePerNo = value;
-    if (!isDiscountEnabled) {
+  void setRateType(OrderItemRateType next) {
+    if (rateType == next) return;
+    rateType = next;
+    if (next == OrderItemRateType.fixedRate) {
+      discountValue = 0;
+    } else {
+      // Restore price-list rate; start discount at 0.
+      ratePerNo = originalDealerPrice;
       discountValue = 0;
     }
+  }
+
+  void updateRatePerNo(double value) {
+    if (!isFixedRate) return;
+    ratePerNo = value < 0 ? 0 : value;
+    discountValue = 0;
   }
 
   List<String> get validationErrors {
@@ -83,20 +124,21 @@ class OrderLineItem {
       );
     }
     if (ratePerNo < 0) errors.add('Rate cannot be negative.');
+    if (isFixedRate && ratePerNo <= 0) {
+      errors.add('Enter a Fixed Rate greater than 0.');
+    }
     if (isDiscountEnabled) {
       if (discountValue < 0 || discountValue > 100) {
         errors.add('Disc % must be between 0 and 100.');
       }
     } else if (discountValue != 0) {
-      errors.add('Discount must be 0 when rate is changed.');
+      errors.add('Discount must be 0 for Fixed Rate.');
     }
     if (!Product.isAllowedGst(gstPercent)) {
       errors.add('GST must be one of the allowed values.');
     }
     return errors;
   }
-
-  bool _sameAmount(double a, double b) => (a - b).abs() < 0.001;
 }
 
 class OrderSummaryTotals {

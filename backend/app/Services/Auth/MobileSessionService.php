@@ -212,7 +212,7 @@ final class MobileSessionService
                 [
                     'type' => 'session_replaced',
                     'code' => self::CODE_SESSION_REPLACED,
-                    'channel_id' => FcmHttpClient::CHANNEL_STATUS,
+                    'channel_id' => FcmHttpClient::CHANNEL_CRITICAL,
                 ],
             );
         } catch (Throwable $e) {

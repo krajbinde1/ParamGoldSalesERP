@@ -29,6 +29,8 @@
             android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|locale|layoutDirection|fontScale|screenLayout|density|uiMode"
             android:hardwareAccelerated="true"
             android:windowSoftInputMode="adjustResize"
+            android:showWhenLocked="true"
+            android:turnScreenOn="true"
             android:enableOnBackInvokedCallback="true">
             <meta-data
               android:name="io.flutter.embedding.android.NormalTheme"
@@ -60,10 +62,10 @@
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />
-        <!-- FCM defaults: high-importance v2 channel (legacy order_* channels may be low). -->
+        <!-- FCM default channel: critical v3 (MAX importance, sound, vibration). -->
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_channel_id"
-            android:value="paramgold_approvals_v2" />
+            android:value="paramgold_critical_alerts_v3" />
         <meta-data
             android:name="com.google.firebase.messaging.default_notification_icon"
             android:resource="@mipmap/ic_launcher" />

@@ -151,6 +151,50 @@ class PaymentRequest extends Model
         };
     }
 
+    public function currentApproverLabel(): string
+    {
+        $resolver = app(\App\Services\PaymentRequests\PaymentRequestApproverResolver::class);
+
+        return match ($this->status) {
+            self::STATUS_PENDING_FIRST => $resolver->firstApproverDisplayName(),
+            self::STATUS_PENDING_SECOND => $resolver->secondApproverDisplayName(),
+            default => '—',
+        };
+    }
+
+    public function firstApprovalStatusLabel(): string
+    {
+        if ($this->status === self::STATUS_REJECTED_FIRST) {
+            return 'Rejected';
+        }
+        if (filled($this->first_approved_at) && $this->status !== self::STATUS_PENDING_FIRST) {
+            return 'Approved';
+        }
+        if ($this->status === self::STATUS_PENDING_FIRST) {
+            return 'Pending';
+        }
+
+        return filled($this->first_approved_at) ? 'Approved' : '—';
+    }
+
+    public function secondApprovalStatusLabel(): string
+    {
+        if ($this->status === self::STATUS_REJECTED_SECOND) {
+            return 'Rejected';
+        }
+        if ($this->status === self::STATUS_PENDING_FIRST || $this->status === self::STATUS_REJECTED_FIRST) {
+            return '—';
+        }
+        if ($this->status === self::STATUS_PENDING_SECOND) {
+            return 'Pending';
+        }
+        if (filled($this->second_approved_at)) {
+            return 'Approved';
+        }
+
+        return '—';
+    }
+
     public function canBeFirstApproved(): bool
     {
         return $this->status === self::STATUS_PENDING_FIRST;
@@ -318,8 +362,8 @@ class PaymentRequest extends Model
             ? null
             : Carbon::parse($value)->timezone(self::BUSINESS_TIMEZONE)->format('d M Y • h:i A');
 
-        $firstName = (string) config('payment_requests.first_approver_name', 'Bhagwan Kakde');
-        $secondName = (string) config('payment_requests.second_approver_name', 'Krishna Rajbinde');
+        $firstName = (string) config('payment_requests.first_approver_name', 'Krishna Rajbinde');
+        $secondName = (string) config('payment_requests.second_approver_name', 'Bhagwan Kakde');
 
         $steps = [
             [

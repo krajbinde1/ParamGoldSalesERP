@@ -26,6 +26,7 @@ class OrderInvoiceLine {
     this.baseAmount,
     this.unit,
     this.quantitySummary,
+    this.rateType = OrderItemRateType.priceList,
   });
 
   final String productName;
@@ -44,6 +45,11 @@ class OrderInvoiceLine {
   final double amount;
   final String? unit;
   final String? quantitySummary;
+  final OrderItemRateType rateType;
+
+  bool get isFixedRate => rateType == OrderItemRateType.fixedRate;
+
+  String get rateTypeLabel => rateType.label;
 
   String get compactQtySummary {
     if ((quantitySummary ?? '').trim().isNotEmpty) {
@@ -69,14 +75,15 @@ class OrderInvoiceLine {
         totalQuantityNos: item.totalQuantityNos,
         rate: item.ratePerNo,
         originalDealerPrice: item.originalDealerPrice,
-        discountPercent: item.discountValue,
-        discountAmount: item.discountAmount,
+        discountPercent: item.isFixedRate ? 0 : item.discountValue,
+        discountAmount: item.isFixedRate ? 0 : item.discountAmount,
         gstPercent: item.gstPercent,
         gstAmount: item.gstAmount,
         taxableAmount: item.taxableAmount,
         baseAmount: item.baseAmount,
         amount: item.finalAmount,
         quantitySummary: item.displaySummary,
+        rateType: item.rateType,
       );
 
   factory OrderInvoiceLine.fromDetailItem(OrderDetailItem item) =>
@@ -88,8 +95,14 @@ class OrderInvoiceLine {
         totalQuantityNos: item.totalQuantityNos,
         rate: item.ratePerNo,
         originalDealerPrice: item.originalDealerPrice,
-        discountPercent: item.discountPercentage,
-        discountAmount: item.discountAmount,
+        discountPercent:
+            item.rateType == OrderItemRateType.fixedRate
+                ? 0
+                : item.discountPercentage,
+        discountAmount:
+            item.rateType == OrderItemRateType.fixedRate
+                ? 0
+                : item.discountAmount,
         gstPercent: item.gstPercentage,
         gstAmount: item.gstAmount,
         taxableAmount: item.taxableAmount ??
@@ -98,6 +111,7 @@ class OrderInvoiceLine {
         amount: item.finalAmount ?? item.lineTotal,
         unit: item.unit,
         quantitySummary: item.quantitySummary,
+        rateType: item.rateType,
       );
 
   factory OrderInvoiceLine.fromMap(Map<String, dynamic> item) {
@@ -106,6 +120,13 @@ class OrderInvoiceLine {
     final totalNos = _asInt(item['total_quantity_nos'] ?? item['quantity']) ??
         (cases * nosPerCase);
     final summary = item['display_summary']?.toString();
+    final rateType = OrderItemRateType.fromApi(item['rate_type']);
+    final discountPercent = rateType == OrderItemRateType.fixedRate
+        ? 0.0
+        : (_asDouble(item['discount_percentage']) ?? 0);
+    final discountAmount = rateType == OrderItemRateType.fixedRate
+        ? 0.0
+        : _asDouble(item['discount_amount']);
 
     return OrderInvoiceLine(
       productName: item['product_name']?.toString() ?? '-',
@@ -115,8 +136,8 @@ class OrderInvoiceLine {
       totalQuantityNos: totalNos,
       rate: _asDouble(item['rate_per_no'] ?? item['rate']) ?? 0,
       originalDealerPrice: _asDouble(item['original_dealer_price']),
-      discountPercent: _asDouble(item['discount_percentage']) ?? 0,
-      discountAmount: _asDouble(item['discount_amount']),
+      discountPercent: discountPercent,
+      discountAmount: discountAmount,
       gstPercent: _asDouble(item['gst_percentage']) ?? 0,
       gstAmount: _asDouble(item['gst_amount']),
       taxableAmount: _asDouble(
@@ -130,6 +151,7 @@ class OrderInvoiceLine {
       quantitySummary: (summary != null && summary.trim().isNotEmpty)
           ? summary
           : '$cases ${cases == 1 ? 'Case' : 'Cases'} × $nosPerCase = $totalNos Nos',
+      rateType: rateType,
     );
   }
 
@@ -323,14 +345,20 @@ class OrderInvoiceProductsTable extends StatelessWidget {
                       value: money(line.originalDealerPrice!),
                     ),
                   PgInvoiceRow(
+                    label: 'Rate Type',
+                    value: line.rateTypeLabel,
+                  ),
+                  PgInvoiceRow(
                     label: 'Rate Per No',
                     value: money(line.rate),
                   ),
                   PgInvoiceRow(
                     label: 'Discount',
-                    value: line.discountAmount != null
-                        ? '${percent(line.discountPercent)} (${money(line.discountAmount!)})'
-                        : percent(line.discountPercent),
+                    value: line.isFixedRate
+                        ? '—'
+                        : (line.discountAmount != null
+                            ? '${percent(line.discountPercent)} (${money(line.discountAmount!)})'
+                            : percent(line.discountPercent)),
                   ),
                   PgInvoiceRow(
                     label: 'GST',
@@ -442,6 +470,31 @@ class OrderInvoiceProductsCard extends StatelessWidget {
     this.showSplitTaxColumns = false,
   });
 
+  /// Shared detail/review presentation for Employee, Manager, and Production.
+  factory OrderInvoiceProductsCard.sharedReview({
+    Key? key,
+    required List<OrderInvoiceLine> lines,
+    String title = 'Products',
+    bool showTitle = true,
+    Widget? summary,
+    void Function(int index)? onEdit,
+    void Function(int index)? onDelete,
+  }) {
+    return OrderInvoiceProductsCard(
+      key: key,
+      lines: lines,
+      title: title,
+      showTitle: showTitle,
+      summary: summary,
+      onEdit: onEdit,
+      onDelete: onDelete,
+      freezeProductColumn: true,
+      showTotalCases: true,
+      spaciousLayout: true,
+      showSplitTaxColumns: true,
+    );
+  }
+
   final List<OrderInvoiceLine> lines;
   final String title;
   final bool showTitle;
@@ -458,8 +511,9 @@ class OrderInvoiceProductsCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => PgCard(
+        // Near full-width product table: tighter horizontal inset than default cards.
         padding: spaciousLayout
-            ? const EdgeInsets.fromLTRB(10, 14, 10, 14)
+            ? const EdgeInsets.fromLTRB(6, 12, 6, 12)
             : null,
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -476,19 +530,25 @@ class OrderInvoiceProductsCard extends StatelessWidget {
             ),
             if (showTotalCases) ...[
               const SizedBox(height: AppSpacing.md),
-              Text(
-                'Total Cases: $_totalCases',
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textPrimary,
-                    ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Text(
+                  'Total Cases: $_totalCases',
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                ),
               ),
             ],
             if (summary != null) ...[
               const SizedBox(height: AppSpacing.md),
               const Divider(height: 1),
               const SizedBox(height: AppSpacing.md),
-              summary!,
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: summary!,
+              ),
             ],
           ],
         ),
@@ -570,23 +630,23 @@ class _FrozenTableLayout {
     columnGap: 6,
   );
 
-  /// Manager Order Review: split tax + taxable amount columns.
+  /// Manager / Production / Employee shared review: split tax + taxable amount columns.
   static const spaciousSplitTax = _FrozenTableLayout(
-    frozenWidth: 168,
+    frozenWidth: 172,
     srWidth: 24,
     showSr: true,
-    casesWidth: 48,
-    qtyWidth: 48,
-    rateWidth: 64,
-    discWidth: 52,
+    casesWidth: 52,
+    qtyWidth: 52,
+    rateWidth: 68,
+    discWidth: 56,
     gstWidth: 0,
-    taxableWidth: 92,
-    cgstWidth: 64,
-    sgstWidth: 64,
-    amountWidth: 88,
+    taxableWidth: 96,
+    cgstWidth: 68,
+    sgstWidth: 68,
+    amountWidth: 92,
     actionsWidth: 64,
-    headerVertical: 10,
-    rowVertical: 12,
+    headerVertical: 12,
+    rowVertical: 14,
     columnGap: 8,
   );
 
@@ -1118,7 +1178,9 @@ class _MetricsDataRow extends StatelessWidget {
         SizedBox(
           width: layout.discWidth,
           child: Text(
-            OrderInvoiceProductsTable.percent(line.discountPercent),
+            line.isFixedRate
+                ? '—'
+                : OrderInvoiceProductsTable.percent(line.discountPercent),
             textAlign: TextAlign.right,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
@@ -1328,6 +1390,16 @@ class _DataRow extends StatelessWidget {
                       overflow: TextOverflow.ellipsis,
                       style: muted,
                     ),
+                  Text(
+                    line.rateTypeLabel,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: muted?.copyWith(
+                      color: AppColors.primary,
+                      fontWeight: FontWeight.w600,
+                      fontSize: 10,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -1364,7 +1436,9 @@ class _DataRow extends StatelessWidget {
             SizedBox(
               width: 36,
               child: Text(
-                OrderInvoiceProductsTable.percent(line.discountPercent),
+                line.isFixedRate
+                    ? '—'
+                    : OrderInvoiceProductsTable.percent(line.discountPercent),
                 textAlign: TextAlign.right,
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,

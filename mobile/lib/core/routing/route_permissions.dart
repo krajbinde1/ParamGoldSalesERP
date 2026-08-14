@@ -6,7 +6,8 @@ class RoutePermissions {
   static bool canAccessPath(String path, UserRole role) {
     if (path.startsWith('/profile') ||
         path.startsWith('/change-password') ||
-        path.startsWith('/notifications')) {
+        path.startsWith('/notifications') ||
+        path.startsWith('/critical-approval-alert')) {
       return true;
     }
 

@@ -96,6 +96,7 @@ final class UpdatePendingOrder
                     ratePerNo: (float) $item['rate_per_no'],
                     requestedDiscountPercentage: (float) $item['discount_value'],
                     requestedGstPercentage: (float) $item['gst_percentage'],
+                    rateType: (string) ($item['rate_type'] ?? 'price_list'),
                 );
             } catch (ValidationException $exception) {
                 $messages = $exception->errors();
@@ -149,6 +150,7 @@ final class UpdatePendingOrder
                 'quantity' => $item['quantity'],
                 'unit' => $item['unit'],
                 'rate_per_no' => $item['rate_per_no'],
+                'rate_type' => $item['rate_type'] ?? 'price_list',
                 'rate' => $item['rate'],
                 'discount_percentage' => $item['discount_percentage'],
                 'discount_amount' => $item['discount_amount'],

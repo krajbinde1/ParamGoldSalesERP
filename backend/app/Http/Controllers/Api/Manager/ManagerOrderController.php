@@ -165,6 +165,7 @@ class ManagerOrderController extends Controller
             'items.*.product_id' => ['required', 'integer', 'exists:products,id'],
             'items.*.case_quantity' => ['required', 'integer', 'min:1'],
             'items.*.rate_per_no' => ['required', 'numeric', 'min:0'],
+            'items.*.rate_type' => ['nullable', 'in:price_list,fixed_rate'],
             'items.*.quantity' => ['prohibited'],
             'items.*.rate' => ['prohibited'],
             'items.*.total_quantity_nos' => ['prohibited'],

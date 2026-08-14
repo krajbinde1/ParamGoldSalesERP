@@ -42,6 +42,10 @@ void main() {
       debugPrint('FCM background handler registration skipped: $error');
     }
 
+    // Create the critical Android notification channel as early as possible so
+    // FCM system notifications (background/terminated) use Importance.MAX.
+    unawaited(PushNotificationService.instance.ensureLocalInitialized());
+
     // Never block the first frame on route-tracking / native plugin setup.
     unawaited(_safeStartupHousekeeping());
 

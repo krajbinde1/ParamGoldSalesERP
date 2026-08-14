@@ -64,7 +64,9 @@ class OrderLineItemCard extends StatefulWidget {
 class _OrderLineItemCardState extends State<OrderLineItemCard> {
   late final TextEditingController _caseQuantityController;
   late final TextEditingController _discountController;
+  late final TextEditingController _rateController;
   late final FocusNode _caseQuantityFocus;
+  late final FocusNode _rateFocus;
 
   OrderLineItem get item => widget.item;
 
@@ -83,7 +85,11 @@ class _OrderLineItemCardState extends State<OrderLineItemCard> {
     _discountController = TextEditingController(
       text: _formatNumber(item.discountValue),
     );
+    _rateController = TextEditingController(
+      text: _formatNumber(item.ratePerNo),
+    );
     _caseQuantityFocus = FocusNode()..addListener(_onCaseQuantityFocusChange);
+    _rateFocus = FocusNode();
   }
 
   @override
@@ -96,6 +102,11 @@ class _OrderLineItemCardState extends State<OrderLineItemCard> {
     if (oldWidget.item.discountValue != item.discountValue) {
       _discountController.text = _formatNumber(item.discountValue);
     }
+    if (!_rateFocus.hasFocus &&
+        (oldWidget.item.ratePerNo != item.ratePerNo ||
+            oldWidget.item.rateType != item.rateType)) {
+      _rateController.text = _formatNumber(item.ratePerNo);
+    }
   }
 
   @override
@@ -103,21 +114,21 @@ class _OrderLineItemCardState extends State<OrderLineItemCard> {
     _caseQuantityFocus
       ..removeListener(_onCaseQuantityFocusChange)
       ..dispose();
+    _rateFocus.dispose();
     _caseQuantityController.dispose();
     _discountController.dispose();
+    _rateController.dispose();
     super.dispose();
   }
 
   void _onCaseQuantityFocusChange() {
     if (_caseQuantityFocus.hasFocus) {
-      // Defer so Flutter's tap/cursor handling does not clear the selection.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (!mounted || !_caseQuantityFocus.hasFocus) return;
         _selectAllCaseQuantity();
       });
       return;
     }
-    // Clamp empty / invalid values when the field loses focus.
     final parsed = int.tryParse(_caseQuantityController.text.trim()) ?? 0;
     _setCaseQuantity(parsed < 1 ? 1 : parsed);
   }
@@ -140,6 +151,14 @@ class _OrderLineItemCardState extends State<OrderLineItemCard> {
         selection: TextSelection.collapsed(offset: text.length),
       );
     }
+    widget.onChanged();
+    setState(() {});
+  }
+
+  void _setRateType(OrderItemRateType next) {
+    item.setRateType(next);
+    _discountController.text = _formatNumber(item.discountValue);
+    _rateController.text = _formatNumber(item.ratePerNo);
     widget.onChanged();
     setState(() {});
   }
@@ -325,56 +344,114 @@ class _OrderLineItemCardState extends State<OrderLineItemCard> {
                 ),
               ),
             ],
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: InputDecorator(
-                    decoration: const InputDecoration(
-                      labelText: 'Rate',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      filled: true,
-                      prefixText: '₹ ',
+            const SizedBox(height: 10),
+            Text(
+              'Rate Type',
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 6),
+            SizedBox(
+              width: double.infinity,
+              child: SegmentedButton<OrderItemRateType>(
+                segments: const [
+                  ButtonSegment(
+                    value: OrderItemRateType.priceList,
+                    label: Text('Price List'),
+                  ),
+                  ButtonSegment(
+                    value: OrderItemRateType.fixedRate,
+                    label: Text('Fixed Rate'),
+                  ),
+                ],
+                selected: {item.rateType},
+                onSelectionChanged: (selected) {
+                  if (selected.isEmpty) return;
+                  _setRateType(selected.first);
+                },
+                style: ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  textStyle: WidgetStatePropertyAll(
+                    theme.textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
                     ),
-                    child: Text(
-                      currency
-                          .format(item.ratePerNo)
-                          .replaceFirst('₹', '')
-                          .trim(),
-                      style: theme.textTheme.bodyLarge?.copyWith(
-                        fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 10),
+            if (item.isPriceList)
+              Row(
+                children: [
+                  Expanded(
+                    child: InputDecorator(
+                      decoration: const InputDecoration(
+                        labelText: 'Rate',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                        filled: true,
+                        prefixText: '₹ ',
+                      ),
+                      child: Text(
+                        currency
+                            .format(item.ratePerNo)
+                            .replaceFirst('₹', '')
+                            .trim(),
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
                     ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: TextFormField(
-                    controller: _discountController,
-                    enabled: item.isDiscountEnabled,
-                    decoration: const InputDecoration(
-                      labelText: 'Disc %',
-                      border: OutlineInputBorder(),
-                      isDense: true,
-                      suffixText: '%',
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _discountController,
+                      decoration: const InputDecoration(
+                        labelText: 'Disc %',
+                        border: OutlineInputBorder(),
+                        isDense: true,
+                        suffixText: '%',
+                      ),
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      inputFormatters: [
+                        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                      ],
+                      onChanged: (value) {
+                        item.discountValue = double.tryParse(value) ?? 0;
+                        widget.onChanged();
+                        setState(() {});
+                      },
                     ),
-                    keyboardType: const TextInputType.numberWithOptions(
-                      decimal: true,
-                    ),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-                    ],
-                    onChanged: item.isDiscountEnabled
-                        ? (value) {
-                            item.discountValue = double.tryParse(value) ?? 0;
-                            widget.onChanged();
-                          }
-                        : null,
                   ),
+                ],
+              )
+            else
+              TextFormField(
+                controller: _rateController,
+                focusNode: _rateFocus,
+                decoration: const InputDecoration(
+                  labelText: 'Rate',
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                  prefixText: '₹ ',
                 ),
-              ],
-            ),
+                keyboardType: const TextInputType.numberWithOptions(
+                  decimal: true,
+                ),
+                inputFormatters: [
+                  FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                ],
+                onChanged: (value) {
+                  item.updateRatePerNo(double.tryParse(value) ?? 0);
+                  widget.onChanged();
+                  setState(() {});
+                },
+              ),
             const SizedBox(height: 10),
             Container(
               width: double.infinity,

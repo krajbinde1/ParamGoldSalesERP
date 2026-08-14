@@ -22,6 +22,7 @@ class OrderDetailItem {
     this.gstAmount,
     this.finalAmount,
     this.displaySummary,
+    this.rateType = OrderItemRateType.priceList,
   });
 
   final int productId;
@@ -42,6 +43,7 @@ class OrderDetailItem {
   final double? gstAmount;
   final double? finalAmount;
   final String? displaySummary;
+  final OrderItemRateType rateType;
 
   String get quantitySummary =>
       displaySummary ??
@@ -64,6 +66,7 @@ class OrderDetailItem {
               '${json['rate_per_no'] ?? json['rate'] ?? 0}',
             ) ??
             0,
+        rateType: _rateTypeFromJson(json),
         discountPercentage:
             double.tryParse('${json['discount_percentage'] ?? 0}') ?? 0,
         gstPercentage: double.tryParse('${json['gst_percentage'] ?? 0}') ?? 0,
@@ -88,6 +91,22 @@ class OrderDetailItem {
             0,
         displaySummary: json['display_summary']?.toString(),
       );
+
+  static OrderItemRateType _rateTypeFromJson(Map<String, dynamic> json) {
+    final raw = json['rate_type']?.toString().trim();
+    if (raw != null && raw.isNotEmpty) {
+      return OrderItemRateType.fromApi(raw);
+    }
+    final rate =
+        double.tryParse('${json['rate_per_no'] ?? json['rate'] ?? 0}') ?? 0;
+    final list = json['original_dealer_price'] == null
+        ? null
+        : double.tryParse('${json['original_dealer_price']}');
+    if (list != null && (rate - list).abs() >= 0.001) {
+      return OrderItemRateType.fixedRate;
+    }
+    return OrderItemRateType.priceList;
+  }
 }
 
 class OrderDetail {
@@ -397,8 +416,11 @@ extension OrderDetailDraft on OrderDetail {
           nosPerCase: item.nosPerCase,
           ratePerNo: item.ratePerNo,
           originalDealerPrice: item.originalDealerPrice ?? item.ratePerNo,
-          discountValue: item.discountPercentage,
+          discountValue: item.rateType == OrderItemRateType.fixedRate
+              ? 0
+              : item.discountPercentage,
           gstPercent: item.gstPercentage,
+          rateType: item.rateType,
         ),
       )
       .toList();

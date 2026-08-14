@@ -15,6 +15,7 @@ import '../../../core/widgets/prompt_dialog.dart';
 import '../../../core/widgets/role_shell_widgets.dart';
 import '../../auth/providers/auth_controller.dart';
 import '../../orders/models/order_detail.dart';
+import '../../orders/widgets/order_info_card.dart';
 import '../../orders/widgets/order_invoice_products_table.dart';
 import '../../orders/widgets/order_widgets.dart';
 import '../api/manager_api.dart';
@@ -556,10 +557,13 @@ class ManagerOrderDetailScreen extends StatefulWidget {
     super.key,
     required this.auth,
     required this.orderId,
+    this.initialAction,
   });
 
   final AuthController auth;
   final int orderId;
+  /// Optional deep-link action, e.g. `reject` from critical alert.
+  final String? initialAction;
 
   @override
   State<ManagerOrderDetailScreen> createState() =>
@@ -569,6 +573,7 @@ class ManagerOrderDetailScreen extends StatefulWidget {
 class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
   late Future<Map<String, dynamic>> _future;
   bool _submitting = false;
+  bool _initialActionHandled = false;
 
   ManagerApi get _api => ManagerApi(
     ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
@@ -578,6 +583,16 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
   void initState() {
     super.initState();
     _future = _api.getOrder(widget.orderId);
+    _future.then((_) {
+      if (!mounted || _initialActionHandled) return;
+      if (widget.initialAction?.toLowerCase() != 'reject') return;
+      _initialActionHandled = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          _reject();
+        }
+      });
+    });
   }
 
   Future<void> _reload() async {
@@ -704,44 +719,9 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
                 badgeTone: PgStatusRules.orderTone(status),
               ),
               const SizedBox(height: AppSpacing.md),
-              PgCard(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      'Order Info',
-                      style: Theme.of(context).textTheme.titleMedium,
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    PgInvoiceRow(
-                      label: 'Order Date',
-                      value: _formatDate(
-                        order['order_date'] ?? order['created_at'],
-                        DateFormat('dd MMM yyyy'),
-                      ),
-                    ),
-                    PgInvoiceRow(
-                      label: 'Created By',
-                      value: order['employee_name']?.toString() ??
-                          order['created_by_name']?.toString() ??
-                          '-',
-                    ),
-                    PgInvoiceRow(
-                      label: 'Dealer Name',
-                      value: dealer['firm_name']?.toString() ??
-                          order['dealer_name']?.toString() ??
-                          '-',
-                    ),
-                    PgInvoiceRow(
-                      label: 'Dealer Village',
-                      value: (dealer['village']?.toString() ?? '')
-                              .trim()
-                              .isNotEmpty
-                          ? dealer['village'].toString().trim()
-                          : '-',
-                    ),
-                  ],
-                ),
+              OrderInfoCard.fromOrderMap(
+                Map<String, dynamic>.from(order),
+                dealer: dealer,
               ),
 
               if (billUrl.isNotEmpty) ...[
@@ -757,10 +737,7 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
                 ),
               ],
               const SizedBox(height: AppSpacing.md),
-              OrderInvoiceProductsCard(
-                freezeProductColumn: true,
-                spaciousLayout: true,
-                showSplitTaxColumns: true,
+              OrderInvoiceProductsCard.sharedReview(
                 lines: items
                     .map(
                       (item) => OrderInvoiceLine.fromMap(
@@ -832,11 +809,5 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
         },
       ),
     );
-  }
-
-  String _formatDate(Object? value, DateFormat format) {
-    if (value == null) return '-';
-    final parsed = DateTime.tryParse(value.toString());
-    return parsed == null ? value.toString() : format.format(parsed.toLocal());
   }
 }

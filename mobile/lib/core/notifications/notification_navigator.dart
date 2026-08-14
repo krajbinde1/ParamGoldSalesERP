@@ -65,7 +65,10 @@ class NotificationNavigator {
       );
     } catch (error, stackTrace) {
       debugPrint('NotificationNavigator FCM register ignored: $error');
-      debugPrintStack(stackTrace: stackTrace, label: 'NotificationNavigator._register');
+      debugPrintStack(
+        stackTrace: stackTrace,
+        label: 'NotificationNavigator._register',
+      );
     }
   }
 
@@ -97,20 +100,59 @@ class NotificationNavigator {
     if (!auth.authenticated) return;
     if (payload.actionId == 'ignore') return;
 
+    // Allow auth redirect to settle after cold start.
+    await Future<void>.delayed(const Duration(milliseconds: 250));
+
+    // Critical approval: open full-screen alert (not generic dashboard).
+    // Action shortcuts (review / view / approve / reject / view_bill) skip alert.
+    final openAlert = payload.openCriticalAlert ||
+        (payload.isCriticalApprovalAlert &&
+            (payload.actionId == null || payload.actionId!.isEmpty) &&
+            payload.type != 'pending');
+
+    if (openAlert) {
+      router.go('/critical-approval-alert', extra: payload);
+      return;
+    }
+
+    if (payload.actionId == 'approve' &&
+        (payload.type == 'payment_approval_required' ||
+            payload.type == 'payment_request_reminder' ||
+            payload.type == 'payment_request_created' ||
+            payload.type == 'payment_request_first_approved')) {
+      router.go(
+        '/director/payment-requests?filter=pending&select_all=1&action=approve',
+      );
+      return;
+    }
+
+    if (payload.actionId == 'view' || payload.actionId == 'review') {
+      if (payload.type.startsWith('payment_')) {
+        router.go('/director/payment-requests?filter=pending');
+        return;
+      }
+    }
+
     if (payload.actionId == 'view_bill' &&
         (payload.billUrl?.isNotEmpty ?? false)) {
       final context = navigatorKey.currentContext;
       if (context != null && context.mounted) {
         await openBillDocument(context, url: payload.billUrl!);
       }
+      // Also open order detail when available.
+      final review = payload.reviewRoute;
+      if (review != null && review.isNotEmpty) {
+        router.push(review);
+      }
       return;
     }
 
     final route = payload.resolvedRoute;
     if (route == null || route.isEmpty) return;
-
-    // Allow auth redirect to settle after cold start.
-    await Future<void>.delayed(const Duration(milliseconds: 250));
+    if (route == '/critical-approval-alert') {
+      router.go(route, extra: payload);
+      return;
+    }
     router.push(route);
   }
 

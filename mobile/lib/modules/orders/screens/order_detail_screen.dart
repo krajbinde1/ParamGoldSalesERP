@@ -15,6 +15,7 @@ import '../api/order_api.dart';
 import '../models/order.dart';
 import '../models/order_draft.dart';
 import '../models/order_detail.dart';
+import '../widgets/order_info_card.dart';
 import '../widgets/order_invoice_products_table.dart';
 import '../widgets/order_widgets.dart';
 
@@ -135,41 +136,15 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
-                PgCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Order Info',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      PgInvoiceRow(
-                        label: 'Order Date',
-                        value: DateFormat('d MMM yyyy').format(detail.orderDate),
-                      ),
-                      PgInvoiceRow(
-                        label: 'Created By',
-                        value: detail.salesEmployeeName,
-                      ),
-                      PgInvoiceRow(
-                        label: 'Dealer Name',
-                        value: detail.dealerName,
-                      ),
-                      PgInvoiceRow(
-                        label: 'Dealer Village',
-                        value: (detail.dealer?.village ?? '').trim().isEmpty
-                            ? '—'
-                            : detail.dealer!.village!.trim(),
-                      ),
-                      PgInvoiceRow(
-                        label: 'Remarks',
-                        value: detail.remarks.trim().isEmpty
-                            ? '—'
-                            : detail.remarks.trim(),
-                      ),
-                    ],
-                  ),
+                OrderInfoCard(
+                  orderDate:
+                      DateFormat('d MMM yyyy').format(detail.orderDate),
+                  createdBy: detail.salesEmployeeName,
+                  dealerName: detail.dealerName,
+                  dealerVillage: (detail.dealer?.village ?? '').trim().isEmpty
+                      ? '—'
+                      : detail.dealer!.village!.trim(),
+                  remarks: detail.remarks,
                 ),
                 if ((detail.approvalSummary ?? '').trim().isNotEmpty) ...[
                   const SizedBox(height: AppSpacing.md),
@@ -235,10 +210,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                   ),
                 ],
                 const SizedBox(height: AppSpacing.md),
-                OrderInvoiceProductsCard(
-                  freezeProductColumn: true,
-                  showTotalCases: true,
-                  spaciousLayout: true,
+                OrderInvoiceProductsCard.sharedReview(
                   title: 'Order Items',
                   lines: detail.items
                       .map(OrderInvoiceLine.fromDetailItem)

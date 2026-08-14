@@ -14,8 +14,9 @@ return [
     'first_approver_user_id' => env('PAYMENT_REQUEST_FIRST_APPROVER_USER_ID'),
     'second_approver_user_id' => env('PAYMENT_REQUEST_SECOND_APPROVER_USER_ID'),
 
-    'first_approver_name' => env('PAYMENT_REQUEST_FIRST_APPROVER_NAME', 'Bhagwan Kakde'),
-    'second_approver_name' => env('PAYMENT_REQUEST_SECOND_APPROVER_NAME', 'Krishna Rajbinde'),
+    // Strict sequence: Krishna (first) → Bhagwan (second). Prefer USER_ID env vars.
+    'first_approver_name' => env('PAYMENT_REQUEST_FIRST_APPROVER_NAME', 'Krishna Rajbinde'),
+    'second_approver_name' => env('PAYMENT_REQUEST_SECOND_APPROVER_NAME', 'Bhagwan Kakde'),
 
     'first_approver_display_role' => 'Director',
     'second_approver_display_role' => 'Director',

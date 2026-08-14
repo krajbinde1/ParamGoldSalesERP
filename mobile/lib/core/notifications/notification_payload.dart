@@ -11,13 +11,18 @@ class NotificationPayload {
     this.orderId,
     this.orderNo,
     this.dealerName,
+    this.vendorName,
     this.salesPersonName,
+    this.requestNo,
+    this.amount,
+    this.eventAt,
     this.statusLabel,
     this.route,
     this.billUrl,
     this.timeline,
     this.actionId,
     this.fullscreen = false,
+    this.openCriticalAlert = false,
     this.raw = const {},
   });
 
@@ -27,13 +32,19 @@ class NotificationPayload {
   final int? orderId;
   final String? orderNo;
   final String? dealerName;
+  final String? vendorName;
   final String? salesPersonName;
+  final String? requestNo;
+  final String? amount;
+  final String? eventAt;
   final String? statusLabel;
   final String? route;
   final String? billUrl;
   final String? timeline;
   final String? actionId;
   final bool fullscreen;
+  /// When true, navigator opens [CriticalApprovalAlertScreen] first.
+  final bool openCriticalAlert;
   final Map<String, dynamic> raw;
 
   int get notificationId {
@@ -43,20 +54,36 @@ class NotificationPayload {
     return Object.hash(type, title, body).abs().remainder(100000);
   }
 
-  String? get resolvedRoute {
-    if (actionId == 'ignore') return null;
-    if (actionId == 'review' ||
+  /// Critical events that should use full-screen approval alert UI.
+  bool get isCriticalApprovalAlert {
+    if (!fullscreen) return false;
+    return type == 'new_order' ||
+        type == 'order_approved' ||
+        type == 'order_billed' ||
         type == 'payment_approval_required' ||
         type == 'payment_request_reminder' ||
         type == 'payment_request_created' ||
-        type == 'payment_request_first_approved') {
-      return route?.isNotEmpty == true
-          ? route
-          : '/director/payment-requests';
-    }
+        type == 'payment_request_first_approved';
+  }
+
+  /// Deep-link to the existing review/detail screen (not the alert).
+  String? get reviewRoute {
     if (route != null && route!.isNotEmpty) return route;
-    if (orderId == null && raw['payment_request_id'] == null) return null;
-    if (type == 'new_order') return '/manager/orders/$orderId';
+    if (type == 'new_order' && orderId != null) {
+      return '/manager/orders/$orderId';
+    }
+    if (type == 'order_approved' && orderId != null) {
+      return '/production/orders/$orderId';
+    }
+    if (type == 'order_billed' && orderId != null) {
+      return '/production/orders/$orderId';
+    }
+    if (type == 'payment_approval_required' ||
+        type == 'payment_request_reminder' ||
+        type == 'payment_request_created' ||
+        type == 'payment_request_first_approved') {
+      return '/director/payment-requests';
+    }
     if (type.startsWith('payment_request_')) {
       final id = raw['payment_request_id'] ?? orderId;
       return '/director/payment-requests/$id';
@@ -65,13 +92,49 @@ class NotificationPayload {
     return null;
   }
 
+  String? get resolvedRoute {
+    if (actionId == 'ignore') return null;
+
+    // Notification action shortcuts skip the alert and go straight to work.
+    if (actionId == 'reject' && orderId != null) {
+      return '/manager/orders/$orderId?action=reject';
+    }
+    if (actionId == 'approve' &&
+        (type == 'payment_approval_required' ||
+            type == 'payment_request_reminder' ||
+            type == 'payment_request_created' ||
+            type == 'payment_request_first_approved')) {
+      return '/director/payment-requests?filter=pending&select_all=1&action=approve';
+    }
+    if (actionId == 'review' ||
+        actionId == 'view' ||
+        actionId == 'view_order' ||
+        actionId == 'view_bill') {
+      if (type == 'payment_approval_required' ||
+          type == 'payment_request_reminder' ||
+          type == 'payment_request_created' ||
+          type == 'payment_request_first_approved') {
+        return '/director/payment-requests?filter=pending';
+      }
+      return reviewRoute;
+    }
+
+    if (openCriticalAlert || isCriticalApprovalAlert) {
+      return '/critical-approval-alert';
+    }
+
+    if (route != null && route!.isNotEmpty) return route;
+    return reviewRoute;
+  }
+
   factory NotificationPayload.fromRemoteMessage(RemoteMessage message) {
     final data = Map<String, dynamic>.from(message.data);
     final notification = message.notification;
-    final baseBody =
-        notification?.body ?? data['body']?.toString() ?? '';
+    final baseBody = notification?.body ?? data['body']?.toString() ?? '';
+    final type = data['type']?.toString() ?? 'order_status';
+    final fullscreen = _parseFullscreen(data, type);
     return NotificationPayload(
-      type: data['type']?.toString() ?? 'order_status',
+      type: type,
       title: notification?.title ??
           data['title']?.toString() ??
           'Order update',
@@ -80,17 +143,22 @@ class NotificationPayload {
       orderNo: data['short_order_no']?.toString() ??
           data['order_no']?.toString(),
       dealerName: data['dealer_name']?.toString(),
+      vendorName: data['vendor_name']?.toString(),
       salesPersonName: data['sales_person_name']?.toString(),
+      requestNo: data['request_no']?.toString() ??
+          data['short_request_no']?.toString(),
+      amount: data['amount']?.toString() ??
+          data['pending_amount']?.toString() ??
+          data['grand_total']?.toString(),
+      eventAt: data['event_at']?.toString() ??
+          data['order_date']?.toString() ??
+          data['created_at']?.toString(),
       statusLabel: data['status_label']?.toString(),
       route: data['route']?.toString(),
       billUrl: data['bill_url']?.toString(),
       timeline: data['timeline']?.toString(),
-      fullscreen: data['fullscreen']?.toString() == '1' ||
-          data['type']?.toString() == 'new_order' ||
-          data['type']?.toString() == 'payment_approval_required' ||
-          data['type']?.toString() == 'payment_request_reminder' ||
-          data['type']?.toString() == 'payment_request_created' ||
-          data['type']?.toString() == 'payment_request_first_approved',
+      fullscreen: fullscreen,
+      openCriticalAlert: fullscreen && _isCriticalType(type),
       raw: data,
     );
   }
@@ -108,23 +176,71 @@ class NotificationPayload {
       }
     }
 
+    final type = data['type']?.toString() ?? 'order_status';
+    final fullscreen = _parseFullscreen(data, type);
+    final actionId = response.actionId;
+    final openAlert = fullscreen &&
+        _isCriticalType(type) &&
+        (actionId == null || actionId.isEmpty);
+
     return NotificationPayload(
-      type: data['type']?.toString() ?? 'order_status',
+      type: type,
       title: data['title']?.toString() ?? '',
       body: data['body']?.toString() ?? '',
       orderId: int.tryParse('${data['order_id'] ?? ''}'),
       orderNo: data['short_order_no']?.toString() ??
           data['order_no']?.toString(),
       dealerName: data['dealer_name']?.toString(),
+      vendorName: data['vendor_name']?.toString(),
       salesPersonName: data['sales_person_name']?.toString(),
+      requestNo: data['request_no']?.toString() ??
+          data['short_request_no']?.toString(),
+      amount: data['amount']?.toString() ??
+          data['pending_amount']?.toString() ??
+          data['grand_total']?.toString(),
+      eventAt: data['event_at']?.toString() ??
+          data['order_date']?.toString() ??
+          data['created_at']?.toString(),
       statusLabel: data['status_label']?.toString(),
       route: data['route']?.toString(),
       billUrl: data['bill_url']?.toString(),
       timeline: data['timeline']?.toString(),
-      actionId: response.actionId,
-      fullscreen: data['fullscreen']?.toString() == '1' ||
-          data['type']?.toString() == 'payment_approval_required' ||
-          data['type']?.toString() == 'payment_request_reminder',
+      actionId: actionId,
+      fullscreen: fullscreen,
+      openCriticalAlert: openAlert,
+      raw: data,
+    );
+  }
+
+  factory NotificationPayload.fromJson(Map<String, dynamic> data) {
+    final type = data['type']?.toString() ?? 'order_status';
+    final fullscreen = _parseFullscreen(data, type);
+    return NotificationPayload(
+      type: type,
+      title: data['title']?.toString() ?? '',
+      body: data['body']?.toString() ?? '',
+      orderId: int.tryParse('${data['order_id'] ?? ''}'),
+      orderNo: data['short_order_no']?.toString() ??
+          data['order_no']?.toString(),
+      dealerName: data['dealer_name']?.toString(),
+      vendorName: data['vendor_name']?.toString(),
+      salesPersonName: data['sales_person_name']?.toString(),
+      requestNo: data['request_no']?.toString() ??
+          data['short_request_no']?.toString(),
+      amount: data['amount']?.toString() ??
+          data['pending_amount']?.toString() ??
+          data['grand_total']?.toString(),
+      eventAt: data['event_at']?.toString() ??
+          data['order_date']?.toString() ??
+          data['created_at']?.toString(),
+      statusLabel: data['status_label']?.toString(),
+      route: data['route']?.toString(),
+      billUrl: data['bill_url']?.toString(),
+      timeline: data['timeline']?.toString(),
+      actionId: data['action_id']?.toString(),
+      fullscreen: fullscreen,
+      openCriticalAlert: data['open_critical_alert']?.toString() == '1' ||
+          (fullscreen && _isCriticalType(type)),
       raw: data,
     );
   }
@@ -135,15 +251,43 @@ class NotificationPayload {
         'body': body,
         'order_id': orderId,
         'order_no': orderNo,
+        'short_order_no': orderNo,
         'dealer_name': dealerName,
+        'vendor_name': vendorName,
         'sales_person_name': salesPersonName,
+        'request_no': requestNo,
+        'amount': amount,
+        'event_at': eventAt,
         'status_label': statusLabel,
         'route': route,
         'bill_url': billUrl,
         'timeline': timeline,
         'fullscreen': fullscreen ? '1' : '0',
+        'open_critical_alert': openCriticalAlert ? '1' : '0',
+        if (actionId != null) 'action_id': actionId,
         ...raw,
       };
+
+  static bool _isCriticalType(String type) {
+    return type == 'new_order' ||
+        type == 'order_approved' ||
+        type == 'order_billed' ||
+        type == 'payment_approval_required' ||
+        type == 'payment_request_reminder' ||
+        type == 'payment_request_created' ||
+        type == 'payment_request_first_approved';
+  }
+
+  static bool _parseFullscreen(Map<String, dynamic> data, String type) {
+    if (data['fullscreen']?.toString() == '1') return true;
+    if (data['fullscreen']?.toString() == '0') return false;
+    // Legacy defaults for critical types when flag omitted.
+    return type == 'new_order' ||
+        type == 'payment_approval_required' ||
+        type == 'payment_request_reminder' ||
+        type == 'payment_request_created' ||
+        type == 'payment_request_first_approved';
+  }
 
   static String _composeBody(String base, Map<String, dynamic> data) {
     final timeline = data['timeline']?.toString();

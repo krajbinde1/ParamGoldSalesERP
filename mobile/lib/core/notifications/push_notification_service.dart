@@ -17,6 +17,10 @@ import 'notification_payload.dart';
 
 const _pendingRouteKey = 'pending_notification_route';
 const _pendingBillUrlKey = 'pending_notification_bill_url';
+const _pendingPayloadKey = 'pending_notification_payload_json';
+
+/// Recently shown notification ids — avoid duplicate local posts for one event.
+final Set<String> _recentlyShownKeys = <String>{};
 
 /// Top-level FCM background handler (must be a top-level / static function).
 @pragma('vm:entry-point')
@@ -30,18 +34,23 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     return;
   }
 
-  // Always render via local notifications on the high-importance v2 channel.
-  // FCM is sent as data-only from the backend so this is the system tray UI
-  // (heads-up, sound, vibration, Ignore/Review actions) — no duplicates.
   final data = message.data;
   final type = data['type']?.toString().trim().toLowerCase();
   final code = data['code']?.toString().trim().toUpperCase();
   if (type == 'session_replaced' || code == 'SESSION_REPLACED') {
-    // Clear local session so next open lands on Login. Full UI logout happens
-    // when the app resumes / next API call hits SESSION_REPLACED.
     try {
       await SessionStore().clear();
     } catch (_) {}
+    if (message.notification != null) return;
+  }
+
+  final payload = NotificationPayload.fromRemoteMessage(message);
+
+  // Critical fullscreen events are sent data-only from the backend so we can
+  // attach Android fullScreenIntent on a single local notification.
+  // Non-critical notification+data messages are already shown by the OS —
+  // do not duplicate them locally.
+  if (message.notification != null && !payload.isCriticalApprovalAlert) {
     return;
   }
 
@@ -76,13 +85,14 @@ class PushNotificationService {
   /// Shared plugin for local-only reminders (e.g. Today's Planning).
   FlutterLocalNotificationsPlugin get localPlugin => _local;
 
-  /// New MAX channel — replaces legacy `order_approvals` which may have been
-  /// created at low importance (Android cannot raise channel importance later).
-  static const AndroidNotificationChannel approvalsChannel =
+  /// Critical MAX channel for real Android system / heads-up alerts.
+  /// New channel id (v3) because Android cannot raise importance of an
+  /// existing channel after it was created at a lower level.
+  static const AndroidNotificationChannel criticalAlertsChannel =
       AndroidNotificationChannel(
-    'paramgold_approvals_v2',
-    'ParamGold Approvals',
-    description: 'High-priority order and payment approval alerts',
+    'paramgold_critical_alerts_v3',
+    'ParamGold Critical Alerts',
+    description: 'Order and payment approval alerts with sound and vibration',
     importance: Importance.max,
     playSound: true,
     enableVibration: true,
@@ -90,17 +100,11 @@ class PushNotificationService {
     enableLights: true,
   );
 
-  static const AndroidNotificationChannel statusChannel =
-      AndroidNotificationChannel(
-    'paramgold_status_v2',
-    'ParamGold Status Updates',
-    description: 'Order and payment status updates',
-    importance: Importance.high,
-    playSound: true,
-    enableVibration: true,
-    showBadge: true,
-    enableLights: true,
-  );
+  /// Legacy channels kept so older scheduled/local notifications still resolve.
+  static const AndroidNotificationChannel approvalsChannel =
+      criticalAlertsChannel;
+
+  static const AndroidNotificationChannel statusChannel = criticalAlertsChannel;
 
   Future<void> initialize() async {
     if (kIsWeb) return;
@@ -137,10 +141,38 @@ class PushNotificationService {
 
     final android = _local.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
-    await android?.createNotificationChannel(approvalsChannel);
-    await android?.createNotificationChannel(statusChannel);
+    await android?.createNotificationChannel(criticalAlertsChannel);
+    await android?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        'paramgold_approvals_v2',
+        'ParamGold Approvals (legacy)',
+        description: 'Legacy approvals channel',
+        importance: Importance.max,
+        playSound: true,
+        enableVibration: true,
+      ),
+    );
+    await android?.createNotificationChannel(
+      const AndroidNotificationChannel(
+        'paramgold_status_v2',
+        'ParamGold Status (legacy)',
+        description: 'Legacy status channel',
+        importance: Importance.high,
+        playSound: true,
+        enableVibration: true,
+      ),
+    );
 
     _localReady = true;
+  }
+
+  Future<void> cancelNotification(int id) async {
+    try {
+      await ensureLocalInitialized();
+      await _local.cancel(id: id);
+    } catch (error) {
+      debugPrint('cancelNotification failed: $error');
+    }
   }
 
   Future<void> _requestPermissions() async {
@@ -164,6 +196,12 @@ class PushNotificationService {
       debugPrint('Android POST_NOTIFICATIONS granted=$granted');
       final enabled = await android?.areNotificationsEnabled();
       debugPrint('Android notifications enabled=$enabled');
+      try {
+        // Android 14+: user may need to grant full-screen intent separately.
+        await android?.requestFullScreenIntentPermission();
+      } catch (error) {
+        debugPrint('Full-screen intent permission request skipped: $error');
+      }
     }
   }
 
@@ -171,15 +209,20 @@ class PushNotificationService {
     if (!_firebaseReady || _handlersBound) return;
     _handlersBound = true;
 
-    // Background handler is registered from main() before runApp.
-
     FirebaseMessaging.onMessage.listen((message) async {
       if (_isSessionReplacedMessage(message)) {
         _onSessionReplaced?.call();
         return;
       }
-      // Foreground: always show a system/local notification (not inbox-only).
+
+      final payload = NotificationPayload.fromRemoteMessage(message);
+      // Always post a high-priority local notification (sound / vibration /
+      // heads-up). Critical alerts also open the full-screen UI immediately.
       await showFromRemoteMessage(message);
+
+      if (payload.isCriticalApprovalAlert) {
+        _emitTap(payload);
+      }
     });
 
     FirebaseMessaging.onMessageOpenedApp.listen((message) {
@@ -295,41 +338,47 @@ class PushNotificationService {
       return;
     }
 
+    final dedupeKey =
+        '${payload.type}:${payload.orderId ?? payload.raw['payment_request_id'] ?? payload.notificationId}';
+    if (_recentlyShownKeys.contains(dedupeKey)) {
+      debugPrint('Skipping duplicate local notification for $dedupeKey');
+      return;
+    }
+    _recentlyShownKeys.add(dedupeKey);
+    Future<void>.delayed(const Duration(seconds: 8), () {
+      _recentlyShownKeys.remove(dedupeKey);
+    });
+
+    final isCritical = payload.isCriticalApprovalAlert;
     final isPaymentApproval = payload.type == 'payment_approval_required' ||
         payload.type == 'payment_request_reminder' ||
         payload.type == 'payment_request_created' ||
         payload.type == 'payment_request_first_approved';
-    final isApproval = payload.fullscreen ||
-        payload.type == 'new_order' ||
-        isPaymentApproval;
-    final channelId = payload.raw['channel_id']?.toString();
-    final useApprovalsChannel = isApproval ||
-        channelId == approvalsChannel.id ||
-        channelId == 'order_approvals' ||
-        channelId == 'paramgold_approvals';
-    final channel = useApprovalsChannel ? approvalsChannel : statusChannel;
+    final channel = criticalAlertsChannel;
 
     final androidDetails = AndroidNotificationDetails(
       channel.id,
       channel.name,
       channelDescription: channel.description,
-      importance: useApprovalsChannel ? Importance.max : Importance.high,
-      priority: useApprovalsChannel ? Priority.max : Priority.high,
-      category: useApprovalsChannel
-          ? AndroidNotificationCategory.alarm
+      importance: Importance.max,
+      priority: Priority.max,
+      category: isCritical
+          ? AndroidNotificationCategory.call
           : AndroidNotificationCategory.message,
       visibility: NotificationVisibility.public,
       playSound: true,
       enableVibration: true,
       enableLights: true,
+      fullScreenIntent: isCritical,
       ticker: payload.title,
       icon: '@mipmap/ic_launcher',
+      channelShowBadge: true,
       styleInformation: BigTextStyleInformation(
         payload.body,
         contentTitle: payload.title,
-        summaryText: payload.orderNo,
+        summaryText: payload.orderNo ?? payload.requestNo,
       ),
-      actions: useApprovalsChannel
+      actions: isCritical
           ? <AndroidNotificationAction>[
               const AndroidNotificationAction(
                 'ignore',
@@ -337,11 +386,34 @@ class PushNotificationService {
                 cancelNotification: true,
                 showsUserInterface: false,
               ),
-              AndroidNotificationAction(
-                'review',
-                isPaymentApproval ? 'REVIEW' : 'REVIEW & APPROVE',
-                showsUserInterface: true,
-              ),
+              if (isPaymentApproval) ...[
+                const AndroidNotificationAction(
+                  'view',
+                  'VIEW',
+                  showsUserInterface: true,
+                ),
+                const AndroidNotificationAction(
+                  'approve',
+                  'APPROVE',
+                  showsUserInterface: true,
+                ),
+              ] else ...[
+                AndroidNotificationAction(
+                  payload.type == 'order_billed' ? 'view_bill' : 'review',
+                  payload.type == 'order_billed'
+                      ? 'VIEW BILL'
+                      : payload.type == 'order_approved'
+                          ? 'REVIEW ORDER'
+                          : 'REVIEW',
+                  showsUserInterface: true,
+                ),
+                if (payload.type == 'new_order')
+                  const AndroidNotificationAction(
+                    'reject',
+                    'REJECT',
+                    showsUserInterface: true,
+                  ),
+              ],
             ]
           : payload.type == 'order_billed'
               ? <AndroidNotificationAction>[
@@ -394,6 +466,7 @@ class PushNotificationService {
     if (route != null && route.isNotEmpty) {
       await prefs.setString(_pendingRouteKey, route);
     }
+    await prefs.setString(_pendingPayloadKey, jsonEncode(payload.toJson()));
     if (payload.actionId == 'view_bill' &&
         (payload.billUrl?.isNotEmpty ?? false)) {
       await prefs.setString(_pendingBillUrlKey, payload.billUrl!);
@@ -404,8 +477,22 @@ class PushNotificationService {
     final prefs = await SharedPreferences.getInstance();
     final route = prefs.getString(_pendingRouteKey);
     final billUrl = prefs.getString(_pendingBillUrlKey);
+    final payloadJson = prefs.getString(_pendingPayloadKey);
     await prefs.remove(_pendingRouteKey);
     await prefs.remove(_pendingBillUrlKey);
+    await prefs.remove(_pendingPayloadKey);
+
+    if (payloadJson != null && payloadJson.isNotEmpty) {
+      try {
+        final map = Map<String, dynamic>.from(jsonDecode(payloadJson) as Map);
+        final payload = NotificationPayload.fromJson(map);
+        if (payload.actionId == 'ignore') return null;
+        return payload;
+      } catch (_) {
+        // Fall through to route-only pending.
+      }
+    }
+
     if (route == null || route.isEmpty) return null;
     return NotificationPayload(
       type: 'pending',

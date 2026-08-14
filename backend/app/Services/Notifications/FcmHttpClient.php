@@ -11,15 +11,23 @@ use Throwable;
  * Minimal FCM HTTP v1 client using a Google service-account JSON.
  * Does not throw into business flows — failures are logged only.
  *
- * Android delivery uses HIGH-priority data messages (title/body in data).
- * The Flutter app renders system/local notifications on the high-importance
- * channel so heads-up, sound, vibration, and action buttons work reliably.
+ * Non-critical: HIGH-priority notification + data so the OS can show a
+ * system tray / lock-screen alert when backgrounded or terminated.
+ *
+ * Critical fullscreen (`data.fullscreen=1`): data-only HIGH priority so
+ * Flutter can post one local notification with fullScreenIntent (avoiding
+ * duplicate OS tray + local notifications).
  */
 final class FcmHttpClient
 {
-    public const CHANNEL_APPROVALS = 'paramgold_approvals_v2';
+    /** Primary high-importance channel for order/payment system notifications. */
+    public const CHANNEL_CRITICAL = 'paramgold_critical_alerts_v3';
 
-    public const CHANNEL_STATUS = 'paramgold_status_v2';
+    /** @deprecated Prefer CHANNEL_CRITICAL — kept for callers/legacy data. */
+    public const CHANNEL_APPROVALS = self::CHANNEL_CRITICAL;
+
+    /** @deprecated Prefer CHANNEL_CRITICAL — kept for callers/legacy data. */
+    public const CHANNEL_STATUS = self::CHANNEL_CRITICAL;
 
     public function isConfigured(): bool
     {
@@ -61,35 +69,63 @@ final class FcmHttpClient
         $projectId = (string) config('firebase.project_id');
         $url = "https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send";
 
-        foreach ($tokens as $token) {
-            $channelId = (string) ($data['channel_id']
-                ?? ($android['notification']['channel_id'] ?? self::CHANNEL_STATUS));
+        $title = (string) ($notification['title'] ?? ($data['title'] ?? ''));
+        $body = (string) ($notification['body'] ?? ($data['body'] ?? ''));
 
-            // Normalize legacy channel IDs to the high-importance v2 channels.
-            $channelId = match ($channelId) {
-                'order_approvals', 'paramgold_approvals' => self::CHANNEL_APPROVALS,
-                'order_status', 'paramgold_status' => self::CHANNEL_STATUS,
-                default => $channelId !== '' ? $channelId : self::CHANNEL_STATUS,
-            };
+        foreach ($tokens as $token) {
+            // Always deliver on the critical v3 channel so Android can raise
+            // heads-up / tray / lock-screen alerts even when the app is killed.
+            $channelId = self::CHANNEL_CRITICAL;
 
             $dataPayload = $this->stringifyData(array_merge($data, [
-                'title' => (string) ($notification['title'] ?? ($data['title'] ?? '')),
-                'body' => (string) ($notification['body'] ?? ($data['body'] ?? '')),
+                'title' => $title,
+                'body' => $body,
                 'channel_id' => $channelId,
             ]));
 
-            // Data-only + HIGH priority: Flutter shows the system notification
-            // (avoids low-importance auto-created FCM channels and enables actions).
-            $payload = [
-                'message' => [
-                    'token' => $token,
-                    'data' => $dataPayload,
-                    'android' => [
-                        'priority' => 'HIGH',
-                        'ttl' => '86400s',
+            $isFullscreen = ($dataPayload['fullscreen'] ?? '0') === '1';
+
+            // Critical full-screen alerts: data-only so Flutter owns a single
+            // local notification with fullScreenIntent. Fallback remains
+            // heads-up + sound + vibration on the critical channel.
+            if ($isFullscreen) {
+                $payload = [
+                    'message' => [
+                        'token' => $token,
+                        'data' => $dataPayload,
+                        'android' => [
+                            'priority' => 'HIGH',
+                            'ttl' => '86400s',
+                        ],
                     ],
-                ],
-            ];
+                ];
+            } else {
+                $androidNotification = array_merge([
+                    'channel_id' => $channelId,
+                    'notification_priority' => 'PRIORITY_MAX',
+                    'default_sound' => true,
+                    'default_vibrate_timings' => true,
+                    'visibility' => 'PUBLIC',
+                    'click_action' => 'FLUTTER_NOTIFICATION_CLICK',
+                ], is_array($android['notification'] ?? null) ? $android['notification'] : []);
+                $androidNotification['channel_id'] = $channelId;
+
+                $payload = [
+                    'message' => [
+                        'token' => $token,
+                        'notification' => [
+                            'title' => $title,
+                            'body' => $body,
+                        ],
+                        'data' => $dataPayload,
+                        'android' => [
+                            'priority' => 'HIGH',
+                            'ttl' => '86400s',
+                            'notification' => $androidNotification,
+                        ],
+                    ],
+                ];
+            }
 
             try {
                 $response = Http::withToken($accessToken)

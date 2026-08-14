@@ -30,6 +30,7 @@ class OrderDraft {
             'product_id': item.productId,
             'case_quantity': item.caseQuantity,
             'rate_per_no': item.ratePerNo,
+            'rate_type': item.rateType.apiValue,
             'discount_type': 'percentage',
             'discount_value': item.isDiscountEnabled ? item.discountValue : 0,
             'gst_percentage': Product.normalizeGst(item.gstPercent).toInt(),

@@ -54,12 +54,12 @@ final class OrderPushNotifier
                 'sales_person_name' => $sales,
                 'route' => "/manager/orders/{$order->id}",
                 'action' => 'review',
-                'channel_id' => 'paramgold_approvals_v2',
+                'channel_id' => 'paramgold_critical_alerts_v3',
                 'fullscreen' => '1',
             ]),
             android: [
                 'notification' => [
-                    'channel_id' => 'paramgold_approvals_v2',
+                    'channel_id' => 'paramgold_critical_alerts_v3',
                     'notification_priority' => 'PRIORITY_MAX',
                     'default_vibrate_timings' => true,
                     'sound' => 'default',
@@ -90,7 +90,7 @@ final class OrderPushNotifier
             extra: [
                 'route' => "/orders/{$order->id}",
                 'action' => 'view_order',
-                'channel_id' => 'paramgold_status_v2',
+                'channel_id' => 'paramgold_critical_alerts_v3',
             ],
         );
 
@@ -106,8 +106,8 @@ final class OrderPushNotifier
                     'sales_person_name' => $order->salesEmployee?->full_name ?? '',
                     'route' => "/production/orders/{$order->id}",
                     'action' => 'view_order',
-                    'channel_id' => 'paramgold_status_v2',
-                    'fullscreen' => '0',
+                    'channel_id' => 'paramgold_critical_alerts_v3',
+                    'fullscreen' => '1',
                 ]),
             );
         }
@@ -143,7 +143,7 @@ final class OrderPushNotifier
                 data: $this->baseData($order, self::TYPE_SENT_FOR_BILL, [
                     'route' => '/dashboard',
                     'action' => 'view_order',
-                    'channel_id' => 'paramgold_status_v2',
+                    'channel_id' => 'paramgold_critical_alerts_v3',
                     'fullscreen' => '0',
                     'vehicle_number' => (string) ($order->vehicle_number ?? ''),
                 ]),
@@ -163,7 +163,7 @@ final class OrderPushNotifier
             'bill_number' => $billNumber,
             'bill_url' => (string) ($order->billUrl() ?? ''),
             'action' => 'view_order',
-            'channel_id' => 'paramgold_status_v2',
+            'channel_id' => 'paramgold_critical_alerts_v3',
             'fullscreen' => '0',
         ];
 
@@ -193,6 +193,7 @@ final class OrderPushNotifier
                 body: $body,
                 data: $this->baseData($order, self::TYPE_BILLED, array_merge($extra, [
                     'route' => "/production/orders/{$order->id}",
+                    'fullscreen' => '1',
                 ])),
             );
         }
@@ -210,7 +211,7 @@ final class OrderPushNotifier
             'remark' => $remark,
             'dispatch_remark' => $remark,
             'action' => 'view_order',
-            'channel_id' => 'paramgold_status_v2',
+            'channel_id' => 'paramgold_critical_alerts_v3',
             'fullscreen' => '0',
         ];
 
@@ -275,7 +276,7 @@ final class OrderPushNotifier
                 'rejected_by' => $managerName,
                 'route' => "/orders/{$order->id}",
                 'action' => 'view_order',
-                'channel_id' => 'paramgold_status_v2',
+                'channel_id' => 'paramgold_critical_alerts_v3',
             ],
         );
     }
@@ -302,7 +303,7 @@ final class OrderPushNotifier
             'rejection_reason' => $reason,
             'rejected_by' => $order->rejectedByUser?->name ?: 'Admin',
             'action' => 'view_order',
-            'channel_id' => 'paramgold_status_v2',
+            'channel_id' => 'paramgold_critical_alerts_v3',
             'fullscreen' => '0',
         ];
 
@@ -404,6 +405,10 @@ final class OrderPushNotifier
      */
     private function baseData(Order $order, string $type, array $extra = []): array
     {
+        $eventAt = $order->updated_at?->toIso8601String()
+            ?? $order->order_date?->format('c')
+            ?? now()->toIso8601String();
+
         return array_merge([
             'type' => $type,
             'order_id' => (string) $order->id,
@@ -412,6 +417,10 @@ final class OrderPushNotifier
             'status' => (string) $order->status,
             'status_label' => $order->displayStatusLabel(),
             'dealer_name' => $this->dealerName($order),
+            'amount' => (string) ($order->grand_total ?? ''),
+            'grand_total' => (string) ($order->grand_total ?? ''),
+            'event_at' => (string) $eventAt,
+            'order_date' => (string) ($order->order_date?->format('Y-m-d') ?? ''),
         ], $extra);
     }
 

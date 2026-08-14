@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/api/api_errors.dart';
+import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/widgets/design/pg_card.dart';
@@ -23,7 +24,6 @@ class DirectorDashboardScreen extends StatefulWidget {
 
 class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
   late Future<DirectorDashboardData> _future;
-  String _period = 'month';
 
   DirectorApi get _api => DirectorApi(
     ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
@@ -35,24 +35,30 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
     _future = _load();
   }
 
-  Future<DirectorDashboardData> _load() => _api.loadDashboard(period: _period);
+  Future<DirectorDashboardData> _load() => _api.loadDashboard(period: 'month');
 
   Future<void> _reload() async {
     setState(() => _future = _load());
     await _future;
   }
 
+  Future<void> _open(String path) async {
+    await context.push(path);
+    if (!mounted) return;
+    _reload();
+  }
+
   @override
   Widget build(BuildContext context) {
-    final currency = NumberFormat.currency(
-      locale: 'en_IN',
-      symbol: '₹',
-      decimalDigits: 0,
-    );
+    final employee = widget.auth.session!.employee;
+    final initial = employee.fullName.trim().isNotEmpty
+        ? employee.fullName.trim()[0].toUpperCase()
+        : 'D';
 
     return Scaffold(
-      appBar: RoleAppBar(title: 'Director Dashboard', auth: widget.auth),
+      backgroundColor: AppColors.background,
       body: RefreshIndicator(
+        color: AppColors.primary,
         onRefresh: _reload,
         child: FutureBuilder<DirectorDashboardData>(
           future: _future,
@@ -66,6 +72,7 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(AppSpacing.screenPadding),
                 children: [
+                  SizedBox(height: MediaQuery.paddingOf(context).top),
                   PgErrorState(
                     message: errorMessage(snapshot.error),
                     onRetry: _reload,
@@ -75,125 +82,498 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
             }
 
             final data = snapshot.data!;
-            return ListView(
-              padding: const EdgeInsets.all(AppSpacing.screenPadding),
-              children: [
-                Text(
-                  'Company Overview',
-                  style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
+            final dateLabel =
+                DateFormat('EEE, d MMM yyyy').format(DateTime.now());
+
+            return CustomScrollView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              slivers: [
+                SliverToBoxAdapter(
+                  child: _DirectorHeader(
+                    auth: widget.auth,
+                    name: employee.fullName,
+                    initial: initial,
+                    dateLabel: dateLabel,
+                    photoUrl: employee.profilePhotoUrl,
                   ),
                 ),
-                Text(data.period),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    for (final period in ['today', 'week', 'month'])
-                      ChoiceChip(
-                        label: Text(period),
-                        selected: _period == period,
-                        onSelected: (selected) {
-                          if (!selected) return;
-                          setState(() => _period = period);
-                          _reload();
-                        },
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(
+                    AppSpacing.screenPadding,
+                    AppSpacing.md,
+                    AppSpacing.screenPadding,
+                    AppSpacing.xxl,
+                  ),
+                  sliver: SliverList(
+                    delegate: SliverChildListDelegate([
+                      _DirectorSummaryGrid(
+                        pendingApprovals: data.pendingPaymentApprovals,
+                        pendingLabel: data.pendingPaymentApprovals > 0
+                            ? '${data.pendingPaymentApprovals} pending'
+                            : 'None pending',
+                        onPending: () =>
+                            _open('/director/payment-requests?filter=pending'),
                       ),
-                  ],
-                ),
-                const SizedBox(height: 12),
-                Wrap(
-                  spacing: 12,
-                  runSpacing: 12,
-                  children: [
-                    DashboardMetricCard(
-                      label: 'Sales Target',
-                      value: currency.format(data.salesTarget),
-                    ),
-                    DashboardMetricCard(
-                      label: 'Sales Achieved',
-                      value: '${data.salesPercentage.toStringAsFixed(1)}%',
-                    ),
-                    DashboardMetricCard(
-                      label: 'Collection Target',
-                      value: currency.format(data.collectionTarget),
-                    ),
-                    DashboardMetricCard(
-                      label: 'Collection Achieved',
-                      value: '${data.collectionPercentage.toStringAsFixed(1)}%',
-                    ),
-                    DashboardMetricCard(
-                      label: 'Pending Orders',
-                      value: '${data.pendingOrders}',
-                    ),
-                    DashboardMetricCard(
-                      label: 'Dispatched Orders',
-                      value: '${data.dispatchedOrders}',
-                    ),
-                    DashboardMetricCard(
-                      label: 'Pending TA/DA',
-                      value: '${data.pendingClaims}',
-                    ),
-                    DashboardMetricCard(
-                      label: 'Pending Payment Approvals',
-                      value: '${data.pendingPaymentApprovals}',
-                    ),
-                    DashboardMetricCard(
-                      label: 'Paid TA/DA',
-                      value: '${data.paidClaims}',
-                    ),
-                    DashboardMetricCard(
-                      label: 'Present Today',
-                      value: '${data.presentToday}',
-                    ),
-                    DashboardMetricCard(
-                      label: 'Absent Today',
-                      value: '${data.absentToday}',
-                    ),
-                    DashboardMetricCard(
-                      label: 'Dealer Visits',
-                      value: '${data.dealerVisits}',
-                    ),
-                    DashboardMetricCard(
-                      label: 'Collections',
-                      value: currency.format(data.collectionAmount),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: AppSpacing.lg),
-                const PgSectionHeader(title: 'Modules'),
-                const SizedBox(height: AppSpacing.sm),
-                ModuleTile(
-                  icon: const Icon(Icons.people_outline),
-                  label: 'Employee Performance',
-                  subtitle: '${data.employeePerformance.length} employees',
-                  onTap: () => context.push(
-                    '/director/employees',
-                    extra: data.employeePerformance,
+                      const SizedBox(height: AppSpacing.lg),
+                      const PgSectionHeader(title: 'Payment Modules'),
+                      const SizedBox(height: AppSpacing.sm),
+                      _DirectorModuleGrid(
+                        items: [
+                          _DirectorModuleItem(
+                            title: 'Pending Payment Approvals',
+                            subtitle: data.pendingPaymentApprovals > 0
+                                ? '${data.pendingPaymentApprovals} awaiting you'
+                                : 'No pending approvals',
+                            icon: Icons.pending_actions_rounded,
+                            onTap: () => _open(
+                              '/director/payment-requests?filter=pending',
+                            ),
+                          ),
+                          _DirectorModuleItem(
+                            title: 'Approved Payments',
+                            subtitle: 'Requests you approved',
+                            icon: Icons.verified_outlined,
+                            onTap: () => _open(
+                              '/director/payment-requests?filter=approved',
+                            ),
+                          ),
+                          _DirectorModuleItem(
+                            title: 'Rejected Payments',
+                            subtitle: 'Requests you rejected',
+                            icon: Icons.cancel_outlined,
+                            onTap: () => _open(
+                              '/director/payment-requests?filter=rejected',
+                            ),
+                          ),
+                          _DirectorModuleItem(
+                            title: 'Payment Approval History',
+                            subtitle: 'All actioned requests',
+                            icon: Icons.history_rounded,
+                            onTap: () => _open(
+                              '/director/payment-requests?filter=history',
+                            ),
+                          ),
+                          _DirectorModuleItem(
+                            title: 'Notifications',
+                            subtitle: 'Alerts & reminders',
+                            icon: Icons.notifications_none_rounded,
+                            onTap: () => _open('/notifications'),
+                          ),
+                        ],
+                      ),
+                    ]),
                   ),
-                ),
-                ModuleTile(
-                  icon: const Icon(Icons.shopping_cart_outlined),
-                  label: 'All Orders',
-                  onTap: () => context.push('/director/orders'),
-                ),
-                ModuleTile(
-                  icon: const Icon(Icons.receipt_long_outlined),
-                  label: 'All TA/DA Claims',
-                  onTap: () => context.push('/director/ta-da-claims'),
-                ),
-                ModuleTile(
-                  icon: const Icon(Icons.payments_outlined),
-                  label: 'Payment Request Approval',
-                  subtitle: data.pendingPaymentApprovals > 0
-                      ? '${data.pendingPaymentApprovals} pending'
-                      : null,
-                  onTap: () => context.push('/director/payment-requests'),
                 ),
               ],
             );
           },
         ),
+      ),
+    );
+  }
+}
+
+class _DirectorHeader extends StatelessWidget {
+  const _DirectorHeader({
+    required this.auth,
+    required this.name,
+    required this.initial,
+    required this.dateLabel,
+    this.photoUrl,
+  });
+
+  final AuthController auth;
+  final String name;
+  final String initial;
+  final String dateLabel;
+  final String? photoUrl;
+
+  @override
+  Widget build(BuildContext context) {
+    final top = MediaQuery.paddingOf(context).top;
+
+    return Container(
+      width: double.infinity,
+      padding: EdgeInsets.fromLTRB(
+        AppSpacing.screenPadding,
+        top + AppSpacing.md,
+        AppSpacing.screenPadding,
+        AppSpacing.lg,
+      ),
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            Color(0xFF0B4F4A),
+            Color(0xFF0F766E),
+            Color(0xFF14B8A6),
+          ],
+        ),
+        borderRadius: BorderRadius.vertical(
+          bottom: Radius.circular(24),
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  'Director Dashboard',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0.2,
+                      ),
+                ),
+              ),
+              IconButton(
+                tooltip: 'Notifications',
+                onPressed: () => context.push('/notifications'),
+                icon: const Icon(
+                  Icons.notifications_none_rounded,
+                  color: Colors.white,
+                ),
+              ),
+              _DirectorHeaderAccountMenu(auth: auth),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          Row(
+            children: [
+              CircleAvatar(
+                radius: 26,
+                backgroundColor: Colors.white.withValues(alpha: 0.18),
+                backgroundImage:
+                    photoUrl != null ? NetworkImage(photoUrl!) : null,
+                child: photoUrl == null
+                    ? Text(
+                        initial,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                          fontSize: 22,
+                        ),
+                      )
+                    : null,
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Welcome,',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.8),
+                          ),
+                    ),
+                    Text(
+                      name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            height: 1.2,
+                          ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      'Role: Director',
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.88),
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      dateLabel,
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: Colors.white.withValues(alpha: 0.7),
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DirectorHeaderAccountMenu extends StatelessWidget {
+  const _DirectorHeaderAccountMenu({required this.auth});
+
+  final AuthController auth;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Account',
+      onSelected: (value) async {
+        switch (value) {
+          case 'profile':
+            context.push('/profile');
+          case 'password':
+            context.push('/change-password');
+          case 'logout':
+            await auth.logout();
+        }
+      },
+      itemBuilder: (_) => const [
+        PopupMenuItem(
+          value: 'profile',
+          child: ListTile(
+            dense: true,
+            leading: Icon(Icons.person_outline),
+            title: Text('My Profile'),
+          ),
+        ),
+        PopupMenuItem(
+          value: 'password',
+          child: ListTile(
+            dense: true,
+            leading: Icon(Icons.password_outlined),
+            title: Text('Change Password'),
+          ),
+        ),
+        PopupMenuDivider(),
+        PopupMenuItem(
+          value: 'logout',
+          child: ListTile(
+            dense: true,
+            leading: Icon(Icons.logout),
+            title: Text('Logout'),
+          ),
+        ),
+      ],
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+        ),
+        child: const Icon(
+          Icons.more_horiz_rounded,
+          color: Colors.white,
+        ),
+      ),
+    );
+  }
+}
+
+class _DirectorSummaryGrid extends StatelessWidget {
+  const _DirectorSummaryGrid({
+    required this.pendingApprovals,
+    required this.pendingLabel,
+    required this.onPending,
+  });
+
+  final int pendingApprovals;
+  final String pendingLabel;
+  final VoidCallback onPending;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final aspect = constraints.maxWidth >= 400 ? 1.85 : 1.45;
+        return GridView.count(
+          crossAxisCount: 2,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          mainAxisSpacing: AppSpacing.sm,
+          crossAxisSpacing: AppSpacing.sm,
+          childAspectRatio: aspect,
+          children: [
+            _DirectorSummaryCard(
+              label: 'Pending Approvals',
+              value: '$pendingApprovals',
+              icon: Icons.pending_actions_rounded,
+              accent: AppColors.warning,
+              onTap: onPending,
+            ),
+            _DirectorSummaryCard(
+              label: 'Payment Requests',
+              value: pendingLabel,
+              icon: Icons.payments_outlined,
+              accent: AppColors.primary,
+              onTap: onPending,
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _DirectorSummaryCard extends StatelessWidget {
+  const _DirectorSummaryCard({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.accent,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return PgCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 34,
+            height: 34,
+            decoration: BoxDecoration(
+              color: accent.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Icon(icon, size: 18, color: accent),
+          ),
+          const Spacer(),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                    height: 1.15,
+                  ),
+            ),
+          ),
+          const SizedBox(height: 2),
+          Text(
+            label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DirectorModuleItem {
+  const _DirectorModuleItem({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+}
+
+class _DirectorModuleGrid extends StatelessWidget {
+  const _DirectorModuleGrid({required this.items});
+
+  final List<_DirectorModuleItem> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final aspect = constraints.maxWidth >= 400 ? 1.35 : 1.15;
+        return GridView.builder(
+          itemCount: items.length,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisSpacing: AppSpacing.sm,
+            crossAxisSpacing: AppSpacing.sm,
+            childAspectRatio: aspect,
+          ),
+          itemBuilder: (context, index) {
+            final item = items[index];
+            return _DirectorModuleCard(item: item);
+          },
+        );
+      },
+    );
+  }
+}
+
+class _DirectorModuleCard extends StatelessWidget {
+  const _DirectorModuleCard({required this.item});
+
+  final _DirectorModuleItem item;
+
+  @override
+  Widget build(BuildContext context) {
+    return PgCard(
+      onTap: item.onTap,
+      padding: const EdgeInsets.all(AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            width: 46,
+            height: 46,
+            decoration: BoxDecoration(
+              gradient: const LinearGradient(
+                begin: Alignment.topLeft,
+                end: Alignment.bottomRight,
+                colors: AppColors.tealGradient,
+              ),
+              borderRadius: BorderRadius.circular(14),
+              boxShadow: [
+                BoxShadow(
+                  color: AppColors.primary.withValues(alpha: 0.22),
+                  blurRadius: 10,
+                  offset: const Offset(0, 4),
+                ),
+              ],
+            ),
+            child: Icon(item.icon, color: Colors.white, size: 24),
+          ),
+          const Spacer(),
+          Text(
+            item.title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            item.subtitle,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textSecondary,
+                  height: 1.25,
+                ),
+          ),
+        ],
       ),
     );
   }
