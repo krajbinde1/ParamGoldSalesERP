@@ -135,6 +135,10 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                       value: '${data.pendingClaims}',
                     ),
                     DashboardMetricCard(
+                      label: 'Pending Payment Approvals',
+                      value: '${data.pendingPaymentApprovals}',
+                    ),
+                    DashboardMetricCard(
                       label: 'Paid TA/DA',
                       value: '${data.paidClaims}',
                     ),
@@ -177,6 +181,14 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                   icon: const Icon(Icons.receipt_long_outlined),
                   label: 'All TA/DA Claims',
                   onTap: () => context.push('/director/ta-da-claims'),
+                ),
+                ModuleTile(
+                  icon: const Icon(Icons.payments_outlined),
+                  label: 'Payment Request Approval',
+                  subtitle: data.pendingPaymentApprovals > 0
+                      ? '${data.pendingPaymentApprovals} pending'
+                      : null,
+                  onTap: () => context.push('/director/payment-requests'),
                 ),
               ],
             );

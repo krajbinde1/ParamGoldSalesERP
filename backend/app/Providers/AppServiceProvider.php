@@ -8,6 +8,7 @@ use App\Models\Employee;
 use App\Models\Order;
 use App\Models\PackagingMaterial;
 use App\Models\PackagingMaterialInward;
+use App\Models\PaymentRequest;
 use App\Models\Product;
 use App\Models\ProductionBatch;
 use App\Models\RawMaterial;
@@ -17,12 +18,14 @@ use App\Models\StockAdjustment;
 use App\Models\StockLedger;
 use App\Models\TaDaClaim;
 use App\Observers\OrderObserver;
+use App\Observers\PaymentRequestObserver;
 use App\Policies\BomPolicy;
 use App\Policies\DealerPolicy;
 use App\Policies\EmployeeLoginAccessPolicy;
 use App\Policies\OrderPolicy;
 use App\Policies\PackagingMaterialInwardPolicy;
 use App\Policies\PackagingMaterialPolicy;
+use App\Policies\PaymentRequestPolicy;
 use App\Policies\ProductPolicy;
 use App\Policies\ProductionBatchPolicy;
 use App\Policies\RawMaterialInwardPolicy;
@@ -54,6 +57,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Product::class, ProductPolicy::class);
         Gate::policy(Order::class, OrderPolicy::class);
         Gate::policy(TaDaClaim::class, TaDaClaimPolicy::class);
+        Gate::policy(PaymentRequest::class, PaymentRequestPolicy::class);
         Gate::policy(RawMaterial::class, RawMaterialPolicy::class);
         Gate::policy(RawMaterialInward::class, RawMaterialInwardPolicy::class);
         Gate::policy(PackagingMaterialInward::class, PackagingMaterialInwardPolicy::class);
@@ -65,5 +69,6 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(StockAdjustment::class, StockAdjustmentPolicy::class);
 
         Order::observe(OrderObserver::class);
+        PaymentRequest::observe(PaymentRequestObserver::class);
     }
 }

@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\Director\DirectorDashboardController;
 use App\Http\Controllers\Api\Director\DirectorOrderController;
+use App\Http\Controllers\Api\Director\DirectorPaymentRequestController;
 use App\Http\Controllers\Api\Director\DirectorProductionBatchController;
 use App\Http\Controllers\Api\Director\DirectorTaDaClaimController;
 use App\Http\Controllers\Api\EmployeeRoutePointController;
@@ -194,6 +195,16 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('production-batches/pending-approvals', [DirectorProductionBatchController::class, 'pendingApprovals']);
         Route::post('production-batches/{batch}/approve-deviation', [DirectorProductionBatchController::class, 'approveDeviation']);
         Route::post('production-batches/{batch}/reject-deviation', [DirectorProductionBatchController::class, 'rejectDeviation']);
+    });
+
+    // Payment request approvals: Directors and configured approvers (policy-enforced).
+    Route::prefix('director')->group(function () {
+        Route::get('payment-requests/pending-count', [DirectorPaymentRequestController::class, 'pendingCount']);
+        Route::get('payment-requests', [DirectorPaymentRequestController::class, 'index']);
+        Route::post('payment-requests/approve-bulk', [DirectorPaymentRequestController::class, 'approveBulk']);
+        Route::get('payment-requests/{paymentRequest}', [DirectorPaymentRequestController::class, 'show']);
+        Route::post('payment-requests/{paymentRequest}/approve', [DirectorPaymentRequestController::class, 'approve']);
+        Route::post('payment-requests/{paymentRequest}/reject', [DirectorPaymentRequestController::class, 'reject']);
     });
 });
 

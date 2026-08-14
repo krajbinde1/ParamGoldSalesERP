@@ -36,6 +36,7 @@ import '../../modules/orders/screens/order_detail_screen.dart';
 import '../../modules/orders/screens/order_list_screen.dart';
 import '../../modules/orders/screens/review_order_screen.dart';
 import '../../modules/director/screens/director_dashboard_screen.dart';
+import '../../modules/director/screens/director_payment_requests_screen.dart';
 import '../../modules/manager/screens/manager_edit_order_screen.dart';
 import '../../modules/manager/screens/manager_employee_performance_screen.dart';
 import '../../modules/manager/screens/manager_orders_screen.dart';
@@ -588,6 +589,19 @@ GoRouter createRouter(
     GoRoute(
       path: '/director/ta-da-claims',
       builder: (_, _) => DirectorTaDaClaimsScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/director/payment-requests',
+      builder: (_, _) => DirectorPaymentRequestsScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':requestId',
+          builder: (_, state) => DirectorPaymentRequestDetailScreen(
+            auth: auth,
+            requestId: int.parse(state.pathParameters['requestId']!),
+          ),
+        ),
+      ],
     ),
   ],
 );

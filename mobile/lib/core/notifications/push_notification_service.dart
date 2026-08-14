@@ -251,9 +251,13 @@ class PushNotificationService {
   Future<void> showFromRemoteMessage(RemoteMessage message) async {
     await ensureLocalInitialized();
     final payload = NotificationPayload.fromRemoteMessage(message);
-    final isFullScreen = payload.fullscreen || payload.type == 'new_order';
-    final channel =
-        isFullScreen ? approvalsChannel : statusChannel;
+    final isPaymentApproval = payload.type == 'payment_approval_required' ||
+        payload.type == 'payment_request_reminder' ||
+        payload.type == 'payment_request_created' ||
+        payload.type == 'payment_request_first_approved';
+    final isFullScreen =
+        payload.fullscreen || payload.type == 'new_order' || isPaymentApproval;
+    final channel = isFullScreen ? approvalsChannel : statusChannel;
 
     final androidDetails = AndroidNotificationDetails(
       channel.id,
@@ -281,9 +285,9 @@ class PushNotificationService {
                 cancelNotification: true,
                 showsUserInterface: false,
               ),
-              const AndroidNotificationAction(
+              AndroidNotificationAction(
                 'review',
-                'REVIEW & APPROVE',
+                isPaymentApproval ? 'REVIEW' : 'REVIEW & APPROVE',
                 showsUserInterface: true,
               ),
             ]

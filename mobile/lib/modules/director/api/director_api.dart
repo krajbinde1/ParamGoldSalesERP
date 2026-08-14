@@ -16,6 +16,7 @@ class DirectorDashboardData {
     required this.pendingClaims,
     required this.approvedClaims,
     required this.paidClaims,
+    required this.pendingPaymentApprovals,
     required this.presentToday,
     required this.absentToday,
     required this.dealerVisits,
@@ -38,6 +39,7 @@ class DirectorDashboardData {
   final int pendingClaims;
   final int approvedClaims;
   final int paidClaims;
+  final int pendingPaymentApprovals;
   final int presentToday;
   final int absentToday;
   final int dealerVisits;
@@ -52,6 +54,7 @@ class DirectorDashboardData {
     final orders = summary['orders'] as Map? ?? {};
     final taDa = summary['ta_da'] as Map? ?? {};
     final operations = summary['operations'] as Map? ?? {};
+    final paymentRequests = summary['payment_requests'] as Map? ?? {};
 
     return DirectorDashboardData(
       period: json['period']?.toString() ?? 'This Month',
@@ -72,6 +75,8 @@ class DirectorDashboardData {
       pendingClaims: int.tryParse('${taDa['pending_claims'] ?? 0}') ?? 0,
       approvedClaims: int.tryParse('${taDa['approved_claims'] ?? 0}') ?? 0,
       paidClaims: int.tryParse('${taDa['paid_claims'] ?? 0}') ?? 0,
+      pendingPaymentApprovals:
+          int.tryParse('${paymentRequests['pending_approvals'] ?? 0}') ?? 0,
       presentToday: int.tryParse('${operations['present_today'] ?? 0}') ?? 0,
       absentToday: int.tryParse('${operations['absent_today'] ?? 0}') ?? 0,
       dealerVisits: int.tryParse('${operations['dealer_visits'] ?? 0}') ?? 0,
@@ -159,6 +164,89 @@ class DirectorApi {
   Future<Map<String, dynamic>> getTaDaClaim(int claimId) async {
     try {
       final response = await _dio.get('/director/ta-da-claims/$claimId');
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<
+      ({
+        int pendingCount,
+        double pendingTotalAmount,
+        List<Map<String, dynamic>> data
+      })> listPaymentRequests({String? status}) async {
+    try {
+      final response = await _dio.get(
+        '/director/payment-requests',
+        queryParameters: status != null ? {'status': status} : null,
+      );
+      final body = Map<String, dynamic>.from(response.data as Map);
+      return (
+        pendingCount: int.tryParse('${body['pending_count'] ?? 0}') ?? 0,
+        pendingTotalAmount:
+            double.tryParse('${body['pending_total_amount'] ?? 0}') ?? 0,
+        data: (body['data'] as List?)
+                ?.map((item) => Map<String, dynamic>.from(item as Map))
+                .toList() ??
+            const [],
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> getPaymentRequest(int id) async {
+    try {
+      final response = await _dio.get('/director/payment-requests/$id');
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> approvePaymentRequest(int id) async {
+    try {
+      final response = await _dio.post('/director/payment-requests/$id/approve');
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> approvePaymentRequestsBulk({
+    List<int>? ids,
+    bool approveAllPending = false,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/director/payment-requests/approve-bulk',
+        data: {
+          if (ids != null) 'ids': ids,
+          'approve_all_pending': approveAllPending,
+        },
+      );
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> rejectPaymentRequest(
+    int id, {
+    required String remark,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/director/payment-requests/$id/reject',
+        data: {'remark': remark},
+      );
       return Map<String, dynamic>.from(
         (response.data as Map)['data'] as Map,
       );

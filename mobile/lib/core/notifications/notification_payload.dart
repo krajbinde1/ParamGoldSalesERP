@@ -41,10 +41,24 @@ class NotificationPayload {
 
   String? get resolvedRoute {
     if (actionId == 'ignore') return null;
+    if (actionId == 'review' ||
+        type == 'payment_approval_required' ||
+        type == 'payment_request_reminder' ||
+        type == 'payment_request_created' ||
+        type == 'payment_request_first_approved') {
+      return route?.isNotEmpty == true
+          ? route
+          : '/director/payment-requests';
+    }
     if (route != null && route!.isNotEmpty) return route;
-    if (orderId == null) return null;
+    if (orderId == null && raw['payment_request_id'] == null) return null;
     if (type == 'new_order') return '/manager/orders/$orderId';
-    return '/orders/$orderId';
+    if (type.startsWith('payment_request_')) {
+      final id = raw['payment_request_id'] ?? orderId;
+      return '/director/payment-requests/$id';
+    }
+    if (orderId != null) return '/orders/$orderId';
+    return null;
   }
 
   factory NotificationPayload.fromRemoteMessage(RemoteMessage message) {
@@ -68,7 +82,11 @@ class NotificationPayload {
       billUrl: data['bill_url']?.toString(),
       timeline: data['timeline']?.toString(),
       fullscreen: data['fullscreen']?.toString() == '1' ||
-          data['type']?.toString() == 'new_order',
+          data['type']?.toString() == 'new_order' ||
+          data['type']?.toString() == 'payment_approval_required' ||
+          data['type']?.toString() == 'payment_request_reminder' ||
+          data['type']?.toString() == 'payment_request_created' ||
+          data['type']?.toString() == 'payment_request_first_approved',
       raw: data,
     );
   }
@@ -100,7 +118,9 @@ class NotificationPayload {
       billUrl: data['bill_url']?.toString(),
       timeline: data['timeline']?.toString(),
       actionId: response.actionId,
-      fullscreen: data['fullscreen']?.toString() == '1',
+      fullscreen: data['fullscreen']?.toString() == '1' ||
+          data['type']?.toString() == 'payment_approval_required' ||
+          data['type']?.toString() == 'payment_request_reminder',
       raw: data,
     );
   }
