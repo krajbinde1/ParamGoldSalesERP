@@ -59,7 +59,8 @@ class NotificationPayload {
           'Order update',
       body: _composeBody(baseBody, data),
       orderId: int.tryParse('${data['order_id'] ?? ''}'),
-      orderNo: data['order_no']?.toString(),
+      orderNo: data['short_order_no']?.toString() ??
+          data['order_no']?.toString(),
       dealerName: data['dealer_name']?.toString(),
       salesPersonName: data['sales_person_name']?.toString(),
       statusLabel: data['status_label']?.toString(),
@@ -90,7 +91,8 @@ class NotificationPayload {
       title: data['title']?.toString() ?? '',
       body: data['body']?.toString() ?? '',
       orderId: int.tryParse('${data['order_id'] ?? ''}'),
-      orderNo: data['order_no']?.toString(),
+      orderNo: data['short_order_no']?.toString() ??
+          data['order_no']?.toString(),
       dealerName: data['dealer_name']?.toString(),
       salesPersonName: data['sales_person_name']?.toString(),
       statusLabel: data['status_label']?.toString(),

@@ -14,19 +14,19 @@
     };
 @endphp
 
-<div style="overflow-x:auto;width:100%;border:1px solid #e2e8f0;border-radius:0.75rem;">
-    <table style="width:100%;min-width:880px;border-collapse:collapse;font-size:0.8125rem;">
+<div class="w-full overflow-x-auto rounded-xl border border-gray-200 dark:border-gray-700">
+    <table class="w-full min-w-[960px] border-collapse text-sm">
         <thead>
-            <tr style="background:#f8fafc;">
-                <th style="padding:0.65rem 0.75rem;text-align:left;border-bottom:1px solid #e2e8f0;white-space:nowrap;">Product</th>
-                <th style="padding:0.65rem 0.75rem;text-align:right;border-bottom:1px solid #e2e8f0;white-space:nowrap;">Cases</th>
-                <th style="padding:0.65rem 0.75rem;text-align:right;border-bottom:1px solid #e2e8f0;white-space:nowrap;">Qty</th>
-                <th style="padding:0.65rem 0.75rem;text-align:right;border-bottom:1px solid #e2e8f0;white-space:nowrap;">Rate</th>
-                <th style="padding:0.65rem 0.75rem;text-align:right;border-bottom:1px solid #e2e8f0;white-space:nowrap;">Disc %</th>
-                <th style="padding:0.65rem 0.75rem;text-align:right;border-bottom:1px solid #e2e8f0;white-space:nowrap;">Taxable Amount</th>
-                <th style="padding:0.65rem 0.75rem;text-align:right;border-bottom:1px solid #e2e8f0;white-space:nowrap;">CGST</th>
-                <th style="padding:0.65rem 0.75rem;text-align:right;border-bottom:1px solid #e2e8f0;white-space:nowrap;">SGST</th>
-                <th style="padding:0.65rem 0.75rem;text-align:right;border-bottom:1px solid #e2e8f0;white-space:nowrap;">Total</th>
+            <tr class="bg-gray-50 dark:bg-gray-800/60">
+                <th class="whitespace-nowrap border-b border-gray-200 px-3 py-2.5 text-left font-medium text-gray-600 dark:border-gray-700 dark:text-gray-300">Product</th>
+                <th class="whitespace-nowrap border-b border-gray-200 px-3 py-2.5 text-right font-medium text-gray-600 dark:border-gray-700 dark:text-gray-300">Cases</th>
+                <th class="whitespace-nowrap border-b border-gray-200 px-3 py-2.5 text-right font-medium text-gray-600 dark:border-gray-700 dark:text-gray-300">Qty</th>
+                <th class="whitespace-nowrap border-b border-gray-200 px-3 py-2.5 text-right font-medium text-gray-600 dark:border-gray-700 dark:text-gray-300">Rate</th>
+                <th class="whitespace-nowrap border-b border-gray-200 px-3 py-2.5 text-right font-medium text-gray-600 dark:border-gray-700 dark:text-gray-300">Disc %</th>
+                <th class="whitespace-nowrap border-b border-gray-200 px-3 py-2.5 text-right font-medium text-gray-600 dark:border-gray-700 dark:text-gray-300">Amount Without GST</th>
+                <th class="whitespace-nowrap border-b border-gray-200 px-3 py-2.5 text-right font-medium text-gray-600 dark:border-gray-700 dark:text-gray-300">CGST</th>
+                <th class="whitespace-nowrap border-b border-gray-200 px-3 py-2.5 text-right font-medium text-gray-600 dark:border-gray-700 dark:text-gray-300">SGST</th>
+                <th class="whitespace-nowrap border-b border-gray-200 px-3 py-2.5 text-right font-medium text-gray-600 dark:border-gray-700 dark:text-gray-300">Total</th>
             </tr>
         </thead>
         <tbody>
@@ -38,28 +38,29 @@
                     $gstAmount = (float) ($item->gst_amount ?? 0);
                     $cgst = round($gstAmount / 2, 2);
                     $sgst = round($gstAmount / 2, 2);
+                    $amountWithoutGst = $item->taxable_amount ?? $item->base_amount ?? 0;
                     $name = $item->product?->product_name ?: '-';
                     $code = trim((string) ($item->product?->product_code ?? ''));
                 @endphp
-                <tr>
-                    <td style="padding:0.7rem 0.75rem;border-bottom:1px solid #f1f5f9;vertical-align:top;min-width:180px;">
-                        <div style="font-weight:600;color:#0f172a;line-height:1.3;">{{ $name }}</div>
+                <tr class="align-top">
+                    <td class="min-w-[200px] border-b border-gray-100 px-3 py-2.5 dark:border-gray-800">
+                        <div class="font-semibold leading-5 text-gray-950 dark:text-white">{{ $name }}</div>
                         @if ($code !== '')
-                            <div style="font-size:0.75rem;color:#64748b;margin-top:0.15rem;">{{ $code }}</div>
+                            <div class="mt-0.5 text-xs leading-4 text-gray-500 dark:text-gray-400">{{ $code }}</div>
                         @endif
                     </td>
-                    <td style="padding:0.7rem 0.75rem;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;">{{ $cases }}</td>
-                    <td style="padding:0.7rem 0.75rem;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;">{{ $qty }}</td>
-                    <td style="padding:0.7rem 0.75rem;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;">{{ $money($rate) }}</td>
-                    <td style="padding:0.7rem 0.75rem;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;">{{ $pct($item->discount_percentage ?? 0) }}</td>
-                    <td style="padding:0.7rem 0.75rem;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;">{{ $money($item->taxable_amount ?? 0) }}</td>
-                    <td style="padding:0.7rem 0.75rem;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;">{{ $money($cgst) }}</td>
-                    <td style="padding:0.7rem 0.75rem;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;">{{ $money($sgst) }}</td>
-                    <td style="padding:0.7rem 0.75rem;border-bottom:1px solid #f1f5f9;text-align:right;white-space:nowrap;font-weight:700;">{{ $money($item->final_amount ?? $item->line_total ?? 0) }}</td>
+                    <td class="whitespace-nowrap border-b border-gray-100 px-3 py-2.5 text-right tabular-nums text-gray-950 dark:border-gray-800 dark:text-gray-100">{{ $cases }}</td>
+                    <td class="whitespace-nowrap border-b border-gray-100 px-3 py-2.5 text-right tabular-nums text-gray-950 dark:border-gray-800 dark:text-gray-100">{{ $qty }}</td>
+                    <td class="whitespace-nowrap border-b border-gray-100 px-3 py-2.5 text-right tabular-nums text-gray-950 dark:border-gray-800 dark:text-gray-100">{{ $money($rate) }}</td>
+                    <td class="whitespace-nowrap border-b border-gray-100 px-3 py-2.5 text-right tabular-nums text-gray-950 dark:border-gray-800 dark:text-gray-100">{{ $pct($item->discount_percentage ?? 0) }}</td>
+                    <td class="whitespace-nowrap border-b border-gray-100 px-3 py-2.5 text-right tabular-nums text-gray-950 dark:border-gray-800 dark:text-gray-100">{{ $money($amountWithoutGst) }}</td>
+                    <td class="whitespace-nowrap border-b border-gray-100 px-3 py-2.5 text-right tabular-nums text-gray-950 dark:border-gray-800 dark:text-gray-100">{{ $money($cgst) }}</td>
+                    <td class="whitespace-nowrap border-b border-gray-100 px-3 py-2.5 text-right tabular-nums text-gray-950 dark:border-gray-800 dark:text-gray-100">{{ $money($sgst) }}</td>
+                    <td class="whitespace-nowrap border-b border-gray-100 px-3 py-2.5 text-right font-semibold tabular-nums text-gray-950 dark:border-gray-800 dark:text-white">{{ $money($item->final_amount ?? $item->line_total ?? 0) }}</td>
                 </tr>
             @empty
                 <tr>
-                    <td colspan="9" style="padding:1rem;text-align:center;color:#64748b;">No products</td>
+                    <td colspan="9" class="px-3 py-4 text-center text-gray-500 dark:text-gray-400">No products</td>
                 </tr>
             @endforelse
         </tbody>
@@ -70,7 +71,7 @@
     $totalCases = (int) $record->items->sum(fn ($item) => (int) ($item->case_quantity ?? 0));
 @endphp
 @if ($record->items->isNotEmpty())
-    <div style="margin-top:0.75rem;font-size:0.875rem;font-weight:700;color:#0f172a;">
+    <div class="mt-3 text-sm font-semibold text-gray-950 dark:text-white">
         Total Cases: {{ $totalCases }}
     </div>
 @endif

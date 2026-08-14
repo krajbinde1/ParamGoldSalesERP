@@ -18,6 +18,7 @@ use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\HtmlString;
 
 class ViewOrder extends ViewRecord
 {
@@ -43,8 +44,33 @@ class ViewOrder extends ViewRecord
     {
         /** @var Order $record */
         $record = $this->getRecord();
+        $record->loadMissing('salesEmployee:id,full_name');
 
-        return $record->displayStatusLabel();
+        $statusLabel = e($record->displayStatusLabel());
+        $statusColor = Order::statusColor((string) $record->status);
+        $badgeClass = match ($statusColor) {
+            'success' => 'bg-success-50 text-success-700 ring-success-600/20 dark:bg-success-400/10 dark:text-success-400 dark:ring-success-400/30',
+            'warning' => 'bg-warning-50 text-warning-700 ring-warning-600/20 dark:bg-warning-400/10 dark:text-warning-400 dark:ring-warning-400/30',
+            'danger' => 'bg-danger-50 text-danger-700 ring-danger-600/20 dark:bg-danger-400/10 dark:text-danger-400 dark:ring-danger-400/30',
+            'info' => 'bg-info-50 text-info-700 ring-info-600/20 dark:bg-info-400/10 dark:text-info-400 dark:ring-info-400/30',
+            'primary' => 'bg-primary-50 text-primary-700 ring-primary-600/20 dark:bg-primary-400/10 dark:text-primary-400 dark:ring-primary-400/30',
+            default => 'bg-gray-50 text-gray-700 ring-gray-600/20 dark:bg-gray-400/10 dark:text-gray-400 dark:ring-gray-400/30',
+        };
+
+        $orderDate = $record->order_date
+            ? $record->order_date->format('d M Y')
+            : '—';
+        $salesEmployee = e($record->salesEmployee?->full_name ?: '—');
+
+        return new HtmlString(
+            '<div class="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-sm text-gray-600 dark:text-gray-400">'
+            .'<span class="inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium ring-1 ring-inset '.$badgeClass.'">'
+            .$statusLabel
+            .'</span>'
+            .'<span><span class="text-gray-500 dark:text-gray-500">Order Date:</span> '.e($orderDate).'</span>'
+            .'<span><span class="text-gray-500 dark:text-gray-500">Sales Employee:</span> '.$salesEmployee.'</span>'
+            .'</div>'
+        );
     }
 
     protected function getHeaderActions(): array

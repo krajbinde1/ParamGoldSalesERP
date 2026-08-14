@@ -7,7 +7,6 @@ use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\FontWeight;
-use Filament\Support\Enums\TextSize;
 use Illuminate\Support\HtmlString;
 
 class OrderInfolist
@@ -16,17 +15,16 @@ class OrderInfolist
     {
         return $schema
             ->components([
-                Section::make('Order Summary')
+                Section::make('Order Overview')
                     ->columns([
                         'default' => 1,
-                        'md' => 2,
-                        'xl' => 4,
+                        'md' => 3,
                     ])
                     ->schema([
                         TextEntry::make('order_no')
                             ->label('Order No')
                             ->formatStateUsing(fn (?string $state, Order $record): string => $record->shortOrderNo())
-                            ->weight(FontWeight::Bold)
+                            ->weight(FontWeight::SemiBold)
                             ->copyable(false),
                         TextEntry::make('order_date')
                             ->label('Order Date')
@@ -36,6 +34,29 @@ class OrderInfolist
                             ->badge()
                             ->formatStateUsing(fn (string $state, Order $record): string => $record->displayStatusLabel())
                             ->color(fn (string $state): string => Order::statusColor($state)),
+
+                        TextEntry::make('dealer.firm_name')
+                            ->label('Dealer Name')
+                            ->placeholder('—')
+                            ->formatStateUsing(fn (?string $state, Order $record): string => filled($state)
+                                ? $state
+                                : ($record->dealer?->firm_name ?: '—'))
+                            ->weight(FontWeight::SemiBold),
+                        TextEntry::make('dealer.village')
+                            ->label('Dealer Village')
+                            ->placeholder('—'),
+                        TextEntry::make('payment_type')
+                            ->label('Payment Type')
+                            ->badge()
+                            ->formatStateUsing(fn (?string $state): string => filled($state)
+                                ? ucfirst(strtolower($state))
+                                : '—')
+                            ->color(fn (?string $state): string => match (strtolower((string) $state)) {
+                                'cash' => 'success',
+                                'credit' => 'warning',
+                                default => 'gray',
+                            }),
+
                         TextEntry::make('salesEmployee.full_name')
                             ->label('Sales Employee')
                             ->placeholder('—'),
@@ -51,31 +72,38 @@ class OrderInfolist
 
                                 return $record->salesEmployee?->reportingManager?->full_name ?: '—';
                             }),
-                        TextEntry::make('dealer.firm_name')
-                            ->label('Dealer Name')
-                            ->placeholder('—')
-                            ->formatStateUsing(fn (?string $state, Order $record): string => filled($state)
-                                ? $state
-                                : ($record->dealer?->firm_name ?: '—')),
-                        TextEntry::make('dealer.village')
-                            ->label('Dealer Village')
-                            ->placeholder('—'),
-                        TextEntry::make('payment_type')
-                            ->label('Payment Type')
-                            ->badge()
-                            ->formatStateUsing(fn (?string $state): string => filled($state)
-                                ? ucfirst(strtolower($state))
-                                : '—')
-                            ->color(fn (?string $state): string => match (strtolower((string) $state)) {
-                                'cash' => 'success',
-                                'credit' => 'warning',
-                                default => 'gray',
-                            }),
                         TextEntry::make('grand_total')
                             ->label('Grand Total')
                             ->money('INR')
-                            ->weight(FontWeight::Bold)
-                            ->size(TextSize::Large),
+                            ->weight(FontWeight::Bold),
+                    ]),
+
+                Section::make('Order Items')
+                    ->schema([
+                        TextEntry::make('items_table')
+                            ->hiddenLabel()
+                            ->html()
+                            ->state(fn (Order $record): string => 'items')
+                            ->formatStateUsing(fn ($state, Order $record): HtmlString => new HtmlString(
+                                view('filament.resources.orders.partials.order-items-table', [
+                                    'record' => $record,
+                                ])->render()
+                            ))
+                            ->columnSpanFull(),
+                    ]),
+
+                Section::make('Order Summary')
+                    ->schema([
+                        TextEntry::make('order_summary')
+                            ->hiddenLabel()
+                            ->html()
+                            ->state(fn (Order $record): string => 'summary')
+                            ->formatStateUsing(fn ($state, Order $record): HtmlString => new HtmlString(
+                                view('filament.resources.orders.partials.order-summary', [
+                                    'record' => $record,
+                                ])->render()
+                            ))
+                            ->columnSpanFull(),
                     ]),
 
                 Section::make('Order Workflow')
@@ -98,124 +126,24 @@ class OrderInfolist
                             ->columnSpanFull(),
                     ]),
 
-                Section::make('Dealer / Billing Party')
-                    ->columns([
-                        'default' => 1,
-                        'md' => 2,
-                        'xl' => 4,
-                    ])
+                Section::make('Billing')
+                    ->columns(3)
+                    ->visible(fn (Order $record): bool => filled($record->bill_path)
+                        || filled($record->bill_number)
+                        || filled($record->bill_date))
                     ->schema([
-                        TextEntry::make('dealer.firm_name')
-                            ->label('Dealer Name')
+                        TextEntry::make('bill_number')
+                            ->label('Bill Number')
                             ->placeholder('—')
                             ->weight(FontWeight::SemiBold),
-                        TextEntry::make('dealer.village')
-                            ->label('Village')
+                        TextEntry::make('bill_date')
+                            ->label('Bill Date')
+                            ->date('d M Y')
                             ->placeholder('—'),
-                        TextEntry::make('dealer.mobile')
-                            ->label('Mobile')
-                            ->placeholder('—'),
-                        TextEntry::make('dealer.address')
-                            ->label('Address')
-                            ->placeholder('—')
-                            ->visible(fn (Order $record): bool => filled($record->dealer?->address))
-                            ->columnSpan([
-                                'default' => 1,
-                                'md' => 2,
-                                'xl' => 4,
-                            ]),
-                    ]),
-
-                Section::make('Transport')
-                    ->columns(3)
-                    ->visible(fn (Order $record): bool => filled($record->vehicle_number)
-                        || filled($record->transport_amount)
-                        || filled($record->transport_remark)
-                        || in_array($record->status, [
-                            Order::STATUS_PENDING_FOR_BILLING,
-                            Order::STATUS_BILLED,
-                            Order::STATUS_DISPATCHED,
-                        ], true))
-                    ->schema([
-                        TextEntry::make('vehicle_number')->label('Vehicle Number')->placeholder('—'),
-                        TextEntry::make('transport_amount')
-                            ->label('Transport Freight')
-                            ->money('INR')
-                            ->placeholder('—'),
-                        TextEntry::make('transport_remark')
-                            ->label('Transport Remark')
-                            ->placeholder('—')
-                            ->columnSpanFull(),
-                    ]),
-
-                Section::make('Order Items')
-                    ->schema([
-                        TextEntry::make('items_table')
-                            ->hiddenLabel()
-                            ->html()
-                            ->state(fn (Order $record): string => 'items')
-                            ->formatStateUsing(fn ($state, Order $record): HtmlString => new HtmlString(
-                                view('filament.resources.orders.partials.order-items-table', [
-                                    'record' => $record,
-                                ])->render()
-                            ))
-                            ->columnSpanFull(),
-                    ]),
-
-                Section::make('Order Totals')
-                    ->columns([
-                        'default' => 1,
-                        'md' => 2,
-                        'xl' => 3,
-                    ])
-                    ->schema([
-                        TextEntry::make('subtotal')
-                            ->label('Subtotal')
-                            ->money('INR'),
-                        TextEntry::make('discount_amount')
-                            ->label('Discount')
-                            ->money('INR'),
-                        TextEntry::make('taxable_value')
-                            ->label('Taxable Value')
-                            ->state(function (Order $record): float {
-                                if ($record->taxable_amount_after_transport !== null) {
-                                    return (float) $record->taxable_amount_after_transport;
-                                }
-
-                                return max(0, (float) $record->subtotal - (float) $record->discount_amount);
-                            })
-                            ->money('INR'),
-                        TextEntry::make('cgst_amount')
-                            ->label('CGST')
-                            ->state(fn (Order $record): float => round(((float) $record->gst_amount) / 2, 2))
-                            ->money('INR'),
-                        TextEntry::make('sgst_amount')
-                            ->label('SGST')
-                            ->state(fn (Order $record): float => round(((float) $record->gst_amount) / 2, 2))
-                            ->money('INR'),
-                        TextEntry::make('grand_total')
-                            ->label('Grand Total')
-                            ->money('INR')
-                            ->weight(FontWeight::Bold)
-                            ->size(TextSize::Large),
-                    ]),
-
-                Section::make('Bill')
-                    ->columns(3)
-                    ->visible(fn (Order $record): bool => filled($record->billed_at)
-                        || filled($record->bill_path)
-                        || filled($record->bill_number)
-                        || in_array($record->status, [
-                            Order::STATUS_BILLED,
-                            Order::STATUS_DISPATCHED,
-                        ], true))
-                    ->schema([
-                        TextEntry::make('bill_number')->label('Bill Number')->placeholder('—'),
-                        TextEntry::make('bill_date')->label('Bill Date')->date('d M Y')->placeholder('—'),
                         TextEntry::make('bill_path')
                             ->label('Bill PDF')
                             ->formatStateUsing(fn (?string $state, Order $record): string => filled($record->billUrl())
-                                ? 'View / Download Bill PDF'
+                                ? 'View Bill / Download PDF'
                                 : '—')
                             ->url(fn (?string $state, Order $record): ?string => $record->billUrl())
                             ->openUrlInNewTab()
@@ -224,27 +152,38 @@ class OrderInfolist
                             ->placeholder('—'),
                     ]),
 
-                Section::make('Rejection Details')
-                    ->columns(3)
-                    ->visible(fn (Order $record): bool => $record->status === Order::STATUS_REJECTED || filled($record->rejected_at))
+                Section::make('Remarks')
+                    ->visible(fn (Order $record): bool => filled($record->remarks)
+                        || filled($record->rejection_remark)
+                        || filled($record->dispatch_remark)
+                        || filled($record->billing_remark)
+                        || filled($record->transport_remark))
                     ->schema([
-                        TextEntry::make('rejected_by_role')->label('Rejected By Role')->placeholder('—'),
-                        TextEntry::make('rejectedByUser.name')->label('Rejected By')->placeholder('—'),
-                        TextEntry::make('rejected_at')->label('Rejected At')->dateTime()->placeholder('—'),
-                        TextEntry::make('rejection_remark')->label('Remarks')->placeholder('—')->columnSpanFull(),
-                    ]),
-
-                Section::make('Dispatch Details')
-                    ->columns(3)
-                    ->visible(fn (Order $record): bool => filled($record->dispatched_at))
-                    ->schema([
-                        TextEntry::make('dispatch_date')->label('Dispatch Date')->date()->placeholder('—'),
-                        TextEntry::make('dispatched_at')->label('Dispatched At')->dateTime()->placeholder('—'),
-                        TextEntry::make('dispatchedByUser.name')->label('Dispatched By')->placeholder('—'),
-                        TextEntry::make('transport_type')->label('Transport Type')->placeholder('—'),
-                        TextEntry::make('lr_number')->label('LR Number')->placeholder('—'),
-                        TextEntry::make('transporter_name')->label('Transport Name')->placeholder('—'),
-                        TextEntry::make('dispatch_remark')->label('Dispatch Remark')->placeholder('—')->columnSpanFull(),
+                        TextEntry::make('remarks')
+                            ->label('Order Remarks')
+                            ->placeholder('—')
+                            ->visible(fn (Order $record): bool => filled($record->remarks))
+                            ->columnSpanFull(),
+                        TextEntry::make('rejection_remark')
+                            ->label('Rejection Reason')
+                            ->placeholder('—')
+                            ->visible(fn (Order $record): bool => filled($record->rejection_remark))
+                            ->columnSpanFull(),
+                        TextEntry::make('billing_remark')
+                            ->label('Billing Remark')
+                            ->placeholder('—')
+                            ->visible(fn (Order $record): bool => filled($record->billing_remark))
+                            ->columnSpanFull(),
+                        TextEntry::make('transport_remark')
+                            ->label('Transport Remark')
+                            ->placeholder('—')
+                            ->visible(fn (Order $record): bool => filled($record->transport_remark))
+                            ->columnSpanFull(),
+                        TextEntry::make('dispatch_remark')
+                            ->label('Dispatch Remark')
+                            ->placeholder('—')
+                            ->visible(fn (Order $record): bool => filled($record->dispatch_remark))
+                            ->columnSpanFull(),
                     ]),
             ]);
     }

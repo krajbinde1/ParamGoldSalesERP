@@ -7,7 +7,7 @@ class NotificationApi {
 
   Future<void> registerDeviceToken(
     String token, {
-    String platform = 'android',
+    required String platform,
     String? deviceName,
   }) async {
     try {

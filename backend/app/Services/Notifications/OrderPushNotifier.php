@@ -2,11 +2,12 @@
 
 namespace App\Services\Notifications;
 
+use App\Enums\FilamentJobRole;
+use App\Enums\UserRole;
 use App\Models\AppNotification;
 use App\Models\DeviceToken;
 use App\Models\Order;
 use App\Models\User;
-use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -32,47 +33,30 @@ final class OrderPushNotifier
     public function notifyNewOrder(Order $order): void
     {
         $order->loadMissing(['dealer:id,firm_name', 'salesEmployee:id,full_name,reporting_manager_id']);
-        $managerEmployeeId = $order->salesEmployee?->reporting_manager_id;
-        if (! $managerEmployeeId) {
-            return;
-        }
 
-        $managerUser = User::query()->where('employee_id', $managerEmployeeId)->first();
+        $managerUser = $this->reportingManagerUser($order);
         if (! $managerUser) {
             return;
         }
 
-        $dealer = $order->dealer?->firm_name ?? '-';
-        $sales = $order->salesEmployee?->full_name ?? '-';
-        $amount = number_format((float) $order->grand_total, 2);
-        $when = $this->formatDateTime($order->created_at ?? now());
-
-        $title = 'NEW ORDER';
-        $body = "Order {$order->order_no}\nDealer: {$dealer}\nSales: {$sales}\nAmount: ₹{$amount}\n{$when}";
+        $shortNo = $order->shortOrderNo();
+        $dealer = $this->dealerName($order);
+        $sales = $order->salesEmployee?->full_name ?: '-';
 
         $this->dispatchToUser(
             user: $managerUser,
             order: $order,
             type: self::TYPE_NEW_ORDER,
             statusKey: (string) $order->status,
-            title: $title,
-            body: $body,
-            data: [
-                'type' => self::TYPE_NEW_ORDER,
-                'order_id' => (string) $order->id,
-                'order_no' => (string) $order->order_no,
-                'dealer_name' => $dealer,
+            title: 'New Order for Approval',
+            body: "{$sales} placed order {$shortNo} for {$dealer}",
+            data: $this->baseData($order, self::TYPE_NEW_ORDER, [
                 'sales_person_name' => $sales,
-                'order_amount' => (string) $order->grand_total,
-                'order_datetime' => $when,
-                'status' => (string) $order->status,
-                'status_label' => $order->displayStatusLabel(),
                 'route' => "/manager/orders/{$order->id}",
                 'action' => 'review',
                 'channel_id' => 'order_approvals',
                 'fullscreen' => '1',
-                'timeline' => $this->timelineText($order),
-            ],
+            ]),
             android: [
                 'notification' => [
                     'channel_id' => 'order_approvals',
@@ -86,25 +70,29 @@ final class OrderPushNotifier
 
     public function notifyApproved(Order $order): void
     {
+        $order->loadMissing([
+            'dealer:id,firm_name',
+            'salesEmployee:id,full_name,reporting_manager_id',
+            'approvedByUser:id,name',
+        ]);
+
+        $shortNo = $order->shortOrderNo();
+        $dealer = $this->dealerName($order);
+        $managerName = $order->approvedByUser?->name
+            ?: ($this->reportingManagerUser($order)?->name ?: 'Sales Manager');
+        $body = "Order {$shortNo} for {$dealer} approved by {$managerName}";
+
         $this->notifySalesEmployee(
             order: $order,
             type: self::TYPE_APPROVED,
-            title: 'ORDER APPROVED',
-            bodyBuilder: function (Order $order, string $dealer): string {
-                return "Order #{$order->order_no}\nDealer: {$dealer}\nStatus: Approved by Sales Manager";
-            },
+            title: 'Order Approved',
+            body: $body,
             extra: [
-                'status_label' => 'Approved by Sales Manager',
                 'route' => "/orders/{$order->id}",
                 'action' => 'view_order',
                 'channel_id' => 'order_status',
             ],
         );
-
-        $order->loadMissing(['dealer:id,firm_name', 'salesEmployee:id,full_name']);
-        $dealer = $order->dealer?->firm_name ?? '-';
-        $sales = $order->salesEmployee?->full_name ?? '-';
-        $body = "Order #{$order->order_no}\nDealer: {$dealer}\nSales: {$sales}";
 
         foreach ($this->productionSupervisorUsers() as $user) {
             $this->dispatchToUser(
@@ -112,31 +100,37 @@ final class OrderPushNotifier
                 order: $order,
                 type: self::TYPE_APPROVED.'_production',
                 statusKey: (string) $order->status,
-                title: 'ORDER APPROVED',
+                title: 'Order Approved',
                 body: $body,
-                data: [
-                    'type' => self::TYPE_APPROVED,
-                    'order_id' => (string) $order->id,
-                    'order_no' => (string) $order->order_no,
-                    'dealer_name' => $dealer,
-                    'sales_person_name' => $sales,
-                    'status' => (string) $order->status,
-                    'status_label' => 'Approved by Sales Manager',
+                data: $this->baseData($order, self::TYPE_APPROVED, [
+                    'sales_person_name' => $order->salesEmployee?->full_name ?? '',
                     'route' => "/production/orders/{$order->id}",
                     'action' => 'view_order',
                     'channel_id' => 'order_status',
-                    'timeline' => $this->timelineText($order),
                     'fullscreen' => '0',
-                ],
+                ]),
             );
         }
+    }
+
+    public function notifyRejected(Order $order): void
+    {
+        if ($order->rejected_by_role === Order::REJECTED_BY_ROLE_ADMIN) {
+            $this->notifyAdminRejected($order);
+
+            return;
+        }
+
+        $this->notifyManagerRejected($order);
     }
 
     public function notifySentForBilling(Order $order): void
     {
         $order->loadMissing(['dealer:id,firm_name', 'salesEmployee:id,full_name']);
-        $dealer = $order->dealer?->firm_name ?? '-';
-        $body = "Order #{$order->order_no}\nDealer: {$dealer}\nStatus: Pending for Billing\nVehicle: ".($order->vehicle_number ?: '-');
+
+        $shortNo = $order->shortOrderNo();
+        $dealer = $this->dealerName($order);
+        $body = "Order {$shortNo} for {$dealer} has been sent for billing.";
 
         foreach ($this->adminUsers() as $user) {
             $this->dispatchToUser(
@@ -144,114 +138,62 @@ final class OrderPushNotifier
                 order: $order,
                 type: self::TYPE_SENT_FOR_BILL,
                 statusKey: (string) $order->status,
-                title: 'PENDING FOR BILLING',
+                title: 'Order Ready for Billing',
                 body: $body,
-                data: [
-                    'type' => self::TYPE_SENT_FOR_BILL,
-                    'order_id' => (string) $order->id,
-                    'order_no' => (string) $order->order_no,
-                    'dealer_name' => $dealer,
-                    'status' => (string) $order->status,
-                    'status_label' => 'Pending for Billing',
+                data: $this->baseData($order, self::TYPE_SENT_FOR_BILL, [
                     'route' => '/dashboard',
                     'action' => 'view_order',
                     'channel_id' => 'order_status',
-                    'timeline' => $this->timelineText($order),
                     'fullscreen' => '0',
-                ],
+                    'vehicle_number' => (string) ($order->vehicle_number ?? ''),
+                ]),
             );
         }
-    }
-
-    public function notifyRejected(Order $order): void
-    {
-        $order->loadMissing(['dealer:id,firm_name', 'rejectedByUser:id,name', 'salesEmployee:id,full_name']);
-        $dealer = $order->dealer?->firm_name ?? '-';
-        $rejectedBy = $order->rejectedByUser?->name ?? ($order->rejected_by_role ?? 'Manager');
-        $reason = $order->rejection_remark ?: '-';
-        $when = $this->formatDateTime($order->rejected_at);
-
-        $this->notifySalesEmployee(
-            order: $order,
-            type: self::TYPE_REJECTED,
-            title: 'ORDER REJECTED',
-            bodyBuilder: function () use ($order, $dealer, $rejectedBy, $reason, $when): string {
-                return "Order #{$order->order_no}\nDealer: {$dealer}\nRejected By: {$rejectedBy}\nReason: {$reason}\n{$when}";
-            },
-            extra: [
-                'status_label' => $order->displayStatusLabel(),
-                'rejection_reason' => $reason,
-                'rejected_by' => $rejectedBy,
-                'route' => "/orders/{$order->id}",
-                'action' => 'view_order',
-                'channel_id' => 'order_status',
-            ],
-        );
     }
 
     public function notifyBilled(Order $order): void
     {
         $order->loadMissing(['dealer:id,firm_name', 'salesEmployee:id,full_name,reporting_manager_id']);
-        $dealer = $order->dealer?->firm_name ?? '-';
-        $when = $this->formatDateTime($order->billed_at);
-        $billNo = $order->bill_number ?: '-';
+
+        $shortNo = $order->shortOrderNo();
+        $dealer = $this->dealerName($order);
+        $body = "Order {$shortNo} for {$dealer} has been billed.";
+        $billNumber = (string) ($order->bill_number ?? '');
+        $extra = [
+            'bill_number' => $billNumber,
+            'bill_url' => (string) ($order->billUrl() ?? ''),
+            'action' => 'view_order',
+            'channel_id' => 'order_status',
+            'fullscreen' => '0',
+        ];
 
         $this->notifySalesEmployee(
             order: $order,
             type: self::TYPE_BILLED,
-            title: 'ORDER BILLED',
-            bodyBuilder: function () use ($order, $dealer, $billNo, $when): string {
-                return "Order #{$order->order_no}\nDealer: {$dealer}\nStatus: Billed\nBill No: {$billNo}\n{$when}";
-            },
-            extra: [
-                'status_label' => 'Billed',
-                'bill_number' => (string) ($order->bill_number ?? ''),
-                'bill_url' => (string) ($order->billUrl() ?? ''),
-                'route' => "/orders/{$order->id}",
-                'action' => 'view_order',
-                'channel_id' => 'order_status',
-            ],
+            title: 'Order Billed',
+            body: $body,
+            extra: array_merge($extra, ['route' => "/orders/{$order->id}"]),
         );
 
         $this->notifyManagerStatus(
             order: $order,
             type: self::TYPE_BILLED,
-            title: 'ORDER BILLED',
-            body: "Order #{$order->order_no}\nDealer: {$dealer}\nStatus: Billed",
-            extra: [
-                'status_label' => 'Billed',
-                'bill_number' => (string) ($order->bill_number ?? ''),
-                'bill_url' => (string) ($order->billUrl() ?? ''),
-                'route' => "/manager/orders/{$order->id}",
-                'action' => 'view_order',
-                'channel_id' => 'order_status',
-            ],
+            title: 'Order Billed',
+            body: $body,
+            extra: array_merge($extra, ['route' => "/manager/orders/{$order->id}"]),
         );
 
-        $productionBody = "Order #{$order->order_no} | Dealer: {$dealer} | Bill No: {$billNo}";
         foreach ($this->productionSupervisorUsers() as $user) {
             $this->dispatchToUser(
                 user: $user,
                 order: $order,
                 type: self::TYPE_BILLED.'_production',
                 statusKey: (string) $order->status,
-                title: 'ORDER BILLED',
-                body: $productionBody,
-                data: [
-                    'type' => self::TYPE_BILLED,
-                    'order_id' => (string) $order->id,
-                    'order_no' => (string) $order->order_no,
-                    'dealer_name' => $dealer,
-                    'bill_number' => (string) ($order->bill_number ?? ''),
-                    'bill_url' => (string) ($order->billUrl() ?? ''),
-                    'status' => (string) $order->status,
-                    'status_label' => 'Billed',
+                title: 'Order Billed',
+                body: $body,
+                data: $this->baseData($order, self::TYPE_BILLED, array_merge($extra, [
                     'route' => "/production/orders/{$order->id}",
-                    'action' => 'view_order',
-                    'channel_id' => 'order_status',
-                    'timeline' => $this->timelineText($order),
-                    'fullscreen' => '0',
-                ],
+                ])),
             );
         }
     }
@@ -259,54 +201,150 @@ final class OrderPushNotifier
     public function notifyDispatched(Order $order): void
     {
         $order->loadMissing(['dealer:id,firm_name', 'salesEmployee:id,full_name,reporting_manager_id']);
-        $dealer = $order->dealer?->firm_name ?? '-';
-        $when = $this->formatDateTime($order->dispatched_at ?? $order->dispatch_date);
-        $transport = trim(implode(' · ', array_filter([
-            $order->transporter_name,
-            $order->vehicle_number,
-            $order->lr_number ? 'LR '.$order->lr_number : null,
-        ]))) ?: 'Dispatch completed';
+
+        $shortNo = $order->shortOrderNo();
+        $dealer = $this->dealerName($order);
+        $body = "Order {$shortNo} for {$dealer} has been dispatched.";
+        $remark = trim((string) ($order->dispatch_remark ?? ''));
+        $extra = [
+            'remark' => $remark,
+            'dispatch_remark' => $remark,
+            'action' => 'view_order',
+            'channel_id' => 'order_status',
+            'fullscreen' => '0',
+        ];
 
         $this->notifySalesEmployee(
             order: $order,
             type: self::TYPE_DISPATCHED,
-            title: 'ORDER DISPATCHED',
-            bodyBuilder: function () use ($order, $dealer, $when, $transport): string {
-                return "Order #{$order->order_no}\nDealer: {$dealer}\nStatus: Dispatched\n{$when}\n{$transport}";
-            },
-            extra: [
-                'status_label' => 'Dispatched',
-                'transport_details' => $transport,
-                'route' => "/orders/{$order->id}",
-                'action' => 'view_order',
-                'channel_id' => 'order_status',
-            ],
+            title: 'Order Dispatched',
+            body: $body,
+            extra: array_merge($extra, ['route' => "/orders/{$order->id}"]),
         );
 
         $this->notifyManagerStatus(
             order: $order,
             type: self::TYPE_DISPATCHED,
-            title: 'ORDER DISPATCHED',
-            body: "Order #{$order->order_no}\nDealer: {$dealer}\nStatus: Dispatched",
+            title: 'Order Dispatched',
+            body: $body,
+            extra: array_merge($extra, ['route' => "/manager/orders/{$order->id}"]),
+        );
+
+        foreach ($this->adminUsers() as $user) {
+            $this->dispatchToUser(
+                user: $user,
+                order: $order,
+                type: self::TYPE_DISPATCHED.'_admin',
+                statusKey: (string) $order->status,
+                title: 'Order Dispatched',
+                body: $body,
+                data: $this->baseData($order, self::TYPE_DISPATCHED, array_merge($extra, [
+                    'route' => '/dashboard',
+                ])),
+            );
+        }
+    }
+
+    private function notifyManagerRejected(Order $order): void
+    {
+        $order->loadMissing([
+            'dealer:id,firm_name',
+            'rejectedByUser:id,name',
+            'salesEmployee:id,full_name',
+        ]);
+
+        $shortNo = $order->shortOrderNo();
+        $dealer = $this->dealerName($order);
+        $managerName = $order->rejectedByUser?->name
+            ?: ($order->rejected_by_role ?: 'Sales Manager');
+        $reason = trim((string) ($order->rejection_remark ?? ''));
+
+        $body = "Order {$shortNo} for {$dealer} rejected by {$managerName}";
+        if ($reason !== '') {
+            $body .= "\nReason: {$reason}";
+        }
+
+        $this->notifySalesEmployee(
+            order: $order,
+            type: self::TYPE_REJECTED,
+            title: 'Order Rejected',
+            body: $body,
             extra: [
-                'status_label' => 'Dispatched',
-                'transport_details' => $transport,
-                'route' => "/manager/orders/{$order->id}",
+                'remark' => $reason,
+                'rejection_reason' => $reason,
+                'rejected_by' => $managerName,
+                'route' => "/orders/{$order->id}",
                 'action' => 'view_order',
                 'channel_id' => 'order_status',
             ],
         );
     }
 
+    private function notifyAdminRejected(Order $order): void
+    {
+        $order->loadMissing([
+            'dealer:id,firm_name',
+            'salesEmployee:id,full_name,reporting_manager_id',
+            'rejectedByUser:id,name',
+        ]);
+
+        $shortNo = $order->shortOrderNo();
+        $dealer = $this->dealerName($order);
+        $reason = trim((string) ($order->rejection_remark ?? ''));
+
+        $body = "Order {$shortNo} for {$dealer} was rejected by Admin.";
+        if ($reason !== '') {
+            $body .= "\nReason: {$reason}";
+        }
+
+        $extra = [
+            'remark' => $reason,
+            'rejection_reason' => $reason,
+            'rejected_by' => $order->rejectedByUser?->name ?: 'Admin',
+            'action' => 'view_order',
+            'channel_id' => 'order_status',
+            'fullscreen' => '0',
+        ];
+
+        $this->notifySalesEmployee(
+            order: $order,
+            type: self::TYPE_REJECTED,
+            title: 'Order Rejected by Admin',
+            body: $body,
+            extra: array_merge($extra, ['route' => "/orders/{$order->id}"]),
+        );
+
+        $this->notifyManagerStatus(
+            order: $order,
+            type: self::TYPE_REJECTED,
+            title: 'Order Rejected by Admin',
+            body: $body,
+            extra: array_merge($extra, ['route' => "/manager/orders/{$order->id}"]),
+        );
+
+        foreach ($this->productionSupervisorUsers() as $user) {
+            $this->dispatchToUser(
+                user: $user,
+                order: $order,
+                type: self::TYPE_REJECTED.'_production',
+                statusKey: (string) $order->status,
+                title: 'Order Rejected by Admin',
+                body: $body,
+                data: $this->baseData($order, self::TYPE_REJECTED, array_merge($extra, [
+                    'route' => "/production/orders/{$order->id}",
+                ])),
+            );
+        }
+    }
+
     /**
-     * @param  callable(Order, string): string  $bodyBuilder
      * @param  array<string, string>  $extra
      */
     private function notifySalesEmployee(
         Order $order,
         string $type,
         string $title,
-        callable $bodyBuilder,
+        string $body,
         array $extra = [],
     ): void {
         $order->loadMissing(['dealer:id,firm_name', 'salesEmployee.user']);
@@ -318,9 +356,6 @@ final class OrderPushNotifier
             return;
         }
 
-        $dealer = $order->dealer?->firm_name ?? '-';
-        $body = $bodyBuilder($order, $dealer);
-
         $this->dispatchToUser(
             user: $salesUser,
             order: $order,
@@ -328,16 +363,10 @@ final class OrderPushNotifier
             statusKey: (string) $order->status,
             title: $title,
             body: $body,
-            data: array_merge([
-                'type' => $type,
-                'order_id' => (string) $order->id,
-                'order_no' => (string) $order->order_no,
-                'dealer_name' => $dealer,
+            data: $this->baseData($order, $type, array_merge([
                 'sales_person_name' => $order->salesEmployee?->full_name ?? '',
-                'status' => (string) $order->status,
-                'timeline' => $this->timelineText($order),
                 'fullscreen' => '0',
-            ], $extra),
+            ], $extra)),
         );
     }
 
@@ -351,13 +380,7 @@ final class OrderPushNotifier
         string $body,
         array $extra = [],
     ): void {
-        $order->loadMissing(['salesEmployee:id,reporting_manager_id']);
-        $managerEmployeeId = $order->salesEmployee?->reporting_manager_id;
-        if (! $managerEmployeeId) {
-            return;
-        }
-
-        $managerUser = User::query()->where('employee_id', $managerEmployeeId)->first();
+        $managerUser = $this->reportingManagerUser($order);
         if (! $managerUser) {
             return;
         }
@@ -369,16 +392,43 @@ final class OrderPushNotifier
             statusKey: (string) $order->status,
             title: $title,
             body: $body,
-            data: array_merge([
-                'type' => $type,
-                'order_id' => (string) $order->id,
-                'order_no' => (string) $order->order_no,
-                'dealer_name' => $order->dealer?->firm_name ?? '-',
-                'status' => (string) $order->status,
-                'timeline' => $this->timelineText($order),
+            data: $this->baseData($order, $type, array_merge([
                 'fullscreen' => '0',
-            ], $extra),
+            ], $extra)),
         );
+    }
+
+    /**
+     * @param  array<string, string>  $extra
+     * @return array<string, string>
+     */
+    private function baseData(Order $order, string $type, array $extra = []): array
+    {
+        return array_merge([
+            'type' => $type,
+            'order_id' => (string) $order->id,
+            'order_no' => (string) $order->order_no,
+            'short_order_no' => $order->shortOrderNo(),
+            'status' => (string) $order->status,
+            'status_label' => $order->displayStatusLabel(),
+            'dealer_name' => $this->dealerName($order),
+        ], $extra);
+    }
+
+    private function dealerName(Order $order): string
+    {
+        return $order->dealer?->firm_name ?: '-';
+    }
+
+    private function reportingManagerUser(Order $order): ?User
+    {
+        $order->loadMissing(['salesEmployee:id,reporting_manager_id']);
+        $managerEmployeeId = $order->salesEmployee?->reporting_manager_id;
+        if (! $managerEmployeeId) {
+            return null;
+        }
+
+        return User::query()->where('employee_id', $managerEmployeeId)->first();
     }
 
     /**
@@ -451,47 +501,22 @@ final class OrderPushNotifier
         }
     }
 
-    private function timelineText(Order $order): string
-    {
-        $steps = $order->workflowTimeline();
-        $lines = [];
-        foreach ($steps as $step) {
-            if (! empty($step['is_rejection'])) {
-                $lines[] = ($step['label'] ?? 'Rejected').' ✓';
-                continue;
-            }
-            $mark = ! empty($step['completed']) ? '✓' : '○';
-            $label = match ($step['key'] ?? '') {
-                'created' => 'Order Placed',
-                'approved' => 'Approved',
-                'pending_for_billing' => 'Pending for Billing',
-                'billed' => 'Billed',
-                'dispatched' => 'Dispatched',
-                default => (string) ($step['label'] ?? ''),
-            };
-            $lines[] = "{$label} {$mark}";
-        }
-
-        return implode("\n", $lines);
-    }
-
-    private function formatDateTime(mixed $value): string
-    {
-        if ($value === null || $value === '') {
-            return Carbon::now('Asia/Kolkata')->format('d M Y, h:i A');
-        }
-
-        return Carbon::parse($value)->timezone('Asia/Kolkata')->format('d M Y, h:i A');
-    }
-
     /**
      * @return list<User>
      */
     private function productionSupervisorUsers(): array
     {
         return User::query()
-            ->where('role', 'production_supervisor')
+            ->with('employee:id,status')
+            ->where(function ($query): void {
+                $query->where('role', UserRole::ProductionSupervisor->value)
+                    ->orWhere('job_role', FilamentJobRole::ProductionSupervisor->value);
+            })
             ->get()
+            ->filter(fn (User $user): bool => $user->canActAsProductionSupervisor())
+            ->filter(fn (User $user): bool => $user->employee === null || $user->employee->status === true)
+            ->unique('id')
+            ->values()
             ->all();
     }
 
@@ -501,9 +526,15 @@ final class OrderPushNotifier
     private function adminUsers(): array
     {
         // Filament Admin users are identified by job_role = Admin (see User::isAdminUser()).
+        // Directors are intentionally excluded from order push notifications.
         return User::query()
+            ->with('employee:id,status')
             ->where('job_role', 'Admin')
             ->get()
+            ->filter(fn (User $user): bool => $user->isAdminUser() && ! $user->isDirectorUser())
+            ->filter(fn (User $user): bool => $user->employee === null || $user->employee->status === true)
+            ->unique('id')
+            ->values()
             ->all();
     }
 }

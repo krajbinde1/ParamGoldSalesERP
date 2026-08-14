@@ -31,6 +31,9 @@ class OrderObserver
         $fresh = $order->fresh() ?? $order;
 
         match ($fresh->status) {
+            // Filament draft → pending_approval (and any other transition into pending approval).
+            // Dedupe prevents a second push if created() already notified.
+            Order::STATUS_PENDING_APPROVAL => $this->safe(fn () => $this->notifier->notifyNewOrder($fresh)),
             Order::STATUS_APPROVED => $this->safe(fn () => $this->notifier->notifyApproved($fresh)),
             Order::STATUS_PENDING_FOR_BILLING => $this->safe(fn () => $this->notifier->notifySentForBilling($fresh)),
             Order::STATUS_REJECTED => $this->safe(fn () => $this->notifier->notifyRejected($fresh)),

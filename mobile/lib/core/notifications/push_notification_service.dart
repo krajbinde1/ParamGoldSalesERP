@@ -29,6 +29,12 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
     return;
   }
 
+  // When FCM includes a notification payload, Android already shows the system
+  // tray notification. Only create a local notification for data-only messages.
+  if (message.notification != null) {
+    return;
+  }
+
   final service = PushNotificationService.instance;
   await service.ensureLocalInitialized();
   await service.showFromRemoteMessage(message);
@@ -46,6 +52,7 @@ class PushNotificationService {
   bool _firebaseReady = false;
   bool _localReady = false;
   bool _handlersBound = false;
+  bool _tokenRefreshBound = false;
 
   Stream<NotificationPayload> get taps => _taps.stream;
   bool get isFirebaseReady => _firebaseReady;
@@ -193,22 +200,29 @@ class PushNotificationService {
           clearSessionOnUnauthorized: false,
         ).dio,
       );
-      await api.registerDeviceToken(token);
+      final platform = Platform.isIOS ? 'ios' : 'android';
+      await api.registerDeviceToken(token, platform: platform);
       debugPrint('FCM registration result: success');
 
-      FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
-        try {
-          await NotificationApi(
-            ApiClient(
-              store,
-              onUnauthorized: onUnauthorized,
-              clearSessionOnUnauthorized: false,
-            ).dio,
-          ).registerDeviceToken(newToken);
-        } catch (error) {
-          debugPrint('FCM token refresh register failed: $error');
-        }
-      });
+      if (!_tokenRefreshBound) {
+        _tokenRefreshBound = true;
+        FirebaseMessaging.instance.onTokenRefresh.listen((newToken) async {
+          try {
+            await NotificationApi(
+              ApiClient(
+                store,
+                onUnauthorized: onUnauthorized,
+                clearSessionOnUnauthorized: false,
+              ).dio,
+            ).registerDeviceToken(
+              newToken,
+              platform: Platform.isIOS ? 'ios' : 'android',
+            );
+          } catch (error) {
+            debugPrint('FCM token refresh register failed: $error');
+          }
+        });
+      }
 
       return token;
     } catch (error, stackTrace) {
