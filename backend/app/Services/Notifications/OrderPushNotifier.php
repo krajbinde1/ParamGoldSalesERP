@@ -32,7 +32,7 @@ final class OrderPushNotifier
 
     public function notifyNewOrder(Order $order): void
     {
-        $order->loadMissing(['dealer:id,firm_name', 'salesEmployee:id,full_name,reporting_manager_id']);
+        $order->loadMissing(['dealer:id,firm_name,village', 'salesEmployee:id,full_name,reporting_manager_id']);
 
         $managerUser = $this->reportingManagerUser($order);
         if (! $managerUser) {
@@ -54,12 +54,12 @@ final class OrderPushNotifier
                 'sales_person_name' => $sales,
                 'route' => "/manager/orders/{$order->id}",
                 'action' => 'review',
-                'channel_id' => 'paramgold_critical_alerts_v3',
+                'channel_id' => 'paramgold_critical_alerts_v5',
                 'fullscreen' => '1',
             ]),
             android: [
                 'notification' => [
-                    'channel_id' => 'paramgold_critical_alerts_v3',
+                    'channel_id' => 'paramgold_critical_alerts_v5',
                     'notification_priority' => 'PRIORITY_MAX',
                     'default_vibrate_timings' => true,
                     'sound' => 'default',
@@ -71,7 +71,7 @@ final class OrderPushNotifier
     public function notifyApproved(Order $order): void
     {
         $order->loadMissing([
-            'dealer:id,firm_name',
+            'dealer:id,firm_name,village',
             'salesEmployee:id,full_name,reporting_manager_id',
             'approvedByUser:id,name',
         ]);
@@ -90,7 +90,7 @@ final class OrderPushNotifier
             extra: [
                 'route' => "/orders/{$order->id}",
                 'action' => 'view_order',
-                'channel_id' => 'paramgold_critical_alerts_v3',
+                'channel_id' => 'paramgold_critical_alerts_v5',
             ],
         );
 
@@ -106,7 +106,7 @@ final class OrderPushNotifier
                     'sales_person_name' => $order->salesEmployee?->full_name ?? '',
                     'route' => "/production/orders/{$order->id}",
                     'action' => 'view_order',
-                    'channel_id' => 'paramgold_critical_alerts_v3',
+                    'channel_id' => 'paramgold_critical_alerts_v5',
                     'fullscreen' => '1',
                 ]),
             );
@@ -126,7 +126,7 @@ final class OrderPushNotifier
 
     public function notifySentForBilling(Order $order): void
     {
-        $order->loadMissing(['dealer:id,firm_name', 'salesEmployee:id,full_name']);
+        $order->loadMissing(['dealer:id,firm_name,village', 'salesEmployee:id,full_name']);
 
         $shortNo = $order->shortOrderNo();
         $dealer = $this->dealerName($order);
@@ -143,7 +143,7 @@ final class OrderPushNotifier
                 data: $this->baseData($order, self::TYPE_SENT_FOR_BILL, [
                     'route' => '/dashboard',
                     'action' => 'view_order',
-                    'channel_id' => 'paramgold_critical_alerts_v3',
+                    'channel_id' => 'paramgold_critical_alerts_v5',
                     'fullscreen' => '0',
                     'vehicle_number' => (string) ($order->vehicle_number ?? ''),
                 ]),
@@ -153,7 +153,7 @@ final class OrderPushNotifier
 
     public function notifyBilled(Order $order): void
     {
-        $order->loadMissing(['dealer:id,firm_name', 'salesEmployee:id,full_name,reporting_manager_id']);
+        $order->loadMissing(['dealer:id,firm_name,village', 'salesEmployee:id,full_name,reporting_manager_id']);
 
         $shortNo = $order->shortOrderNo();
         $dealer = $this->dealerName($order);
@@ -163,7 +163,7 @@ final class OrderPushNotifier
             'bill_number' => $billNumber,
             'bill_url' => (string) ($order->billUrl() ?? ''),
             'action' => 'view_order',
-            'channel_id' => 'paramgold_critical_alerts_v3',
+            'channel_id' => 'paramgold_critical_alerts_v5',
             'fullscreen' => '0',
         ];
 
@@ -201,7 +201,7 @@ final class OrderPushNotifier
 
     public function notifyDispatched(Order $order): void
     {
-        $order->loadMissing(['dealer:id,firm_name', 'salesEmployee:id,full_name,reporting_manager_id']);
+        $order->loadMissing(['dealer:id,firm_name,village', 'salesEmployee:id,full_name,reporting_manager_id']);
 
         $shortNo = $order->shortOrderNo();
         $dealer = $this->dealerName($order);
@@ -211,7 +211,7 @@ final class OrderPushNotifier
             'remark' => $remark,
             'dispatch_remark' => $remark,
             'action' => 'view_order',
-            'channel_id' => 'paramgold_critical_alerts_v3',
+            'channel_id' => 'paramgold_critical_alerts_v5',
             'fullscreen' => '0',
         ];
 
@@ -249,7 +249,7 @@ final class OrderPushNotifier
     private function notifyManagerRejected(Order $order): void
     {
         $order->loadMissing([
-            'dealer:id,firm_name',
+            'dealer:id,firm_name,village',
             'rejectedByUser:id,name',
             'salesEmployee:id,full_name',
         ]);
@@ -276,7 +276,7 @@ final class OrderPushNotifier
                 'rejected_by' => $managerName,
                 'route' => "/orders/{$order->id}",
                 'action' => 'view_order',
-                'channel_id' => 'paramgold_critical_alerts_v3',
+                'channel_id' => 'paramgold_critical_alerts_v5',
             ],
         );
     }
@@ -284,7 +284,7 @@ final class OrderPushNotifier
     private function notifyAdminRejected(Order $order): void
     {
         $order->loadMissing([
-            'dealer:id,firm_name',
+            'dealer:id,firm_name,village',
             'salesEmployee:id,full_name,reporting_manager_id',
             'rejectedByUser:id,name',
         ]);
@@ -303,7 +303,7 @@ final class OrderPushNotifier
             'rejection_reason' => $reason,
             'rejected_by' => $order->rejectedByUser?->name ?: 'Admin',
             'action' => 'view_order',
-            'channel_id' => 'paramgold_critical_alerts_v3',
+            'channel_id' => 'paramgold_critical_alerts_v5',
             'fullscreen' => '0',
         ];
 
@@ -348,7 +348,7 @@ final class OrderPushNotifier
         string $body,
         array $extra = [],
     ): void {
-        $order->loadMissing(['dealer:id,firm_name', 'salesEmployee.user']);
+        $order->loadMissing(['dealer:id,firm_name,village', 'salesEmployee.user']);
         $salesUser = $order->salesEmployee?->user;
         if (! $salesUser instanceof User) {
             $salesUser = User::query()->where('employee_id', $order->sales_employee_id)->first();
@@ -417,6 +417,7 @@ final class OrderPushNotifier
             'status' => (string) $order->status,
             'status_label' => $order->displayStatusLabel(),
             'dealer_name' => $this->dealerName($order),
+            'dealer_village' => (string) ($order->dealer?->village ?? ''),
             'amount' => (string) ($order->grand_total ?? ''),
             'grand_total' => (string) ($order->grand_total ?? ''),
             'event_at' => (string) $eventAt,

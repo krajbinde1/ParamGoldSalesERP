@@ -15,13 +15,13 @@ use Throwable;
  * system tray / lock-screen alert when backgrounded or terminated.
  *
  * Critical fullscreen (`data.fullscreen=1`): data-only HIGH priority so
- * Flutter can post one local notification with fullScreenIntent (avoiding
- * duplicate OS tray + local notifications).
+ * the native Android service/receiver can post one local notification with
+ * fullScreenIntent (avoiding duplicate OS tray + local notifications).
  */
 final class FcmHttpClient
 {
     /** Primary high-importance channel for order/payment system notifications. */
-    public const CHANNEL_CRITICAL = 'paramgold_critical_alerts_v3';
+    public const CHANNEL_CRITICAL = 'paramgold_critical_alerts_v5';
 
     /** @deprecated Prefer CHANNEL_CRITICAL — kept for callers/legacy data. */
     public const CHANNEL_APPROVALS = self::CHANNEL_CRITICAL;
@@ -73,7 +73,7 @@ final class FcmHttpClient
         $body = (string) ($notification['body'] ?? ($data['body'] ?? ''));
 
         foreach ($tokens as $token) {
-            // Always deliver on the critical v3 channel so Android can raise
+            // Always deliver on the critical v4 channel so Android can raise
             // heads-up / tray / lock-screen alerts even when the app is killed.
             $channelId = self::CHANNEL_CRITICAL;
 
@@ -85,8 +85,8 @@ final class FcmHttpClient
 
             $isFullscreen = ($dataPayload['fullscreen'] ?? '0') === '1';
 
-            // Critical full-screen alerts: data-only so Flutter owns a single
-            // local notification with fullScreenIntent. Fallback remains
+            // Critical full-screen alerts: data-only so native Android owns a
+            // single local notification with fullScreenIntent. Fallback remains
             // heads-up + sound + vibration on the critical channel.
             if ($isFullscreen) {
                 $payload = [

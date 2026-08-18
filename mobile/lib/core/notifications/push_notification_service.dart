@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -18,6 +19,7 @@ import 'notification_payload.dart';
 const _pendingRouteKey = 'pending_notification_route';
 const _pendingBillUrlKey = 'pending_notification_bill_url';
 const _pendingPayloadKey = 'pending_notification_payload_json';
+const _criticalChannelName = 'paramgold/critical_alerts';
 
 /// Recently shown notification ids — avoid duplicate local posts for one event.
 final Set<String> _recentlyShownKeys = <String>{};
@@ -26,6 +28,7 @@ final Set<String> _recentlyShownKeys = <String>{};
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   WidgetsFlutterBinding.ensureInitialized();
+  debugPrint('BACKGROUND_HANDLER_CALLED=flutter_dart');
   try {
     if (Firebase.apps.isEmpty) {
       await Firebase.initializeApp();
@@ -45,11 +48,17 @@ Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {
   }
 
   final payload = NotificationPayload.fromRemoteMessage(message);
+  debugPrint(
+    'FCM_CRITICAL_RECEIVED=${payload.isCriticalApprovalAlert} type=${payload.type}',
+  );
 
-  // Critical fullscreen events are sent data-only from the backend so we can
-  // attach Android fullScreenIntent on a single local notification.
-  // Non-critical notification+data messages are already shown by the OS —
-  // do not duplicate them locally.
+  // Critical alerts on Android are posted by ParamGoldFcmReceiver with a
+  // real fullScreenIntent → CriticalAlertActivity. Do not duplicate here.
+  if (Platform.isAndroid && payload.isCriticalApprovalAlert) {
+    debugPrint('FULL_SCREEN_INTENT_REQUESTED=false (native receiver owns critical)');
+    return;
+  }
+
   if (message.notification != null && !payload.isCriticalApprovalAlert) {
     return;
   }
@@ -67,6 +76,7 @@ class PushNotificationService {
       FlutterLocalNotificationsPlugin();
   final StreamController<NotificationPayload> _taps =
       StreamController<NotificationPayload>.broadcast();
+  static const MethodChannel _criticalChannel = MethodChannel(_criticalChannelName);
 
   bool _firebaseReady = false;
   bool _localReady = false;
@@ -77,30 +87,27 @@ class PushNotificationService {
   Stream<NotificationPayload> get taps => _taps.stream;
   bool get isFirebaseReady => _firebaseReady;
 
-  /// Called when FCM delivers a session_replaced event (best-effort fast logout).
   void setSessionReplacedHandler(void Function()? handler) {
     _onSessionReplaced = handler;
   }
 
-  /// Shared plugin for local-only reminders (e.g. Today's Planning).
   FlutterLocalNotificationsPlugin get localPlugin => _local;
 
-  /// Critical MAX channel for real Android system / heads-up alerts.
-  /// New channel id (v3) because Android cannot raise importance of an
-  /// existing channel after it was created at a lower level.
+  /// v4: ringtone-style MAX/HIGH channel created for native FSI reliability.
   static const AndroidNotificationChannel criticalAlertsChannel =
       AndroidNotificationChannel(
-    'paramgold_critical_alerts_v3',
+    'paramgold_critical_alerts_v5',
     'ParamGold Critical Alerts',
-    description: 'Order and payment approval alerts with sound and vibration',
+    description: 'Full-screen order and payment approval alerts',
     importance: Importance.max,
     playSound: true,
     enableVibration: true,
     showBadge: true,
     enableLights: true,
+    // Ringtone-style audio attributes match the native v5 channel.
+    audioAttributesUsage: AudioAttributesUsage.notificationRingtone,
   );
 
-  /// Legacy channels kept so older scheduled/local notifications still resolve.
   static const AndroidNotificationChannel approvalsChannel =
       criticalAlertsChannel;
 
@@ -119,12 +126,11 @@ class PushNotificationService {
       _firebaseReady = false;
     }
 
-    // Local notifications must initialize even when FCM is unavailable
-    // (used by Today's Planning reminders).
     await ensureLocalInitialized();
     if (!_firebaseReady) return;
 
     await _requestPermissions();
+    await _logCriticalDiagnostics();
     await _bindHandlers();
   }
 
@@ -142,27 +148,6 @@ class PushNotificationService {
     final android = _local.resolvePlatformSpecificImplementation<
         AndroidFlutterLocalNotificationsPlugin>();
     await android?.createNotificationChannel(criticalAlertsChannel);
-    await android?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        'paramgold_approvals_v2',
-        'ParamGold Approvals (legacy)',
-        description: 'Legacy approvals channel',
-        importance: Importance.max,
-        playSound: true,
-        enableVibration: true,
-      ),
-    );
-    await android?.createNotificationChannel(
-      const AndroidNotificationChannel(
-        'paramgold_status_v2',
-        'ParamGold Status (legacy)',
-        description: 'Legacy status channel',
-        importance: Importance.high,
-        playSound: true,
-        enableVibration: true,
-      ),
-    );
-
     _localReady = true;
   }
 
@@ -173,6 +158,91 @@ class PushNotificationService {
     } catch (error) {
       debugPrint('cancelNotification failed: $error');
     }
+  }
+
+  Future<Map<String, dynamic>?> getCriticalChannelInfo() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final raw = await _criticalChannel.invokeMethod<dynamic>('getCriticalChannelInfo');
+      if (raw is Map) {
+        return Map<String, dynamic>.from(raw);
+      }
+    } catch (error) {
+      debugPrint('getCriticalChannelInfo failed: $error');
+    }
+    return null;
+  }
+
+  Future<bool> canUseFullScreenIntent() async {
+    if (!Platform.isAndroid) return false;
+    try {
+      final value =
+          await _criticalChannel.invokeMethod<bool>('canUseFullScreenIntent');
+      debugPrint('CAN_USE_FULL_SCREEN_INTENT=$value');
+      return value ?? false;
+    } catch (error) {
+      debugPrint('canUseFullScreenIntent failed: $error');
+      return false;
+    }
+  }
+
+  Future<void> openFullScreenIntentSettings() async {
+    if (!Platform.isAndroid) return;
+    try {
+      await _criticalChannel.invokeMethod<void>('openFullScreenIntentSettings');
+    } catch (error) {
+      debugPrint('openFullScreenIntentSettings failed: $error');
+    }
+  }
+
+  /// Consume a launch that originated from native CriticalAlertActivity.
+  Future<NotificationPayload?> consumeNativeCriticalLaunch() async {
+    if (!Platform.isAndroid) return null;
+    try {
+      final raw =
+          await _criticalChannel.invokeMethod<dynamic>('consumeNativeCriticalLaunch');
+      if (raw is! Map) return null;
+      final map = Map<String, dynamic>.from(raw);
+      final payloadJson = map['payload_json']?.toString() ?? '';
+      final action = map['action']?.toString();
+      if (payloadJson.isNotEmpty) {
+        final decoded =
+            Map<String, dynamic>.from(jsonDecode(payloadJson) as Map);
+        final payload = NotificationPayload.fromJson({
+          ...decoded,
+          'action_id': action,
+          'open_critical_alert': action == null || action.isEmpty ? '1' : '0',
+        });
+        return payload;
+      }
+      final route = map['route']?.toString() ?? '';
+      if (route.isEmpty && action != 'reject') return null;
+      return NotificationPayload(
+        type: map['type']?.toString() ?? 'pending',
+        title: '',
+        body: '',
+        orderId: int.tryParse('${map['order_id'] ?? ''}'),
+        route: route.isNotEmpty
+            ? route
+            : (action == 'reject' && map['order_id'] != null
+                ? '/manager/orders/${map['order_id']}?action=reject'
+                : null),
+        actionId: action,
+      );
+    } catch (error) {
+      debugPrint('consumeNativeCriticalLaunch failed: $error');
+      return null;
+    }
+  }
+
+  Future<void> _logCriticalDiagnostics() async {
+    if (!Platform.isAndroid) return;
+    final info = await getCriticalChannelInfo();
+    if (info == null) return;
+    debugPrint('CHANNEL_ID=${info['channelId']}');
+    debugPrint('CHANNEL_IMPORTANCE=${info['importance']}');
+    debugPrint('CAN_USE_FULL_SCREEN_INTENT=${info['canUseFullScreenIntent']}');
+    debugPrint('targetSdk=${info['targetSdk']} sdkInt=${info['sdkInt']}');
   }
 
   Future<void> _requestPermissions() async {
@@ -193,14 +263,17 @@ class PushNotificationService {
       final android = _local.resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin>();
       final granted = await android?.requestNotificationsPermission();
-      debugPrint('Android POST_NOTIFICATIONS granted=$granted');
-      final enabled = await android?.areNotificationsEnabled();
-      debugPrint('Android notifications enabled=$enabled');
+      debugPrint('NOTIFICATION_PERMISSION=$granted');
       try {
-        // Android 14+: user may need to grant full-screen intent separately.
         await android?.requestFullScreenIntentPermission();
       } catch (error) {
         debugPrint('Full-screen intent permission request skipped: $error');
+      }
+      final canUse = await canUseFullScreenIntent();
+      if (!canUse) {
+        debugPrint(
+          'CAN_USE_FULL_SCREEN_INTENT=false — open Special app access → Full screen intents',
+        );
       }
     }
   }
@@ -216,13 +289,19 @@ class PushNotificationService {
       }
 
       final payload = NotificationPayload.fromRemoteMessage(message);
-      // Always post a high-priority local notification (sound / vibration /
-      // heads-up). Critical alerts also open the full-screen UI immediately.
-      await showFromRemoteMessage(message);
+      debugPrint(
+        'FCM_CRITICAL_RECEIVED=${payload.isCriticalApprovalAlert} APP_STATE=foreground',
+      );
 
+      // Foreground: open Flutter critical alert UI. Native receiver skips FSI
+      // while ParamGoldAppState.isInForeground=true.
       if (payload.isCriticalApprovalAlert) {
+        await showFromRemoteMessage(message);
         _emitTap(payload);
+        return;
       }
+
+      await showFromRemoteMessage(message);
     });
 
     FirebaseMessaging.onMessageOpenedApp.listen((message) {
@@ -243,6 +322,11 @@ class PushNotificationService {
       );
       await _storePending(payload);
     }
+
+    final native = await consumeNativeCriticalLaunch();
+    if (native != null) {
+      await _storePending(native);
+    }
   }
 
   Future<String?> registerToken({
@@ -262,8 +346,6 @@ class PushNotificationService {
         return null;
       }
 
-      // Never clear the auth session if device-token API returns 401.
-      // Login must remain successful when notification registration fails.
       final api = NotificationApi(
         ApiClient(
           store,
@@ -356,6 +438,9 @@ class PushNotificationService {
         payload.type == 'payment_request_first_approved';
     final channel = criticalAlertsChannel;
 
+    debugPrint('CHANNEL_ID=${channel.id}');
+    debugPrint('FULL_SCREEN_INTENT_REQUESTED=$isCritical (flutter_local)');
+
     final androidDetails = AndroidNotificationDetails(
       channel.id,
       channel.name,
@@ -369,7 +454,9 @@ class PushNotificationService {
       playSound: true,
       enableVibration: true,
       enableLights: true,
-      fullScreenIntent: isCritical,
+      // Native CriticalAlertActivity owns true FSI for background/terminated.
+      // Foreground still uses heads-up + Flutter alert screen.
+      fullScreenIntent: false,
       ticker: payload.title,
       icon: '@mipmap/ic_launcher',
       channelShowBadge: true,
@@ -415,26 +502,13 @@ class PushNotificationService {
                   ),
               ],
             ]
-          : payload.type == 'order_billed'
-              ? <AndroidNotificationAction>[
-                  const AndroidNotificationAction(
-                    'view_order',
-                    'VIEW ORDER',
-                    showsUserInterface: true,
-                  ),
-                  const AndroidNotificationAction(
-                    'view_bill',
-                    'VIEW BILL',
-                    showsUserInterface: true,
-                  ),
-                ]
-              : <AndroidNotificationAction>[
-                  const AndroidNotificationAction(
-                    'view_order',
-                    'VIEW ORDER',
-                    showsUserInterface: true,
-                  ),
-                ],
+          : <AndroidNotificationAction>[
+              const AndroidNotificationAction(
+                'view_order',
+                'VIEW ORDER',
+                showsUserInterface: true,
+              ),
+            ],
     );
 
     await _local.show(
@@ -488,9 +562,7 @@ class PushNotificationService {
         final payload = NotificationPayload.fromJson(map);
         if (payload.actionId == 'ignore') return null;
         return payload;
-      } catch (_) {
-        // Fall through to route-only pending.
-      }
+      } catch (_) {}
     }
 
     if (route == null || route.isEmpty) return null;
@@ -514,6 +586,5 @@ class PushNotificationService {
 
 @pragma('vm:entry-point')
 void notificationActionBackground(NotificationResponse response) {
-  // IGNORE should only dismiss — handled by cancelNotification: true.
   if (response.actionId == 'ignore') return;
 }

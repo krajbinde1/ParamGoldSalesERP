@@ -98,7 +98,13 @@ class _CriticalApprovalAlertScreenState
 
   String get _partyName {
     final dealer = widget.payload.dealerName?.trim();
-    if (dealer != null && dealer.isNotEmpty) return dealer;
+    final village = widget.payload.raw['dealer_village']?.toString().trim();
+    if (dealer != null && dealer.isNotEmpty) {
+      if (village != null && village.isNotEmpty) {
+        return '$dealer\n$village';
+      }
+      return dealer;
+    }
     final vendor = widget.payload.vendorName?.trim();
     if (vendor != null && vendor.isNotEmpty) return vendor;
     if (_isPayment) return 'Multiple vendors';

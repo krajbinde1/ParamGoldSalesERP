@@ -39,6 +39,11 @@ class NotificationNavigator {
 
     if (auth.authenticated) {
       await _register(auth);
+      final native =
+          await PushNotificationService.instance.consumeNativeCriticalLaunch();
+      if (native != null) {
+        await _handle(auth, router, navigatorKey, native);
+      }
       await _consumePending(auth, router, navigatorKey);
     }
   }
@@ -50,6 +55,11 @@ class NotificationNavigator {
   ) async {
     if (auth.authenticated) {
       await _register(auth);
+      final native =
+          await PushNotificationService.instance.consumeNativeCriticalLaunch();
+      if (native != null) {
+        await _handle(auth, router, navigatorKey, native);
+      }
       await _consumePending(auth, router, navigatorKey);
       return;
     }

@@ -256,7 +256,7 @@ final class PaymentRequestPushNotifier
                             ?? now()->toIso8601String()),
                         'route' => '/director/payment-requests',
                         'action' => 'review',
-                        'channel_id' => 'paramgold_critical_alerts_v3',
+                        'channel_id' => 'paramgold_critical_alerts_v5',
                         'fullscreen' => '1',
                     ],
                 ]);
@@ -281,7 +281,7 @@ final class PaymentRequestPushNotifier
                     ?? now()->toIso8601String()),
                 'route' => '/director/payment-requests',
                 'action' => 'review',
-                'channel_id' => 'paramgold_critical_alerts_v3',
+                'channel_id' => 'paramgold_critical_alerts_v5',
                 'fullscreen' => '1',
             ];
 
@@ -292,7 +292,7 @@ final class PaymentRequestPushNotifier
                 data: $data,
                 android: [
                     'notification' => [
-                        'channel_id' => 'paramgold_critical_alerts_v3',
+                        'channel_id' => 'paramgold_critical_alerts_v5',
                         'notification_priority' => 'PRIORITY_MAX',
                         'default_vibrate_timings' => true,
                         'sound' => 'default',
@@ -344,7 +344,7 @@ final class PaymentRequestPushNotifier
                 'status_label' => $paymentRequest->displayStatusLabel(),
                 'route' => "/director/payment-requests/{$paymentRequest->id}",
                 'action' => 'view_payment_request',
-                'channel_id' => 'paramgold_critical_alerts_v3',
+                'channel_id' => 'paramgold_critical_alerts_v5',
                 'fullscreen' => '0',
             ], $extra);
 
