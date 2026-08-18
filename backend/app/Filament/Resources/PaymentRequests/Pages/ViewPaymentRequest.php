@@ -2,16 +2,21 @@
 
 namespace App\Filament\Resources\PaymentRequests\Pages;
 
+use App\Actions\PaymentRequests\DeletePaymentRequestSupportingDocument;
 use App\Actions\PaymentRequests\MarkPaymentRequestPaid;
 use App\Actions\PaymentRequests\SendPaymentRequestReminder;
+use App\Actions\PaymentRequests\StorePaymentRequestSupportingDocuments;
 use App\Filament\Resources\PaymentRequests\PaymentRequestResource;
 use App\Models\PaymentRequest;
+use App\Models\PaymentRequestSupportingDocument;
 use Filament\Actions\Action;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Gate;
 
 class ViewPaymentRequest extends ViewRecord
@@ -32,6 +37,111 @@ class ViewPaymentRequest extends ViewRecord
         $record = $this->getRecord();
 
         return [
+            Action::make('addSupportingDocuments')
+                ->label('Add Supporting Document')
+                ->icon('heroicon-o-paper-clip')
+                ->color('gray')
+                ->visible(fn (): bool => Gate::forUser(auth()->user())->allows('manageSupportingDocuments', $record))
+                ->authorize(fn (): bool => Gate::forUser(auth()->user())->allows('manageSupportingDocuments', $record))
+                ->modalHeading('Add Supporting Documents')
+                ->modalSubmitActionLabel('Upload')
+                ->form([
+                    FileUpload::make('supporting_documents')
+                        ->label('Supporting Documents')
+                        ->multiple()
+                        ->appendFiles()
+                        ->storeFiles(false)
+                        ->required()
+                        ->acceptedFileTypes([
+                            'application/pdf',
+                            'image/jpeg',
+                            'image/png',
+                        ])
+                        ->maxSize(10240)
+                        ->helperText('PDF, JPG, JPEG, PNG — max 10 MB each'),
+                ])
+                ->action(function (array $data) use ($record): void {
+                    $files = collect($data['supporting_documents'] ?? [])
+                        ->filter(fn ($file): bool => $file instanceof UploadedFile)
+                        ->values()
+                        ->all();
+
+                    try {
+                        app(StorePaymentRequestSupportingDocuments::class)->execute(
+                            paymentRequest: $record,
+                            actor: auth()->user(),
+                            files: $files,
+                        );
+
+                        Notification::make()
+                            ->title('Supporting document uploaded')
+                            ->success()
+                            ->send();
+                    } catch (\Throwable) {
+                        Notification::make()
+                            ->title('Unable to upload supporting document')
+                            ->danger()
+                            ->send();
+                    }
+
+                    $this->record->refresh();
+                }),
+            Action::make('removeSupportingDocument')
+                ->label('Remove Supporting Document')
+                ->icon('heroicon-o-trash')
+                ->color('danger')
+                ->visible(fn (): bool => Gate::forUser(auth()->user())->allows('manageSupportingDocuments', $record)
+                    && $record->supportingDocuments()->exists())
+                ->authorize(fn (): bool => Gate::forUser(auth()->user())->allows('manageSupportingDocuments', $record))
+                ->requiresConfirmation()
+                ->modalHeading('Remove Supporting Document')
+                ->form([
+                    Select::make('document_id')
+                        ->label('Document')
+                        ->required()
+                        ->options(
+                            fn (): array => $record->supportingDocuments()
+                                ->get()
+                                ->mapWithKeys(fn (PaymentRequestSupportingDocument $doc): array => [
+                                    $doc->id => $doc->original_file_name.' ('.$doc->humanFileSize().')',
+                                ])
+                                ->all()
+                        ),
+                ])
+                ->action(function (array $data) use ($record): void {
+                    $document = PaymentRequestSupportingDocument::query()
+                        ->where('payment_request_id', $record->id)
+                        ->whereKey($data['document_id'] ?? 0)
+                        ->first();
+
+                    if ($document === null) {
+                        Notification::make()
+                            ->title('Document not found')
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
+
+                    try {
+                        app(DeletePaymentRequestSupportingDocument::class)->execute(
+                            document: $document,
+                            actor: auth()->user(),
+                        );
+
+                        Notification::make()
+                            ->title('Supporting document removed')
+                            ->success()
+                            ->send();
+                    } catch (\Throwable) {
+                        Notification::make()
+                            ->title('Unable to remove supporting document')
+                            ->danger()
+                            ->send();
+                    }
+
+                    $this->record->refresh();
+                }),
             Action::make('sendReminder')
                 ->label('Send Reminder')
                 ->color('warning')

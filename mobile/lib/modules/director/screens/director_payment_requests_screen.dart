@@ -7,6 +7,7 @@ import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/navigation/navigation_guard.dart';
 import '../../../core/storage/session_store.dart';
+import '../../../core/utils/secure_document.dart';
 import '../../../core/widgets/design/pg_status_badge.dart';
 import '../../../core/widgets/prompt_dialog.dart';
 import '../../../core/widgets/role_shell_widgets.dart';
@@ -1478,6 +1479,10 @@ class _DirectorPaymentRequestDetailScreenState
             .toList() ??
         const <Map<String, dynamic>>[];
     final proof = '${d?['payment_proof_url'] ?? ''}'.trim();
+    final supportingDocs = (d?['supporting_documents'] as List?)
+            ?.map((e) => Map<String, dynamic>.from(e as Map))
+            .toList() ??
+        const <Map<String, dynamic>>[];
     final waitingPrevious = d != null &&
         _isPendingStatus(status) &&
         !canApprove &&
@@ -1559,10 +1564,44 @@ class _DirectorPaymentRequestDetailScreenState
                                     ),
                                   ],
                                 ),
+                                const SizedBox(height: 12),
+                                _SectionCard(
+                                  title: supportingDocs.isEmpty
+                                      ? 'Supporting Documents'
+                                      : 'Supporting Documents (${supportingDocs.length})',
+                                  children: [
+                                    if (supportingDocs.isEmpty)
+                                      const Text(
+                                        'No Supporting Documents',
+                                        style: TextStyle(
+                                          color: AppColors.textSecondary,
+                                          fontWeight: FontWeight.w600,
+                                        ),
+                                      )
+                                    else
+                                      for (final doc in supportingDocs)
+                                        _SupportingDocumentTile(
+                                          document: doc,
+                                          onView: () => openSecureDocument(
+                                            context,
+                                            dio: ApiClient(
+                                              SessionStore(),
+                                              onUnauthorized:
+                                                  widget.auth.sessionExpired,
+                                            ).dio,
+                                            url: '${doc['view_url'] ?? ''}',
+                                            title:
+                                                '${doc['file_name'] ?? 'Document'}',
+                                            mimeType:
+                                                '${doc['mime_type'] ?? ''}',
+                                          ),
+                                        ),
+                                  ],
+                                ),
                                 if (proof.isNotEmpty) ...[
                                   const SizedBox(height: 12),
                                   _SectionCard(
-                                    title: 'Attachment',
+                                    title: 'Payment Proof',
                                     children: [
                                       SelectableText(
                                         proof,
@@ -1794,6 +1833,76 @@ class _SectionCard extends StatelessWidget {
           ),
           const SizedBox(height: 12),
           ...children,
+        ],
+      ),
+    );
+  }
+}
+
+class _SupportingDocumentTile extends StatelessWidget {
+  const _SupportingDocumentTile({
+    required this.document,
+    required this.onView,
+  });
+
+  final Map<String, dynamic> document;
+  final VoidCallback onView;
+
+  @override
+  Widget build(BuildContext context) {
+    final name = '${document['file_name'] ?? 'Document'}'.trim();
+    final mime = '${document['mime_type'] ?? ''}';
+    final sizeLabel = '${document['file_size_label'] ?? ''}'.trim().isNotEmpty
+        ? '${document['file_size_label']}'
+        : formatDocumentBytes(int.tryParse('${document['file_size'] ?? 0}'));
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(
+            documentIconFor(fileName: name, mimeType: mime),
+            color: documentIconColorFor(fileName: name, mimeType: mime),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  name.isEmpty ? 'Document' : name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    fontWeight: FontWeight.w700,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  sizeLabel,
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: AppColors.textSecondary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          TextButton(
+            onPressed: onView,
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.primary,
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: Size.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text(
+              'View',
+              style: TextStyle(fontWeight: FontWeight.w800),
+            ),
+          ),
         ],
       ),
     );

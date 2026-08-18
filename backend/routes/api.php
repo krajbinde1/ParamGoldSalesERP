@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\Director\DirectorOrderController;
 use App\Http\Controllers\Api\Director\DirectorPaymentRequestController;
 use App\Http\Controllers\Api\Director\DirectorProductionBatchController;
 use App\Http\Controllers\Api\Director\DirectorTaDaClaimController;
+use App\Http\Controllers\Api\Director\PaymentRequestSupportingDocumentController;
 use App\Http\Controllers\Api\EmployeeRoutePointController;
 use App\Http\Controllers\Api\EmployeeAuthController;
 use App\Http\Controllers\Api\EmployeeCollectionController;
@@ -205,6 +206,10 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::get('payment-requests/{paymentRequest}', [DirectorPaymentRequestController::class, 'show']);
         Route::post('payment-requests/{paymentRequest}/approve', [DirectorPaymentRequestController::class, 'approve']);
         Route::post('payment-requests/{paymentRequest}/reject', [DirectorPaymentRequestController::class, 'reject']);
+        Route::get(
+            'payment-requests/{paymentRequest}/supporting-documents/{supportingDocument}',
+            [PaymentRequestSupportingDocumentController::class, 'show']
+        );
     });
 });
 

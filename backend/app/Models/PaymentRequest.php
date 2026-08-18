@@ -5,6 +5,7 @@ namespace App\Models;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -98,6 +99,11 @@ class PaymentRequest extends Model
     public function lastRemindedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'last_reminded_by');
+    }
+
+    public function supportingDocuments(): HasMany
+    {
+        return $this->hasMany(PaymentRequestSupportingDocument::class)->latest('id');
     }
 
     public function isAwaitingApproval(): bool

@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\Api\Director\PaymentRequestSupportingDocumentController;
 use App\Http\Controllers\DealerController;
 use App\Http\Controllers\Inventory\StockItemLedgerPrintController;
 use App\Http\Controllers\ProfileController;
@@ -23,6 +24,11 @@ Route::middleware('auth')->group(function () {
 
     Route::get('/inventory/stock-item-ledger/print', StockItemLedgerPrintController::class)
         ->name('inventory.stock-item-ledger.print');
+
+    Route::get(
+        '/payment-requests/{paymentRequest}/supporting-documents/{supportingDocument}',
+        [PaymentRequestSupportingDocumentController::class, 'show']
+    )->name('payment-requests.supporting-documents.show');
 
 });
 

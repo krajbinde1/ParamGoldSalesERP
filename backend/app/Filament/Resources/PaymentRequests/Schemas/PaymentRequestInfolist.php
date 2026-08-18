@@ -66,6 +66,24 @@ class PaymentRequestInfolist
                             ->visible(fn (PaymentRequest $record): bool => filled($record->last_reminded_by)),
                     ]),
 
+                Section::make('Supporting Documents')
+                    ->schema([
+                        TextEntry::make('supporting_documents_panel')
+                            ->hiddenLabel()
+                            ->html()
+                            ->state(fn (PaymentRequest $record): string => 'docs')
+                            ->formatStateUsing(function ($state, PaymentRequest $record): HtmlString {
+                                $docs = $record->supportingDocuments()->with('uploadedByUser:id,name')->get();
+
+                                return new HtmlString(
+                                    view('filament.resources.payment-requests.partials.supporting-documents', [
+                                        'documents' => $docs,
+                                    ])->render()
+                                );
+                            })
+                            ->columnSpanFull(),
+                    ]),
+
                 Section::make('Approval Timeline')
                     ->schema([
                         TextEntry::make('timeline')

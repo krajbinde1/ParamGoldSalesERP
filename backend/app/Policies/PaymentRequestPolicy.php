@@ -79,4 +79,15 @@ class PaymentRequestPolicy
     {
         return $user->isAdminUser();
     }
+
+    public function manageSupportingDocuments(User $user, PaymentRequest $paymentRequest): bool
+    {
+        return $user->isAdminUser()
+            && $paymentRequest->isAwaitingApproval();
+    }
+
+    public function viewSupportingDocument(User $user, PaymentRequest $paymentRequest): bool
+    {
+        return $this->view($user, $paymentRequest);
+    }
 }

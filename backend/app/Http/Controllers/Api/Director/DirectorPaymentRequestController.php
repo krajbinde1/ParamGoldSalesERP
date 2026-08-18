@@ -141,6 +141,7 @@ class DirectorPaymentRequestController extends Controller
             'firstApprovedByUser:id,name',
             'secondApprovedByUser:id,name',
             'paymentDoneByUser:id,name',
+            'supportingDocuments.uploadedByUser:id,name',
         ]);
 
         return response()->json([
@@ -164,6 +165,7 @@ class DirectorPaymentRequestController extends Controller
                 'firstApprovedByUser:id,name',
                 'secondApprovedByUser:id,name',
                 'paymentDoneByUser:id,name',
+                'supportingDocuments.uploadedByUser:id,name',
             ]), $request->user()),
         ]);
     }
@@ -219,6 +221,7 @@ class DirectorPaymentRequestController extends Controller
                 'firstApprovedByUser:id,name',
                 'secondApprovedByUser:id,name',
                 'paymentDoneByUser:id,name',
+                'supportingDocuments.uploadedByUser:id,name',
             ]), $request->user()),
         ]);
     }
@@ -313,18 +316,22 @@ class DirectorPaymentRequestController extends Controller
             'first_approved_by' => $pr->first_approved_by,
             'first_approver_name' => $pr->first_approver_name,
             'first_approver_role' => $pr->first_approver_role,
-            'first_approved_at' => optional($pr->first_approved_at)?->timezone('Asia/Kolkata')->toIso8601String(),
+            'first_approved_at' => $pr->first_approved_at?->timezone('Asia/Kolkata')?->toIso8601String(),
             'first_rejection_remark' => $pr->first_rejection_remark,
             'second_approved_by' => $pr->second_approved_by,
             'second_approver_name' => $pr->second_approver_name,
             'second_approver_role' => $pr->second_approver_role,
-            'second_approved_at' => optional($pr->second_approved_at)?->timezone('Asia/Kolkata')->toIso8601String(),
+            'second_approved_at' => $pr->second_approved_at?->timezone('Asia/Kolkata')?->toIso8601String(),
             'second_rejection_remark' => $pr->second_rejection_remark,
-            'payment_done_at' => optional($pr->payment_done_at)?->timezone('Asia/Kolkata')->toIso8601String(),
+            'payment_done_at' => $pr->payment_done_at?->timezone('Asia/Kolkata')?->toIso8601String(),
             'payment_remark' => $pr->payment_remark,
             'payment_proof_url' => $pr->paymentProofUrl(),
             'payment_status' => $pr->paymentStatusLabel(),
             'timeline' => $pr->approvalTimeline(),
+            'supporting_documents' => $pr->supportingDocuments
+                ->map(fn ($doc): array => $doc->toApiArray())
+                ->values()
+                ->all(),
         ]);
     }
 }
