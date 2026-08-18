@@ -129,8 +129,18 @@ class PaymentRequestsTable
                     ->visible(fn (PaymentRequest $record): bool => Gate::forUser(auth()->user())->allows('remind', $record))
                     ->requiresConfirmation()
                     ->action(function (PaymentRequest $record): void {
-                        app(SendPaymentRequestReminder::class)->executeOne($record, auth()->user());
-                        Notification::make()->title('Reminder sent')->success()->send();
+                        try {
+                            app(SendPaymentRequestReminder::class)->executeOne($record, auth()->user());
+                            Notification::make()
+                                ->title('Reminder Sent Successfully')
+                                ->success()
+                                ->send();
+                        } catch (\Throwable) {
+                            Notification::make()
+                                ->title('Unable to send reminder. Please try again.')
+                                ->danger()
+                                ->send();
+                        }
                     }),
                 ViewAction::make(),
             ])
@@ -157,14 +167,23 @@ class PaymentRequestsTable
                             }
 
                             foreach ($pending->groupBy('status') as $status => $group) {
-                                app(SendPaymentRequestReminder::class)->executeForApproverQueue(
-                                    actor: auth()->user(),
-                                    status: (string) $status,
-                                );
+                                try {
+                                    app(SendPaymentRequestReminder::class)->executeForApproverQueue(
+                                        actor: auth()->user(),
+                                        status: (string) $status,
+                                    );
+                                } catch (\Throwable) {
+                                    Notification::make()
+                                        ->title('Unable to send reminder. Please try again.')
+                                        ->danger()
+                                        ->send();
+
+                                    return;
+                                }
                             }
 
                             Notification::make()
-                                ->title('Reminders sent')
+                                ->title('Reminder Sent Successfully')
                                 ->success()
                                 ->send();
                         }),

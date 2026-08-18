@@ -60,11 +60,11 @@ class NotificationPayload {
     return type == 'new_order' ||
         type == 'order_approved' ||
         type == 'order_billed' ||
-        type == 'payment_approval_required' ||
-        type == 'payment_request_reminder' ||
-        type == 'payment_request_created' ||
-        type == 'payment_request_first_approved';
+        _isPaymentCriticalType(type);
   }
+
+  int? get paymentRequestId =>
+      int.tryParse('${raw['payment_request_id'] ?? ''}');
 
   /// Deep-link to the existing review/detail screen (not the alert).
   String? get reviewRoute {
@@ -78,15 +78,10 @@ class NotificationPayload {
     if (type == 'order_billed' && orderId != null) {
       return '/production/orders/$orderId';
     }
-    if (type == 'payment_approval_required' ||
-        type == 'payment_request_reminder' ||
-        type == 'payment_request_created' ||
-        type == 'payment_request_first_approved') {
+    if (_isPaymentCriticalType(type) || type.startsWith('payment_request_')) {
+      final id = paymentRequestId;
+      if (id != null) return '/director/payment-requests/$id';
       return '/director/payment-requests';
-    }
-    if (type.startsWith('payment_request_')) {
-      final id = raw['payment_request_id'] ?? orderId;
-      return '/director/payment-requests/$id';
     }
     if (orderId != null) return '/orders/$orderId';
     return null;
@@ -99,22 +94,18 @@ class NotificationPayload {
     if (actionId == 'reject' && orderId != null) {
       return '/manager/orders/$orderId?action=reject';
     }
-    if (actionId == 'approve' &&
-        (type == 'payment_approval_required' ||
-            type == 'payment_request_reminder' ||
-            type == 'payment_request_created' ||
-            type == 'payment_request_first_approved')) {
+    if (actionId == 'approve' && _isPaymentCriticalType(type)) {
+      final id = paymentRequestId;
+      if (id != null) return '/director/payment-requests/$id';
       return '/director/payment-requests?filter=pending&select_all=1&action=approve';
     }
     if (actionId == 'review' ||
         actionId == 'view' ||
         actionId == 'view_order' ||
-        actionId == 'view_bill') {
-      if (type == 'payment_approval_required' ||
-          type == 'payment_request_reminder' ||
-          type == 'payment_request_created' ||
-          type == 'payment_request_first_approved') {
-        return '/director/payment-requests?filter=pending';
+        actionId == 'view_bill' ||
+        actionId == 'view_payment_request') {
+      if (_isPaymentCriticalType(type) || type.startsWith('payment_')) {
+        return reviewRoute;
       }
       return reviewRoute;
     }
@@ -272,6 +263,12 @@ class NotificationPayload {
     return type == 'new_order' ||
         type == 'order_approved' ||
         type == 'order_billed' ||
+        _isPaymentCriticalType(type);
+  }
+
+  static bool _isPaymentCriticalType(String type) {
+    return type == 'payment_approval' ||
+        type == 'payment_approval_reminder' ||
         type == 'payment_approval_required' ||
         type == 'payment_request_reminder' ||
         type == 'payment_request_created' ||
@@ -282,11 +279,7 @@ class NotificationPayload {
     if (data['fullscreen']?.toString() == '1') return true;
     if (data['fullscreen']?.toString() == '0') return false;
     // Legacy defaults for critical types when flag omitted.
-    return type == 'new_order' ||
-        type == 'payment_approval_required' ||
-        type == 'payment_request_reminder' ||
-        type == 'payment_request_created' ||
-        type == 'payment_request_first_approved';
+    return type == 'new_order' || _isPaymentCriticalType(type);
   }
 
   static String _composeBody(String base, Map<String, dynamic> data) {

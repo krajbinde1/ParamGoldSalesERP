@@ -432,7 +432,9 @@ class PushNotificationService {
     });
 
     final isCritical = payload.isCriticalApprovalAlert;
-    final isPaymentApproval = payload.type == 'payment_approval_required' ||
+    final isPaymentApproval = payload.type == 'payment_approval' ||
+        payload.type == 'payment_approval_reminder' ||
+        payload.type == 'payment_approval_required' ||
         payload.type == 'payment_request_reminder' ||
         payload.type == 'payment_request_created' ||
         payload.type == 'payment_request_first_approved';

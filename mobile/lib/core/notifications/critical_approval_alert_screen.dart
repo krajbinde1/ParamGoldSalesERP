@@ -4,14 +4,9 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
 import '../../modules/auth/providers/auth_controller.dart';
-import '../../modules/director/api/director_api.dart';
-import '../api/api_client.dart';
-import '../api/api_errors.dart';
 import '../design/app_colors.dart';
 import '../design/app_spacing.dart';
-import '../storage/session_store.dart';
 import '../utils/bill_document.dart';
-import '../widgets/prompt_dialog.dart';
 import 'notification_payload.dart';
 import 'push_notification_service.dart';
 
@@ -35,8 +30,6 @@ class CriticalApprovalAlertScreen extends StatefulWidget {
 
 class _CriticalApprovalAlertScreenState
     extends State<CriticalApprovalAlertScreen> {
-  bool _busy = false;
-
   @override
   void initState() {
     super.initState();
@@ -47,12 +40,16 @@ class _CriticalApprovalAlertScreenState
   }
 
   bool get _isPayment =>
+      widget.payload.type == 'payment_approval' ||
+      widget.payload.type == 'payment_approval_reminder' ||
       widget.payload.type == 'payment_approval_required' ||
       widget.payload.type == 'payment_request_reminder' ||
       widget.payload.type == 'payment_request_created' ||
       widget.payload.type == 'payment_request_first_approved';
 
-  bool get _isReminder => widget.payload.type == 'payment_request_reminder';
+  bool get _isReminder =>
+      widget.payload.type == 'payment_approval_reminder' ||
+      widget.payload.type == 'payment_request_reminder';
 
   bool get _isNewOrder => widget.payload.type == 'new_order';
   bool get _isOrderApproved => widget.payload.type == 'order_approved';
@@ -156,6 +153,11 @@ class _CriticalApprovalAlertScreenState
   }
 
   void _viewPayment() {
+    final id = widget.payload.paymentRequestId;
+    if (id != null) {
+      context.go('/director/payment-requests/$id');
+      return;
+    }
     context.go('/director/payment-requests?filter=pending');
   }
 
@@ -193,8 +195,7 @@ class _CriticalApprovalAlertScreenState
 
   Future<void> _approvePayment() async {
     final count = _pendingCount;
-    final paymentId =
-        int.tryParse('${widget.payload.raw['payment_request_id'] ?? ''}');
+    final paymentId = widget.payload.paymentRequestId;
 
     // Multiple pending → open approval list with selection ready.
     if (count > 1 || paymentId == null) {
@@ -204,42 +205,9 @@ class _CriticalApprovalAlertScreenState
       return;
     }
 
-    // Single eligible request → confirm, then authenticated approve API.
-    final confirmed = await confirmAction(
-      context,
-      title: 'Approve Payment Request',
-      message:
-          'Approve this payment request totaling $_amountLabel?\n\nThis uses your authenticated session — not the notification payload.',
-    );
-    if (!confirmed || !mounted) return;
-
-    final auth = widget.auth;
-    if (auth == null) {
-      context.go('/director/payment-requests/$paymentId');
-      return;
-    }
-
-    setState(() => _busy = true);
-    try {
-      final api = DirectorApi(
-        ApiClient(SessionStore(), onUnauthorized: auth.sessionExpired).dio,
-      );
-      await api.approvePaymentRequest(paymentId);
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Payment request approved')),
-      );
-      context.go('/director/payment-requests?filter=pending');
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMessage(error))),
-      );
-      // Fall back to list so director can still act.
-      context.go('/director/payment-requests?filter=pending');
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
+    // Single eligible request → open Review screen (fresh API state).
+    // Approval is confirmed on that screen to avoid stale payload decisions.
+    context.go('/director/payment-requests/$paymentId');
   }
 
   @override
@@ -367,7 +335,7 @@ class _CriticalApprovalAlertScreenState
       return [
         _PrimaryButton(
           label: 'VIEW',
-          onPressed: _busy ? null : _viewPayment,
+          onPressed: _viewPayment,
         ),
         const SizedBox(height: AppSpacing.sm),
         Row(
@@ -375,14 +343,14 @@ class _CriticalApprovalAlertScreenState
             Expanded(
               child: _SecondaryButton(
                 label: 'IGNORE',
-                onPressed: _busy ? null : _ignore,
+                onPressed: _ignore,
               ),
             ),
             const SizedBox(width: AppSpacing.sm),
             Expanded(
               child: _PrimaryButton(
-                label: _busy ? '...' : 'APPROVE',
-                onPressed: _busy ? null : _approvePayment,
+                label: 'REVIEW',
+                onPressed: _approvePayment,
               ),
             ),
           ],

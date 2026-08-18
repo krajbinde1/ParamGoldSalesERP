@@ -14,6 +14,18 @@ use Throwable;
 
 final class PaymentRequestPushNotifier
 {
+    /** Wire type for new / next-stage approval required (critical). */
+    public const TYPE_APPROVAL = 'payment_approval';
+
+    /** Wire type for admin reminder (critical). */
+    public const TYPE_REMINDER = 'payment_approval_reminder';
+
+    /** @deprecated Prefer TYPE_APPROVAL — kept for inbox/history compatibility. */
+    public const TYPE_APPROVAL_REQUIRED = 'payment_approval_required';
+
+    /** @deprecated Prefer TYPE_REMINDER */
+    public const TYPE_REMINDER_LEGACY = 'payment_request_reminder';
+
     public const TYPE_CREATED = 'payment_request_created';
 
     public const TYPE_FIRST_APPROVED = 'payment_request_first_approved';
@@ -26,10 +38,6 @@ final class PaymentRequestPushNotifier
 
     public const TYPE_PAYMENT_DONE = 'payment_request_payment_done';
 
-    public const TYPE_APPROVAL_REQUIRED = 'payment_approval_required';
-
-    public const TYPE_REMINDER = 'payment_request_reminder';
-
     public function __construct(
         private readonly FcmHttpClient $fcm = new FcmHttpClient,
         private readonly PaymentRequestApproverResolver $approvers = new PaymentRequestApproverResolver,
@@ -39,16 +47,21 @@ final class PaymentRequestPushNotifier
     {
         $user = $this->approvers->firstApprover();
         if (! $user) {
+            Log::warning('Payment approval notify skipped: first approver not resolved', [
+                'payment_request_id' => $paymentRequest->id,
+            ]);
+
             return;
         }
 
-        $this->notifyCurrentApproverQueue(
+        $this->notifyApproverCritical(
             user: $user,
-            status: PaymentRequest::STATUS_PENDING_FIRST,
-            type: self::TYPE_CREATED,
+            paymentRequest: $paymentRequest,
+            wireType: self::TYPE_APPROVAL,
+            dedupeType: self::TYPE_CREATED,
             title: 'Payment Approval Required',
-            dedupePaymentRequest: $paymentRequest,
-            isReminder: false,
+            body: $this->vendorAmountBody($paymentRequest),
+            reminderCountForDedupe: null,
         );
     }
 
@@ -56,50 +69,81 @@ final class PaymentRequestPushNotifier
     {
         $user = $this->approvers->secondApprover();
         if (! $user) {
+            Log::warning('Payment approval notify skipped: second approver not resolved', [
+                'payment_request_id' => $paymentRequest->id,
+            ]);
+
             return;
         }
 
-        $this->notifyCurrentApproverQueue(
+        $this->notifyApproverCritical(
             user: $user,
-            status: PaymentRequest::STATUS_PENDING_SECOND,
-            type: self::TYPE_FIRST_APPROVED,
+            paymentRequest: $paymentRequest,
+            wireType: self::TYPE_APPROVAL,
+            dedupeType: self::TYPE_FIRST_APPROVED,
             title: 'Payment Approval Required',
-            dedupePaymentRequest: $paymentRequest,
-            isReminder: false,
+            body: $this->vendorAmountBody($paymentRequest)."\nFirst approval completed. Your approval is required.",
+            reminderCountForDedupe: null,
         );
     }
 
     /**
-     * @param  Collection<int, PaymentRequest>  $requests
+     * Send reminder for one pending request to the current stage approver.
+     *
+     * @return array{sent: bool, reason: string}
      */
-    public function notifyReminder(Collection $requests): void
+    public function notifyReminderForRequest(PaymentRequest $paymentRequest, int $reminderSequence): array
     {
-        if ($requests->isEmpty()) {
-            return;
+        if (! $paymentRequest->isAwaitingApproval()) {
+            return ['sent' => false, 'reason' => 'not_pending'];
         }
 
-        $status = (string) $requests->first()->status;
-        $user = match ($status) {
+        $user = match ((string) $paymentRequest->status) {
             PaymentRequest::STATUS_PENDING_FIRST => $this->approvers->firstApprover(),
             PaymentRequest::STATUS_PENDING_SECOND => $this->approvers->secondApprover(),
             default => null,
         };
 
         if (! $user) {
-            return;
+            return ['sent' => false, 'reason' => 'approver_missing'];
         }
 
-        $seed = $requests->sortByDesc('id')->first();
-
-        $this->notifyCurrentApproverQueue(
+        $ok = $this->notifyApproverCritical(
             user: $user,
-            status: $status,
-            type: self::TYPE_REMINDER,
+            paymentRequest: $paymentRequest,
+            wireType: self::TYPE_REMINDER,
+            dedupeType: self::TYPE_REMINDER.'_'.$paymentRequest->id.'_'.$reminderSequence,
             title: 'Payment Approval Reminder',
-            dedupePaymentRequest: $seed,
-            isReminder: true,
-            bodySuffix: ' still waiting for your approval.',
+            body: $this->vendorAmountBody($paymentRequest)."\nApproval is still pending.",
+            reminderCountForDedupe: $reminderSequence,
+            requireFcmSuccess: true,
         );
+
+        return $ok
+            ? ['sent' => true, 'reason' => 'ok']
+            : ['sent' => false, 'reason' => 'fcm_failed'];
+    }
+
+    /**
+     * @param  Collection<int, PaymentRequest>  $requests
+     * @return array{sent: int, failed: int}
+     */
+    public function notifyReminder(Collection $requests): array
+    {
+        $sent = 0;
+        $failed = 0;
+
+        foreach ($requests as $request) {
+            $sequence = max(1, (int) $request->reminder_count);
+            $result = $this->notifyReminderForRequest($request, $sequence);
+            if ($result['sent']) {
+                $sent++;
+            } else {
+                $failed++;
+            }
+        }
+
+        return ['sent' => $sent, 'failed' => $failed];
     }
 
     public function notifyRejectedByFirst(PaymentRequest $paymentRequest): void
@@ -185,40 +229,38 @@ final class PaymentRequestPushNotifier
         }
     }
 
-    private function notifyCurrentApproverQueue(
+    private function vendorAmountBody(PaymentRequest $paymentRequest): string
+    {
+        $vendor = trim((string) $paymentRequest->vendor_name);
+        if ($vendor === '') {
+            $vendor = 'Vendor Not Available';
+        }
+        $amount = '₹'.number_format((float) $paymentRequest->amount, 0, '.', ',');
+
+        return "{$vendor} • {$amount}";
+    }
+
+    /**
+     * Critical per-request FCM + inbox for the current Director approver.
+     */
+    private function notifyApproverCritical(
         User $user,
-        string $status,
-        string $type,
+        PaymentRequest $paymentRequest,
+        string $wireType,
+        string $dedupeType,
         string $title,
-        PaymentRequest $dedupePaymentRequest,
-        bool $isReminder,
-        string $bodySuffix = ' Pending',
-    ): void {
+        string $body,
+        ?int $reminderCountForDedupe,
+        bool $requireFcmSuccess = false,
+    ): bool {
         try {
-            $pending = PaymentRequest::query()
-                ->where('status', $status)
-                ->orderBy('id')
-                ->get();
-
-            $count = $pending->count();
-            if ($count === 0) {
-                return;
-            }
-
-            $total = (float) $pending->sum(fn (PaymentRequest $pr): float => (float) $pr->amount);
-            $amountLabel = '₹'.number_format($total, 0, '.', ',');
-            $requestLabel = $count === 1 ? '1 Payment Request' : "{$count} Payment Requests";
-            $body = "{$requestLabel} • {$amountLabel}{$bodySuffix}";
-
-            $dedupeType = $isReminder
-                ? self::TYPE_REMINDER.'_'.$dedupePaymentRequest->id.'_'.((int) $dedupePaymentRequest->reminder_count)
-                : $type;
-            $statusKey = $isReminder
-                ? 'reminder_'.((int) $dedupePaymentRequest->reminder_count)
-                : (string) $dedupePaymentRequest->status;
+            $status = (string) $paymentRequest->status;
+            $statusKey = $reminderCountForDedupe !== null
+                ? 'reminder_'.$reminderCountForDedupe
+                : $status;
 
             $inserted = DB::table('payment_request_push_dedupe')->insertOrIgnore([
-                'payment_request_id' => $dedupePaymentRequest->id,
+                'payment_request_id' => $paymentRequest->id,
                 'user_id' => $user->id,
                 'type' => $dedupeType,
                 'status_key' => $statusKey,
@@ -226,66 +268,51 @@ final class PaymentRequestPushNotifier
                 'updated_at' => now(),
             ]);
 
-            if ($inserted === 0 && ! $isReminder) {
-                // Still allow FCM summary refresh for a new request if inbox already logged.
-            }
-
-            if ($inserted !== 0 || $isReminder) {
-                AppNotification::query()->create([
-                    'user_id' => $user->id,
-                    'order_id' => null,
-                    'type' => $isReminder ? self::TYPE_REMINDER : self::TYPE_APPROVAL_REQUIRED,
-                    'title' => $title,
-                    'body' => $body,
-                    'data' => [
-                        'type' => $isReminder ? self::TYPE_REMINDER : self::TYPE_APPROVAL_REQUIRED,
-                        'payment_request_id' => (string) $dedupePaymentRequest->id,
-                        'pending_count' => (string) $count,
-                        'pending_amount' => (string) $total,
-                        'amount' => (string) $total,
-                        'request_no' => (string) $dedupePaymentRequest->request_no,
-                        'vendor_name' => $count === 1
-                            ? (string) $dedupePaymentRequest->vendor_name
-                            : '',
-                        'status' => $status,
-                        'status_label' => $dedupePaymentRequest->displayStatusLabel(),
-                        'approval_stage' => $status === PaymentRequest::STATUS_PENDING_FIRST
-                            ? 'First Approval'
-                            : 'Second Approval',
-                        'event_at' => (string) ($dedupePaymentRequest->updated_at?->toIso8601String()
-                            ?? now()->toIso8601String()),
-                        'route' => '/director/payment-requests',
-                        'action' => 'review',
-                        'channel_id' => 'paramgold_critical_alerts_v5',
-                        'fullscreen' => '1',
-                    ],
-                ]);
-            }
+            $route = '/director/payment-requests/'.$paymentRequest->id;
 
             $data = [
-                'type' => $isReminder ? self::TYPE_REMINDER : self::TYPE_APPROVAL_REQUIRED,
-                'payment_request_id' => (string) $dedupePaymentRequest->id,
-                'pending_count' => (string) $count,
-                'pending_amount' => (string) $total,
-                'amount' => (string) $total,
-                'request_no' => (string) $dedupePaymentRequest->request_no,
-                'vendor_name' => $count === 1
-                    ? (string) $dedupePaymentRequest->vendor_name
-                    : '',
+                'type' => $wireType,
+                'payment_request_id' => (string) $paymentRequest->id,
+                'request_no' => (string) $paymentRequest->request_no,
+                'vendor_name' => (string) $paymentRequest->vendor_name,
+                'amount' => (string) $paymentRequest->amount,
+                'pending_count' => '1',
+                'pending_amount' => (string) $paymentRequest->amount,
                 'status' => $status,
-                'status_label' => $dedupePaymentRequest->displayStatusLabel(),
+                'status_label' => $paymentRequest->displayStatusLabel(),
                 'approval_stage' => $status === PaymentRequest::STATUS_PENDING_FIRST
                     ? 'First Approval'
                     : 'Second Approval',
-                'event_at' => (string) ($dedupePaymentRequest->updated_at?->toIso8601String()
+                'event_at' => (string) ($paymentRequest->updated_at?->toIso8601String()
                     ?? now()->toIso8601String()),
-                'route' => '/director/payment-requests',
+                'route' => $route,
                 'action' => 'review',
                 'channel_id' => 'paramgold_critical_alerts_v5',
                 'fullscreen' => '1',
             ];
 
-            $this->sendFcm(
+            if ($reminderCountForDedupe !== null) {
+                $data['reminder_count'] = (string) $reminderCountForDedupe;
+            }
+
+            // Always attempt FCM for create/next-stage; reminders require unique dedupe.
+            $shouldNotify = $inserted !== 0 || $reminderCountForDedupe === null;
+            if (! $shouldNotify) {
+                return false;
+            }
+
+            if ($inserted !== 0) {
+                AppNotification::query()->create([
+                    'user_id' => $user->id,
+                    'order_id' => null,
+                    'type' => $wireType,
+                    'title' => $title,
+                    'body' => $body,
+                    'data' => $data,
+                ]);
+            }
+
+            $fcmResult = $this->sendFcm(
                 user: $user,
                 title: $title,
                 body: $body,
@@ -300,12 +327,22 @@ final class PaymentRequestPushNotifier
                     ],
                 ],
             );
+
+            if ($requireFcmSuccess) {
+                return ((int) ($fcmResult['success'] ?? 0)) > 0;
+            }
+
+            // Create/approve must not fail the business flow — treat as triggered even if
+            // tokens are missing (logged inside sendFcm).
+            return true;
         } catch (Throwable $e) {
-            Log::warning('Payment approval queue notify failed: '.$e->getMessage(), [
+            Log::warning('Payment approval critical notify failed: '.$e->getMessage(), [
                 'user_id' => $user->id,
-                'status' => $status,
-                'type' => $type,
+                'payment_request_id' => $paymentRequest->id,
+                'type' => $wireType,
             ]);
+
+            return false;
         }
     }
 
@@ -375,6 +412,7 @@ final class PaymentRequestPushNotifier
     /**
      * @param  array<string, string>  $data
      * @param  array<string, mixed>  $android
+     * @return array{success: int, failure: int, invalid_tokens: list<string>, details: list<array<string, mixed>>}
      */
     private function sendFcm(
         User $user,
@@ -382,14 +420,25 @@ final class PaymentRequestPushNotifier
         string $body,
         array $data,
         array $android = [],
-    ): void {
+    ): array {
         $tokens = DeviceToken::query()
             ->where('user_id', $user->id)
             ->pluck('token')
             ->all();
 
         if ($tokens === []) {
-            return;
+            Log::warning('Payment push skipped: no device tokens', [
+                'user_id' => $user->id,
+                'type' => (string) ($data['type'] ?? ''),
+                'payment_request_id' => (string) ($data['payment_request_id'] ?? ''),
+            ]);
+
+            return [
+                'success' => 0,
+                'failure' => 0,
+                'invalid_tokens' => [],
+                'details' => [],
+            ];
         }
 
         $result = $this->fcm->sendToTokens(
@@ -407,6 +456,8 @@ final class PaymentRequestPushNotifier
                 ->whereIn('token', $result['invalid_tokens'])
                 ->delete();
         }
+
+        return $result;
     }
 
     /**
@@ -414,10 +465,18 @@ final class PaymentRequestPushNotifier
      */
     private function adminUsers(): array
     {
+        // LOGIN ROLE preferred. Legacy Filament Admin uses job_role=Admin
+        // (seeded login role is often employee) — never designation text.
         return User::query()
-            ->where('job_role', 'Admin')
+            ->where(function ($query): void {
+                $query->where('role', 'admin')
+                    ->orWhere(function ($legacy): void {
+                        $legacy->where('job_role', 'Admin')
+                            ->where('role', '!=', 'director');
+                    });
+            })
             ->get()
-            ->filter(fn (User $user): bool => $user->isAdminUser() && ! $user->isDirectorUser())
+            ->filter(fn (User $user): bool => (string) $user->role !== 'director')
             ->unique('id')
             ->values()
             ->all();

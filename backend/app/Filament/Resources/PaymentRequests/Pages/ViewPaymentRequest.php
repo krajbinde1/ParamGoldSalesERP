@@ -39,20 +39,29 @@ class ViewPaymentRequest extends ViewRecord
                 ->authorize(fn (): bool => Gate::forUser(auth()->user())->allows('remind', $record))
                 ->requiresConfirmation()
                 ->modalHeading('Send Reminder')
-                ->modalDescription('Send an FCM reminder to the current approver for this payment request?')
+                ->modalDescription('Send an FCM reminder to the current Director approver for this payment request?')
+                ->successNotificationTitle(null)
                 ->action(function () use ($record): void {
-                    app(SendPaymentRequestReminder::class)->executeOne($record, auth()->user());
+                    try {
+                        app(SendPaymentRequestReminder::class)->executeOne($record, auth()->user());
 
-                    Notification::make()
-                        ->title('Reminder sent')
-                        ->success()
-                        ->send();
+                        Notification::make()
+                            ->title('Reminder Sent Successfully')
+                            ->success()
+                            ->send();
+                    } catch (\Throwable) {
+                        Notification::make()
+                            ->title('Unable to send reminder. Please try again.')
+                            ->danger()
+                            ->send();
+                    }
 
                     $this->refreshFormData([
                         'reminder_count',
                         'last_reminded_at',
                         'last_reminded_by',
                     ]);
+                    $this->record->refresh();
                 }),
             Action::make('sendReminderToApproverQueue')
                 ->label('Remind All Pending for Approver')
@@ -61,23 +70,33 @@ class ViewPaymentRequest extends ViewRecord
                 ->authorize(fn (): bool => Gate::forUser(auth()->user())->allows('remindPending', PaymentRequest::class))
                 ->requiresConfirmation()
                 ->modalHeading('Remind Approver Queue')
-                ->modalDescription('Send one reminder covering all payment requests currently pending with the same approver?')
+                ->modalDescription('Send reminders for all payment requests currently pending with the same approver?')
+                ->successNotificationTitle(null)
                 ->action(function () use ($record): void {
-                    $requests = app(SendPaymentRequestReminder::class)->executeForApproverQueue(
-                        actor: auth()->user(),
-                        seed: $record,
-                    );
+                    try {
+                        $requests = app(SendPaymentRequestReminder::class)->executeForApproverQueue(
+                            actor: auth()->user(),
+                            seed: $record,
+                        );
 
-                    Notification::make()
-                        ->title('Reminder sent for '.$requests->count().' request(s)')
-                        ->success()
-                        ->send();
+                        Notification::make()
+                            ->title('Reminder Sent Successfully')
+                            ->body('Sent for '.$requests->count().' request(s).')
+                            ->success()
+                            ->send();
+                    } catch (\Throwable) {
+                        Notification::make()
+                            ->title('Unable to send reminder. Please try again.')
+                            ->danger()
+                            ->send();
+                    }
 
                     $this->refreshFormData([
                         'reminder_count',
                         'last_reminded_at',
                         'last_reminded_by',
                     ]);
+                    $this->record->refresh();
                 }),
             Action::make('markPaymentDone')
                 ->label('Mark Payment Done')

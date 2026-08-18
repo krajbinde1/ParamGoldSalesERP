@@ -8,8 +8,8 @@ use App\Services\Notifications\PaymentRequestPushNotifier;
 use Carbon\Carbon;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Support\Collection;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 
 final class SendPaymentRequestReminder
 {
@@ -19,6 +19,10 @@ final class SendPaymentRequestReminder
 
     /**
      * Remind for one request (current stage approver).
+     * Increments reminder_count only after FCM send succeeds.
+     *
+     * @throws AuthorizationException
+     * @throws ValidationException
      */
     public function executeOne(PaymentRequest $paymentRequest, User $actor): PaymentRequest
     {
@@ -26,7 +30,27 @@ final class SendPaymentRequestReminder
             throw new AuthorizationException('You are not allowed to send reminders for this request.');
         }
 
-        $this->bumpAndNotify(collect([$paymentRequest]), $actor);
+        if (! $paymentRequest->isAwaitingApproval()) {
+            throw ValidationException::withMessages([
+                'status' => ['Reminders can only be sent while Director approval is pending.'],
+            ]);
+        }
+
+        $nextCount = ((int) $paymentRequest->reminder_count) + 1;
+        $result = $this->notifier->notifyReminderForRequest($paymentRequest, $nextCount);
+
+        if (! $result['sent']) {
+            throw ValidationException::withMessages([
+                'reminder' => ['Unable to send reminder. Please try again.'],
+            ]);
+        }
+
+        $now = Carbon::now('Asia/Kolkata');
+        $paymentRequest->update([
+            'reminder_count' => $nextCount,
+            'last_reminded_at' => $now,
+            'last_reminded_by' => $actor->id,
+        ]);
 
         return $paymentRequest->fresh() ?? $paymentRequest;
     }
@@ -34,6 +58,8 @@ final class SendPaymentRequestReminder
     /**
      * Remind all requests pending with the same current approver as the given request,
      * or all pending for a given stage when $status is provided.
+     *
+     * reminder_count is incremented only for requests whose FCM send succeeded.
      *
      * @return Collection<int, PaymentRequest>
      */
@@ -67,36 +93,33 @@ final class SendPaymentRequestReminder
             return $requests;
         }
 
-        $this->bumpAndNotify($requests, $actor);
+        $now = Carbon::now('Asia/Kolkata');
+        $updatedIds = [];
 
-        return $requests;
-    }
+        foreach ($requests as $request) {
+            $nextCount = ((int) $request->reminder_count) + 1;
+            $result = $this->notifier->notifyReminderForRequest($request, $nextCount);
+            if (! $result['sent']) {
+                continue;
+            }
 
-    /**
-     * @param  Collection<int, PaymentRequest>  $requests
-     */
-    private function bumpAndNotify(Collection $requests, User $actor): void
-    {
-        if ($requests->isEmpty()) {
-            return;
+            $request->update([
+                'reminder_count' => $nextCount,
+                'last_reminded_at' => $now,
+                'last_reminded_by' => $actor->id,
+            ]);
+            $updatedIds[] = $request->id;
         }
 
-        $now = Carbon::now('Asia/Kolkata');
+        if ($updatedIds === []) {
+            throw ValidationException::withMessages([
+                'reminder' => ['Unable to send reminder. Please try again.'],
+            ]);
+        }
 
-        DB::transaction(function () use ($requests, $actor, $now): void {
-            foreach ($requests as $request) {
-                $request->update([
-                    'reminder_count' => ((int) $request->reminder_count) + 1,
-                    'last_reminded_at' => $now,
-                    'last_reminded_by' => $actor->id,
-                ]);
-            }
-        });
-
-        $fresh = PaymentRequest::query()
-            ->whereIn('id', $requests->pluck('id')->all())
+        return PaymentRequest::query()
+            ->whereIn('id', $updatedIds)
+            ->orderBy('id')
             ->get();
-
-        $this->notifier->notifyReminder($fresh);
     }
 }

@@ -42,23 +42,28 @@ class PaymentRequestInfolist
                         TextEntry::make('payment_status')
                             ->label('Payment Status')
                             ->state(fn (PaymentRequest $record): string => $record->paymentStatusLabel()),
-                        TextEntry::make('reminder_summary')
-                            ->label('Reminders')
+                        TextEntry::make('reminder_count')
+                            ->label('Reminders Sent')
+                            ->state(fn (PaymentRequest $record): string => (string) ((int) $record->reminder_count))
+                            ->visible(fn (PaymentRequest $record): bool => $record->isAwaitingApproval()
+                                || (int) $record->reminder_count > 0),
+                        TextEntry::make('last_reminded_at')
+                            ->label('Last Reminder')
                             ->state(function (PaymentRequest $record): string {
-                                $count = (int) $record->reminder_count;
-                                if ($count <= 0) {
-                                    return 'Not reminded yet';
+                                if (! $record->last_reminded_at) {
+                                    return '—';
                                 }
 
-                                $last = $record->last_reminded_at
-                                    ? $record->last_reminded_at->timezone('Asia/Kolkata')->format('d M Y, g:i A')
-                                    : '—';
-
-                                return "Reminded {$count} time".($count === 1 ? '' : 's')."\nLast Reminder: {$last}";
+                                return $record->last_reminded_at
+                                    ->timezone('Asia/Kolkata')
+                                    ->format('d M Y • h:i A');
                             })
                             ->visible(fn (PaymentRequest $record): bool => $record->isAwaitingApproval()
-                                || (int) $record->reminder_count > 0)
-                            ->columnSpanFull(),
+                                || (int) $record->reminder_count > 0),
+                        TextEntry::make('lastRemindedByUser.name')
+                            ->label('Sent by')
+                            ->placeholder('—')
+                            ->visible(fn (PaymentRequest $record): bool => filled($record->last_reminded_by)),
                     ]),
 
                 Section::make('Approval Timeline')

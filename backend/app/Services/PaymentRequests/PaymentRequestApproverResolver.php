@@ -2,6 +2,7 @@
 
 namespace App\Services\PaymentRequests;
 
+use App\Enums\UserRole;
 use App\Models\Employee;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
@@ -13,7 +14,7 @@ final class PaymentRequestApproverResolver
         return $this->resolveUserId(
             configuredId: config('payment_requests.first_approver_user_id'),
             name: (string) config('payment_requests.first_approver_name', 'Krishna Rajbinde'),
-            cacheKey: 'payment_request_first_approver_user_id_v2',
+            cacheKey: 'payment_request_first_approver_user_id_v3',
         );
     }
 
@@ -22,7 +23,7 @@ final class PaymentRequestApproverResolver
         return $this->resolveUserId(
             configuredId: config('payment_requests.second_approver_user_id'),
             name: (string) config('payment_requests.second_approver_name', 'Bhagwan Kakde'),
-            cacheKey: 'payment_request_second_approver_user_id_v2',
+            cacheKey: 'payment_request_second_approver_user_id_v3',
         );
     }
 
@@ -83,8 +84,10 @@ final class PaymentRequestApproverResolver
                 return null;
             }
 
+            // LOGIN ROLE is authoritative — designation/job title must not decide routing.
             $byUserName = User::query()
                 ->whereRaw('LOWER(TRIM(name)) = ?', [$normalized])
+                ->where('role', UserRole::Director->value)
                 ->value('id');
             if ($byUserName) {
                 return (int) $byUserName;
@@ -97,7 +100,10 @@ final class PaymentRequestApproverResolver
                 return null;
             }
 
-            $userId = User::query()->where('employee_id', $employeeId)->value('id');
+            $userId = User::query()
+                ->where('employee_id', $employeeId)
+                ->where('role', UserRole::Director->value)
+                ->value('id');
 
             return $userId ? (int) $userId : null;
         });

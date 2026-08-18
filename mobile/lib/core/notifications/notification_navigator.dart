@@ -126,18 +126,32 @@ class NotificationNavigator {
     }
 
     if (payload.actionId == 'approve' &&
-        (payload.type == 'payment_approval_required' ||
+        (payload.type == 'payment_approval' ||
+            payload.type == 'payment_approval_reminder' ||
+            payload.type == 'payment_approval_required' ||
             payload.type == 'payment_request_reminder' ||
             payload.type == 'payment_request_created' ||
             payload.type == 'payment_request_first_approved')) {
-      router.go(
-        '/director/payment-requests?filter=pending&select_all=1&action=approve',
-      );
+      final id = payload.paymentRequestId;
+      if (id != null) {
+        router.go('/director/payment-requests/$id');
+      } else {
+        router.go(
+          '/director/payment-requests?filter=pending&select_all=1&action=approve',
+        );
+      }
       return;
     }
 
-    if (payload.actionId == 'view' || payload.actionId == 'review') {
+    if (payload.actionId == 'view' ||
+        payload.actionId == 'review' ||
+        payload.actionId == 'view_payment_request') {
       if (payload.type.startsWith('payment_')) {
+        final review = payload.reviewRoute;
+        if (review != null && review.isNotEmpty) {
+          router.go(review);
+          return;
+        }
         router.go('/director/payment-requests?filter=pending');
         return;
       }

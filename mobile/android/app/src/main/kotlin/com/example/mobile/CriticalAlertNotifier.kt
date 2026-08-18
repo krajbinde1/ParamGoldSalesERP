@@ -32,6 +32,8 @@ object CriticalAlertNotifier {
             type == "order_approved" ||
             type.startsWith("order_approved") ||
             type == "order_billed" ||
+            type == "payment_approval" ||
+            type == "payment_approval_reminder" ||
             type == "payment_approval_required" ||
             type == "payment_request_reminder" ||
             type == "payment_request_created" ||
@@ -224,7 +226,9 @@ object CriticalAlertNotifier {
         "new_order" -> "New Order for Approval"
         "order_approved" -> "Order Approved"
         "order_billed" -> "Order Billed"
-        "payment_request_reminder" -> "PAYMENT APPROVAL REMINDER"
+        "payment_approval_reminder",
+        "payment_request_reminder",
+        -> "PAYMENT APPROVAL REMINDER"
         else -> "PAYMENT APPROVAL REQUIRED"
     }
 }

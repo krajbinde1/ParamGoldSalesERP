@@ -296,6 +296,7 @@ class DirectorPaymentRequestController extends Controller
             'status_label' => $pr->displayStatusLabel(),
             'current_stage' => $pr->currentStageLabel(),
             'created_at' => optional($pr->created_at)?->timezone('Asia/Kolkata')->toIso8601String(),
+            'created_by' => $pr->createdByUser?->name,
             'can_approve' => $user->can('approveFirst', $pr) || $user->can('approveSecond', $pr),
             'can_reject' => $user->can('rejectFirst', $pr) || $user->can('rejectSecond', $pr),
         ];
@@ -309,10 +310,12 @@ class DirectorPaymentRequestController extends Controller
         return array_merge($this->listItem($pr, $user), [
             'created_by' => $pr->createdByUser?->name,
             'created_by_id' => $pr->created_by,
+            'first_approved_by' => $pr->first_approved_by,
             'first_approver_name' => $pr->first_approver_name,
             'first_approver_role' => $pr->first_approver_role,
             'first_approved_at' => optional($pr->first_approved_at)?->timezone('Asia/Kolkata')->toIso8601String(),
             'first_rejection_remark' => $pr->first_rejection_remark,
+            'second_approved_by' => $pr->second_approved_by,
             'second_approver_name' => $pr->second_approver_name,
             'second_approver_role' => $pr->second_approver_role,
             'second_approved_at' => optional($pr->second_approved_at)?->timezone('Asia/Kolkata')->toIso8601String(),

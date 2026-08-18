@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\DeviceToken;
 use App\Models\Employee;
 use App\Models\User;
+use App\Enums\UserRole;
 use App\Services\Notifications\FcmHttpClient;
 use Illuminate\Console\Command;
 
@@ -60,7 +61,7 @@ class TestFcmManagerCommand extends Command
         ));
         $this->line('MANAGER_ROLE='.((string) $manager->role));
         $this->line('MANAGER_JOB_ROLE='.((string) ($manager->job_role ?? '')));
-        $this->line('IS_MANAGER_USER='.($manager->isManagerUser() ? 'YES' : 'NO'));
+        $this->line('IS_MANAGER_USER='.($manager->hasRole(UserRole::Manager) ? 'YES' : 'NO'));
 
         $tokens = DeviceToken::query()
             ->where('user_id', $manager->id)
@@ -217,7 +218,7 @@ class TestFcmManagerCommand extends Command
         $id = (int) $raw;
         $byUserId = User::query()->find($id);
         if ($byUserId !== null) {
-            if (! $byUserId->isManagerUser()) {
+            if (! $byUserId->hasRole(UserRole::Manager)) {
                 return [
                     'lookup_type' => 'USER_ID',
                     'user' => null,
@@ -236,7 +237,7 @@ class TestFcmManagerCommand extends Command
 
         $byEmployeeId = User::query()->where('employee_id', $id)->first();
         if ($byEmployeeId !== null) {
-            if (! $byEmployeeId->isManagerUser()) {
+            if (! $byEmployeeId->hasRole(UserRole::Manager)) {
                 return [
                     'lookup_type' => 'EMPLOYEE_ID',
                     'user' => null,
@@ -273,7 +274,7 @@ class TestFcmManagerCommand extends Command
             ->first();
 
         if ($employee?->user !== null) {
-            if (! $employee->user->isManagerUser()) {
+            if (! $employee->user->hasRole(UserRole::Manager)) {
                 return [
                     'lookup_type' => 'MOBILE',
                     'user' => null,
@@ -297,7 +298,7 @@ class TestFcmManagerCommand extends Command
             ->first();
 
         if ($byLogin !== null) {
-            if (! $byLogin->isManagerUser()) {
+            if (! $byLogin->hasRole(UserRole::Manager)) {
                 return [
                     'lookup_type' => 'MOBILE',
                     'user' => null,
@@ -320,7 +321,7 @@ class TestFcmManagerCommand extends Command
                 ->where('employee_id', $employee->id)
                 ->first();
             if ($byEmployeeFk !== null) {
-                if (! $byEmployeeFk->isManagerUser()) {
+                if (! $byEmployeeFk->hasRole(UserRole::Manager)) {
                     return [
                         'lookup_type' => 'MOBILE',
                         'user' => null,

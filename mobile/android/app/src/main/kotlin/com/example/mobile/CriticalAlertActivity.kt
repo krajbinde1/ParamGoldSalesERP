@@ -169,7 +169,10 @@ class CriticalAlertActivity : ComponentActivity() {
         "new_order" -> "New Order for Approval"
         "order_approved" -> "Order Approved"
         "order_billed" -> "Order Billed"
-        "payment_request_reminder" -> "PAYMENT APPROVAL REMINDER"
+        "payment_approval_reminder",
+        "payment_request_reminder",
+        -> "PAYMENT APPROVAL REMINDER"
+        "payment_approval",
         "payment_approval_required",
         "payment_request_created",
         "payment_request_first_approved",

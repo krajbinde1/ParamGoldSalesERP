@@ -2,7 +2,6 @@
 
 namespace App\Services\Notifications;
 
-use App\Enums\FilamentJobRole;
 use App\Enums\UserRole;
 use App\Models\AppNotification;
 use App\Models\DeviceToken;
@@ -451,7 +450,23 @@ final class OrderPushNotifier
             return null;
         }
 
-        return User::query()->where('employee_id', $managerEmployeeId)->first();
+        // LOGIN ROLE is authoritative — designation/job_role must not decide routing.
+        $user = User::query()
+            ->where('employee_id', $managerEmployeeId)
+            ->where('role', UserRole::Manager->value)
+            ->first();
+
+        if ($user === null) {
+            Log::error('PARAMGOLD_LIVE_FCM MANAGER_LOGIN_ROLE_MISMATCH', [
+                'order_id' => $order->id,
+                'reporting_manager_employee_id' => $managerEmployeeId,
+                'linked_user_role' => User::query()
+                    ->where('employee_id', $managerEmployeeId)
+                    ->value('role'),
+            ]);
+        }
+
+        return $user;
     }
 
     /**
@@ -563,14 +578,11 @@ final class OrderPushNotifier
      */
     private function productionSupervisorUsers(): array
     {
+        // LOGIN ROLE only — do not use job_role / designation text.
         return User::query()
             ->with('employee:id,status')
-            ->where(function ($query): void {
-                $query->where('role', UserRole::ProductionSupervisor->value)
-                    ->orWhere('job_role', FilamentJobRole::ProductionSupervisor->value);
-            })
+            ->where('role', UserRole::ProductionSupervisor->value)
             ->get()
-            ->filter(fn (User $user): bool => $user->canActAsProductionSupervisor())
             ->filter(fn (User $user): bool => $user->employee === null || $user->employee->status === true)
             ->unique('id')
             ->values()
@@ -582,13 +594,21 @@ final class OrderPushNotifier
      */
     private function adminUsers(): array
     {
-        // Filament Admin users are identified by job_role = Admin (see User::isAdminUser()).
-        // Directors are intentionally excluded from order push notifications.
+        // Prefer LOGIN ROLE = admin. Also accept legacy Filament accounts that
+        // store Admin on job_role (seeded role may still be employee) but never
+        // use designation / "Regional Manager"-style text.
+        // Directors (login role) are excluded from these order admin pushes.
         return User::query()
             ->with('employee:id,status')
-            ->where('job_role', 'Admin')
+            ->where(function ($query): void {
+                $query->where('role', 'admin')
+                    ->orWhere(function ($legacy): void {
+                        $legacy->where('job_role', 'Admin')
+                            ->where('role', '!=', UserRole::Director->value);
+                    });
+            })
             ->get()
-            ->filter(fn (User $user): bool => $user->isAdminUser() && ! $user->isDirectorUser())
+            ->filter(fn (User $user): bool => ! $user->hasRole(UserRole::Director))
             ->filter(fn (User $user): bool => $user->employee === null || $user->employee->status === true)
             ->unique('id')
             ->values()
