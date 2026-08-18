@@ -68,6 +68,19 @@
             </intent-filter>
         </receiver>
 
+        <!-- Native FCM data-message path → CriticalAlertNotifier (proven FSI). -->
+        <service
+            android:name=".ParamGoldFirebaseMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+        <!-- FlutterFire Dart path uses C2DM BroadcastReceiver; empty MessagingService removed. -->
+        <service
+            android:name="io.flutter.plugins.firebase.messaging.FlutterFirebaseMessagingService"
+            tools:node="remove" />
+
         <receiver
             android:exported="false"
             android:name="com.dexterous.flutterlocalnotifications.ActionBroadcastReceiver" />

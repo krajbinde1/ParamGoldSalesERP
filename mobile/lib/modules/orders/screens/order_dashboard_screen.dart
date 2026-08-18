@@ -56,6 +56,8 @@ class _OrderDashboardScreenState extends State<OrderDashboardScreen> {
     return PgPageScaffold(
       auth: widget.auth,
       title: 'Orders',
+      showBack: true,
+      backFallback: '/dashboard',
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => context.push('/orders/new'),
         icon: const Icon(Icons.add_rounded),

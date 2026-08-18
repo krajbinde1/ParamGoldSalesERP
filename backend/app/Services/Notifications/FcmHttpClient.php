@@ -46,7 +46,18 @@ final class FcmHttpClient
      * @param  array<string, mixed>  $notification
      * @param  array<string, string>  $data
      * @param  array<string, mixed>  $android
-     * @return array{success: int, failure: int, invalid_tokens: list<string>}
+     * @return array{
+     *   success: int,
+     *   failure: int,
+     *   invalid_tokens: list<string>,
+     *   details: list<array{
+     *     http_status: int,
+     *     success: bool,
+     *     message_name: string,
+     *     error_status: string,
+     *     error_message: string
+     *   }>
+     * }
      */
     public function sendToTokens(
         array $tokens,
@@ -55,7 +66,12 @@ final class FcmHttpClient
         array $android = [],
     ): array {
         $tokens = array_values(array_unique(array_filter($tokens)));
-        $result = ['success' => 0, 'failure' => 0, 'invalid_tokens' => []];
+        $result = [
+            'success' => 0,
+            'failure' => 0,
+            'invalid_tokens' => [],
+            'details' => [],
+        ];
 
         if ($tokens === []) {
             Log::error('PARAMGOLD_LIVE_FCM TOKENS_EMPTY');
@@ -69,6 +85,13 @@ final class FcmHttpClient
                 'enabled' => (bool) config('firebase.enabled', true),
                 'credentials_exists' => is_file((string) config('firebase.credentials')),
             ]);
+            $result['details'][] = [
+                'http_status' => 0,
+                'success' => false,
+                'message_name' => '',
+                'error_status' => 'FCM_NOT_CONFIGURED',
+                'error_message' => 'Firebase project_id or credentials missing',
+            ];
 
             return $result;
         }
@@ -76,6 +99,13 @@ final class FcmHttpClient
         $accessToken = $this->accessToken();
         if ($accessToken === null) {
             Log::error('PARAMGOLD_LIVE_FCM ACCESS_TOKEN_NULL');
+            $result['details'][] = [
+                'http_status' => 0,
+                'success' => false,
+                'message_name' => '',
+                'error_status' => 'ACCESS_TOKEN_NULL',
+                'error_message' => 'OAuth access token could not be obtained',
+            ];
 
             return $result;
         }
@@ -166,6 +196,13 @@ final class FcmHttpClient
 
                 if ($response->successful()) {
                     $result['success']++;
+                    $result['details'][] = [
+                        'http_status' => $response->status(),
+                        'success' => true,
+                        'message_name' => (string) ($response->json('name') ?? ''),
+                        'error_status' => '',
+                        'error_message' => '',
+                    ];
                     Log::error('PARAMGOLD_LIVE_FCM SEND_OK', [
                         'token_suffix' => substr($token, -12),
                         'http' => $response->status(),
@@ -181,12 +218,24 @@ final class FcmHttpClient
                 $error = $response->json('error.status')
                     ?? $response->json('error.message')
                     ?? 'unknown';
+                $errorMessage = (string) (
+                    $response->json('error.message')
+                    ?? (is_string($response->body()) ? $response->body() : json_encode($response->json()))
+                );
 
                 if (in_array($error, ['NOT_FOUND', 'UNREGISTERED', 'INVALID_ARGUMENT'], true)
                     || str_contains(strtolower((string) $error), 'not found')
                     || str_contains(strtolower((string) $error), 'unregistered')) {
                     $result['invalid_tokens'][] = $token;
                 }
+
+                $result['details'][] = [
+                    'http_status' => $response->status(),
+                    'success' => false,
+                    'message_name' => '',
+                    'error_status' => (string) $error,
+                    'error_message' => $errorMessage,
+                ];
 
                 Log::error('PARAMGOLD_LIVE_FCM SEND_FAIL', [
                     'token_suffix' => substr($token, -12),
@@ -196,6 +245,13 @@ final class FcmHttpClient
                 ]);
             } catch (Throwable $e) {
                 $result['failure']++;
+                $result['details'][] = [
+                    'http_status' => 0,
+                    'success' => false,
+                    'message_name' => '',
+                    'error_status' => 'EXCEPTION',
+                    'error_message' => $e->getMessage(),
+                ];
                 Log::error('PARAMGOLD_LIVE_FCM SEND_EXCEPTION', [
                     'token_suffix' => substr($token, -12),
                     'message' => $e->getMessage(),

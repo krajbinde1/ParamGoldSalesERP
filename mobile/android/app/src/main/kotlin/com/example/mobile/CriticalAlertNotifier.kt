@@ -35,7 +35,8 @@ object CriticalAlertNotifier {
             type == "payment_approval_required" ||
             type == "payment_request_reminder" ||
             type == "payment_request_created" ||
-            type == "payment_request_first_approved"
+            type == "payment_request_first_approved" ||
+            type == "diagnostic_test"
 
     fun post(context: Context, data: Map<String, String>, titleHint: String? = null, bodyHint: String? = null) {
         ensureChannel(context)

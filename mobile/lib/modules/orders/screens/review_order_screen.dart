@@ -50,10 +50,12 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
         SnackBar(content: Text('${result.message} ${result.orderNo}')),
       );
 
+      // Pop back to Orders (or detail) so Dashboard stays under the stack.
+      // Avoid context.go which clears the stack and breaks Android Back.
       if (widget.draft.isEditing) {
-        safeGo(context, '/orders/${widget.draft.orderId}');
+        popToOrGo(context, '/orders/${widget.draft.orderId}');
       } else {
-        safeGo(context, '/orders');
+        popToOrGo(context, '/orders');
       }
     } catch (error) {
       if (!mounted) return;

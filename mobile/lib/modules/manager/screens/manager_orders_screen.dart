@@ -315,61 +315,71 @@ class _ManagerOrdersScreenState extends State<ManagerOrdersScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: RoleAppBar(
-        title: 'Orders',
-        auth: widget.auth,
-        actions: [
-          IconButton(
-            tooltip: 'Filters',
-            onPressed: _openFilters,
-            icon: const Icon(Icons.filter_list),
+    final canPop = context.canPop();
+    return PopScope(
+      canPop: canPop,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        smartBack(context);
+      },
+      child: Scaffold(
+        appBar: RoleAppBar(
+          title: 'Orders',
+          auth: widget.auth,
+          showBack: true,
+          onBack: () => smartBack(context),
+          actions: [
+            IconButton(
+              tooltip: 'Filters',
+              onPressed: _openFilters,
+              icon: const Icon(Icons.filter_list),
+            ),
+          ],
+          bottom: TabBar(
+            controller: _tabController,
+            isScrollable: true,
+            tabAlignment: TabAlignment.start,
+            tabs: [
+              Tab(text: 'Pending (${_counts.pendingApproval})'),
+              Tab(text: 'Approved (${_counts.approved})'),
+              Tab(text: 'Dispatched (${_counts.dispatched})'),
+              Tab(text: 'Rejected (${_counts.rejected})'),
+            ],
           ),
-        ],
-        bottom: TabBar(
+        ),
+        body: TabBarView(
           controller: _tabController,
-          isScrollable: true,
-          tabAlignment: TabAlignment.start,
-          tabs: [
-            Tab(text: 'Pending (${_counts.pendingApproval})'),
-            Tab(text: 'Approved (${_counts.approved})'),
-            Tab(text: 'Dispatched (${_counts.dispatched})'),
-            Tab(text: 'Rejected (${_counts.rejected})'),
+          children: [
+            _ManagerOrderTab(
+              future: _pendingFuture,
+              emptyMessage: 'No pending orders for approval.',
+              onCounts: _updateCounts,
+              onRefresh: _refreshAll,
+              onTap: (id) => _openOrderDetail(id, tabIndex: 0),
+            ),
+            _ManagerOrderTab(
+              future: _approvedFuture,
+              emptyMessage: 'No approved orders.',
+              onCounts: _updateCounts,
+              onRefresh: _refreshAll,
+              onTap: (id) => _openOrderDetail(id, tabIndex: 1),
+            ),
+            _ManagerOrderTab(
+              future: _dispatchedFuture,
+              emptyMessage: 'No dispatched orders.',
+              onCounts: _updateCounts,
+              onRefresh: _refreshAll,
+              onTap: (id) => _openOrderDetail(id, tabIndex: 2),
+            ),
+            _ManagerOrderTab(
+              future: _rejectedFuture,
+              emptyMessage: 'No rejected orders.',
+              onCounts: _updateCounts,
+              onRefresh: _refreshAll,
+              onTap: (id) => _openOrderDetail(id, tabIndex: 3),
+            ),
           ],
         ),
-      ),
-      body: TabBarView(
-        controller: _tabController,
-        children: [
-          _ManagerOrderTab(
-            future: _pendingFuture,
-            emptyMessage: 'No pending orders for approval.',
-            onCounts: _updateCounts,
-            onRefresh: _refreshAll,
-            onTap: (id) => _openOrderDetail(id, tabIndex: 0),
-          ),
-          _ManagerOrderTab(
-            future: _approvedFuture,
-            emptyMessage: 'No approved orders.',
-            onCounts: _updateCounts,
-            onRefresh: _refreshAll,
-            onTap: (id) => _openOrderDetail(id, tabIndex: 1),
-          ),
-          _ManagerOrderTab(
-            future: _dispatchedFuture,
-            emptyMessage: 'No dispatched orders.',
-            onCounts: _updateCounts,
-            onRefresh: _refreshAll,
-            onTap: (id) => _openOrderDetail(id, tabIndex: 2),
-          ),
-          _ManagerOrderTab(
-            future: _rejectedFuture,
-            emptyMessage: 'No rejected orders.',
-            onCounts: _updateCounts,
-            onRefresh: _refreshAll,
-            onTap: (id) => _openOrderDetail(id, tabIndex: 3),
-          ),
-        ],
       ),
     );
   }
@@ -625,7 +635,11 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Order approved.')));
-      safePop(context, 'approved');
+      if (context.canPop()) {
+        safePop(context, 'approved');
+      } else {
+        smartBack(context);
+      }
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -661,7 +675,11 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
       ScaffoldMessenger.of(
         context,
       ).showSnackBar(const SnackBar(content: Text('Order rejected.')));
-      safePop(context, 'rejected');
+      if (context.canPop()) {
+        safePop(context, 'rejected');
+      } else {
+        smartBack(context);
+      }
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(
@@ -674,30 +692,42 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: RoleAppBar(title: 'Order Review', auth: widget.auth),
-      body: FutureBuilder<Map<String, dynamic>>(
-        future: _future,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return const PgLoadingState();
-          }
-          if (snapshot.hasError) {
-            return PgErrorState(message: errorMessage(snapshot.error));
-          }
+    final canPop = context.canPop();
+    return PopScope(
+      canPop: canPop,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        smartBack(context);
+      },
+      child: Scaffold(
+        appBar: RoleAppBar(
+          title: 'Order Review',
+          auth: widget.auth,
+          showBack: true,
+          onBack: () => smartBack(context),
+        ),
+        body: FutureBuilder<Map<String, dynamic>>(
+          future: _future,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const PgLoadingState();
+            }
+            if (snapshot.hasError) {
+              return PgErrorState(message: errorMessage(snapshot.error));
+            }
 
-          final order = snapshot.data!;
-          final status = order['status']?.toString() ?? '';
-          final items = ((order['line_items'] as List?) ??
-                  (order['items'] as List?) ??
-                  const [])
-              .map((item) => Map<String, dynamic>.from(item as Map))
-              .toList();
-          final isPending = status == 'pending_approval';
-          final canEdit = order['can_edit'] == true && isPending;
-          final dealer = order['dealer'] is Map
-              ? Map<String, dynamic>.from(order['dealer'] as Map)
-              : <String, dynamic>{};
+            final order = snapshot.data!;
+            final status = order['status']?.toString() ?? '';
+            final items = ((order['line_items'] as List?) ??
+                    (order['items'] as List?) ??
+                    const [])
+                .map((item) => Map<String, dynamic>.from(item as Map))
+                .toList();
+            final isPending = status == 'pending_approval';
+            final canEdit = order['can_edit'] == true && isPending;
+            final dealer = order['dealer'] is Map
+                ? Map<String, dynamic>.from(order['dealer'] as Map)
+                : <String, dynamic>{};
           final billUrl = order['bill_url']?.toString() ?? '';
           final timeline = ((order['timeline'] as List?) ?? const [])
               .map(
@@ -807,6 +837,7 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
             ],
           );
         },
+      ),
       ),
     );
   }

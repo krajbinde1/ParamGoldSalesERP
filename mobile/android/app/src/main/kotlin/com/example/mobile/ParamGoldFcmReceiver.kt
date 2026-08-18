@@ -54,7 +54,7 @@ class ParamGoldFcmReceiver : BroadcastReceiver() {
             return
         }
 
-        Log.i(LIVE_TAG, "CALLING_CRITICAL_NOTIFIER")
+        Log.i(LIVE_TAG, "CRITICAL_NOTIFIER_CALLED")
         CriticalAlertNotifier.post(
             context = context.applicationContext,
             data = data,

@@ -16,8 +16,17 @@ class RoleAppBar extends AppBar {
     required AuthController auth,
     super.bottom,
     List<Widget>? actions,
+    bool showBack = false,
+    VoidCallback? onBack,
   }) : super(
           title: Text(title),
+          automaticallyImplyLeading: !showBack,
+          leading: showBack
+              ? IconButton(
+                  icon: const Icon(Icons.arrow_back_rounded),
+                  onPressed: onBack,
+                )
+              : null,
           actionsIconTheme: const IconThemeData(
             color: AppColors.textPrimary,
             size: 24,
