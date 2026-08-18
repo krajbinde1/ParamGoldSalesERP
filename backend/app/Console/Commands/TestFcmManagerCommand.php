@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\DeviceToken;
+use App\Models\Employee;
 use App\Models\User;
 use App\Services\Notifications\FcmHttpClient;
 use Illuminate\Console\Command;
@@ -14,30 +15,49 @@ use Illuminate\Console\Command;
 class TestFcmManagerCommand extends Command
 {
     protected $signature = 'paramgold:test-fcm-manager
-                            {managerId : Manager user ID (or employee_id if user id not found)}';
+                            {managerId : Manager user ID, employee_id, or 10-digit mobile number}';
 
     protected $description = 'Send a live critical FCM data message to a Manager device token (diagnostic)';
 
     public function handle(FcmHttpClient $fcm): int
     {
-        $managerId = (string) $this->argument('managerId');
-        $manager = $this->resolveManager($managerId);
+        $raw = trim((string) $this->argument('managerId'));
+        $resolved = $this->resolveManager($raw);
+
+        $lookupType = $resolved['lookup_type'];
+        $manager = $resolved['user'];
+        $mobile = $resolved['mobile'];
+
+        $this->line('LOOKUP_TYPE='.$lookupType);
 
         if ($manager === null) {
             $this->line('MANAGER_FOUND=NO');
-            $this->line('MANAGER_ID='.$managerId);
+            $this->line('USER_ID=');
+            $this->line('EMPLOYEE_ID=');
             $this->line('MANAGER_NAME=');
+            $this->line('MOBILE='.($mobile ?? ''));
             $this->line('TOKEN_COUNT=0');
             $this->line('TOKEN_MASKED=');
-            $this->error('ROOT_CAUSE=MANAGER_NOT_FOUND');
+            $this->line('FCM_SEND_SUCCESS=NO');
+            $this->line('FCM_HTTP_STATUS=');
+            $this->line('FCM_RESPONSE=');
+            $this->error('ROOT_CAUSE='.($resolved['root_cause'] ?? 'MANAGER_NOT_FOUND'));
 
             return self::FAILURE;
         }
 
+        $manager->loadMissing('employee:id,full_name,mobile');
+
         $this->line('MANAGER_FOUND=YES');
-        $this->line('MANAGER_ID='.$manager->id);
+        $this->line('USER_ID='.$manager->id);
+        $this->line('EMPLOYEE_ID='.(string) ($manager->employee_id ?? $manager->employee?->id ?? ''));
         $this->line('MANAGER_NAME='.$this->managerName($manager));
-        $this->line('MANAGER_EMAIL='.((string) $manager->email));
+        $this->line('MOBILE='.(string) (
+            $mobile
+            ?? $manager->employee?->mobile
+            ?? $manager->login_id
+            ?? ''
+        ));
         $this->line('MANAGER_ROLE='.((string) $manager->role));
         $this->line('MANAGER_JOB_ROLE='.((string) ($manager->job_role ?? '')));
         $this->line('IS_MANAGER_USER='.($manager->isManagerUser() ? 'YES' : 'NO'));
@@ -55,6 +75,9 @@ class TestFcmManagerCommand extends Command
 
         if ($tokens === []) {
             $this->line('TOKEN_MASKED=');
+            $this->line('FCM_SEND_SUCCESS=NO');
+            $this->line('FCM_HTTP_STATUS=');
+            $this->line('FCM_RESPONSE=');
             $this->error('ROOT_CAUSE=MANAGER_DEVICE_TOKEN_NOT_REGISTERED');
             $this->warn('Manager must open the live APK, log in, and allow notification permission so getToken() registers.');
 
@@ -64,6 +87,7 @@ class TestFcmManagerCommand extends Command
         foreach ($tokens as $index => $token) {
             $this->line('TOKEN_MASKED['.$index.']='.$this->maskToken($token));
         }
+        $this->line('TOKEN_MASKED='.$this->maskToken($tokens[0]));
 
         $backendProject = (string) config('firebase.project_id');
         $mobileProject = $this->mobileFirebaseProjectId();
@@ -75,6 +99,9 @@ class TestFcmManagerCommand extends Command
         $this->line('PROJECT_MATCH='.($projectMatch ? 'YES' : 'NO'));
 
         if ($mobileProject !== null && ! $projectMatch) {
+            $this->line('FCM_SEND_SUCCESS=NO');
+            $this->line('FCM_HTTP_STATUS=');
+            $this->line('FCM_RESPONSE=');
             $this->error('ROOT_CAUSE=FIREBASE_PROJECT_MISMATCH');
 
             return self::FAILURE;
@@ -83,6 +110,8 @@ class TestFcmManagerCommand extends Command
         if (! $fcm->isConfigured()) {
             $this->line('FIREBASE_PROJECT_ID='.$backendProject);
             $this->line('FCM_SEND_SUCCESS=NO');
+            $this->line('FCM_HTTP_STATUS=');
+            $this->line('FCM_RESPONSE=FCM_NOT_CONFIGURED');
             $this->error('ROOT_CAUSE=FCM_NOT_CONFIGURED');
             $this->warn('Check FIREBASE_PROJECT_ID and firebase-service-account.json on this server.');
 
@@ -115,15 +144,24 @@ class TestFcmManagerCommand extends Command
         $details = $result['details'] ?? [];
         $first = is_array($details[0] ?? null) ? $details[0] : [];
 
-        $this->line('FCM_HTTP_STATUS='.(string) ($first['http_status'] ?? ''));
-        $this->line('FCM_SEND_SUCCESS='.(($result['success'] ?? 0) > 0 ? 'YES' : 'NO'));
-        $this->line('FCM_MESSAGE_NAME='.(string) ($first['message_name'] ?? ''));
+        $httpStatus = (string) ($first['http_status'] ?? '');
+        $sendOk = (($result['success'] ?? 0) > 0);
+        $messageName = (string) ($first['message_name'] ?? '');
+        $errorStatus = (string) ($first['error_status'] ?? '');
+        $errorMessage = (string) ($first['error_message'] ?? '');
+
+        $this->line('FCM_HTTP_STATUS='.$httpStatus);
+        $this->line('FCM_SEND_SUCCESS='.($sendOk ? 'YES' : 'NO'));
+        $this->line('FCM_MESSAGE_NAME='.$messageName);
         $this->line('FCM_SUCCESS_COUNT='.(string) ($result['success'] ?? 0));
         $this->line('FCM_FAILURE_COUNT='.(string) ($result['failure'] ?? 0));
+        $this->line(
+            'FCM_RESPONSE='.($sendOk
+                ? ($messageName !== '' ? $messageName : 'OK')
+                : trim($errorStatus.' '.$errorMessage)),
+        );
 
-        if (($result['success'] ?? 0) <= 0) {
-            $errorStatus = (string) ($first['error_status'] ?? 'unknown');
-            $errorMessage = (string) ($first['error_message'] ?? '');
+        if (! $sendOk) {
             $this->line('FCM_ERROR_STATUS='.$errorStatus);
             $this->line('FCM_ERROR_MESSAGE='.$errorMessage);
 
@@ -151,19 +189,161 @@ class TestFcmManagerCommand extends Command
         return self::SUCCESS;
     }
 
-    private function resolveManager(string $managerId): ?User
+    /**
+     * @return array{lookup_type: string, user: ?User, mobile: ?string, root_cause: ?string}
+     */
+    private function resolveManager(string $raw): array
     {
-        if (! ctype_digit($managerId)) {
-            return null;
+        $digits = preg_replace('/\D+/', '', $raw) ?? '';
+
+        // 10-digit Indian mobile (or 12-digit with 91 prefix → last 10).
+        if (strlen($digits) === 12 && str_starts_with($digits, '91')) {
+            $digits = substr($digits, 2);
         }
 
-        $id = (int) $managerId;
+        if (strlen($digits) === 10) {
+            return $this->resolveByMobile($digits);
+        }
+
+        if (! ctype_digit($raw)) {
+            return [
+                'lookup_type' => 'INVALID',
+                'user' => null,
+                'mobile' => null,
+                'root_cause' => 'MANAGER_NOT_FOUND',
+            ];
+        }
+
+        $id = (int) $raw;
         $byUserId = User::query()->find($id);
         if ($byUserId !== null) {
-            return $byUserId;
+            if (! $byUserId->isManagerUser()) {
+                return [
+                    'lookup_type' => 'USER_ID',
+                    'user' => null,
+                    'mobile' => null,
+                    'root_cause' => 'USER_FOUND_BUT_NOT_MANAGER',
+                ];
+            }
+
+            return [
+                'lookup_type' => 'USER_ID',
+                'user' => $byUserId,
+                'mobile' => null,
+                'root_cause' => null,
+            ];
         }
 
-        return User::query()->where('employee_id', $id)->first();
+        $byEmployeeId = User::query()->where('employee_id', $id)->first();
+        if ($byEmployeeId !== null) {
+            if (! $byEmployeeId->isManagerUser()) {
+                return [
+                    'lookup_type' => 'EMPLOYEE_ID',
+                    'user' => null,
+                    'mobile' => null,
+                    'root_cause' => 'USER_FOUND_BUT_NOT_MANAGER',
+                ];
+            }
+
+            return [
+                'lookup_type' => 'EMPLOYEE_ID',
+                'user' => $byEmployeeId,
+                'mobile' => null,
+                'root_cause' => null,
+            ];
+        }
+
+        return [
+            'lookup_type' => 'ID',
+            'user' => null,
+            'mobile' => null,
+            'root_cause' => 'MANAGER_NOT_FOUND',
+        ];
+    }
+
+    /**
+     * @return array{lookup_type: string, user: ?User, mobile: ?string, root_cause: ?string}
+     */
+    private function resolveByMobile(string $mobile): array
+    {
+        // 1) employees.mobile → employee.user
+        $employee = Employee::query()
+            ->with('user')
+            ->where('mobile', $mobile)
+            ->first();
+
+        if ($employee?->user !== null) {
+            if (! $employee->user->isManagerUser()) {
+                return [
+                    'lookup_type' => 'MOBILE',
+                    'user' => null,
+                    'mobile' => $mobile,
+                    'root_cause' => 'USER_FOUND_BUT_NOT_MANAGER',
+                ];
+            }
+
+            return [
+                'lookup_type' => 'MOBILE',
+                'user' => $employee->user,
+                'mobile' => $mobile,
+                'root_cause' => null,
+            ];
+        }
+
+        // 2) users.login_id (often the mobile used at login)
+        $byLogin = User::query()
+            ->with('employee:id,full_name,mobile')
+            ->where('login_id', $mobile)
+            ->first();
+
+        if ($byLogin !== null) {
+            if (! $byLogin->isManagerUser()) {
+                return [
+                    'lookup_type' => 'MOBILE',
+                    'user' => null,
+                    'mobile' => $mobile,
+                    'root_cause' => 'USER_FOUND_BUT_NOT_MANAGER',
+                ];
+            }
+
+            return [
+                'lookup_type' => 'MOBILE',
+                'user' => $byLogin,
+                'mobile' => $mobile,
+                'root_cause' => null,
+            ];
+        }
+
+        // 3) users.employee_id via employees.mobile when user relation missing above
+        if ($employee !== null && $employee->user === null) {
+            $byEmployeeFk = User::query()
+                ->where('employee_id', $employee->id)
+                ->first();
+            if ($byEmployeeFk !== null) {
+                if (! $byEmployeeFk->isManagerUser()) {
+                    return [
+                        'lookup_type' => 'MOBILE',
+                        'user' => null,
+                        'mobile' => $mobile,
+                        'root_cause' => 'USER_FOUND_BUT_NOT_MANAGER',
+                    ];
+                }
+
+                return [
+                    'lookup_type' => 'MOBILE',
+                    'user' => $byEmployeeFk,
+                    'mobile' => $mobile,
+                    'root_cause' => null,
+                ];
+            }
+        }
+
+        return [
+            'lookup_type' => 'MOBILE',
+            'user' => null,
+            'mobile' => $mobile,
+            'root_cause' => 'MANAGER_NOT_FOUND',
+        ];
     }
 
     private function managerName(User $manager): string
