@@ -61,3 +61,4 @@ desktop.ini
 backend/database/*.sqlite
 backend/database/*.sqlite-journal
 *.log
+mobile/installed_base.apk

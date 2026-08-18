@@ -36,8 +36,21 @@ final class OrderPushNotifier
 
         $managerUser = $this->reportingManagerUser($order);
         if (! $managerUser) {
+            Log::error('PARAMGOLD_LIVE_FCM NEW_ORDER_NO_MANAGER', [
+                'order_id' => $order->id,
+                'sales_employee_id' => $order->sales_employee_id,
+                'reporting_manager_id' => $order->salesEmployee?->reporting_manager_id,
+            ]);
+
             return;
         }
+
+        Log::error('PARAMGOLD_LIVE_FCM NEW_ORDER_TRIGGER', [
+            'order_id' => $order->id,
+            'manager_user_id' => $managerUser->id,
+            'manager_email' => $managerUser->email,
+            'status' => (string) $order->status,
+        ]);
 
         $shortNo = $order->shortOrderNo();
         $dealer = $this->dealerName($order);
@@ -466,6 +479,13 @@ final class OrderPushNotifier
             ]);
 
             if ($inserted === 0) {
+                Log::error('PARAMGOLD_LIVE_FCM DEDUPE_SKIP', [
+                    'order_id' => $order->id,
+                    'user_id' => $user->id,
+                    'type' => $type,
+                    'status_key' => $statusKey,
+                ]);
+
                 return;
             }
 
@@ -483,7 +503,25 @@ final class OrderPushNotifier
                 ->pluck('token')
                 ->all();
 
+            Log::error('PARAMGOLD_LIVE_FCM MANAGER_TOKENS', [
+                'user_id' => $user->id,
+                'type' => $type,
+                'order_id' => $order->id,
+                'token_count' => count($tokens),
+                'token_suffixes' => array_map(
+                    static fn (string $token): string => substr($token, -12),
+                    $tokens,
+                ),
+                'fullscreen' => (string) ($data['fullscreen'] ?? ''),
+            ]);
+
             if ($tokens === []) {
+                Log::error('PARAMGOLD_LIVE_FCM MANAGER_TOKEN_MISSING', [
+                    'user_id' => $user->id,
+                    'order_id' => $order->id,
+                    'type' => $type,
+                ]);
+
                 return;
             }
 
@@ -496,6 +534,15 @@ final class OrderPushNotifier
                 data: $data,
                 android: $android,
             );
+
+            Log::error('PARAMGOLD_LIVE_FCM DISPATCH_RESULT', [
+                'user_id' => $user->id,
+                'order_id' => $order->id,
+                'type' => $type,
+                'success' => $result['success'],
+                'failure' => $result['failure'],
+                'invalid' => count($result['invalid_tokens']),
+            ]);
 
             if ($result['invalid_tokens'] !== []) {
                 DeviceToken::query()

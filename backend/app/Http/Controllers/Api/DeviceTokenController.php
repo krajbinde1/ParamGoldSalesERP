@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\DeviceToken;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class DeviceTokenController extends Controller
 {
@@ -55,6 +56,14 @@ class DeviceTokenController extends Controller
                 'last_used_at' => now(),
             ],
         );
+
+        Log::error('PARAMGOLD_LIVE_FCM TOKEN_REGISTERED', [
+            'user_id' => $request->user()->id,
+            'token_id' => $record->id,
+            'token_suffix' => substr($token, -12),
+            'platform' => $record->platform,
+            'installation_id' => $installationId,
+        ]);
 
         return response()->json([
             'success' => true,

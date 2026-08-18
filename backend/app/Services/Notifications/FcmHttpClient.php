@@ -57,17 +57,39 @@ final class FcmHttpClient
         $tokens = array_values(array_unique(array_filter($tokens)));
         $result = ['success' => 0, 'failure' => 0, 'invalid_tokens' => []];
 
-        if ($tokens === [] || ! $this->isConfigured()) {
+        if ($tokens === []) {
+            Log::error('PARAMGOLD_LIVE_FCM TOKENS_EMPTY');
+
+            return $result;
+        }
+
+        if (! $this->isConfigured()) {
+            Log::error('PARAMGOLD_LIVE_FCM FCM_NOT_CONFIGURED', [
+                'project_id' => (string) config('firebase.project_id'),
+                'enabled' => (bool) config('firebase.enabled', true),
+                'credentials_exists' => is_file((string) config('firebase.credentials')),
+            ]);
+
             return $result;
         }
 
         $accessToken = $this->accessToken();
         if ($accessToken === null) {
+            Log::error('PARAMGOLD_LIVE_FCM ACCESS_TOKEN_NULL');
+
             return $result;
         }
 
         $projectId = (string) config('firebase.project_id');
         $url = "https://fcm.googleapis.com/v1/projects/{$projectId}/messages:send";
+
+        Log::error('PARAMGOLD_LIVE_FCM SEND_START', [
+            'project_id' => $projectId,
+            'token_count' => count($tokens),
+            'type' => (string) ($data['type'] ?? ''),
+            'order_id' => (string) ($data['order_id'] ?? ''),
+            'fullscreen' => (string) ($data['fullscreen'] ?? ''),
+        ]);
 
         $title = (string) ($notification['title'] ?? ($data['title'] ?? ''));
         $body = (string) ($notification['body'] ?? ($data['body'] ?? ''));
@@ -84,6 +106,15 @@ final class FcmHttpClient
             ]));
 
             $isFullscreen = ($dataPayload['fullscreen'] ?? '0') === '1';
+
+            Log::error('PARAMGOLD_LIVE_FCM PAYLOAD', [
+                'token_suffix' => substr($token, -12),
+                'fullscreen' => (string) ($dataPayload['fullscreen'] ?? ''),
+                'order_id' => (string) ($dataPayload['order_id'] ?? ''),
+                'type' => (string) ($dataPayload['type'] ?? ''),
+                'data_only' => $isFullscreen,
+                'keys' => array_keys($dataPayload),
+            ]);
 
             // Critical full-screen alerts: data-only so native Android owns a
             // single local notification with fullScreenIntent. Fallback remains
@@ -135,6 +166,14 @@ final class FcmHttpClient
 
                 if ($response->successful()) {
                     $result['success']++;
+                    Log::error('PARAMGOLD_LIVE_FCM SEND_OK', [
+                        'token_suffix' => substr($token, -12),
+                        'http' => $response->status(),
+                        'name' => $response->json('name'),
+                        'fullscreen' => (string) ($dataPayload['fullscreen'] ?? ''),
+                        'order_id' => (string) ($dataPayload['order_id'] ?? ''),
+                    ]);
+
                     continue;
                 }
 
@@ -149,16 +188,26 @@ final class FcmHttpClient
                     $result['invalid_tokens'][] = $token;
                 }
 
-                Log::warning('FCM send failed', [
+                Log::error('PARAMGOLD_LIVE_FCM SEND_FAIL', [
                     'token_suffix' => substr($token, -12),
                     'status' => $response->status(),
+                    'error' => $error,
                     'body' => $response->json() ?? $response->body(),
                 ]);
             } catch (Throwable $e) {
                 $result['failure']++;
-                Log::warning('FCM send exception: '.$e->getMessage());
+                Log::error('PARAMGOLD_LIVE_FCM SEND_EXCEPTION', [
+                    'token_suffix' => substr($token, -12),
+                    'message' => $e->getMessage(),
+                ]);
             }
         }
+
+        Log::error('PARAMGOLD_LIVE_FCM SEND_DONE', [
+            'success' => $result['success'],
+            'failure' => $result['failure'],
+            'invalid' => count($result['invalid_tokens']),
+        ]);
 
         return $result;
     }
