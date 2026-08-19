@@ -2,6 +2,59 @@
 @include('filament.widgets.partials.admin-dashboard-styles')
 
 <style>
+    /*
+     * Shared Admin main content container — Dashboard + Orders + all modules.
+     * Balanced enterprise width (~1550px), centered after sidebar.
+     */
+    .paramgold-admin-shell .fi-main.fi-width-full,
+    .paramgold-admin-shell .fi-main.fi-width-7xl {
+        width: 100%;
+        max-width: none;
+        margin-left: auto;
+        margin-right: auto;
+        padding-left: 1rem;
+        padding-right: 1rem;
+        box-sizing: border-box;
+    }
+
+    @media (min-width: 768px) {
+        .paramgold-admin-shell .fi-main.fi-width-full,
+        .paramgold-admin-shell .fi-main.fi-width-7xl {
+            padding-left: 1.25rem;
+            padding-right: 1.25rem;
+        }
+    }
+
+    @media (min-width: 1024px) {
+        .paramgold-admin-shell .fi-main.fi-width-full,
+        .paramgold-admin-shell .fi-main.fi-width-7xl {
+            width: calc(100% - 40px);
+            max-width: 1550px;
+            padding-left: 1.25rem;
+            padding-right: 1.25rem;
+        }
+    }
+
+    @media (min-width: 1280px) {
+        .paramgold-admin-shell .fi-main.fi-width-full,
+        .paramgold-admin-shell .fi-main.fi-width-7xl {
+            width: calc(100% - 48px);
+            max-width: 1550px;
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
+        }
+    }
+
+    @media (min-width: 1536px) {
+        .paramgold-admin-shell .fi-main.fi-width-full,
+        .paramgold-admin-shell .fi-main.fi-width-7xl {
+            width: calc(100% - 48px);
+            max-width: 1550px;
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
+        }
+    }
+
     .paramgold-admin-shell .fi-main {
         background: rgb(248 250 252);
     }

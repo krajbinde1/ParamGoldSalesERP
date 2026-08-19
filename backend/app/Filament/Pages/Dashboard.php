@@ -15,15 +15,10 @@ use App\Filament\Widgets\ManagerWelcomeWidget;
 use App\Filament\Widgets\ProductionOrderStatsWidget;
 use Filament\Facades\Filament;
 use Filament\Pages\Dashboard as BaseDashboard;
-use Filament\Support\Enums\Width;
 use Filament\Widgets\WidgetConfiguration;
 
 class Dashboard extends BaseDashboard
 {
-    /**
-     * Use the full content area after the sidebar (no 7xl max-width).
-     */
-    protected Width|string|null $maxContentWidth = Width::Full;
     public static function canAccess(): bool
     {
         if (auth()->user()?->isProductionManagerOnlyInFilament()) {
