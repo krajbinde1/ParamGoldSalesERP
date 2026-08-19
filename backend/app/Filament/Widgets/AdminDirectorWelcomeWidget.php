@@ -40,8 +40,7 @@ class AdminDirectorWelcomeWidget extends Widget
         $monthEnd = $now->copy()->endOfMonth();
         $today = $now->toDateString();
 
-        $metrics = app(DashboardMetricsService::class);
-        $summary = $metrics->teamPerformanceSummary($monthStart, $monthEnd);
+        $summary = app(DashboardMetricsService::class)->teamPerformanceSummary($monthStart, $monthEnd);
 
         $pendingOrders = Order::query()->where('status', 'pending_approval')->count();
         $pendingPayments = PaymentRequest::query()
@@ -70,46 +69,43 @@ class AdminDirectorWelcomeWidget extends Widget
             'userName' => $user?->employee?->full_name ?? $user?->name ?? 'User',
             'roleLabel' => $user?->adminDirectorRoleLabel() ?? 'Admin',
             'currentDate' => $now->format('l, d F Y'),
-            'formatMoney' => fn (float $amount): string => Number::currency($amount, 'INR', 'en_IN'),
-            'formatPercentage' => fn (float $percentage): string => number_format($percentage, 2).'%',
             'kpis' => [
                 [
                     'label' => 'Sales Achievement',
                     'value' => Number::currency((float) $summary['sales_achieved'], 'INR', 'en_IN'),
-                    'meta' => 'This Month · '.$this->safePct((float) $summary['sales_percentage']),
+                    'meta' => 'This Month',
                     'tone' => 'teal',
+                    'icon' => 'heroicon-o-arrow-trending-up',
                 ],
                 [
                     'label' => 'Collection Achievement',
                     'value' => Number::currency((float) $summary['collection_achieved'], 'INR', 'en_IN'),
-                    'meta' => 'This Month · '.$this->safePct((float) $summary['collection_percentage']),
+                    'meta' => 'This Month',
                     'tone' => 'blue',
+                    'icon' => 'heroicon-o-banknotes',
                 ],
                 [
                     'label' => 'Pending Orders',
                     'value' => (string) $pendingOrders,
-                    'meta' => $pendingOrders === 0 ? '0 Pending Orders' : 'Awaiting approval',
+                    'meta' => $pendingOrders === 0 ? '0 Pending Orders' : 'Awaiting Approval',
                     'tone' => 'amber',
+                    'icon' => 'heroicon-o-clipboard-document-list',
                 ],
                 [
                     'label' => 'Payment Approvals',
                     'value' => (string) $pendingPayments,
                     'meta' => $pendingPayments === 1 ? '1 Pending' : $pendingPayments.' Pending',
                     'tone' => 'green',
+                    'icon' => 'heroicon-o-check-badge',
                 ],
             ],
             'teamToday' => [
-                ['label' => 'Present', 'value' => $presentToday],
-                ['label' => 'Absent', 'value' => $absentToday],
-                ['label' => 'Half Day', 'value' => $halfDayToday],
-                ['label' => 'Dealer Visits', 'value' => $dealerVisitsToday],
-                ['label' => 'Field Visits', 'value' => $fieldVisitsToday],
+                ['label' => 'Present', 'value' => $presentToday, 'tone' => 'green', 'icon' => 'heroicon-o-check-circle'],
+                ['label' => 'Absent', 'value' => $absentToday, 'tone' => 'red', 'icon' => 'heroicon-o-user-minus'],
+                ['label' => 'Half Day', 'value' => $halfDayToday, 'tone' => 'amber', 'icon' => 'heroicon-o-clock'],
+                ['label' => 'Dealer Visits', 'value' => $dealerVisitsToday, 'tone' => 'blue', 'icon' => 'heroicon-o-building-storefront'],
+                ['label' => 'Field Visits', 'value' => $fieldVisitsToday, 'tone' => 'teal', 'icon' => 'heroicon-o-map-pin'],
             ],
         ];
-    }
-
-    private function safePct(float $percentage): string
-    {
-        return number_format($percentage, 2).'%';
     }
 }

@@ -1,32 +1,53 @@
 <x-filament-widgets::widget class="fi-admin-director-payment-overview-widget">
-    <x-filament::section>
-        <div class="pg-dash-section__head">
-            <div>
-                <h2 class="pg-dash-section__title">Payment Approval Overview</h2>
-                <p class="pg-dash-section__subtitle">Snapshot of payment request stages</p>
+    <div class="pg-admin-dash">
+        <x-filament::section>
+            <div class="pg-section-head">
+                <div>
+                    <h2 class="pg-section-title">Payment Approval</h2>
+                    <p class="pg-section-sub">Approval pipeline snapshot</p>
+                </div>
             </div>
-        </div>
 
-        <div class="pg-dash-status-grid pg-dash-status-grid--4">
-            @foreach ($stats as $stat)
-                @if ($stat['url'])
-                    <a href="{{ $stat['url'] }}" class="pg-dash-status pg-dash-status--{{ $stat['tone'] }}">
-                        <div class="pg-dash-icon pg-dash-icon--{{ $stat['tone'] }}" aria-hidden="true">
-                            <span class="pg-dash-icon__glyph">₹</span>
+            <div class="pg-pipeline">
+                @foreach ($stats as $stat)
+                    @if ($stat['url'])
+                        <a href="{{ $stat['url'] }}" class="pg-pipeline__step">
+                            <div class="pg-icon pg-icon--{{ $stat['tone'] }}" style="margin: 0 auto;" aria-hidden="true">
+                                <x-filament::icon :icon="$stat['icon']" />
+                            </div>
+                            <p class="pg-pipeline__label">{{ $stat['label'] }}</p>
+                            <p class="pg-pipeline__value">{{ $stat['value'] }}</p>
+                            @if ($stat['showArrow'])
+                                <span class="pg-pipeline__arrow" aria-hidden="true">›</span>
+                            @endif
+                        </a>
+                    @else
+                        <div class="pg-pipeline__step">
+                            <div class="pg-icon pg-icon--{{ $stat['tone'] }}" style="margin: 0 auto;" aria-hidden="true">
+                                <x-filament::icon :icon="$stat['icon']" />
+                            </div>
+                            <p class="pg-pipeline__label">{{ $stat['label'] }}</p>
+                            <p class="pg-pipeline__value">{{ $stat['value'] }}</p>
+                            @if ($stat['showArrow'])
+                                <span class="pg-pipeline__arrow" aria-hidden="true">›</span>
+                            @endif
                         </div>
-                        <p class="pg-dash-status__label">{{ $stat['label'] }}</p>
-                        <p class="pg-dash-status__value">{{ $stat['value'] }}</p>
-                    </a>
-                @else
-                    <div class="pg-dash-status pg-dash-status--{{ $stat['tone'] }}">
-                        <div class="pg-dash-icon pg-dash-icon--{{ $stat['tone'] }}" aria-hidden="true">
-                            <span class="pg-dash-icon__glyph">₹</span>
-                        </div>
-                        <p class="pg-dash-status__label">{{ $stat['label'] }}</p>
-                        <p class="pg-dash-status__value">{{ $stat['value'] }}</p>
-                    </div>
-                @endif
-            @endforeach
-        </div>
-    </x-filament::section>
+                    @endif
+                @endforeach
+            </div>
+
+            @if (count($actions) > 0)
+                <div class="pg-actions">
+                    @foreach ($actions as $action)
+                        <a href="{{ $action['url'] }}" class="pg-action">
+                            <span class="pg-icon pg-icon--{{ $action['tone'] }}" aria-hidden="true">
+                                <x-filament::icon :icon="$action['icon']" />
+                            </span>
+                            {{ $action['label'] }}
+                        </a>
+                    @endforeach
+                </div>
+            @endif
+        </x-filament::section>
+    </div>
 </x-filament-widgets::widget>

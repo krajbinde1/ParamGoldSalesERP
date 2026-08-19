@@ -121,8 +121,16 @@ class AdminDirectorEmployeePerformanceWidget extends Widget
             $this->toDate,
         );
 
+        $employees = $data['employees'];
+        $topPerformers = collect($employees)
+            ->sortByDesc(fn (array $row): float => (float) ($row['sales_achieved'] ?? 0))
+            ->take(3)
+            ->values()
+            ->all();
+
         return [
-            'employees' => $data['employees'],
+            'employees' => $employees,
+            'topPerformers' => $topPerformers,
             'periodLabel' => $data['range']['label'],
             'employeeOptions' => $this->managerEmployeeOptions($this->employeeSearch),
             'showCustomPeriod' => $this->normalizeManagerPeriod($this->period) === 'custom',

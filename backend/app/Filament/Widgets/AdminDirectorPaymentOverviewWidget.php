@@ -2,6 +2,9 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Resources\Dealers\DealerResource;
+use App\Filament\Resources\Employees\EmployeeResource;
+use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\PaymentRequests\PaymentRequestResource;
 use App\Models\PaymentRequest;
 use Filament\Widgets\Widget;
@@ -36,33 +39,59 @@ class AdminDirectorPaymentOverviewWidget extends Widget
             ->groupBy('status')
             ->pluck('aggregate', 'status');
 
+        $indexUrl = $canOpen ? PaymentRequestResource::getUrl('index') : null;
+
+        $actions = array_values(array_filter([
+            DealerResource::canCreate()
+                ? ['label' => 'Add Dealer', 'url' => DealerResource::getUrl('create'), 'icon' => 'heroicon-o-building-storefront', 'tone' => 'teal']
+                : null,
+            EmployeeResource::canCreate()
+                ? ['label' => 'Add Employee', 'url' => EmployeeResource::getUrl('create'), 'icon' => 'heroicon-o-user-plus', 'tone' => 'green']
+                : null,
+            PaymentRequestResource::canAccess()
+                ? ['label' => 'Create Payment Request', 'url' => PaymentRequestResource::getUrl('create'), 'icon' => 'heroicon-o-credit-card', 'tone' => 'amber']
+                : null,
+            OrderResource::canViewAny()
+                ? ['label' => 'View Orders', 'url' => OrderResource::getUrl('index'), 'icon' => 'heroicon-o-shopping-bag', 'tone' => 'blue']
+                : null,
+        ]));
+
         return [
             'stats' => [
                 [
                     'label' => 'Pending First Approval',
                     'value' => (int) ($counts[PaymentRequest::STATUS_PENDING_FIRST] ?? 0),
                     'tone' => 'amber',
-                    'url' => $canOpen ? PaymentRequestResource::getUrl('index') : null,
+                    'icon' => 'heroicon-o-clock',
+                    'url' => $indexUrl,
+                    'showArrow' => true,
                 ],
                 [
                     'label' => 'Pending Second Approval',
                     'value' => (int) ($counts[PaymentRequest::STATUS_PENDING_SECOND] ?? 0),
                     'tone' => 'amber',
-                    'url' => $canOpen ? PaymentRequestResource::getUrl('index') : null,
+                    'icon' => 'heroicon-o-clipboard-document-check',
+                    'url' => $indexUrl,
+                    'showArrow' => true,
                 ],
                 [
                     'label' => 'Approved for Payment',
                     'value' => (int) ($counts[PaymentRequest::STATUS_APPROVED_FOR_PAYMENT] ?? 0),
                     'tone' => 'blue',
-                    'url' => $canOpen ? PaymentRequestResource::getUrl('index') : null,
+                    'icon' => 'heroicon-o-check-badge',
+                    'url' => $indexUrl,
+                    'showArrow' => true,
                 ],
                 [
                     'label' => 'Payment Done',
                     'value' => (int) ($counts[PaymentRequest::STATUS_PAYMENT_DONE] ?? 0),
                     'tone' => 'green',
-                    'url' => $canOpen ? PaymentRequestResource::getUrl('index') : null,
+                    'icon' => 'heroicon-o-banknotes',
+                    'url' => $indexUrl,
+                    'showArrow' => false,
                 ],
             ],
+            'actions' => array_slice($actions, 0, 4),
         ];
     }
 }
