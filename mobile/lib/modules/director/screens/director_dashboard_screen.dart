@@ -673,6 +673,11 @@ class _DirectorEmployeePerformanceScreenState
                       onTap: () => _setPeriod('today'),
                     ),
                     _PeriodChip(
+                      label: 'This Week',
+                      selected: _period == 'week',
+                      onTap: () => _setPeriod('week'),
+                    ),
+                    _PeriodChip(
                       label: 'This Month',
                       selected: _period == 'month',
                       onTap: () => _setPeriod('month'),

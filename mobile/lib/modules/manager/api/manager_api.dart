@@ -297,6 +297,59 @@ class ManagerApi {
     }
   }
 
+  Future<ManagerRouteTrackingListResult> listRouteTracking({
+    String? date,
+    String? search,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '/manager/route-tracking',
+        queryParameters: {
+          if (date != null) 'date': date,
+          if (search != null && search.isNotEmpty) 'search': search,
+        },
+      );
+      final raw = response.data;
+      if (raw is! Map) {
+        throw StateError('Invalid route tracking response');
+      }
+      final body = Map<String, dynamic>.from(raw);
+      final dataRaw = body['data'];
+      final rows = dataRaw is List
+          ? dataRaw
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
+          : <Map<String, dynamic>>[];
+      final metaRaw = body['meta'];
+      return ManagerRouteTrackingListResult(
+        rows: rows,
+        meta: metaRaw is Map
+            ? Map<String, dynamic>.from(metaRaw)
+            : <String, dynamic>{},
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> getRouteTracking(int attendanceId) async {
+    try {
+      final response = await _dio.get('/manager/route-tracking/$attendanceId');
+      final root = response.data;
+      if (root is! Map) {
+        throw StateError('Invalid route detail response');
+      }
+      final data = root['data'];
+      if (data is! Map) {
+        throw StateError('Route detail data missing');
+      }
+      return Map<String, dynamic>.from(data);
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
   Future<ManagerEmployeeAttendanceHistoryResult> getEmployeeAttendanceHistory(
     int employeeId, {
     String? month,
@@ -676,6 +729,16 @@ class ManagerTeamAttendanceListResult {
   int get punchedIn => int.tryParse('${meta['punched_in'] ?? 0}') ?? 0;
   int get punchedOut => int.tryParse('${meta['punched_out'] ?? 0}') ?? 0;
   int get notPunchedIn => int.tryParse('${meta['not_punched_in'] ?? 0}') ?? 0;
+}
+
+class ManagerRouteTrackingListResult {
+  const ManagerRouteTrackingListResult({
+    required this.rows,
+    required this.meta,
+  });
+
+  final List<Map<String, dynamic>> rows;
+  final Map<String, dynamic> meta;
 }
 
 class ManagerEmployeeAttendanceHistoryResult {

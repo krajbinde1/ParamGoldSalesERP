@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:webview_flutter/webview_flutter.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/api/api_errors.dart';
+import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/widgets/design/pg_card.dart';
@@ -868,6 +869,7 @@ class ManagerTeamRouteMapScreen extends StatefulWidget {
 class _ManagerTeamRouteMapScreenState extends State<ManagerTeamRouteMapScreen> {
   late Future<Map<String, dynamic>> _future;
   WebViewController? _controller;
+  List<Map<String, dynamic>> _stops = const [];
 
   ManagerApi get _api => ManagerApi(
     ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
@@ -898,6 +900,10 @@ class _ManagerTeamRouteMapScreenState extends State<ManagerTeamRouteMapScreen> {
     final routePoints = ((data['route_points'] as List?) ?? const [])
         .map((item) => Map<String, dynamic>.from(item as Map))
         .toList();
+    final stops = ((data['stops'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList();
 
     final html = _buildLeafletHtml(
       routePoints: routePoints,
@@ -905,13 +911,17 @@ class _ManagerTeamRouteMapScreenState extends State<ManagerTeamRouteMapScreen> {
       punchOut: punchOut,
       summary: summary,
       distanceKm: attendance['total_route_distance_km'],
+      stops: stops,
     );
 
     final controller = WebViewController()
       ..setJavaScriptMode(JavaScriptMode.unrestricted)
       ..loadHtmlString(html);
 
-    setState(() => _controller = controller);
+    setState(() {
+      _controller = controller;
+      _stops = stops;
+    });
   }
 
   Map<String, dynamic> _asMap(Object? value) {
@@ -926,12 +936,19 @@ class _ManagerTeamRouteMapScreenState extends State<ManagerTeamRouteMapScreen> {
     return DateFormat('hh:mm a').format(parsed.toLocal());
   }
 
+  Future<void> _focusStoppage(int index) async {
+    final controller = _controller;
+    if (controller == null) return;
+    await controller.runJavaScript('window.focusStoppage && window.focusStoppage($index);');
+  }
+
   String _buildLeafletHtml({
     required List<Map<String, dynamic>> routePoints,
     required Map<String, dynamic> punchIn,
     required Map<String, dynamic> punchOut,
     required Map<String, dynamic> summary,
     required Object? distanceKm,
+    required List<Map<String, dynamic>> stops,
   }) {
     final points = <List<double>>[];
     for (final point in routePoints) {
@@ -957,16 +974,46 @@ class _ManagerTeamRouteMapScreenState extends State<ManagerTeamRouteMapScreen> {
     final punchOutLng = punchOut['longitude'];
     final distance = distanceKm ?? summary['total_distance_km'] ?? '-';
 
+    final stopPayload = <Map<String, dynamic>>[];
+    for (var i = 0; i < stops.length; i++) {
+      final stop = stops[i];
+      final lat = double.tryParse('${stop['latitude']}');
+      final lng = double.tryParse('${stop['longitude']}');
+      if (lat == null || lng == null) continue;
+      final duration = int.tryParse('${stop['duration_minutes'] ?? 0}') ?? 0;
+      stopPayload.add({
+        'index': i,
+        'label': 'S${i + 1}',
+        'lat': lat,
+        'lng': lng,
+        'title': 'Stoppage #${i + 1}',
+        'time_range':
+            '${_formatTime(stop['start_time'])} – ${_formatTime(stop['end_time'])}',
+        'duration': '$duration min',
+        'coords':
+            '${lat.toStringAsFixed(5)}, ${lng.toStringAsFixed(5)}',
+      });
+    }
+    final encodedStops = jsonEncode(stopPayload);
+
     return '''
 <!DOCTYPE html>
 <html>
 <head>
   <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <style>
     html, body, #map { height: 100%; margin: 0; }
+    .ep-pin {
+      width: 22px; height: 22px; border-radius: 999px; color: #fff;
+      font: 700 10px/22px sans-serif; text-align: center;
+      border: 2px solid #fff; box-shadow: 0 1px 4px rgba(0,0,0,.35);
+    }
+    .ep-start { background: #16a34a; }
+    .ep-end { background: #dc2626; }
+    .ep-stop { background: #ea580c; width: 24px; height: 24px; line-height: 24px; font-size: 10px; }
   </style>
 </head>
 <body>
@@ -984,8 +1031,49 @@ class _ManagerTeamRouteMapScreenState extends State<ManagerTeamRouteMapScreen> {
       map.fitBounds(line.getBounds(), { padding: [28, 28] });
     }
 
-    ${punchInLat != null && punchInLng != null ? "L.marker([$punchInLat, $punchInLng]).addTo(map).bindPopup('Punch In');" : ''}
-    ${punchOutLat != null && punchOutLng != null ? "L.marker([$punchOutLat, $punchOutLng]).addTo(map).bindPopup('Punch Out');" : ''}
+    function endpointIcon(kind, label) {
+      return L.divIcon({
+        className: '',
+        html: '<div class="ep-pin ' + kind + '">' + label + '</div>',
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+      });
+    }
+
+    function stopIcon(label) {
+      return L.divIcon({
+        className: '',
+        html: '<div class="ep-pin ep-stop">' + label + '</div>',
+        iconSize: [24, 24],
+        iconAnchor: [12, 12],
+      });
+    }
+
+    ${punchInLat != null && punchInLng != null ? "L.marker([$punchInLat, $punchInLng], { icon: endpointIcon('ep-start', ''), zIndexOffset: 700 }).addTo(map).bindPopup('<strong>Start</strong><br>Punch In');" : ''}
+    ${punchOutLat != null && punchOutLng != null ? "L.marker([$punchOutLat, $punchOutLng], { icon: endpointIcon('ep-end', ''), zIndexOffset: 700 }).addTo(map).bindPopup('<strong>End</strong><br>Punch Out');" : ''}
+
+    window.__stopMarkers = [];
+    const stops = $encodedStops;
+    stops.forEach(function(stop) {
+      const marker = L.marker([stop.lat, stop.lng], {
+        icon: stopIcon(stop.label),
+        zIndexOffset: 500,
+      }).addTo(map);
+      marker.bindPopup(
+        '<strong>' + stop.title + '</strong><br>' +
+        stop.time_range + '<br>' +
+        'Duration: ' + stop.duration + '<br>' +
+        stop.coords
+      );
+      window.__stopMarkers[stop.index] = marker;
+    });
+
+    window.focusStoppage = function(index) {
+      const marker = window.__stopMarkers[index];
+      if (!marker) return;
+      map.setView(marker.getLatLng(), 17);
+      marker.openPopup();
+    };
 
     L.control.attribution({prefix: false}).addTo(map);
     const info = L.control({position: 'bottomleft'});
@@ -1035,15 +1123,33 @@ class _ManagerTeamRouteMapScreenState extends State<ManagerTeamRouteMapScreen> {
 
           final employee = _asMap(data['employee']);
           final attendance = _asMap(data['attendance']);
+          final summary = _asMap(data['summary']);
           final punchIn = _asMap(attendance['punch_in']);
           final punchOut = _asMap(attendance['punch_out']);
           final distance = attendance['total_route_distance_km'] ??
-              _asMap(data['summary'])['total_distance_km'];
+              summary['total_distance_km'];
+          final stopCount = int.tryParse(
+                '${summary['stop_count'] ?? _stops.length}',
+              ) ??
+              _stops.length;
+          final stoppageMinutes = int.tryParse(
+                '${summary['stoppage_time_minutes'] ?? ''}',
+              ) ??
+              _stops.fold<int>(
+                0,
+                (sum, s) =>
+                    sum + (int.tryParse('${s['duration_minutes'] ?? 0}') ?? 0),
+              );
 
           return Column(
             children: [
               Padding(
-                padding: const EdgeInsets.all(AppSpacing.screenPadding),
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.screenPadding,
+                  AppSpacing.screenPadding,
+                  AppSpacing.screenPadding,
+                  AppSpacing.sm,
+                ),
                 child: PgCard(
                   child: Column(
                     children: [
@@ -1069,11 +1175,132 @@ class _ManagerTeamRouteMapScreenState extends State<ManagerTeamRouteMapScreen> {
                             ? '-'
                             : '${double.tryParse('$distance')?.toStringAsFixed(1) ?? distance} km',
                       ),
+                      PgInvoiceRow(
+                        label: 'Total Stoppages',
+                        value: '$stopCount',
+                      ),
+                      PgInvoiceRow(
+                        label: 'Total Stoppage Time',
+                        value: stopCount == 0 ? '—' : '$stoppageMinutes min',
+                      ),
                     ],
                   ),
                 ),
               ),
-              Expanded(child: WebViewWidget(controller: _controller!)),
+              Expanded(flex: 3, child: WebViewWidget(controller: _controller!)),
+              if (_stops.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.all(AppSpacing.md),
+                  child: Text(
+                    'No stoppages detected',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontWeight: FontWeight.w600,
+                      color: AppColors.textSecondary,
+                    ),
+                  ),
+                )
+              else
+                SizedBox(
+                  height: (_stops.length * 58.0).clamp(90.0, 180.0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+                        child: Text(
+                          'Stoppages',
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                              ),
+                        ),
+                      ),
+                      Expanded(
+                        child: ListView.separated(
+                          padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                          itemCount: _stops.length,
+                          separatorBuilder: (_, _) => const SizedBox(height: 6),
+                          itemBuilder: (context, index) {
+                            final stop = _stops[index];
+                            final duration =
+                                int.tryParse('${stop['duration_minutes'] ?? 0}') ??
+                                    0;
+                            return Material(
+                              color: Colors.white,
+                              borderRadius: BorderRadius.circular(10),
+                              child: InkWell(
+                                borderRadius: BorderRadius.circular(10),
+                                onTap: () => _focusStoppage(index),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 12,
+                                    vertical: 10,
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        width: 28,
+                                        height: 28,
+                                        alignment: Alignment.center,
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFEA580C)
+                                              .withValues(alpha: 0.12),
+                                          borderRadius:
+                                              BorderRadius.circular(8),
+                                        ),
+                                        child: Text(
+                                          'S${index + 1}',
+                                          style: const TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w800,
+                                            color: Color(0xFFEA580C),
+                                          ),
+                                        ),
+                                      ),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              '${_formatTime(stop['start_time'])} – ${_formatTime(stop['end_time'])}',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodyMedium
+                                                  ?.copyWith(
+                                                    fontWeight: FontWeight.w600,
+                                                  ),
+                                            ),
+                                            Text(
+                                              '$duration min',
+                                              style: Theme.of(context)
+                                                  .textTheme
+                                                  .bodySmall
+                                                  ?.copyWith(
+                                                    color:
+                                                        AppColors.textSecondary,
+                                                  ),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      const Icon(
+                                        Icons.my_location_outlined,
+                                        size: 18,
+                                        color: AppColors.textMuted,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
             ],
           );
         },

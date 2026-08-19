@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\EmployeeTaskController;
 use App\Http\Controllers\Api\Manager\ManagerDashboardController;
 use App\Http\Controllers\Api\Manager\ManagerEmployeePerformanceController;
 use App\Http\Controllers\Api\Manager\ManagerOrderController;
+use App\Http\Controllers\Api\Manager\ManagerRouteTrackingController;
 use App\Http\Controllers\Api\Manager\ManagerTaDaClaimController;
 use App\Http\Controllers\Api\Manager\ManagerTeamActivityController;
 use App\Http\Controllers\Api\Manager\ManagerTeamAttendanceController;
@@ -111,6 +112,8 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::get('team-attendance', [ManagerTeamAttendanceController::class, 'index']);
         Route::get('team-attendance/employees/{employee}', [ManagerTeamAttendanceController::class, 'employeeHistory']);
         Route::get('team-attendance/{attendance}', [ManagerTeamAttendanceController::class, 'show']);
+        Route::get('route-tracking', [ManagerRouteTrackingController::class, 'index']);
+        Route::get('route-tracking/{attendance}', [ManagerRouteTrackingController::class, 'show']);
         Route::get('team-activity', [ManagerTeamActivityController::class, 'index']);
         Route::get('team-activity/employees/{employee}', [ManagerTeamActivityController::class, 'employeeTimeline']);
         Route::get('ta-da-claims', [ManagerTaDaClaimController::class, 'index']);

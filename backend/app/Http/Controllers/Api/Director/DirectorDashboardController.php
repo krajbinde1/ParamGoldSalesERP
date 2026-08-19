@@ -56,11 +56,46 @@ class DirectorDashboardController extends Controller
             ? [$validated['role']]
             : self::SALES_TEAM_ROLES;
 
+        $employeePerformance = $this->metrics->employeePerformance(
+            $range['start'],
+            $range['end'],
+            $validated['employee_id'] ?? null,
+            null,
+            null,
+            null,
+            $salesRoles,
+        );
+
+        // Summary targets/achievement match the filtered sales-team rows for the selected period.
+        $salesTarget = round(collect($employeePerformance)->sum(
+            fn (array $row): float => (float) ($row['sales_target'] ?? 0),
+        ), 2);
+        $salesAchieved = round(collect($employeePerformance)->sum(
+            fn (array $row): float => (float) ($row['sales_achieved'] ?? 0),
+        ), 2);
+        $collectionTarget = round(collect($employeePerformance)->sum(
+            fn (array $row): float => (float) ($row['collection_target'] ?? 0),
+        ), 2);
+        $collectionAchieved = round(collect($employeePerformance)->sum(
+            fn (array $row): float => (float) ($row['collection_achieved'] ?? 0),
+        ), 2);
+
         return response()->json([
             'success' => true,
             'period' => $range['label'],
             'company_summary' => [
-                'targets' => $this->metrics->targetSummary(),
+                'targets' => [
+                    'sales_target' => $salesTarget,
+                    'sales_achieved' => $salesAchieved,
+                    'sales_percentage' => $salesTarget > 0
+                        ? round(($salesAchieved / $salesTarget) * 100, 2)
+                        : 0,
+                    'collection_target' => $collectionTarget,
+                    'collection_achieved' => $collectionAchieved,
+                    'collection_percentage' => $collectionTarget > 0
+                        ? round(($collectionAchieved / $collectionTarget) * 100, 2)
+                        : 0,
+                ],
                 'orders' => $this->metrics->orderSummary(null, $range['start'], $range['end']),
                 'ta_da' => $this->metrics->taDaSummary(),
                 'operations' => $this->metrics->operationalSummary($range['start'], $range['end']),
@@ -68,15 +103,7 @@ class DirectorDashboardController extends Controller
                     'pending_approvals' => $pendingPaymentApprovals,
                 ],
             ],
-            'employee_performance' => $this->metrics->employeePerformance(
-                $range['start'],
-                $range['end'],
-                $validated['employee_id'] ?? null,
-                null,
-                null,
-                null,
-                $salesRoles,
-            ),
+            'employee_performance' => $employeePerformance,
         ]);
     }
 }

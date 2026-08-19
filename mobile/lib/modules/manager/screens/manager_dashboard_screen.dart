@@ -148,6 +148,13 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                                 _open('/manager/team-attendance'),
                           ),
                           _ModuleItem(
+                            title: 'Employee Route Tracking',
+                            subtitle: 'Team routes & stoppages',
+                            icon: Icons.route_outlined,
+                            onTap: () =>
+                                _open('/manager/route-tracking'),
+                          ),
+                          _ModuleItem(
                             title: 'Team Performance',
                             subtitle: teamSize > 0
                                 ? '$teamSize employees'

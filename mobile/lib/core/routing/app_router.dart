@@ -46,6 +46,7 @@ import '../../modules/manager/screens/manager_ta_da_screen.dart';
 import '../../modules/manager/screens/manager_targets_screen.dart';
 import '../../modules/manager/screens/manager_team_activity_screen.dart';
 import '../../modules/manager/screens/manager_team_attendance_screen.dart';
+import '../../modules/manager/screens/manager_route_tracking_screen.dart';
 import '../../modules/production/screens/production_dashboard_screen.dart';
 import '../../modules/production/screens/production_order_detail_screen.dart';
 import '../../modules/production/screens/production_status_orders_screen.dart';
@@ -343,6 +344,19 @@ GoRouter createRouter(
               ),
             ),
           ],
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/manager/route-tracking',
+      builder: (_, _) => ManagerRouteTrackingScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':attendanceId',
+          builder: (_, state) => ManagerRouteMapScreen(
+            auth: auth,
+            attendanceId: int.parse(state.pathParameters['attendanceId']!),
+          ),
         ),
       ],
     ),

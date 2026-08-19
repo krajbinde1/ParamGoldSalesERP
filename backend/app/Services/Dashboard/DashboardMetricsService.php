@@ -33,7 +33,8 @@ class DashboardMetricsService
             ],
             'week' => [
                 'start' => $today->copy()->startOfWeek(Carbon::MONDAY),
-                'end' => $today->copy()->endOfWeek(Carbon::SUNDAY),
+                // Through current day only — do not include future weekdays.
+                'end' => $today->copy()->endOfDay(),
                 'label' => 'This Week',
             ],
             'month' => [

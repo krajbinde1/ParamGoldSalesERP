@@ -13,11 +13,27 @@ import '../../auth/providers/auth_controller.dart';
 import '../../manager/screens/manager_team_attendance_screen.dart';
 import '../api/director_api.dart';
 
-/// Director view-only route tracking for Manager + Employee login roles.
+typedef RouteTrackingListLoader = Future<DirectorRouteTrackingListResult>
+    Function({required String date});
+
+typedef RouteTrackingDetailLoader = Future<Map<String, dynamic>> Function(
+  int attendanceId,
+);
+
+/// Shared view-only route tracking list (Director + Manager reuse).
 class DirectorRouteTrackingScreen extends StatefulWidget {
-  const DirectorRouteTrackingScreen({super.key, required this.auth});
+  const DirectorRouteTrackingScreen({
+    super.key,
+    required this.auth,
+    this.title = 'Route Tracking',
+    this.detailPathPrefix = '/director/route-tracking',
+    this.listLoader,
+  });
 
   final AuthController auth;
+  final String title;
+  final String detailPathPrefix;
+  final RouteTrackingListLoader? listLoader;
 
   @override
   State<DirectorRouteTrackingScreen> createState() =>
@@ -29,7 +45,7 @@ class _DirectorRouteTrackingScreenState
   late Future<DirectorRouteTrackingListResult> _future;
   DateTime _date = DateTime.now();
 
-  DirectorApi get _api => DirectorApi(
+  DirectorApi get _directorApi => DirectorApi(
     ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
   );
 
@@ -42,7 +58,11 @@ class _DirectorRouteTrackingScreenState
   String get _dateParam => DateFormat('yyyy-MM-dd').format(_date);
 
   Future<DirectorRouteTrackingListResult> _load() {
-    return _api.listRouteTracking(date: _dateParam);
+    final loader = widget.listLoader;
+    if (loader != null) {
+      return loader(date: _dateParam);
+    }
+    return _directorApi.listRouteTracking(date: _dateParam);
   }
 
   Future<void> _reload() async {
@@ -89,14 +109,14 @@ class _DirectorRouteTrackingScreenState
   }
 
   Future<void> _openRoute(int attendanceId) async {
-    await context.push('/director/route-tracking/$attendanceId');
+    await context.push('${widget.detailPathPrefix}/$attendanceId');
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: RoleAppBar(
-        title: 'Route Tracking',
+        title: widget.title,
         auth: widget.auth,
         actions: [
           TextButton(
@@ -259,10 +279,12 @@ class DirectorRouteMapScreen extends StatelessWidget {
     super.key,
     required this.auth,
     required this.attendanceId,
+    this.loadRoute,
   });
 
   final AuthController auth;
   final int attendanceId;
+  final RouteTrackingDetailLoader? loadRoute;
 
   @override
   Widget build(BuildContext context) {
@@ -273,7 +295,7 @@ class DirectorRouteMapScreen extends StatelessWidget {
     return ManagerTeamRouteMapScreen(
       auth: auth,
       attendanceId: attendanceId,
-      loadRoute: api.getRouteTracking,
+      loadRoute: loadRoute ?? api.getRouteTracking,
     );
   }
 }
