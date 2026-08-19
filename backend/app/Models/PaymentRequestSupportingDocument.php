@@ -93,19 +93,55 @@ class PaymentRequestSupportingDocument extends Model
     /**
      * @return array<string, mixed>
      */
+    public function resolvedMimeType(): string
+    {
+        $mime = strtolower(trim((string) $this->mime_type));
+        if (in_array($mime, self::ALLOWED_MIMES, true)) {
+            return $mime;
+        }
+
+        $name = strtolower((string) $this->original_file_name);
+        if (str_ends_with($name, '.pdf')) {
+            return 'application/pdf';
+        }
+        if (str_ends_with($name, '.png')) {
+            return 'image/png';
+        }
+        if (str_ends_with($name, '.jpg') || str_ends_with($name, '.jpeg')) {
+            return 'image/jpeg';
+        }
+
+        $path = (string) $this->stored_file_path;
+        if ($path !== '' && Storage::disk(self::DISK)->exists($path)) {
+            $absolute = Storage::disk(self::DISK)->path($path);
+            $detected = @mime_content_type($absolute);
+            if (is_string($detected) && in_array(strtolower($detected), self::ALLOWED_MIMES, true)) {
+                return strtolower($detected);
+            }
+        }
+
+        return $mime !== '' ? $mime : 'application/octet-stream';
+    }
+
     public function toApiArray(): array
     {
+        // Leading slash required: Flutter Dio baseUrl is `…/api` and concatenates
+        // without inserting `/` (`…/api` + `/director/...` → correct).
+        $relativePath = '/director/payment-requests/'.$this->payment_request_id.'/supporting-documents/'.$this->id;
+        $mime = $this->resolvedMimeType();
+
         return [
             'id' => $this->id,
             'file_name' => $this->original_file_name,
-            'mime_type' => $this->mime_type,
+            'mime_type' => $mime,
             'file_size' => (int) $this->file_size,
             'file_size_label' => $this->humanFileSize(),
-            'is_pdf' => $this->isPdf(),
-            'is_image' => $this->isImage(),
+            'is_pdf' => str_contains($mime, 'pdf'),
+            'is_image' => str_starts_with($mime, 'image/'),
             'uploaded_by' => $this->uploadedByUser?->name,
-            'uploaded_at' => optional($this->created_at)?->timezone('Asia/Kolkata')->toIso8601String(),
-            'view_url' => url('/api/director/payment-requests/'.$this->payment_request_id.'/supporting-documents/'.$this->id),
+            'uploaded_at' => $this->created_at?->timezone('Asia/Kolkata')?->toIso8601String(),
+            'view_path' => $relativePath,
+            'view_url' => url('/api'.$relativePath),
             'web_view_url' => route('payment-requests.supporting-documents.show', [
                 'paymentRequest' => $this->payment_request_id,
                 'supportingDocument' => $this->id,

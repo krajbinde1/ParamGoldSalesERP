@@ -1,4 +1,6 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
+
 import '../../../core/api/api_errors.dart';
 
 class DirectorDashboardData {
@@ -200,11 +202,26 @@ class DirectorApi {
 
   Future<Map<String, dynamic>> getPaymentRequest(int id) async {
     try {
+      debugPrint('PARAMGOLD_PAYMENT_DETAIL_REQUEST id=$id');
       final response = await _dio.get('/director/payment-requests/$id');
-      return Map<String, dynamic>.from(
-        (response.data as Map)['data'] as Map,
+      debugPrint(
+        'PARAMGOLD_PAYMENT_DETAIL_RESPONSE id=$id status=${response.statusCode}',
       );
+      final root = response.data;
+      if (root is! Map) {
+        throw StateError('Invalid payment request response');
+      }
+      final body = Map<String, dynamic>.from(root);
+      final data = body['data'];
+      if (data is! Map) {
+        throw StateError('Payment request data missing');
+      }
+      return Map<String, dynamic>.from(data);
     } on DioException catch (error) {
+      debugPrint(
+        'PARAMGOLD_PAYMENT_DETAIL_ERROR id=$id '
+        'status=${error.response?.statusCode}',
+      );
       throw mapApiError(error);
     }
   }

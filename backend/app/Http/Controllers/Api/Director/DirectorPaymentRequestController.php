@@ -10,6 +10,9 @@ use App\Models\PaymentRequest;
 use App\Services\PaymentRequests\PaymentRequestApproverResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
+use Throwable;
 
 class DirectorPaymentRequestController extends Controller
 {
@@ -136,17 +139,9 @@ class DirectorPaymentRequestController extends Controller
     {
         $this->authorize('view', $paymentRequest);
 
-        $paymentRequest->load([
-            'createdByUser:id,name',
-            'firstApprovedByUser:id,name',
-            'secondApprovedByUser:id,name',
-            'paymentDoneByUser:id,name',
-            'supportingDocuments.uploadedByUser:id,name',
-        ]);
-
         return response()->json([
             'success' => true,
-            'data' => $this->detail($paymentRequest, $request->user()),
+            'data' => $this->detail($this->prepareDetailRelations($paymentRequest), $request->user()),
         ]);
     }
 
@@ -160,13 +155,7 @@ class DirectorPaymentRequestController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Payment request approved.',
-            'data' => $this->detail($updated->load([
-                'createdByUser:id,name',
-                'firstApprovedByUser:id,name',
-                'secondApprovedByUser:id,name',
-                'paymentDoneByUser:id,name',
-                'supportingDocuments.uploadedByUser:id,name',
-            ]), $request->user()),
+            'data' => $this->detail($this->prepareDetailRelations($updated), $request->user()),
         ]);
     }
 
@@ -216,13 +205,7 @@ class DirectorPaymentRequestController extends Controller
         return response()->json([
             'success' => true,
             'message' => 'Payment request rejected.',
-            'data' => $this->detail($updated->load([
-                'createdByUser:id,name',
-                'firstApprovedByUser:id,name',
-                'secondApprovedByUser:id,name',
-                'paymentDoneByUser:id,name',
-                'supportingDocuments.uploadedByUser:id,name',
-            ]), $request->user()),
+            'data' => $this->detail($this->prepareDetailRelations($updated), $request->user()),
         ]);
     }
 
@@ -298,7 +281,7 @@ class DirectorPaymentRequestController extends Controller
             'status' => $pr->status,
             'status_label' => $pr->displayStatusLabel(),
             'current_stage' => $pr->currentStageLabel(),
-            'created_at' => optional($pr->created_at)?->timezone('Asia/Kolkata')->toIso8601String(),
+            'created_at' => $pr->created_at?->timezone('Asia/Kolkata')?->toIso8601String(),
             'created_by' => $pr->createdByUser?->name,
             'can_approve' => $user->can('approveFirst', $pr) || $user->can('approveSecond', $pr),
             'can_reject' => $user->can('rejectFirst', $pr) || $user->can('rejectSecond', $pr),
@@ -328,10 +311,64 @@ class DirectorPaymentRequestController extends Controller
             'payment_proof_url' => $pr->paymentProofUrl(),
             'payment_status' => $pr->paymentStatusLabel(),
             'timeline' => $pr->approvalTimeline(),
-            'supporting_documents' => $pr->supportingDocuments
+            'reminder_count' => (int) ($pr->reminder_count ?? 0),
+            'last_reminder_sent_at' => $pr->last_reminded_at?->timezone('Asia/Kolkata')?->toIso8601String(),
+            'last_reminder_sent_by' => $pr->lastRemindedByUser?->name,
+            'supporting_documents' => $this->supportingDocumentsPayload($pr),
+        ]);
+    }
+
+    private function prepareDetailRelations(PaymentRequest $paymentRequest): PaymentRequest
+    {
+        $paymentRequest->load([
+            'createdByUser:id,name',
+            'firstApprovedByUser:id,name',
+            'secondApprovedByUser:id,name',
+            'paymentDoneByUser:id,name',
+            'lastRemindedByUser:id,name',
+        ]);
+        $this->safeLoadSupportingDocuments($paymentRequest);
+
+        return $paymentRequest;
+    }
+
+    private function safeLoadSupportingDocuments(PaymentRequest $paymentRequest): void
+    {
+        try {
+            if (! Schema::hasTable('payment_request_supporting_documents')) {
+                return;
+            }
+            $paymentRequest->load(['supportingDocuments.uploadedByUser:id,name']);
+        } catch (Throwable $e) {
+            Log::warning('Payment request supporting documents load skipped: '.$e->getMessage(), [
+                'payment_request_id' => $paymentRequest->id,
+            ]);
+        }
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function supportingDocumentsPayload(PaymentRequest $pr): array
+    {
+        try {
+            if (! $pr->relationLoaded('supportingDocuments')) {
+                $this->safeLoadSupportingDocuments($pr);
+            }
+            if (! $pr->relationLoaded('supportingDocuments')) {
+                return [];
+            }
+
+            return $pr->supportingDocuments
                 ->map(fn ($doc): array => $doc->toApiArray())
                 ->values()
-                ->all(),
-        ]);
+                ->all();
+        } catch (Throwable $e) {
+            Log::warning('Payment request supporting documents payload failed: '.$e->getMessage(), [
+                'payment_request_id' => $pr->id,
+            ]);
+
+            return [];
+        }
     }
 }

@@ -32,7 +32,7 @@ class PaymentRequestSupportingDocumentController extends Controller
             throw new NotFoundHttpException('Supporting document not found.');
         }
 
-        $mime = $supportingDocument->mime_type ?: 'application/octet-stream';
+        $mime = $supportingDocument->resolvedMimeType();
         $downloadName = $supportingDocument->original_file_name ?: 'document';
 
         return Storage::disk(PaymentRequestSupportingDocument::DISK)->response(

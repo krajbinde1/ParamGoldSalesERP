@@ -630,10 +630,14 @@ GoRouter createRouter(
       routes: [
         GoRoute(
           path: ':requestId',
-          builder: (_, state) => DirectorPaymentRequestDetailScreen(
-            auth: auth,
-            requestId: int.parse(state.pathParameters['requestId']!),
-          ),
+          builder: (_, state) {
+            final rawId = state.pathParameters['requestId'] ?? '';
+            final id = int.tryParse(rawId) ?? 0;
+            return DirectorPaymentRequestDetailScreen(
+              auth: auth,
+              requestId: id,
+            );
+          },
         ),
       ],
     ),
