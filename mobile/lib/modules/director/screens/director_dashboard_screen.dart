@@ -106,60 +106,9 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                   ),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
-                      _DirectorSummaryGrid(
-                        pendingApprovals: data.pendingPaymentApprovals,
-                        pendingLabel: data.pendingPaymentApprovals > 0
-                            ? '${data.pendingPaymentApprovals} pending'
-                            : 'None pending',
-                        onPending: () =>
-                            _open('/director/payment-requests?filter=pending'),
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      const PgSectionHeader(title: 'Payment Modules'),
-                      const SizedBox(height: AppSpacing.sm),
-                      _DirectorModuleGrid(
-                        items: [
-                          _DirectorModuleItem(
-                            title: 'Pending Payment Approvals',
-                            subtitle: data.pendingPaymentApprovals > 0
-                                ? '${data.pendingPaymentApprovals} awaiting you'
-                                : 'No pending approvals',
-                            icon: Icons.pending_actions_rounded,
-                            onTap: () => _open(
-                              '/director/payment-requests?filter=pending',
-                            ),
-                          ),
-                          _DirectorModuleItem(
-                            title: 'Approved Payments',
-                            subtitle: 'Requests you approved',
-                            icon: Icons.verified_outlined,
-                            onTap: () => _open(
-                              '/director/payment-requests?filter=approved',
-                            ),
-                          ),
-                          _DirectorModuleItem(
-                            title: 'Rejected Payments',
-                            subtitle: 'Requests you rejected',
-                            icon: Icons.cancel_outlined,
-                            onTap: () => _open(
-                              '/director/payment-requests?filter=rejected',
-                            ),
-                          ),
-                          _DirectorModuleItem(
-                            title: 'Payment Approval History',
-                            subtitle: 'All actioned requests',
-                            icon: Icons.history_rounded,
-                            onTap: () => _open(
-                              '/director/payment-requests?filter=history',
-                            ),
-                          ),
-                          _DirectorModuleItem(
-                            title: 'Notifications',
-                            subtitle: 'Alerts & reminders',
-                            icon: Icons.notifications_none_rounded,
-                            onTap: () => _open('/notifications'),
-                          ),
-                        ],
+                      _PaymentApprovalEntryCard(
+                        pendingCount: data.pendingPaymentApprovals,
+                        onTap: () => _open('/director/payment-requests'),
                       ),
                     ]),
                   ),
@@ -369,174 +318,29 @@ class _DirectorHeaderAccountMenu extends StatelessWidget {
   }
 }
 
-class _DirectorSummaryGrid extends StatelessWidget {
-  const _DirectorSummaryGrid({
-    required this.pendingApprovals,
-    required this.pendingLabel,
-    required this.onPending,
-  });
-
-  final int pendingApprovals;
-  final String pendingLabel;
-  final VoidCallback onPending;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final aspect = constraints.maxWidth >= 400 ? 1.85 : 1.45;
-        return GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: AppSpacing.sm,
-          crossAxisSpacing: AppSpacing.sm,
-          childAspectRatio: aspect,
-          children: [
-            _DirectorSummaryCard(
-              label: 'Pending Approvals',
-              value: '$pendingApprovals',
-              icon: Icons.pending_actions_rounded,
-              accent: AppColors.warning,
-              onTap: onPending,
-            ),
-            _DirectorSummaryCard(
-              label: 'Payment Requests',
-              value: pendingLabel,
-              icon: Icons.payments_outlined,
-              accent: AppColors.primary,
-              onTap: onPending,
-            ),
-          ],
-        );
-      },
-    );
-  }
-}
-
-class _DirectorSummaryCard extends StatelessWidget {
-  const _DirectorSummaryCard({
-    required this.label,
-    required this.value,
-    required this.icon,
-    required this.accent,
+class _PaymentApprovalEntryCard extends StatelessWidget {
+  const _PaymentApprovalEntryCard({
+    required this.pendingCount,
     required this.onTap,
   });
 
-  final String label;
-  final String value;
-  final IconData icon;
-  final Color accent;
+  final int pendingCount;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    final pendingLabel = pendingCount == 1
+        ? '1 Pending'
+        : '$pendingCount Pending';
+
     return PgCard(
       onTap: onTap,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      padding: const EdgeInsets.all(AppSpacing.lg),
+      child: Row(
         children: [
           Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, size: 18, color: accent),
-          ),
-          const Spacer(),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              value,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: AppColors.textPrimary,
-                    height: 1.15,
-                  ),
-            ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            label,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: AppColors.textSecondary,
-                  fontWeight: FontWeight.w600,
-                ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _DirectorModuleItem {
-  const _DirectorModuleItem({
-    required this.title,
-    required this.subtitle,
-    required this.icon,
-    required this.onTap,
-  });
-
-  final String title;
-  final String subtitle;
-  final IconData icon;
-  final VoidCallback onTap;
-}
-
-class _DirectorModuleGrid extends StatelessWidget {
-  const _DirectorModuleGrid({required this.items});
-
-  final List<_DirectorModuleItem> items;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final aspect = constraints.maxWidth >= 400 ? 1.35 : 1.15;
-        return GridView.builder(
-          itemCount: items.length,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisSpacing: AppSpacing.sm,
-            crossAxisSpacing: AppSpacing.sm,
-            childAspectRatio: aspect,
-          ),
-          itemBuilder: (context, index) {
-            final item = items[index];
-            return _DirectorModuleCard(item: item);
-          },
-        );
-      },
-    );
-  }
-}
-
-class _DirectorModuleCard extends StatelessWidget {
-  const _DirectorModuleCard({required this.item});
-
-  final _DirectorModuleItem item;
-
-  @override
-  Widget build(BuildContext context) {
-    return PgCard(
-      onTap: item.onTap,
-      padding: const EdgeInsets.all(AppSpacing.md),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Container(
-            width: 46,
-            height: 46,
+            width: 52,
+            height: 52,
             decoration: BoxDecoration(
               gradient: const LinearGradient(
                 begin: Alignment.topLeft,
@@ -552,26 +356,48 @@ class _DirectorModuleCard extends StatelessWidget {
                 ),
               ],
             ),
-            child: Icon(item.icon, color: Colors.white, size: 24),
+            child: const Icon(
+              Icons.payments_outlined,
+              color: Colors.white,
+              size: 26,
+            ),
           ),
-          const Spacer(),
-          Text(
-            item.title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Payment Approval',
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                      ),
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  pendingLabel,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: pendingCount > 0
+                            ? AppColors.warning
+                            : AppColors.textSecondary,
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  'Review payment requests',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w500,
+                      ),
+                ),
+              ],
+            ),
           ),
-          const SizedBox(height: 4),
-          Text(
-            item.subtitle,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppColors.textSecondary,
-                  height: 1.25,
-                ),
+          const Icon(
+            Icons.chevron_right_rounded,
+            color: AppColors.textMuted,
           ),
         ],
       ),

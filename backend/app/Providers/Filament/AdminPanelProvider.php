@@ -9,6 +9,7 @@ use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Widgets\AccountWidget;
 use App\Filament\Widgets\FilamentInfoWidget;
 use App\Filament\Widgets\ProductionOrderStatsWidget;
+use App\Http\Controllers\Api\Director\PaymentRequestSupportingDocumentController;
 use App\Http\Middleware\RestrictOrdersOnlyFilamentAccess;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse as LoginResponseContract;
 use Filament\Http\Middleware\Authenticate;
@@ -73,6 +74,12 @@ class AdminPanelProvider extends PanelProvider
                     ->whereNumber('itemId')
                     ->whereIn('itemType', ['raw-material', 'packaging-material', 'finished-product'])
                     ->name('inventory-reports.ledger');
+
+                // Admin Filament View links must stay inside /admin so panel auth applies.
+                Route::get(
+                    '/payment-requests/{paymentRequest}/supporting-documents/{supportingDocument}',
+                    [PaymentRequestSupportingDocumentController::class, 'show']
+                )->name('payment-requests.supporting-documents.show');
             })
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\Filament\Widgets')
             ->widgets([

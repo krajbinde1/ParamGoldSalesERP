@@ -111,6 +111,20 @@ it('allows director to stream supporting document and blocks unauthorized users'
     $this->actingAs($employee, 'sanctum')
         ->getJson('/api/director/payment-requests/'.$request->id.'/supporting-documents/'.$doc->id)
         ->assertForbidden();
+
+    $this->actingAs($admin)
+        ->get(route('payment-requests.supporting-documents.show', [
+            'paymentRequest' => $request->id,
+            'supportingDocument' => $doc->id,
+        ]))
+        ->assertOk();
+
+    $this->actingAs($employee)
+        ->get(route('payment-requests.supporting-documents.show', [
+            'paymentRequest' => $request->id,
+            'supportingDocument' => $doc->id,
+        ]))
+        ->assertForbidden();
 });
 
 it('includes supporting_documents metadata on payment request detail', function () {

@@ -7,6 +7,15 @@
         </p>
         <ul class="divide-y divide-gray-200 dark:divide-white/10 rounded-xl border border-gray-200 dark:border-white/10 overflow-hidden bg-white dark:bg-gray-900">
             @foreach ($documents as $document)
+                @php
+                    $viewParams = [
+                        'paymentRequest' => $document->payment_request_id,
+                        'supportingDocument' => $document->id,
+                    ];
+                    $viewUrl = \Illuminate\Support\Facades\Route::has('filament.admin.payment-requests.supporting-documents.show')
+                        ? route('filament.admin.payment-requests.supporting-documents.show', $viewParams)
+                        : route('payment-requests.supporting-documents.show', $viewParams);
+                @endphp
                 <li class="flex flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
                     <div class="min-w-0">
                         <div class="font-medium text-gray-900 dark:text-white truncate">
@@ -25,10 +34,10 @@
                     </div>
                     <div class="shrink-0">
                         <a
-                            href="{{ route('payment-requests.supporting-documents.show', [$document->payment_request_id, $document->id]) }}"
+                            href="{{ $viewUrl }}"
                             target="_blank"
-                            rel="noopener"
-                            class="text-sm font-semibold text-primary-600 hover:underline"
+                            rel="noopener noreferrer"
+                            class="inline-flex items-center rounded-lg bg-primary-600 px-3 py-1.5 text-sm font-semibold text-white hover:bg-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2"
                         >
                             View
                         </a>

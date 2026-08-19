@@ -25,6 +25,8 @@ Route::middleware('auth')->group(function () {
     Route::get('/inventory/stock-item-ledger/print', StockItemLedgerPrintController::class)
         ->name('inventory.stock-item-ledger.print');
 
+    // Fallback authenticated stream (non-Filament). Admin Filament View uses
+    // filament.admin.payment-requests.supporting-documents.show under /admin.
     Route::get(
         '/payment-requests/{paymentRequest}/supporting-documents/{supportingDocument}',
         [PaymentRequestSupportingDocumentController::class, 'show']

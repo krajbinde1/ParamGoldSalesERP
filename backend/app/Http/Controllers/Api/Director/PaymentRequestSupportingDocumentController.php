@@ -7,6 +7,8 @@ use App\Models\PaymentRequest;
 use App\Models\PaymentRequestSupportingDocument;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
+use Symfony\Component\HttpFoundation\HeaderUtils;
 use Symfony\Component\HttpFoundation\StreamedResponse;
 use Symfony\Component\HttpKernel\Exception\NotFoundHttpException;
 
@@ -16,7 +18,7 @@ class PaymentRequestSupportingDocumentController extends Controller
         Request $request,
         PaymentRequest $paymentRequest,
         PaymentRequestSupportingDocument $supportingDocument,
-    ): StreamedResponse {
+    ): BinaryFileResponse|StreamedResponse {
         $this->authorize('viewSupportingDocument', $paymentRequest);
 
         if ((int) $supportingDocument->payment_request_id !== (int) $paymentRequest->id) {
@@ -27,23 +29,64 @@ class PaymentRequestSupportingDocumentController extends Controller
             abort(404);
         }
 
-        $path = (string) $supportingDocument->stored_file_path;
-        if ($path === '' || str_contains($path, '..') || ! Storage::disk(PaymentRequestSupportingDocument::DISK)->exists($path)) {
+        $path = str_replace('\\', '/', (string) $supportingDocument->stored_file_path);
+        if ($path === '' || str_contains($path, '..')) {
+            throw new NotFoundHttpException('Supporting document not found.');
+        }
+
+        $absolute = $this->resolveExistingAbsolutePath($path);
+        if ($absolute === null) {
             throw new NotFoundHttpException('Supporting document not found.');
         }
 
         $mime = $supportingDocument->resolvedMimeType();
         $downloadName = $supportingDocument->original_file_name ?: 'document';
-
-        return Storage::disk(PaymentRequestSupportingDocument::DISK)->response(
-            $path,
+        $disposition = HeaderUtils::makeDisposition(
+            HeaderUtils::DISPOSITION_INLINE,
             $downloadName,
-            [
-                'Content-Type' => $mime,
-                'Content-Disposition' => 'inline; filename="'.addslashes($downloadName).'"',
-                'X-Content-Type-Options' => 'nosniff',
-                'Cache-Control' => 'private, no-store, no-cache, must-revalidate',
-            ]
+            $this->asciiFallbackName($downloadName),
         );
+
+        return response()->file($absolute, [
+            'Content-Type' => $mime,
+            'Content-Disposition' => $disposition,
+            'X-Content-Type-Options' => 'nosniff',
+            'Cache-Control' => 'private, no-store, no-cache, must-revalidate',
+        ]);
+    }
+
+    /**
+     * Resolve the file on the configured private disk, with a safe legacy fallback
+     * for files stored under storage/app before the local disk root moved to private/.
+     */
+    private function resolveExistingAbsolutePath(string $relativePath): ?string
+    {
+        $disk = Storage::disk(PaymentRequestSupportingDocument::DISK);
+        if ($disk->exists($relativePath)) {
+            return $disk->path($relativePath);
+        }
+
+        $legacy = storage_path('app/'.$relativePath);
+        $realLegacy = realpath($legacy);
+        $allowedRoot = realpath(storage_path('app'));
+
+        if (
+            $realLegacy !== false
+            && $allowedRoot !== false
+            && str_starts_with($realLegacy, $allowedRoot)
+            && is_file($realLegacy)
+        ) {
+            return $realLegacy;
+        }
+
+        return null;
+    }
+
+    private function asciiFallbackName(string $name): string
+    {
+        $fallback = preg_replace('/[^\x20-\x7E]+/', '_', $name) ?: 'document';
+        $fallback = str_replace(['/', '\\'], '_', $fallback);
+
+        return $fallback !== '' ? $fallback : 'document';
     }
 }
