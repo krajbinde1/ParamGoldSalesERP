@@ -23,9 +23,15 @@ final class StorePaymentRequestSupportingDocuments
             return [];
         }
 
+        if ($paymentRequest->isLockedForAdminEdits()) {
+            throw ValidationException::withMessages([
+                'supporting_documents' => ['Payment Request cannot be modified after Director approval.'],
+            ]);
+        }
+
         if (! $actor->can('manageSupportingDocuments', $paymentRequest)) {
             throw ValidationException::withMessages([
-                'supporting_documents' => ['You are not allowed to upload supporting documents for this request.'],
+                'supporting_documents' => ['Payment Request cannot be modified after Director approval.'],
             ]);
         }
 

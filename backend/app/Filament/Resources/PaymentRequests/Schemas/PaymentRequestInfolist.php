@@ -29,6 +29,12 @@ class PaymentRequestInfolist
                             ->badge()
                             ->formatStateUsing(fn (string $state): string => PaymentRequest::statusLabel($state))
                             ->color(fn (string $state): string => PaymentRequest::statusColor($state)),
+                        TextEntry::make('lock_indicator')
+                            ->label('Edit Access')
+                            ->state('Locked after Director Approval')
+                            ->badge()
+                            ->color('warning')
+                            ->visible(fn (PaymentRequest $record): bool => $record->isLockedForAdminEdits()),
                         TextEntry::make('vendor_name')->label('Vendor Name'),
                         TextEntry::make('vendor_mobile')->label('Vendor Mobile'),
                         TextEntry::make('amount')->label('Amount')->money('INR')->weight(FontWeight::Bold),

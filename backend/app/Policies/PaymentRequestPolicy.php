@@ -83,7 +83,8 @@ class PaymentRequestPolicy
     public function manageSupportingDocuments(User $user, PaymentRequest $paymentRequest): bool
     {
         return $user->isAdminUser()
-            && $paymentRequest->isAwaitingApproval();
+            && ! $paymentRequest->isLockedForAdminEdits()
+            && $paymentRequest->status === PaymentRequest::STATUS_PENDING_FIRST;
     }
 
     public function viewSupportingDocument(User $user, PaymentRequest $paymentRequest): bool

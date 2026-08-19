@@ -171,3 +171,43 @@ it('streams document binary content with correct content type for director', fun
     expect(strtolower((string) $response->headers->get('content-type')))->toContain('image/');
     expect(strtolower((string) $response->headers->get('content-disposition')))->toContain('inline');
 });
+
+it('blocks supporting document changes after first director approval', function () {
+    $admin = makePaymentAdmin();
+    $request = makePendingPaymentRequest($admin);
+
+    $docs = app(StorePaymentRequestSupportingDocuments::class)->execute(
+        paymentRequest: $request,
+        actor: $admin,
+        files: [UploadedFile::fake()->image('before.png')],
+    );
+
+    $request->forceFill([
+        'status' => PaymentRequest::STATUS_PENDING_SECOND,
+        'first_approved_by' => makeDirectorUser()->id,
+        'first_approver_name' => 'Director One',
+        'first_approver_role' => 'Director',
+        'first_approved_at' => now(),
+    ])->save();
+
+    expect($request->fresh()->isLockedForAdminEdits())->toBeTrue();
+    expect($admin->can('manageSupportingDocuments', $request->fresh()))->toBeFalse();
+
+    expect(fn () => app(StorePaymentRequestSupportingDocuments::class)->execute(
+        paymentRequest: $request->fresh(),
+        actor: $admin,
+        files: [UploadedFile::fake()->image('after.png')],
+    ))->toThrow(\Illuminate\Validation\ValidationException::class);
+
+    expect(fn () => app(\App\Actions\PaymentRequests\DeletePaymentRequestSupportingDocument::class)->execute(
+        document: $docs[0]->fresh(),
+        actor: $admin,
+    ))->toThrow(\Illuminate\Validation\ValidationException::class);
+
+    expect(fn () => $request->fresh()->update(['vendor_name' => 'Hacked Vendor']))
+        ->toThrow(\Illuminate\Validation\ValidationException::class);
+
+    $timeline = $request->fresh()->load('createdByUser')->approvalTimeline();
+    expect(collect($timeline)->pluck('label')->all())->toContain('Request Created', 'First Approval', 'Second Approval');
+    expect(collect($timeline)->pluck('label')->implode(' '))->not->toContain('First Approval –');
+});

@@ -114,7 +114,9 @@ String _personText(dynamic v) {
   return s.isEmpty ? '—' : s;
 }
 
-/// Director Payment Approval — Pending / All Requests.
+enum _PaymentCardMode { pending, approvedByMe, paymentDone }
+
+/// Director Payment Approval — Pending / Approved by Me / Payment Done.
 class DirectorPaymentRequestsScreen extends StatefulWidget {
   const DirectorPaymentRequestsScreen({
     super.key,
@@ -143,11 +145,11 @@ class _DirectorPaymentRequestsScreenState
   String? _error;
 
   List<Map<String, dynamic>> _pending = const [];
-  List<Map<String, dynamic>> _all = const [];
+  List<Map<String, dynamic>> _approvedByMe = const [];
+  List<Map<String, dynamic>> _paymentDone = const [];
   int _apiPendingCount = 0;
   double _apiPendingTotal = 0;
 
-  String _statusFilter = 'all';
   DateTimeRange? _dateRange;
   double? _minAmount;
   double? _maxAmount;
@@ -157,31 +159,23 @@ class _DirectorPaymentRequestsScreenState
             .dio,
       );
 
-  String get _normalizedInitial {
+  int get _currentUserId => widget.auth.session?.user.id ?? 0;
+
+  int get _initialTabIndex {
     final f = widget.initialFilter.trim().toLowerCase();
-    if (f == 'approved' ||
-        f == 'rejected' ||
-        f == 'history' ||
-        f == 'pending') {
-      return f;
-    }
-    return 'pending';
+    if (f == 'approved' || f == 'approved_by_me') return 1;
+    if (f == 'payment_done' || f == 'history' || f == 'done') return 2;
+    return 0;
   }
 
   @override
   void initState() {
     super.initState();
-    final initial = _normalizedInitial;
     _tabs = TabController(
-      length: 2,
+      length: 3,
       vsync: this,
-      initialIndex: initial == 'pending' ? 0 : 1,
+      initialIndex: _initialTabIndex,
     );
-    if (initial == 'approved' ||
-        initial == 'rejected' ||
-        initial == 'history') {
-      _statusFilter = initial == 'history' ? 'all' : initial;
-    }
     _tabs.addListener(() {
       if (!_tabs.indexIsChanging) setState(() {});
     });
@@ -193,6 +187,16 @@ class _DirectorPaymentRequestsScreenState
     _tabs.dispose();
     _searchCtrl.dispose();
     super.dispose();
+  }
+
+  bool _approvedByCurrentDirector(Map<String, dynamic> m) {
+    final uid = _currentUserId;
+    if (uid <= 0) return true;
+    final first = int.tryParse('${m['first_approved_by'] ?? ''}');
+    final second = int.tryParse('${m['second_approved_by'] ?? ''}');
+    // List payloads may omit approver IDs; then trust status=approved API scope.
+    if (first == null && second == null) return true;
+    return first == uid || second == uid;
   }
 
   Future<void> _load({bool initial = false}) async {
@@ -207,14 +211,38 @@ class _DirectorPaymentRequestsScreenState
     try {
       final results = await Future.wait<_PaymentListResult>([
         _api.listPaymentRequests(status: 'pending'),
+        _api.listPaymentRequests(status: 'approved'),
         _api.listPaymentRequests(),
       ]);
       if (!mounted) return;
+
+      final approvedRaw = results[1]
+          .data
+          .where(_approvedByCurrentDirector)
+          .toList(growable: false);
+      final approvedByMe = approvedRaw
+          .where((m) => !_isPaymentDoneStatus('${m['status'] ?? ''}'))
+          .toList(growable: false);
+      final fromApprovedDone = approvedRaw
+          .where((m) => _isPaymentDoneStatus('${m['status'] ?? ''}'))
+          .toList();
+      final fromVisibleDone = results[2]
+          .data
+          .where((m) => _isPaymentDoneStatus('${m['status'] ?? ''}'))
+          .toList();
+
+      final doneById = <int, Map<String, dynamic>>{};
+      for (final m in [...fromApprovedDone, ...fromVisibleDone]) {
+        final id = int.tryParse('${m['id']}') ?? 0;
+        if (id > 0) doneById[id] = m;
+      }
+
       setState(() {
         _pending = results[0].data;
         _apiPendingCount = results[0].pendingCount;
         _apiPendingTotal = results[0].pendingTotalAmount;
-        _all = results[1].data;
+        _approvedByMe = approvedByMe;
+        _paymentDone = doneById.values.toList(growable: false);
         _loading = false;
         _refreshing = false;
       });
@@ -228,30 +256,35 @@ class _DirectorPaymentRequestsScreenState
     }
   }
 
-  List<Map<String, dynamic>> get _source =>
-      _tabs.index == 0 ? _pending : _all;
+  List<Map<String, dynamic>> get _source {
+    switch (_tabs.index) {
+      case 1:
+        return _approvedByMe;
+      case 2:
+        return _paymentDone;
+      default:
+        return _pending;
+    }
+  }
+
+  _PaymentCardMode get _cardMode {
+    switch (_tabs.index) {
+      case 1:
+        return _PaymentCardMode.approvedByMe;
+      case 2:
+        return _PaymentCardMode.paymentDone;
+      default:
+        return _PaymentCardMode.pending;
+    }
+  }
 
   List<Map<String, dynamic>> get _filtered {
     final q = _searchCtrl.text.trim().toLowerCase();
     return _source.where((m) {
-      final status = '${m['status'] ?? ''}'.toLowerCase();
-
-      if (_tabs.index == 1 && _statusFilter != 'all') {
-        if (_statusFilter == 'pending' && !_isPendingStatus(status)) {
-          return false;
-        }
-        if (_statusFilter == 'approved' && !_isApprovedStatus(status)) {
-          return false;
-        }
-        if (_statusFilter == 'rejected' && !_isRejectedStatus(status)) {
-          return false;
-        }
-        if (_statusFilter == 'payment_done' && !_isPaymentDoneStatus(status)) {
-          return false;
-        }
-      }
-
-      final created = _parseDt(m['created_at']);
+      final created = _parseDt(m['created_at']) ??
+          _parseDt(m['payment_done_at']) ??
+          _parseDt(m['first_approved_at']) ??
+          _parseDt(m['second_approved_at']);
       if (_dateRange != null && created != null) {
         final start = DateTime(
           _dateRange!.start.year,
@@ -278,35 +311,34 @@ class _DirectorPaymentRequestsScreenState
       final rid = '${m['request_no'] ?? m['id'] ?? ''}'.toLowerCase();
       final amt = amount.toStringAsFixed(0);
       final remark = '${m['remark'] ?? ''}'.toLowerCase();
+      final paidBy = '${m['payment_done_by'] ?? ''}'.toLowerCase();
       return vendor.contains(q) ||
           rid.contains(q) ||
           amt.contains(q) ||
-          remark.contains(q);
+          remark.contains(q) ||
+          paidBy.contains(q);
     }).toList();
   }
 
   Map<String, num> get _summary {
-    final base = _all.isNotEmpty ? _all : _pending;
+    final pendingCount =
+        _apiPendingCount > 0 ? _apiPendingCount : _pending.length;
     num totalAmt = 0;
-    var pending = 0;
-    var approved = 0;
-    for (final m in base) {
+    for (final m in [..._pending, ..._approvedByMe, ..._paymentDone]) {
       totalAmt += _amountOf(m);
-      final s = '${m['status'] ?? ''}';
-      if (_isPendingStatus(s)) pending++;
-      if (_isApprovedStatus(s) || _isPaymentDoneStatus(s)) approved++;
     }
+    final totalRequests =
+        _pending.length + _approvedByMe.length + _paymentDone.length;
     return {
-      'total': base.length,
+      'total': totalRequests,
       'amount': totalAmt,
-      'pending': _apiPendingCount > 0 ? _apiPendingCount : pending,
-      'approved': approved,
+      'pending': pendingCount,
+      'approved': _approvedByMe.length,
       'pending_amount': _apiPendingTotal,
     };
   }
 
   Future<void> _openDetail(Map<String, dynamic> m) async {
-    // Backend primary key — not request_no (e.g. PR-0007).
     final id = int.tryParse('${m['id']}') ?? 0;
     debugPrint(
       'PARAMGOLD_PAYMENT_OPEN id=$id request_no=${m['request_no']}',
@@ -323,7 +355,6 @@ class _DirectorPaymentRequestsScreenState
   }
 
   Future<void> _openFilters() async {
-    String status = _statusFilter;
     DateTimeRange? range = _dateRange;
     final minCtrl = TextEditingController(
       text: _minAmount?.toStringAsFixed(0) ?? '',
@@ -370,41 +401,6 @@ class _DirectorPaymentRequestsScreenState
                           fontWeight: FontWeight.w800,
                           color: AppColors.textPrimary,
                         ),
-                  ),
-                  const SizedBox(height: AppSpacing.md),
-                  const Text(
-                    'Status',
-                    style: TextStyle(
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      for (final e in const [
-                        ('all', 'All'),
-                        ('pending', 'Pending'),
-                        ('approved', 'Approved'),
-                        ('rejected', 'Rejected'),
-                        ('payment_done', 'Payment Done'),
-                      ])
-                        ChoiceChip(
-                          label: Text(e.$2),
-                          selected: status == e.$1,
-                          selectedColor:
-                              AppColors.primary.withValues(alpha: 0.15),
-                          labelStyle: TextStyle(
-                            color: status == e.$1
-                                ? AppColors.primary
-                                : AppColors.textSecondary,
-                            fontWeight: FontWeight.w700,
-                          ),
-                          onSelected: (_) => setModal(() => status = e.$1),
-                        ),
-                    ],
                   ),
                   const SizedBox(height: AppSpacing.md),
                   OutlinedButton.icon(
@@ -456,7 +452,6 @@ class _DirectorPaymentRequestsScreenState
                       Expanded(
                         child: OutlinedButton(
                           onPressed: () {
-                            status = 'all';
                             range = null;
                             minCtrl.clear();
                             maxCtrl.clear();
@@ -484,13 +479,9 @@ class _DirectorPaymentRequestsScreenState
 
     if (applied == true && mounted) {
       setState(() {
-        _statusFilter = status;
         _dateRange = range;
         _minAmount = double.tryParse(minCtrl.text.trim());
         _maxAmount = double.tryParse(maxCtrl.text.trim());
-        if (_statusFilter != 'all' && _tabs.index == 0) {
-          _tabs.animateTo(1);
-        }
       });
     }
     minCtrl.dispose();
@@ -504,10 +495,8 @@ class _DirectorPaymentRequestsScreenState
     final first = name.isEmpty ? 'Director' : name.split(' ').first;
     final summary = _summary;
     final items = _filtered;
-    final filtersActive = _statusFilter != 'all' ||
-        _dateRange != null ||
-        _minAmount != null ||
-        _maxAmount != null;
+    final filtersActive =
+        _dateRange != null || _minAmount != null || _maxAmount != null;
 
     return PopScope(
       canPop: false,
@@ -543,21 +532,24 @@ class _DirectorPaymentRequestsScreenState
                   ),
                   TabBar(
                     controller: _tabs,
+                    isScrollable: true,
+                    tabAlignment: TabAlignment.start,
                     labelColor: AppColors.primary,
                     unselectedLabelColor: AppColors.textSecondary,
                     indicatorColor: AppColors.primary,
                     indicatorWeight: 3,
                     labelStyle: const TextStyle(
                       fontWeight: FontWeight.w800,
-                      fontSize: 14,
+                      fontSize: 13,
                     ),
                     unselectedLabelStyle: const TextStyle(
                       fontWeight: FontWeight.w600,
-                      fontSize: 14,
+                      fontSize: 13,
                     ),
-                    tabs: const [
-                      Tab(text: 'Pending'),
-                      Tab(text: 'All Requests'),
+                    tabs: [
+                      Tab(text: 'Pending (${_pending.length})'),
+                      Tab(text: 'Approved by Me (${_approvedByMe.length})'),
+                      Tab(text: 'Payment Done (${_paymentDone.length})'),
                     ],
                   ),
                 ],
@@ -609,9 +601,7 @@ class _DirectorPaymentRequestsScreenState
                               if (items.isEmpty)
                                 SliverFillRemaining(
                                   hasScrollBody: false,
-                                  child: _EmptyPane(
-                                    pendingTab: _tabs.index == 0,
-                                  ),
+                                  child: _EmptyPane(mode: _cardMode),
                                 )
                               else
                                 SliverPadding(
@@ -625,6 +615,8 @@ class _DirectorPaymentRequestsScreenState
                                       final m = items[i];
                                       return _PaymentRequestCard(
                                         data: m,
+                                        mode: _cardMode,
+                                        currentUserId: _currentUserId,
                                         onOpen: () => _openDetail(m),
                                       );
                                     },
@@ -873,26 +865,93 @@ class _SearchFilterRow extends StatelessWidget {
   }
 }
 
+String _approvedByMeStatusLine(Map<String, dynamic> m, int currentUserId) {
+  final status = '${m['status'] ?? ''}'.toLowerCase();
+  final firstAt = _fmtDateTime(m['first_approved_at']);
+  final secondAt = _fmtDateTime(m['second_approved_at']);
+  final firstId = int.tryParse('${m['first_approved_by'] ?? ''}');
+  final secondId = int.tryParse('${m['second_approved_by'] ?? ''}');
+
+  String when = '';
+  if (currentUserId > 0 && firstId == currentUserId && firstAt != '—') {
+    when = firstAt;
+  } else if (currentUserId > 0 &&
+      secondId == currentUserId &&
+      secondAt != '—') {
+    when = secondAt;
+  } else if (firstAt != '—') {
+    when = firstAt;
+  } else if (secondAt != '—') {
+    when = secondAt;
+  }
+
+  if (status.contains('pending_second')) {
+    return when.isEmpty
+        ? 'Approved by You · Waiting for Second Approval'
+        : 'Approved by You · $when\nWaiting for Second Approval';
+  }
+  if (status.contains('approved_for_payment')) {
+    return when.isEmpty
+        ? 'Approved by You · Awaiting Payment'
+        : 'Approved by You · $when\nAwaiting Payment';
+  }
+  return when.isEmpty ? 'Approved by You' : 'Approved by You · $when';
+}
+
 class _PaymentRequestCard extends StatelessWidget {
   const _PaymentRequestCard({
     required this.data,
+    required this.mode,
+    required this.currentUserId,
     required this.onOpen,
   });
 
   final Map<String, dynamic> data;
+  final _PaymentCardMode mode;
+  final int currentUserId;
   final VoidCallback onOpen;
 
   @override
   Widget build(BuildContext context) {
     final vendorRaw = '${data['vendor_name'] ?? ''}'.trim();
-    final vendor =
-        vendorRaw.isEmpty ? 'Vendor Not Available' : vendorRaw;
-    final status = '${data['status'] ?? ''}';
+    final vendor = vendorRaw.isEmpty ? 'Vendor Not Available' : vendorRaw;
     final amount = _amountOf(data);
     final remark = '${data['remark'] ?? ''}'.trim();
     final requestedBy = _personText(data['created_by']);
     final created = _fmtDateTime(data['created_at']);
     final requestId = _requestIdOnly(data);
+    final paymentDoneAt = _fmtDateTime(data['payment_done_at']);
+    final paymentDoneBy = _personText(data['payment_done_by']);
+    final hasProof = '${data['payment_proof_url'] ?? ''}'.trim().isNotEmpty ||
+        '${data['payment_proof_path'] ?? ''}'.trim().isNotEmpty;
+
+    final badgeLabel = switch (mode) {
+      _PaymentCardMode.pending => 'Pending',
+      _PaymentCardMode.approvedByMe => 'Approved by You',
+      _PaymentCardMode.paymentDone => 'Payment Done',
+    };
+    final badgeTone = switch (mode) {
+      _PaymentCardMode.pending => PgStatusTone.pending,
+      _PaymentCardMode.approvedByMe => PgStatusTone.approved,
+      _PaymentCardMode.paymentDone => PgStatusTone.info,
+    };
+    final ctaLabel =
+        mode == _PaymentCardMode.pending ? 'Review & Approve' : 'View Details';
+
+    var secondaryLine = created;
+    var metaTitle = 'Requested by:';
+    var metaValue = requestedBy;
+    String? extraLine;
+
+    if (mode == _PaymentCardMode.approvedByMe) {
+      secondaryLine = _approvedByMeStatusLine(data, currentUserId);
+    } else if (mode == _PaymentCardMode.paymentDone) {
+      secondaryLine =
+          paymentDoneAt == '—' ? created : 'Paid · $paymentDoneAt';
+      metaTitle = 'Payment Done by:';
+      metaValue = paymentDoneBy;
+      if (hasProof) extraLine = 'Payment Proof available';
+    }
 
     return Material(
       color: Colors.white,
@@ -951,23 +1010,21 @@ class _PaymentRequestCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            created,
-                            maxLines: 1,
+                            secondaryLine,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w500,
                               color: AppColors.textSecondary,
+                              height: 1.25,
                             ),
                           ),
                         ],
                       ),
                     ),
                     const SizedBox(width: 8),
-                    PgStatusBadge(
-                      label: _badgeLabel(data),
-                      tone: _badgeTone(status),
-                    ),
+                    PgStatusBadge(label: badgeLabel, tone: badgeTone),
                   ],
                 ),
                 const SizedBox(height: 10),
@@ -979,7 +1036,7 @@ class _PaymentRequestCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Requested by:',
+                            metaTitle,
                             style: TextStyle(
                               fontSize: 11,
                               fontWeight: FontWeight.w500,
@@ -990,7 +1047,7 @@ class _PaymentRequestCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 1),
                           Text(
-                            requestedBy,
+                            metaValue,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: const TextStyle(
@@ -999,7 +1056,8 @@ class _PaymentRequestCard extends StatelessWidget {
                               color: AppColors.textPrimary,
                             ),
                           ),
-                          if (remark.isNotEmpty) ...[
+                          if (mode == _PaymentCardMode.pending &&
+                              remark.isNotEmpty) ...[
                             const SizedBox(height: 4),
                             Text(
                               'Remark: $remark',
@@ -1009,6 +1067,19 @@ class _PaymentRequestCard extends StatelessWidget {
                                 fontSize: 12,
                                 fontWeight: FontWeight.w500,
                                 color: AppColors.textSecondary,
+                              ),
+                            ),
+                          ],
+                          if (extraLine != null) ...[
+                            const SizedBox(height: 4),
+                            Text(
+                              extraLine,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                color: AppColors.primary,
                               ),
                             ),
                           ],
@@ -1048,19 +1119,19 @@ class _PaymentRequestCard extends StatelessWidget {
                               borderRadius: BorderRadius.circular(8),
                             ),
                           ),
-                          child: const Row(
+                          child: Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
                               Text(
-                                'Review & Approve',
-                                style: TextStyle(
+                                ctaLabel,
+                                style: const TextStyle(
                                   fontWeight: FontWeight.w700,
                                   fontSize: 12.5,
                                   color: Colors.white,
                                 ),
                               ),
-                              SizedBox(width: 2),
-                              Icon(
+                              const SizedBox(width: 2),
+                              const Icon(
                                 Icons.chevron_right,
                                 size: 16,
                                 color: Colors.white,
@@ -1082,12 +1153,30 @@ class _PaymentRequestCard extends StatelessWidget {
 }
 
 class _EmptyPane extends StatelessWidget {
-  const _EmptyPane({required this.pendingTab});
+  const _EmptyPane({required this.mode});
 
-  final bool pendingTab;
+  final _PaymentCardMode mode;
 
   @override
   Widget build(BuildContext context) {
+    final (title, subtitle, icon) = switch (mode) {
+      _PaymentCardMode.pending => (
+          'No Pending Payment Requests',
+          'All payment approvals are up to date.',
+          Icons.verified_outlined,
+        ),
+      _PaymentCardMode.approvedByMe => (
+          'No Approvals by You Yet',
+          'Requests you approve will appear here.',
+          Icons.thumb_up_alt_outlined,
+        ),
+      _PaymentCardMode.paymentDone => (
+          'No Completed Payments',
+          'Payment Done requests will appear here.',
+          Icons.payments_outlined,
+        ),
+    };
+
     return Center(
       child: Padding(
         padding: const EdgeInsets.all(32),
@@ -1095,15 +1184,13 @@ class _EmptyPane extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           children: [
             Icon(
-              pendingTab ? Icons.verified_outlined : Icons.inbox_outlined,
+              icon,
               size: 48,
               color: AppColors.primary.withValues(alpha: 0.45),
             ),
             const SizedBox(height: 16),
             Text(
-              pendingTab
-                  ? 'No Pending Payment Requests'
-                  : 'No Payment Requests Found',
+              title,
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontSize: 16,
@@ -1113,13 +1200,12 @@ class _EmptyPane extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              pendingTab
-                  ? 'All payment approvals are up to date.'
-                  : 'Try adjusting search or filters.',
+              subtitle,
               textAlign: TextAlign.center,
               style: const TextStyle(
                 fontSize: 13,
                 color: AppColors.textSecondary,
+                fontWeight: FontWeight.w500,
               ),
             ),
           ],

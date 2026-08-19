@@ -28,7 +28,10 @@ class DirectorPaymentRequestController extends Controller
         $status = $request->query('status');
 
         $query = PaymentRequest::query()
-            ->with(['createdByUser:id,name'])
+            ->with([
+                'createdByUser:id,name',
+                'paymentDoneByUser:id,name',
+            ])
             ->latest('id');
 
         if ($this->approvers->isFirstApprover($user) && ! $this->approvers->isSecondApprover($user)) {
@@ -283,6 +286,13 @@ class DirectorPaymentRequestController extends Controller
             'current_stage' => $pr->currentStageLabel(),
             'created_at' => $pr->created_at?->timezone('Asia/Kolkata')?->toIso8601String(),
             'created_by' => $pr->createdByUser?->name,
+            'first_approved_by' => $pr->first_approved_by,
+            'first_approved_at' => $pr->first_approved_at?->timezone('Asia/Kolkata')?->toIso8601String(),
+            'second_approved_by' => $pr->second_approved_by,
+            'second_approved_at' => $pr->second_approved_at?->timezone('Asia/Kolkata')?->toIso8601String(),
+            'payment_done_at' => $pr->payment_done_at?->timezone('Asia/Kolkata')?->toIso8601String(),
+            'payment_done_by' => $pr->paymentDoneByUser?->name,
+            'payment_proof_url' => $pr->paymentProofUrl(),
             'can_approve' => $user->can('approveFirst', $pr) || $user->can('approveSecond', $pr),
             'can_reject' => $user->can('rejectFirst', $pr) || $user->can('rejectSecond', $pr),
         ];

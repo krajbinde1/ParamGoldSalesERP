@@ -76,6 +76,35 @@ class PaymentRequest extends Model
         ];
     }
 
+    protected static function booted(): void
+    {
+        static::updating(function (PaymentRequest $paymentRequest): void {
+            $originalStatus = (string) $paymentRequest->getOriginal('status');
+            $wasLocked = filled($paymentRequest->getOriginal('first_approved_by'))
+                || filled($paymentRequest->getOriginal('first_approved_at'))
+                || ($originalStatus !== '' && $originalStatus !== self::STATUS_PENDING_FIRST);
+
+            if (! $wasLocked) {
+                return;
+            }
+
+            $lockedAttributes = [
+                'request_no',
+                'vendor_name',
+                'vendor_mobile',
+                'amount',
+                'remark',
+                'created_by',
+            ];
+
+            if ($paymentRequest->isDirty($lockedAttributes)) {
+                throw ValidationException::withMessages([
+                    'payment_request' => ['Payment Request cannot be modified after Director approval.'],
+                ]);
+            }
+        });
+    }
+
     public function createdByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
@@ -112,6 +141,27 @@ class PaymentRequest extends Model
             self::STATUS_PENDING_FIRST,
             self::STATUS_PENDING_SECOND,
         ], true);
+    }
+
+    /**
+     * True once the first Director has approved (or the request has otherwise
+     * moved past pending first approval via Director action).
+     */
+    public function hasAnyDirectorApproval(): bool
+    {
+        if (filled($this->first_approved_by) || filled($this->first_approved_at)) {
+            return true;
+        }
+
+        return $this->status !== self::STATUS_PENDING_FIRST;
+    }
+
+    /**
+     * Admin must not change request data / supporting documents after first Director approval.
+     */
+    public function isLockedForAdminEdits(): bool
+    {
+        return $this->hasAnyDirectorApproval();
     }
 
     public static function statusLabel(string $status): string
@@ -368,104 +418,138 @@ class PaymentRequest extends Model
             ? null
             : Carbon::parse($value)->timezone(self::BUSINESS_TIMEZONE)->format('d M Y • h:i A');
 
-        $firstName = (string) config('payment_requests.first_approver_name', 'Krishna Rajbinde');
-        $secondName = (string) config('payment_requests.second_approver_name', 'Bhagwan Kakde');
+        $resolver = app(\App\Services\PaymentRequests\PaymentRequestApproverResolver::class);
+        $firstExpected = $resolver->firstApproverDisplayName();
+        $secondExpected = $resolver->secondApproverDisplayName();
 
         $steps = [
             [
                 'key' => 'created',
                 'label' => 'Request Created',
-                'actor' => $this->createdByUser?->name,
+                'badge' => 'Completed',
+                'actor' => $this->createdByUser?->name ?: 'Admin',
                 'actor_role' => 'Admin',
                 'at' => $format($this->created_at),
                 'completed' => true,
+                'is_current' => false,
                 'is_rejection' => false,
+                'not_started' => false,
+                'pending' => false,
                 'remark' => null,
             ],
         ];
 
-        $firstDone = filled($this->first_approved_at)
+        $firstRejected = $this->status === self::STATUS_REJECTED_FIRST;
+        $firstApproved = filled($this->first_approved_at)
+            || filled($this->first_approved_by)
             || in_array($this->status, [
                 self::STATUS_PENDING_SECOND,
                 self::STATUS_APPROVED_FOR_PAYMENT,
                 self::STATUS_PAYMENT_DONE,
-                self::STATUS_REJECTED_FIRST,
                 self::STATUS_REJECTED_SECOND,
             ], true);
+        $firstCurrent = $this->status === self::STATUS_PENDING_FIRST;
 
-        $firstRejected = $this->status === self::STATUS_REJECTED_FIRST;
         $steps[] = [
             'key' => 'first_approval',
-            'label' => $firstRejected ? 'Rejected by First Approver' : 'First Approval – '.$firstName,
-            'actor' => $firstDone ? ($this->first_approver_name ?: $firstName) : null,
-            'actor_role' => $firstDone ? ($this->first_approver_role ?: 'Director') : null,
-            'at' => $firstDone ? $format($this->first_approved_at) : null,
-            'completed' => $firstDone && ! $firstRejected,
-            'is_current' => $this->status === self::STATUS_PENDING_FIRST,
+            'label' => 'First Approval',
+            'badge' => $firstRejected
+                ? 'Rejected'
+                : ($firstApproved ? 'Approved' : ($firstCurrent ? 'Pending' : 'Not Started')),
+            'actor' => $firstApproved || $firstRejected
+                ? ($this->first_approver_name ?: $firstExpected)
+                : ($firstCurrent ? $firstExpected : null),
+            'actor_role' => 'Director',
+            'at' => ($firstApproved || $firstRejected) ? $format($this->first_approved_at) : null,
+            'completed' => $firstApproved && ! $firstRejected,
+            'is_current' => $firstCurrent,
             'is_rejection' => $firstRejected,
+            'not_started' => ! $firstApproved && ! $firstRejected && ! $firstCurrent,
+            'pending' => $firstCurrent,
             'remark' => $firstRejected ? $this->first_rejection_remark : null,
-            'pending' => ! $firstDone,
         ];
 
         if ($firstRejected) {
             return $steps;
         }
 
-        $secondDone = filled($this->second_approved_at)
+        $secondRejected = $this->status === self::STATUS_REJECTED_SECOND;
+        $secondApproved = filled($this->second_approved_at)
+            || filled($this->second_approved_by)
             || in_array($this->status, [
                 self::STATUS_APPROVED_FOR_PAYMENT,
                 self::STATUS_PAYMENT_DONE,
-                self::STATUS_REJECTED_SECOND,
             ], true);
-        $secondRejected = $this->status === self::STATUS_REJECTED_SECOND;
+        $secondCurrent = $this->status === self::STATUS_PENDING_SECOND;
 
         $steps[] = [
             'key' => 'second_approval',
-            'label' => $secondRejected ? 'Rejected by Second Approver' : 'Second Approval – '.$secondName,
-            'actor' => $secondDone ? ($this->second_approver_name ?: $secondName) : null,
-            'actor_role' => $secondDone ? ($this->second_approver_role ?: 'Director') : null,
-            'at' => $secondDone ? $format($this->second_approved_at) : null,
-            'completed' => $secondDone && ! $secondRejected,
-            'is_current' => $this->status === self::STATUS_PENDING_SECOND,
+            'label' => 'Second Approval',
+            'badge' => $secondRejected
+                ? 'Rejected'
+                : ($secondApproved ? 'Approved' : ($secondCurrent ? 'Pending' : 'Not Started')),
+            'actor' => $secondApproved || $secondRejected
+                ? ($this->second_approver_name ?: $secondExpected)
+                : ($secondCurrent ? $secondExpected : null),
+            'actor_role' => 'Director',
+            'at' => ($secondApproved || $secondRejected) ? $format($this->second_approved_at) : null,
+            'completed' => $secondApproved && ! $secondRejected,
+            'is_current' => $secondCurrent,
             'is_rejection' => $secondRejected,
+            'not_started' => ! $secondApproved && ! $secondRejected && ! $secondCurrent,
+            'pending' => $secondCurrent,
             'remark' => $secondRejected ? $this->second_rejection_remark : null,
-            'pending' => $firstDone && ! $secondDone,
         ];
 
         if ($secondRejected) {
             return $steps;
         }
 
-        $approvedDone = in_array($this->status, [
+        $approvedForPayment = in_array($this->status, [
             self::STATUS_APPROVED_FOR_PAYMENT,
             self::STATUS_PAYMENT_DONE,
         ], true);
+        $approvedCurrent = $this->status === self::STATUS_APPROVED_FOR_PAYMENT;
 
         $steps[] = [
             'key' => 'approved_for_payment',
             'label' => 'Approved for Payment',
-            'actor' => $approvedDone ? ($this->second_approver_name ?: $secondName) : null,
-            'actor_role' => $approvedDone ? ($this->second_approver_role ?: 'Director') : null,
-            'at' => $approvedDone ? $format($this->second_approved_at) : null,
-            'completed' => $approvedDone,
-            'is_current' => $this->status === self::STATUS_APPROVED_FOR_PAYMENT,
+            'badge' => $approvedForPayment
+                ? ($this->status === self::STATUS_PAYMENT_DONE ? 'Completed' : 'Current')
+                : ($secondApproved ? 'Pending' : 'Not Started'),
+            'actor' => $approvedForPayment ? ($this->second_approver_name ?: $secondExpected) : null,
+            'actor_role' => $approvedForPayment ? 'Director' : null,
+            'at' => $approvedForPayment ? $format($this->second_approved_at) : null,
+            'completed' => $approvedForPayment,
+            'is_current' => $approvedCurrent,
             'is_rejection' => false,
+            'not_started' => ! $approvedForPayment && ! $secondApproved,
+            'pending' => $secondApproved && ! $approvedForPayment,
             'remark' => null,
-            'pending' => $secondDone && ! $approvedDone,
         ];
 
+        // Prefer clearer badge labels for Approved for Payment stage.
+        if ($approvedForPayment && $this->status === self::STATUS_APPROVED_FOR_PAYMENT) {
+            $steps[array_key_last($steps)]['badge'] = 'Awaiting Payment';
+        } elseif ($approvedForPayment) {
+            $steps[array_key_last($steps)]['badge'] = 'Completed';
+        }
+
         $paidDone = $this->status === self::STATUS_PAYMENT_DONE;
+
         $steps[] = [
             'key' => 'payment_done',
             'label' => 'Payment Done',
+            'badge' => $paidDone ? 'Completed' : ($approvedForPayment ? 'Pending' : 'Not Started'),
             'actor' => $paidDone ? ($this->paymentDoneByUser?->name) : null,
             'actor_role' => $paidDone ? 'Admin' : null,
             'at' => $paidDone ? $format($this->payment_done_at) : null,
             'completed' => $paidDone,
             'is_current' => false,
             'is_rejection' => false,
+            'not_started' => ! $paidDone && ! $approvedForPayment,
+            'pending' => $approvedForPayment && ! $paidDone,
             'remark' => $paidDone ? $this->payment_remark : null,
-            'pending' => $approvedDone && ! $paidDone,
         ];
 
         return $steps;
