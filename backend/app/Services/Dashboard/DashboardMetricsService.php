@@ -271,6 +271,7 @@ class DashboardMetricsService
     }
 
     /**
+     * @param  list<string>|null  $roles  Login roles to include (e.g. manager, employee).
      * @return list<array<string, mixed>>
      */
     public function employeePerformance(
@@ -280,6 +281,7 @@ class DashboardMetricsService
         ?string $role = null,
         ?string $search = null,
         ?int $reportingManagerId = null,
+        ?array $roles = null,
     ): array {
         $employees = Employee::query()
             ->with([
@@ -291,6 +293,10 @@ class DashboardMetricsService
             ->when($role !== null, fn ($q) => $q->whereHas(
                 'user',
                 fn ($userQuery) => $userQuery->where('role', $role),
+            ))
+            ->when($roles !== null && $roles !== [], fn ($q) => $q->whereHas(
+                'user',
+                fn ($userQuery) => $userQuery->whereIn('role', $roles),
             ))
             ->when(filled($search), function ($query) use ($search): void {
                 $term = '%'.$search.'%';

@@ -15,6 +15,16 @@ import '../api/director_api.dart';
 
 final _inr = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
 
+/// Director sales/team lists: login role manager|employee only.
+bool _isDirectorSalesTeamRole(Map<String, dynamic> row) {
+  final role = '${row['role'] ?? ''}'.toLowerCase().trim();
+  return role == 'manager' || role == 'employee';
+}
+
+List<Map<String, dynamic>> _salesTeamOnly(List<Map<String, dynamic>> rows) {
+  return rows.where(_isDirectorSalesTeamRole).toList(growable: false);
+}
+
 String _directorGreeting() {
   final hour = DateTime.now().hour;
   if (hour < 12) return 'Good Morning';
@@ -227,6 +237,12 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                                 '${data.presentToday} present · ${data.dealerVisits} dealer visits',
                             icon: Icons.groups_rounded,
                             onTap: () => _open('/director/team-activity'),
+                          ),
+                          _ModuleItem(
+                            title: 'Route Tracking',
+                            subtitle: 'Manager & Employee routes',
+                            icon: Icons.route_outlined,
+                            onTap: () => _open('/director/route-tracking'),
                           ),
                           _ModuleItem(
                             title: 'TA/DA Overview',
@@ -635,7 +651,7 @@ class _DirectorEmployeePerformanceScreenState
             );
           }
           final data = snapshot.data!;
-          final employees = data.employeePerformance;
+          final employees = _salesTeamOnly(data.employeePerformance);
 
           return RefreshIndicator(
             color: AppColors.primary,
@@ -1208,10 +1224,10 @@ class _DirectorCollectionsScreenState extends State<DirectorCollectionsScreen> {
                     ),
               ),
               const SizedBox(height: AppSpacing.sm),
-              if (data.employeePerformance.isEmpty)
+              if (_salesTeamOnly(data.employeePerformance).isEmpty)
                 const PgEmptyState(message: 'No Activity Today')
               else
-                ...data.employeePerformance.map((employee) {
+                ..._salesTeamOnly(data.employeePerformance).map((employee) {
                   return PgCard(
                     margin: const EdgeInsets.only(bottom: AppSpacing.sm),
                     onTap: () => context.push(
@@ -1297,7 +1313,7 @@ class _DirectorTeamActivityScreenState
             );
           }
           final data = snapshot.data!;
-          final employees = data.employeePerformance;
+          final employees = _salesTeamOnly(data.employeePerformance);
 
           return RefreshIndicator(
             color: AppColors.primary,
@@ -1311,6 +1327,59 @@ class _DirectorTeamActivityScreenState
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(AppSpacing.screenPadding),
               children: [
+                PgCard(
+                  onTap: () => context.push('/director/route-tracking'),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: AppSpacing.md,
+                    vertical: 12,
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 40,
+                        height: 40,
+                        decoration: BoxDecoration(
+                          gradient: const LinearGradient(
+                            colors: AppColors.tealGradient,
+                          ),
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        child: const Icon(
+                          Icons.route_outlined,
+                          color: Colors.white,
+                          size: 20,
+                        ),
+                      ),
+                      const SizedBox(width: AppSpacing.md),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Route Tracking',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleSmall
+                                  ?.copyWith(fontWeight: FontWeight.w800),
+                            ),
+                            Text(
+                              'View Manager & Employee routes',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(color: AppColors.textSecondary),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: AppColors.textMuted,
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: AppSpacing.md),
                 _KpiGrid(
                   items: [
                     _KpiItem(

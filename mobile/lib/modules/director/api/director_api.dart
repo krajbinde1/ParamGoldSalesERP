@@ -277,4 +277,41 @@ class DirectorApi {
       throw mapApiError(error);
     }
   }
+
+  Future<({List<Map<String, dynamic>> data, Map<String, dynamic> meta})>
+      listRouteTracking({
+    String? date,
+    String? search,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '/director/route-tracking',
+        queryParameters: {
+          if (date != null) 'date': date,
+          if (search != null && search.isNotEmpty) 'search': search,
+        },
+      );
+      final body = Map<String, dynamic>.from(response.data as Map);
+      return (
+        data: (body['data'] as List?)
+                ?.map((item) => Map<String, dynamic>.from(item as Map))
+                .toList() ??
+            const [],
+        meta: Map<String, dynamic>.from(body['meta'] as Map? ?? const {}),
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> getRouteTracking(int attendanceId) async {
+    try {
+      final response = await _dio.get('/director/route-tracking/$attendanceId');
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Director;
 
+use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\PaymentRequest;
 use App\Services\Dashboard\DashboardMetricsService;
@@ -11,6 +12,12 @@ use Illuminate\Http\Request;
 
 class DirectorDashboardController extends Controller
 {
+    /** @var list<string> */
+    private const SALES_TEAM_ROLES = [
+        UserRole::Manager->value,
+        UserRole::Employee->value,
+    ];
+
     public function __construct(
         private readonly DashboardMetricsService $metrics,
         private readonly PaymentRequestApproverResolver $approvers,
@@ -23,7 +30,7 @@ class DirectorDashboardController extends Controller
             'start_date' => ['nullable', 'date', 'required_if:period,custom'],
             'end_date' => ['nullable', 'date', 'required_if:period,custom', 'after_or_equal:start_date'],
             'employee_id' => ['nullable', 'integer', 'exists:employees,id'],
-            'role' => ['nullable', 'in:employee,manager,production_supervisor,director'],
+            'role' => ['nullable', 'in:employee,manager'],
         ]);
 
         $range = $this->metrics->resolveDateRange(
@@ -44,6 +51,11 @@ class DirectorDashboardController extends Controller
                 ->count();
         }
 
+        // Director sales/team monitoring: login role manager|employee only.
+        $salesRoles = isset($validated['role'])
+            ? [$validated['role']]
+            : self::SALES_TEAM_ROLES;
+
         return response()->json([
             'success' => true,
             'period' => $range['label'],
@@ -60,7 +72,10 @@ class DirectorDashboardController extends Controller
                 $range['start'],
                 $range['end'],
                 $validated['employee_id'] ?? null,
-                $validated['role'] ?? null,
+                null,
+                null,
+                null,
+                $salesRoles,
             ),
         ]);
     }

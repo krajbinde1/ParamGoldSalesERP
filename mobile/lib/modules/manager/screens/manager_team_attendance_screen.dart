@@ -852,10 +852,13 @@ class ManagerTeamRouteMapScreen extends StatefulWidget {
     super.key,
     required this.auth,
     required this.attendanceId,
+    this.loadRoute,
   });
 
   final AuthController auth;
   final int attendanceId;
+  /// Optional loader so Director (and others) can reuse this map screen.
+  final Future<Map<String, dynamic>> Function(int attendanceId)? loadRoute;
 
   @override
   State<ManagerTeamRouteMapScreen> createState() =>
@@ -877,7 +880,9 @@ class _ManagerTeamRouteMapScreenState extends State<ManagerTeamRouteMapScreen> {
   }
 
   Future<Map<String, dynamic>> _load() async {
-    final data = await _api.getTeamAttendance(widget.attendanceId);
+    final data = widget.loadRoute != null
+        ? await widget.loadRoute!(widget.attendanceId)
+        : await _api.getTeamAttendance(widget.attendanceId);
     if (!mounted) return data;
     if (data['has_route'] == true) {
       _setupController(data);

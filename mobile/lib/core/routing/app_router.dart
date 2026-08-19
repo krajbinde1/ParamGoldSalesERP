@@ -37,6 +37,7 @@ import '../../modules/orders/screens/order_list_screen.dart';
 import '../../modules/orders/screens/review_order_screen.dart';
 import '../../modules/director/screens/director_dashboard_screen.dart';
 import '../../modules/director/screens/director_payment_requests_screen.dart';
+import '../../modules/director/screens/director_route_tracking_screen.dart';
 import '../../modules/manager/screens/manager_edit_order_screen.dart';
 import '../../modules/manager/screens/manager_employee_performance_screen.dart';
 import '../../modules/manager/screens/manager_orders_screen.dart';
@@ -607,6 +608,19 @@ GoRouter createRouter(
     GoRoute(
       path: '/director/team-activity',
       builder: (_, _) => DirectorTeamActivityScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/director/route-tracking',
+      builder: (_, _) => DirectorRouteTrackingScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':attendanceId',
+          builder: (_, state) => DirectorRouteMapScreen(
+            auth: auth,
+            attendanceId: int.parse(state.pathParameters['attendanceId']!),
+          ),
+        ),
+      ],
     ),
     GoRoute(
       path: '/director/reports',
