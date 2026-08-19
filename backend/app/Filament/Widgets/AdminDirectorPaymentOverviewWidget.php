@@ -2,9 +2,6 @@
 
 namespace App\Filament\Widgets;
 
-use App\Filament\Resources\Dealers\DealerResource;
-use App\Filament\Resources\Employees\EmployeeResource;
-use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Resources\PaymentRequests\PaymentRequestResource;
 use App\Models\PaymentRequest;
 use Filament\Widgets\Widget;
@@ -41,21 +38,6 @@ class AdminDirectorPaymentOverviewWidget extends Widget
 
         $indexUrl = $canOpen ? PaymentRequestResource::getUrl('index') : null;
 
-        $actions = array_values(array_filter([
-            DealerResource::canCreate()
-                ? ['label' => 'Add Dealer', 'url' => DealerResource::getUrl('create'), 'icon' => 'heroicon-o-building-storefront', 'tone' => 'teal']
-                : null,
-            EmployeeResource::canCreate()
-                ? ['label' => 'Add Employee', 'url' => EmployeeResource::getUrl('create'), 'icon' => 'heroicon-o-user-plus', 'tone' => 'green']
-                : null,
-            PaymentRequestResource::canAccess()
-                ? ['label' => 'Create Payment Request', 'url' => PaymentRequestResource::getUrl('create'), 'icon' => 'heroicon-o-credit-card', 'tone' => 'amber']
-                : null,
-            OrderResource::canViewAny()
-                ? ['label' => 'View Orders', 'url' => OrderResource::getUrl('index'), 'icon' => 'heroicon-o-shopping-bag', 'tone' => 'blue']
-                : null,
-        ]));
-
         return [
             'stats' => [
                 [
@@ -91,7 +73,6 @@ class AdminDirectorPaymentOverviewWidget extends Widget
                     'showArrow' => false,
                 ],
             ],
-            'actions' => array_slice($actions, 0, 4),
         ];
     }
 }

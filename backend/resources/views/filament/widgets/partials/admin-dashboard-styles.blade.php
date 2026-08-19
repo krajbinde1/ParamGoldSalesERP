@@ -1,5 +1,36 @@
 {{-- Admin dashboard only. Icon SVG sizing scoped under .pg-admin-dash — never global svg {}. --}}
 <style>
+    /* Full available width for Dashboard page (fi-width-full from Width::Full). */
+    .paramgold-admin-shell .fi-main.fi-width-full {
+        width: 100%;
+        max-width: none !important;
+        margin-left: 0;
+        margin-right: 0;
+        padding-left: 1rem;
+        padding-right: 1rem;
+    }
+
+    @media (min-width: 768px) {
+        .paramgold-admin-shell .fi-main.fi-width-full {
+            padding-left: 1.25rem;
+            padding-right: 1.25rem;
+        }
+    }
+
+    @media (min-width: 1024px) {
+        .paramgold-admin-shell .fi-main.fi-width-full {
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
+        }
+    }
+
+    @media (min-width: 1536px) {
+        .paramgold-admin-shell .fi-main.fi-width-full {
+            padding-left: 2rem;
+            padding-right: 2rem;
+        }
+    }
+
     .pg-admin-dash {
         --pg-teal: #0F766E;
         --pg-teal-soft: rgba(15, 118, 110, 0.1);

@@ -35,19 +35,6 @@
                     @endif
                 @endforeach
             </div>
-
-            @if (count($actions) > 0)
-                <div class="pg-actions">
-                    @foreach ($actions as $action)
-                        <a href="{{ $action['url'] }}" class="pg-action">
-                            <span class="pg-icon pg-icon--{{ $action['tone'] }}" aria-hidden="true">
-                                <x-filament::icon :icon="$action['icon']" />
-                            </span>
-                            {{ $action['label'] }}
-                        </a>
-                    @endforeach
-                </div>
-            @endif
         </x-filament::section>
     </div>
 </x-filament-widgets::widget>

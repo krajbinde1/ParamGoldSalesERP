@@ -7,7 +7,6 @@ use App\Filament\Widgets\AdminDirectorBusinessPerformanceWidget;
 use App\Filament\Widgets\AdminDirectorEmployeePerformanceWidget;
 use App\Filament\Widgets\AdminDirectorOrderOverviewWidget;
 use App\Filament\Widgets\AdminDirectorPaymentOverviewWidget;
-use App\Filament\Widgets\AdminDirectorRecentActivityWidget;
 use App\Filament\Widgets\AdminDirectorWelcomeWidget;
 use App\Filament\Widgets\ManagerEmployeePerformanceWidget;
 use App\Filament\Widgets\ManagerOrderStatsWidget;
@@ -16,10 +15,15 @@ use App\Filament\Widgets\ManagerWelcomeWidget;
 use App\Filament\Widgets\ProductionOrderStatsWidget;
 use Filament\Facades\Filament;
 use Filament\Pages\Dashboard as BaseDashboard;
+use Filament\Support\Enums\Width;
 use Filament\Widgets\WidgetConfiguration;
 
 class Dashboard extends BaseDashboard
 {
+    /**
+     * Use the full content area after the sidebar (no 7xl max-width).
+     */
+    protected Width|string|null $maxContentWidth = Width::Full;
     public static function canAccess(): bool
     {
         if (auth()->user()?->isProductionManagerOnlyInFilament()) {
@@ -74,7 +78,6 @@ class Dashboard extends BaseDashboard
                 AdminDirectorOrderOverviewWidget::class,
                 AdminDirectorPaymentOverviewWidget::class,
                 AdminDirectorEmployeePerformanceWidget::class,
-                AdminDirectorRecentActivityWidget::class,
             ];
         }
 
