@@ -84,8 +84,8 @@ class PaymentRequestInfolist
                                                 }
 
                                                 return new HtmlString(
-                                                    '<span class="inline-flex items-center gap-1.5 rounded-md bg-gray-100 px-2 py-0.5 text-xs font-medium text-gray-700 ring-1 ring-inset ring-gray-200 dark:bg-gray-800 dark:text-gray-200 dark:ring-gray-700">'
-                                                    .'<span aria-hidden="true">🔒</span>'
+                                                    '<span style="display:inline-flex;align-items:center;gap:6px;border-radius:6px;background:#f3f4f6;padding:2px 8px;font-size:12px;font-weight:500;color:#374151;">'
+                                                    .'<span aria-hidden="true" style="font-size:12px;line-height:1;">🔒</span>'
                                                     .'Locked after Director Approval'
                                                     .'</span>'
                                                 );
@@ -160,8 +160,8 @@ class PaymentRequestInfolist
 
                                         return new HtmlString(
                                             '<a href="'.e($url).'" target="_blank" rel="noopener noreferrer" '
-                                            .'class="inline-flex items-center gap-1.5 rounded-lg bg-primary-600 px-3 py-1.5 text-sm font-semibold text-white shadow-sm transition hover:bg-primary-500 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500">'
-                                            .'<svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">'
+                                            .'style="display:inline-flex;align-items:center;gap:6px;border-radius:8px;background:#0d9488;padding:6px 10px;font-size:13px;font-weight:600;color:#fff;text-decoration:none;">'
+                                            .'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" style="width:14px;height:14px;flex-shrink:0;display:block;">'
                                             .'<path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />'
                                             .'<path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />'
                                             .'</svg>'

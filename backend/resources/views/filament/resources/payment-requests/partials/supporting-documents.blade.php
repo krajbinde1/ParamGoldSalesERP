@@ -6,7 +6,7 @@
 @if ($documents->isEmpty())
     <p class="text-sm text-gray-500 dark:text-gray-400">No supporting documents attached.</p>
 @else
-    <ul class="divide-y divide-gray-200 dark:divide-white/10 -mx-1">
+    <ul class="pr-docs-list divide-y divide-gray-200 dark:divide-white/10" style="margin:0;padding:0;list-style:none;">
         @foreach ($documents as $document)
             @php
                 $viewParams = [
@@ -22,51 +22,48 @@
                     ? $document->created_at->timezone('Asia/Kolkata')->format('d M Y • h:i A')
                     : '—';
             @endphp
-            <li class="flex flex-col gap-3 py-3.5 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                <div class="flex min-w-0 flex-1 items-start gap-3">
-                    <div @class([
-                        'mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-lg',
-                        'bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400' => $isPdf,
-                        'bg-sky-50 text-sky-600 dark:bg-sky-950/40 dark:text-sky-400' => ! $isPdf,
-                    ])>
+            <li style="display:flex;align-items:center;justify-content:space-between;gap:12px;padding:10px 0;flex-wrap:wrap;">
+                <div style="display:flex;align-items:flex-start;gap:10px;min-width:0;flex:1;">
+                    <span
+                        aria-hidden="true"
+                        style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;flex-shrink:0;border-radius:6px;{{ $isPdf ? 'background:#fef2f2;color:#dc2626;' : 'background:#f0f9ff;color:#0284c7;' }}"
+                    >
                         @if ($isPdf)
-                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" style="width:16px;height:16px;flex-shrink:0;display:block;" aria-hidden="true">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M7 3h6l5 5v13a1 1 0 01-1 1H7a1 1 0 01-1-1V4a1 1 0 011-1z" />
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M13 3v5h5" />
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M9 13h6M9 17h4" />
                             </svg>
                         @else
-                            <svg class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.75" aria-hidden="true">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" style="width:16px;height:16px;flex-shrink:0;display:block;" aria-hidden="true">
                                 <path stroke-linecap="round" stroke-linejoin="round" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
                             </svg>
                         @endif
-                    </div>
-                    <div class="min-w-0 flex-1">
-                        <p class="truncate text-sm font-semibold text-gray-900 dark:text-gray-100" title="{{ $document->original_file_name }}">
+                    </span>
+                    <div style="min-width:0;flex:1;">
+                        <div style="font-size:13px;font-weight:600;color:inherit;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="{{ $document->original_file_name }}">
                             {{ $document->original_file_name }}
-                        </p>
-                        <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                        </div>
+                        <div style="margin-top:2px;font-size:12px;color:#6b7280;">
                             {{ $document->humanFileSize() }} • Uploaded by {{ $uploadedBy }}
-                        </p>
-                        <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                        </div>
+                        <div style="margin-top:2px;font-size:12px;color:#6b7280;">
                             {{ $uploadedAt }}
-                        </p>
+                        </div>
                     </div>
                 </div>
-                <div class="shrink-0 sm:self-center">
-                    <a
-                        href="{{ $viewUrl }}"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        class="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-gray-200 bg-white px-3 py-1.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 dark:border-white/10 dark:bg-white/5 dark:text-gray-200 dark:hover:bg-white/10 sm:w-auto"
-                    >
-                        <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
-                        </svg>
-                        View
-                    </a>
-                </div>
+                <a
+                    href="{{ $viewUrl }}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    style="display:inline-flex;align-items:center;gap:6px;flex-shrink:0;border:1px solid #e5e7eb;border-radius:8px;background:#fff;padding:6px 10px;font-size:13px;font-weight:600;color:#374151;text-decoration:none;"
+                >
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="width:14px;height:14px;flex-shrink:0;display:block;" aria-hidden="true">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+                    </svg>
+                    View
+                </a>
             </li>
         @endforeach
     </ul>

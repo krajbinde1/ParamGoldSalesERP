@@ -323,29 +323,12 @@ class _DirectorPaymentRequestsScreenState
       totalAmt += _amountOf(m);
     }
     final count = items.length;
-    switch (_tabs.index) {
-      case 1: // Approved by Me
-        return {
-          'total': count,
-          'amount': totalAmt,
-          'pending': 0,
-          'approved': count,
-        };
-      case 2: // Payment Done
-        return {
-          'total': count,
-          'amount': totalAmt,
-          'pending': 0,
-          'approved': count,
-        };
-      default: // Pending
-        return {
-          'total': count,
-          'amount': totalAmt,
-          'pending': count,
-          'approved': 0,
-        };
-    }
+    // Tab-scoped totals only — third metric always matches the active list.
+    return {
+      'total': count,
+      'amount': totalAmt,
+      'status': count,
+    };
   }
 
   Future<void> _openDetail(Map<String, dynamic> m) async {
@@ -593,12 +576,23 @@ class _DirectorPaymentRequestsScreenState
                                         totalRequests:
                                             summary['total']!.toInt(),
                                         totalAmount: summary['amount']!,
-                                        pending: summary['pending']!.toInt(),
-                                        approved: summary['approved']!.toInt(),
-                                        pendingLabel: 'Pending',
-                                        approvedLabel: _tabs.index == 2
-                                            ? 'Payment Done'
-                                            : 'Approved',
+                                        statusCount:
+                                            summary['status']!.toInt(),
+                                        statusLabel: switch (_tabs.index) {
+                                          1 => 'Approved by Me',
+                                          2 => 'Payment Done',
+                                          _ => 'Pending',
+                                        },
+                                        statusIcon: switch (_tabs.index) {
+                                          1 => Icons.verified_outlined,
+                                          2 => Icons.payments_outlined,
+                                          _ => Icons.hourglass_top_rounded,
+                                        },
+                                        statusAccent: switch (_tabs.index) {
+                                          1 => AppColors.success,
+                                          2 => AppColors.success,
+                                          _ => AppColors.warning,
+                                        },
                                       ),
                                       const SizedBox(height: 12),
                                       _SearchFilterRow(
@@ -651,18 +645,18 @@ class _SummaryCard extends StatelessWidget {
   const _SummaryCard({
     required this.totalRequests,
     required this.totalAmount,
-    required this.pending,
-    required this.approved,
-    this.pendingLabel = 'Pending',
-    this.approvedLabel = 'Approved',
+    required this.statusCount,
+    required this.statusLabel,
+    required this.statusIcon,
+    required this.statusAccent,
   });
 
   final int totalRequests;
   final num totalAmount;
-  final int pending;
-  final int approved;
-  final String pendingLabel;
-  final String approvedLabel;
+  final int statusCount;
+  final String statusLabel;
+  final IconData statusIcon;
+  final Color statusAccent;
 
   @override
   Widget build(BuildContext context) {
@@ -701,21 +695,10 @@ class _SummaryCard extends StatelessWidget {
           _vDivider(),
           Expanded(
             child: _SummaryMetric(
-              icon: Icons.hourglass_top_rounded,
-              label: pendingLabel,
-              value: '$pending',
-              accent: AppColors.warning,
-            ),
-          ),
-          _vDivider(),
-          Expanded(
-            child: _SummaryMetric(
-              icon: approvedLabel == 'Payment Done'
-                  ? Icons.payments_outlined
-                  : Icons.verified_outlined,
-              label: approvedLabel,
-              value: '$approved',
-              accent: AppColors.success,
+              icon: statusIcon,
+              label: statusLabel,
+              value: '$statusCount',
+              accent: statusAccent,
             ),
           ),
         ],

@@ -6,7 +6,7 @@
 @if (count($steps) === 0)
     <p class="m-0 text-sm text-gray-500 dark:text-gray-400">No timeline available.</p>
 @else
-    <ol class="m-0 flex list-none flex-col gap-0 p-0">
+    <ol style="margin:0;padding:0;list-style:none;display:flex;flex-direction:column;">
         @foreach ($steps as $step)
             @php
                 $done = ! empty($step['completed']);
@@ -30,91 +30,84 @@
 
                 $state = $rejected ? 'rejected' : ($done ? 'done' : ($pending ? 'pending' : 'idle'));
 
-                $dotClass = match ($state) {
-                    'rejected' => 'border-red-500 bg-red-500 text-white dark:border-red-400 dark:bg-red-500',
-                    'done' => 'border-teal-500 bg-teal-500 text-white dark:border-teal-400 dark:bg-teal-500',
-                    'pending' => 'border-amber-500 bg-amber-500 text-white dark:border-amber-400 dark:bg-amber-500',
-                    default => 'border-gray-300 bg-white text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-500',
+                $dotStyle = match ($state) {
+                    'rejected' => 'background:#ef4444;border-color:#ef4444;color:#fff;',
+                    'done' => 'background:#14b8a6;border-color:#14b8a6;color:#fff;',
+                    'pending' => 'background:#f59e0b;border-color:#f59e0b;color:#fff;',
+                    default => 'background:#fff;border-color:#d1d5db;color:#9ca3af;',
                 };
 
-                $lineClass = match ($state) {
-                    'done' => 'bg-teal-400 dark:bg-teal-500',
-                    'pending' => 'bg-amber-300 dark:bg-amber-500/70',
-                    'rejected' => 'bg-red-300 dark:bg-red-500/70',
-                    default => 'bg-gray-200 dark:bg-gray-700',
+                $lineStyle = match ($state) {
+                    'done' => 'background:#5eead4;',
+                    'pending' => 'background:#fcd34d;',
+                    'rejected' => 'background:#fca5a5;',
+                    default => 'background:#e5e7eb;',
                 };
 
-                $badgeClass = match ($state) {
-                    'rejected' => 'bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-400/30',
-                    'done' => 'bg-teal-50 text-teal-700 ring-teal-600/20 dark:bg-teal-950/50 dark:text-teal-300 dark:ring-teal-400/30',
-                    'pending' => 'bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-400/30',
-                    default => 'bg-gray-50 text-gray-500 ring-gray-500/15 dark:bg-gray-800 dark:text-gray-400 dark:ring-white/10',
+                $badgeStyle = match ($state) {
+                    'rejected' => 'background:#fef2f2;color:#b91c1c;',
+                    'done' => 'background:#f0fdfa;color:#0f766e;',
+                    'pending' => 'background:#fffbeb;color:#b45309;',
+                    default => 'background:#f9fafb;color:#6b7280;',
                 };
 
-                $titleClass = match ($state) {
-                    'rejected' => 'text-red-700 dark:text-red-300',
-                    'idle' => 'text-gray-400 dark:text-gray-500',
-                    default => 'text-gray-900 dark:text-gray-100',
+                $titleColor = match ($state) {
+                    'rejected' => '#b91c1c',
+                    'idle' => '#9ca3af',
+                    default => 'inherit',
+                };
+
+                $mark = match ($state) {
+                    'rejected' => '✕',
+                    'done' => '✓',
+                    'pending' => '●',
+                    default => '○',
                 };
             @endphp
-            <li class="relative flex gap-4 {{ $isLast ? '' : 'pb-6' }}">
-                <div class="relative flex w-8 shrink-0 flex-col items-center">
+            <li style="position:relative;display:flex;gap:12px;{{ $isLast ? '' : 'padding-bottom:18px;' }}">
+                <div style="position:relative;display:flex;width:20px;flex-shrink:0;flex-direction:column;align-items:center;">
                     <span
-                        class="relative z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-bold shadow-sm {{ $dotClass }}"
                         aria-hidden="true"
-                    >
-                        @if ($rejected)
-                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
-                            </svg>
-                        @elseif ($done)
-                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
-                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                        @elseif ($pending)
-                            <span class="h-2 w-2 rounded-full bg-white"></span>
-                        @else
-                            <span class="h-2 w-2 rounded-full bg-current opacity-40"></span>
-                        @endif
-                    </span>
+                        style="position:relative;z-index:1;display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:9999px;border:2px solid;font-size:11px;line-height:1;font-weight:700;{{ $dotStyle }}"
+                    >{{ $mark }}</span>
                     @unless ($isLast)
-                        <span class="absolute top-8 bottom-0 w-0.5 {{ $lineClass }}" aria-hidden="true"></span>
+                        <span aria-hidden="true" style="position:absolute;top:20px;bottom:0;width:2px;{{ $lineStyle }}"></span>
                     @endunless
                 </div>
 
-                <div class="min-w-0 flex-1 pt-0.5">
-                    <div class="flex flex-wrap items-center gap-2">
-                        <h4 class="text-sm font-semibold leading-5 {{ $titleClass }}">{{ $label }}</h4>
-                        <span class="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ring-1 ring-inset {{ $badgeClass }}">
+                <div style="min-width:0;flex:1;padding-top:1px;">
+                    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:8px;">
+                        <div style="font-size:13px;font-weight:600;line-height:1.25;color:{{ $titleColor }};">{{ $label }}</div>
+                        <span style="display:inline-flex;align-items:center;border-radius:6px;padding:2px 8px;font-size:11px;font-weight:600;{{ $badgeStyle }}">
                             {{ $badge }}
                         </span>
                     </div>
 
                     @if ($actor !== '' || $role !== '')
-                        <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">
+                        <div style="margin-top:4px;font-size:13px;color:#374151;">
                             @if ($actor !== '' && $role !== '')
-                                {{ $actor }} <span class="text-gray-400 dark:text-gray-500">•</span> {{ $role }}
+                                {{ $actor }} <span style="color:#9ca3af;">•</span> {{ $role }}
                             @elseif ($actor !== '')
                                 {{ $actor }}
                             @else
                                 {{ $role }}
                             @endif
-                        </p>
+                        </div>
                     @elseif ($pending)
-                        <p class="mt-1 text-sm text-amber-700 dark:text-amber-300">Awaiting action</p>
+                        <div style="margin-top:4px;font-size:13px;color:#b45309;">Awaiting action</div>
                     @elseif ($notStarted)
-                        <p class="mt-1 text-sm text-gray-400 dark:text-gray-500">Not started</p>
+                        <div style="margin-top:4px;font-size:12px;color:#9ca3af;">Not started</div>
                     @endif
 
                     @if ($at !== '')
-                        <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ $at }}</p>
+                        <div style="margin-top:2px;font-size:12px;color:#6b7280;">{{ $at }}</div>
                     @endif
 
                     @if ($remark !== '')
-                        <p class="mt-1.5 text-xs text-gray-600 dark:text-gray-300">
-                            <span class="font-medium text-gray-500 dark:text-gray-400">Remark:</span>
+                        <div style="margin-top:6px;font-size:12px;color:#4b5563;">
+                            <span style="font-weight:600;color:#6b7280;">Remark:</span>
                             {{ $remark }}
-                        </p>
+                        </div>
                     @endif
                 </div>
             </li>
