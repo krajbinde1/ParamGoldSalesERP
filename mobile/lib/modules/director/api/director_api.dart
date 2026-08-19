@@ -2,6 +2,29 @@ import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/api/api_errors.dart';
+import '../../manager/api/manager_api.dart';
+
+class DirectorOrderListResult {
+  const DirectorOrderListResult({
+    required this.orders,
+    required this.total,
+    required this.counts,
+  });
+
+  final List<Map<String, dynamic>> orders;
+  final int total;
+  final ManagerOrderCounts counts;
+}
+
+class DirectorRouteTrackingListResult {
+  const DirectorRouteTrackingListResult({
+    required this.rows,
+    required this.meta,
+  });
+
+  final List<Map<String, dynamic>> rows;
+  final Map<String, dynamic> meta;
+}
 
 class DirectorDashboardData {
   const DirectorDashboardData({
@@ -126,17 +149,44 @@ class DirectorApi {
     }
   }
 
-  Future<List<Map<String, dynamic>>> listOrders({String? status}) async {
+  Future<DirectorOrderListResult> listOrders({
+    String? status,
+    String? search,
+    String? salesPerson,
+    String? dealer,
+    String? orderNo,
+    String? dateFrom,
+    String? dateTo,
+  }) async {
     try {
       final response = await _dio.get(
         '/director/orders',
-        queryParameters: status != null ? {'status': status} : null,
+        queryParameters: {
+          if (status != null) 'status': status,
+          if (search != null && search.isNotEmpty) 'search': search,
+          if (salesPerson != null && salesPerson.isNotEmpty)
+            'sales_person': salesPerson,
+          if (dealer != null && dealer.isNotEmpty) 'dealer': dealer,
+          if (orderNo != null && orderNo.isNotEmpty) 'order_no': orderNo,
+          if (dateFrom != null && dateFrom.isNotEmpty) 'date_from': dateFrom,
+          if (dateTo != null && dateTo.isNotEmpty) 'date_to': dateTo,
+        },
       );
       final body = response.data as Map;
-      return (body['data'] as List?)
+      final orders = (body['data'] as List?)
               ?.map((item) => Map<String, dynamic>.from(item as Map))
               .toList() ??
           const [];
+      final meta = body['meta'] as Map? ?? const {};
+      return DirectorOrderListResult(
+        orders: orders,
+        total: int.tryParse('${meta['total'] ?? orders.length}') ?? orders.length,
+        counts: ManagerOrderCounts.fromJson(
+          body['counts'] is Map
+              ? Map<String, dynamic>.from(body['counts'] as Map)
+              : null,
+        ),
+      );
     } on DioException catch (error) {
       throw mapApiError(error);
     }
@@ -278,12 +328,14 @@ class DirectorApi {
     }
   }
 
-  Future<({List<Map<String, dynamic>> data, Map<String, dynamic> meta})>
-      listRouteTracking({
+  Future<DirectorRouteTrackingListResult> listRouteTracking({
     String? date,
     String? search,
   }) async {
     try {
+      debugPrint(
+        'PARAMGOLD_DIRECTOR_ROUTE_LIST date=$date',
+      );
       final response = await _dio.get(
         '/director/route-tracking',
         queryParameters: {
@@ -291,26 +343,57 @@ class DirectorApi {
           if (search != null && search.isNotEmpty) 'search': search,
         },
       );
-      final body = Map<String, dynamic>.from(response.data as Map);
-      return (
-        data: (body['data'] as List?)
-                ?.map((item) => Map<String, dynamic>.from(item as Map))
-                .toList() ??
-            const [],
-        meta: Map<String, dynamic>.from(body['meta'] as Map? ?? const {}),
+      debugPrint(
+        'PARAMGOLD_DIRECTOR_ROUTE_LIST status=${response.statusCode}',
+      );
+      final raw = response.data;
+      if (raw is! Map) {
+        throw StateError('Invalid route tracking response');
+      }
+      final body = Map<String, dynamic>.from(raw);
+      final dataRaw = body['data'];
+      final rows = dataRaw is List
+          ? dataRaw
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
+          : <Map<String, dynamic>>[];
+      final metaRaw = body['meta'];
+      return DirectorRouteTrackingListResult(
+        rows: rows,
+        meta: metaRaw is Map
+            ? Map<String, dynamic>.from(metaRaw)
+            : <String, dynamic>{},
       );
     } on DioException catch (error) {
+      debugPrint(
+        'PARAMGOLD_DIRECTOR_ROUTE_LIST_ERROR '
+        'status=${error.response?.statusCode} date=$date',
+      );
       throw mapApiError(error);
     }
   }
 
   Future<Map<String, dynamic>> getRouteTracking(int attendanceId) async {
     try {
-      final response = await _dio.get('/director/route-tracking/$attendanceId');
-      return Map<String, dynamic>.from(
-        (response.data as Map)['data'] as Map,
+      debugPrint(
+        'PARAMGOLD_DIRECTOR_ROUTE_DETAIL id=$attendanceId',
       );
+      final response = await _dio.get('/director/route-tracking/$attendanceId');
+      final root = response.data;
+      if (root is! Map) {
+        throw StateError('Invalid route detail response');
+      }
+      final data = root['data'];
+      if (data is! Map) {
+        throw StateError('Route detail data missing');
+      }
+      return Map<String, dynamic>.from(data);
     } on DioException catch (error) {
+      debugPrint(
+        'PARAMGOLD_DIRECTOR_ROUTE_DETAIL_ERROR '
+        'id=$attendanceId status=${error.response?.statusCode}',
+      );
       throw mapApiError(error);
     }
   }

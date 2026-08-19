@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/api/api_errors.dart';
 import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/storage/session_store.dart';
@@ -25,8 +26,7 @@ class DirectorRouteTrackingScreen extends StatefulWidget {
 
 class _DirectorRouteTrackingScreenState
     extends State<DirectorRouteTrackingScreen> {
-  late Future<({List<Map<String, dynamic>> data, Map<String, dynamic> meta})>
-      _future;
+  late Future<DirectorRouteTrackingListResult> _future;
   DateTime _date = DateTime.now();
 
   DirectorApi get _api => DirectorApi(
@@ -41,8 +41,7 @@ class _DirectorRouteTrackingScreenState
 
   String get _dateParam => DateFormat('yyyy-MM-dd').format(_date);
 
-  Future<({List<Map<String, dynamic>> data, Map<String, dynamic> meta})>
-      _load() {
+  Future<DirectorRouteTrackingListResult> _load() {
     return _api.listRouteTracking(date: _dateParam);
   }
 
@@ -63,9 +62,9 @@ class _DirectorRouteTrackingScreenState
     await _reload();
   }
 
-  void _setToday() {
+  Future<void> _setToday() async {
     setState(() => _date = DateTime.now());
-    _reload();
+    await _reload();
   }
 
   String _formatTime(Object? value) {
@@ -81,10 +80,16 @@ class _DirectorRouteTrackingScreenState
     return '${value.toStringAsFixed(1)} km';
   }
 
+  String _duration(Map<String, dynamic> row) {
+    final hours = row['working_hours']?.toString();
+    if (hours != null && hours.trim().isNotEmpty) return hours;
+    final minutes = int.tryParse('${row['total_working_minutes'] ?? ''}');
+    if (minutes == null) return '—';
+    return '${minutes ~/ 60}h ${minutes % 60}m';
+  }
+
   Future<void> _openRoute(int attendanceId) async {
-    await context.push(
-      '/director/route-tracking/$attendanceId',
-    );
+    await context.push('/director/route-tracking/$attendanceId');
   }
 
   @override
@@ -108,7 +113,7 @@ class _DirectorRouteTrackingScreenState
       body: RefreshIndicator(
         color: AppColors.primary,
         onRefresh: _reload,
-        child: FutureBuilder(
+        child: FutureBuilder<DirectorRouteTrackingListResult>(
           future: _future,
           builder: (context, snapshot) {
             if (snapshot.connectionState == ConnectionState.waiting &&
@@ -116,18 +121,35 @@ class _DirectorRouteTrackingScreenState
               return const PgLoadingState();
             }
             if (snapshot.hasError) {
-              return PgErrorState(
-                message: 'Unable to load route tracking',
-                onRetry: _reload,
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(AppSpacing.screenPadding),
+                children: [
+                  PgErrorState(
+                    message: 'Unable to load route tracking',
+                    onRetry: _reload,
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    errorMessage(snapshot.error),
+                    textAlign: TextAlign.center,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                  ),
+                ],
               );
             }
-            final rows = snapshot.data?.data ?? const [];
+
+            final rows = snapshot.data?.rows ?? const [];
             if (rows.isEmpty) {
               return ListView(
                 physics: const AlwaysScrollableScrollPhysics(),
-                children: const [
-                  SizedBox(height: 80),
-                  PgEmptyState(message: 'No Activity Today'),
+                children: [
+                  SizedBox(height: MediaQuery.sizeOf(context).height * 0.25),
+                  const PgEmptyState(
+                    message: 'No route tracking data for this date',
+                  ),
                 ],
               );
             }
@@ -201,7 +223,11 @@ class _DirectorRouteTrackingScreenState
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
                       Text(
-                        'Distance: ${_distance(row)} · $status',
+                        'Distance: ${_distance(row)} · Duration: ${_duration(row)}',
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                      Text(
+                        'Status: $status',
                         style: Theme.of(context).textTheme.bodySmall?.copyWith(
                               fontWeight: FontWeight.w600,
                             ),
@@ -210,13 +236,10 @@ class _DirectorRouteTrackingScreenState
                       Align(
                         alignment: Alignment.centerRight,
                         child: FilledButton.tonalIcon(
-                          onPressed: hasRoute
-                              ? () => _openRoute(attendanceId)
-                              : null,
+                          onPressed:
+                              hasRoute ? () => _openRoute(attendanceId) : null,
                           icon: const Icon(Icons.route_outlined, size: 18),
-                          label: Text(
-                            hasRoute ? 'View Route' : 'No Route',
-                          ),
+                          label: Text(hasRoute ? 'View Route' : 'No Route'),
                         ),
                       ),
                     ],

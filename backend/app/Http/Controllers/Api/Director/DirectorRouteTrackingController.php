@@ -10,9 +10,11 @@ use App\Services\EmployeeRouteAnalysisService;
 use App\Support\AttendanceCalendar;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 /**
  * Director view-only route tracking for Sales Team (manager + employee login roles).
+ * Response shape mirrors Manager team-attendance for mobile reuse.
  */
 class DirectorRouteTrackingController extends Controller
 {
@@ -35,72 +37,88 @@ class DirectorRouteTrackingController extends Controller
 
         $date = $validated['date'] ?? AttendanceCalendar::today()->toDateString();
 
-        $employees = Employee::query()
-            ->with(['user:id,employee_id,role'])
-            ->where('status', true)
-            ->whereHas(
-                'user',
-                fn ($q) => $q->whereIn('role', self::SALES_TEAM_ROLES),
-            )
-            ->when(filled($validated['search'] ?? null), function ($q) use ($validated): void {
-                $term = '%'.$validated['search'].'%';
-                $q->where(function ($inner) use ($term): void {
-                    $inner->where('full_name', 'like', $term)
-                        ->orWhere('employee_code', 'like', $term);
-                });
-            })
-            ->orderBy('full_name')
-            ->get(['id', 'full_name', 'employee_code']);
+        try {
+            $employees = Employee::query()
+                ->with('user')
+                ->where('status', true)
+                ->whereHas(
+                    'user',
+                    fn ($q) => $q->whereIn('role', self::SALES_TEAM_ROLES),
+                )
+                ->when(filled($validated['search'] ?? null), function ($q) use ($validated): void {
+                    $term = '%'.$validated['search'].'%';
+                    $q->where(function ($inner) use ($term): void {
+                        $inner->where('full_name', 'like', $term)
+                            ->orWhere('employee_code', 'like', $term);
+                    });
+                })
+                ->orderBy('full_name')
+                ->get(['id', 'full_name', 'employee_code']);
 
-        $attendances = Attendance::query()
-            ->whereIn('employee_id', $employees->pluck('id')->all())
-            ->whereDate('attendance_date', $date)
-            ->get()
-            ->keyBy('employee_id');
+            $employeeIds = $employees->pluck('id')->all();
 
-        $rows = $employees->map(function (Employee $employee) use ($attendances, $date): array {
-            $role = (string) ($employee->user?->role ?? UserRole::Employee->value);
-            $roleLabel = UserRole::tryFromMixed($role)->label();
-            $attendance = $attendances->get($employee->id);
+            $attendances = $employeeIds === []
+                ? collect()
+                : Attendance::query()
+                    ->whereIn('employee_id', $employeeIds)
+                    ->whereDate('attendance_date', $date)
+                    ->get()
+                    ->keyBy('employee_id');
 
-            if ($attendance === null) {
-                return [
-                    'id' => null,
-                    'employee_id' => $employee->id,
-                    'employee_name' => $employee->full_name,
-                    'employee_code' => $employee->employee_code,
-                    'role' => $role,
-                    'role_label' => $roleLabel,
-                    'attendance_date' => $date,
-                    'attendance_status' => 'Not Punched In',
-                    'display_status' => 'Not Punched In',
-                    'punch_in_time' => null,
-                    'punch_out_time' => null,
-                    'working_hours' => null,
-                    'total_working_minutes' => null,
-                    'total_route_distance_km' => null,
-                    'has_attendance' => false,
-                    'has_route' => false,
-                ];
-            }
+            $rows = $employees->map(function (Employee $employee) use ($attendances, $date): array {
+                $role = (string) ($employee->user?->role ?? UserRole::Employee->value);
+                $roleLabel = UserRole::tryFromMixed($role)->label();
+                $attendance = $attendances->get($employee->id);
 
-            return $this->listItem($attendance, $employee, $role, $roleLabel);
-        })->values();
+                if ($attendance === null) {
+                    return [
+                        'id' => null,
+                        'employee_id' => $employee->id,
+                        'employee_name' => $employee->full_name,
+                        'employee_code' => $employee->employee_code,
+                        'role' => $role,
+                        'role_label' => $roleLabel,
+                        'attendance_date' => $date,
+                        'attendance_status' => 'Not Punched In',
+                        'display_status' => 'Not Punched In',
+                        'punch_in_time' => null,
+                        'punch_out_time' => null,
+                        'working_hours' => null,
+                        'total_working_minutes' => null,
+                        'total_route_distance_km' => null,
+                        'has_attendance' => false,
+                        'has_route' => false,
+                    ];
+                }
 
-        return response()->json([
-            'data' => $rows,
-            'meta' => [
+                return $this->listItem($attendance, $employee, $role, $roleLabel);
+            })->values();
+
+            return response()->json([
+                'data' => $rows,
+                'meta' => [
+                    'date' => $date,
+                    'total_employees' => $rows->count(),
+                ],
+            ]);
+        } catch (\Throwable $e) {
+            Log::error('Director route-tracking index failed', [
                 'date' => $date,
-                'total_employees' => $rows->count(),
-            ],
-        ]);
+                'message' => $e->getMessage(),
+            ]);
+
+            return response()->json([
+                'message' => 'Unable to load route tracking.',
+                'error' => config('app.debug') ? $e->getMessage() : null,
+            ], 500);
+        }
     }
 
     public function show(Request $request, Attendance $attendance): JsonResponse
     {
         $this->ensureSalesTeamAttendance($attendance);
 
-        $attendance->load('employee.user:id,employee_id,role');
+        $attendance->load('employee.user');
         $analysis = $this->routeAnalysisService->analyze($attendance);
         $routePoints = $this->routeAnalysisService->formatRoutePointsForResponse($attendance);
         $hasRoute = count($routePoints) > 0
@@ -185,7 +203,7 @@ class DirectorRouteTrackingController extends Controller
 
     private function ensureSalesTeamAttendance(Attendance $attendance): void
     {
-        $attendance->loadMissing('employee.user:id,employee_id,role');
+        $attendance->loadMissing('employee.user');
         $role = (string) ($attendance->employee?->user?->role ?? '');
 
         if (! in_array($role, self::SALES_TEAM_ROLES, true)) {

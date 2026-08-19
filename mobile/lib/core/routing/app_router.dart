@@ -36,6 +36,7 @@ import '../../modules/orders/screens/order_detail_screen.dart';
 import '../../modules/orders/screens/order_list_screen.dart';
 import '../../modules/orders/screens/review_order_screen.dart';
 import '../../modules/director/screens/director_dashboard_screen.dart';
+import '../../modules/director/screens/director_orders_screen.dart';
 import '../../modules/director/screens/director_payment_requests_screen.dart';
 import '../../modules/director/screens/director_route_tracking_screen.dart';
 import '../../modules/manager/screens/manager_edit_order_screen.dart';

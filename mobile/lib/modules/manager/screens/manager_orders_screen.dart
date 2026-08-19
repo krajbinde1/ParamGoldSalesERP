@@ -568,12 +568,20 @@ class ManagerOrderDetailScreen extends StatefulWidget {
     required this.auth,
     required this.orderId,
     this.initialAction,
+    this.viewOnly = false,
+    this.loadOrder,
+    this.title = 'Order Review',
   });
 
   final AuthController auth;
   final int orderId;
   /// Optional deep-link action, e.g. `reject` from critical alert.
   final String? initialAction;
+  /// When true, hide approve/reject/edit actions (Director monitoring).
+  final bool viewOnly;
+  /// Optional loader so Director can reuse this detail screen.
+  final Future<Map<String, dynamic>> Function(int orderId)? loadOrder;
+  final String title;
 
   @override
   State<ManagerOrderDetailScreen> createState() =>
@@ -592,9 +600,9 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
   @override
   void initState() {
     super.initState();
-    _future = _api.getOrder(widget.orderId);
+    _future = _loadOrder();
     _future.then((_) {
-      if (!mounted || _initialActionHandled) return;
+      if (!mounted || _initialActionHandled || widget.viewOnly) return;
       if (widget.initialAction?.toLowerCase() != 'reject') return;
       _initialActionHandled = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -605,8 +613,15 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
     });
   }
 
+  Future<Map<String, dynamic>> _loadOrder() {
+    if (widget.loadOrder != null) {
+      return widget.loadOrder!(widget.orderId);
+    }
+    return _api.getOrder(widget.orderId);
+  }
+
   Future<void> _reload() async {
-    setState(() => _future = _api.getOrder(widget.orderId));
+    setState(() => _future = _loadOrder());
     await _future;
   }
 
@@ -701,7 +716,7 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
       },
       child: Scaffold(
         appBar: RoleAppBar(
-          title: 'Order Review',
+          title: widget.title,
           auth: widget.auth,
           showBack: true,
           onBack: () => smartBack(context),
@@ -808,7 +823,8 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
                   ],
                 ),
               ),
-              if (isPending &&
+              if (!widget.viewOnly &&
+                  isPending &&
                   (widget.auth.permissions.canApproveOrders ||
                       widget.auth.permissions.canRejectOrders)) ...[
                 const SizedBox(height: AppSpacing.md),
