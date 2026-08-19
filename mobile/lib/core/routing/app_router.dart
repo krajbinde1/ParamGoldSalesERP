@@ -583,13 +583,7 @@ GoRouter createRouter(
     ),
     GoRoute(
       path: '/director/employees',
-      builder: (_, state) => DirectorEmployeePerformanceScreen(
-        auth: auth,
-        employees: (state.extra as List?)
-                ?.map((item) => Map<String, dynamic>.from(item as Map))
-                .toList() ??
-            const [],
-      ),
+      builder: (_, _) => DirectorEmployeePerformanceScreen(auth: auth),
       routes: [
         GoRoute(
           path: ':employeeId',
@@ -603,8 +597,27 @@ GoRouter createRouter(
       ],
     ),
     GoRoute(
+      path: '/director/sales-performance',
+      builder: (_, _) => DirectorEmployeePerformanceScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/director/collections',
+      builder: (_, _) => DirectorCollectionsScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/director/team-activity',
+      builder: (_, _) => DirectorTeamActivityScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/director/reports',
+      builder: (_, _) => DirectorReportsScreen(auth: auth),
+    ),
+    GoRoute(
       path: '/director/orders',
-      builder: (_, _) => DirectorOrdersScreen(auth: auth),
+      builder: (_, state) => DirectorOrdersScreen(
+        auth: auth,
+        initialStatus: state.uri.queryParameters['status'],
+      ),
       routes: [
         GoRoute(
           path: ':orderId',

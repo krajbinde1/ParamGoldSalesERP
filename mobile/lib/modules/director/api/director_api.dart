@@ -15,9 +15,11 @@ class DirectorDashboardData {
     required this.pendingOrders,
     required this.approvedOrders,
     required this.dispatchedOrders,
+    required this.rejectedOrders,
     required this.pendingClaims,
     required this.approvedClaims,
     required this.paidClaims,
+    required this.rejectedClaims,
     required this.pendingPaymentApprovals,
     required this.presentToday,
     required this.absentToday,
@@ -38,9 +40,11 @@ class DirectorDashboardData {
   final int pendingOrders;
   final int approvedOrders;
   final int dispatchedOrders;
+  final int rejectedOrders;
   final int pendingClaims;
   final int approvedClaims;
   final int paidClaims;
+  final int rejectedClaims;
   final int pendingPaymentApprovals;
   final int presentToday;
   final int absentToday;
@@ -74,9 +78,11 @@ class DirectorDashboardData {
       approvedOrders: int.tryParse('${orders['approved_orders'] ?? 0}') ?? 0,
       dispatchedOrders:
           int.tryParse('${orders['dispatched_orders'] ?? 0}') ?? 0,
+      rejectedOrders: int.tryParse('${orders['rejected_orders'] ?? 0}') ?? 0,
       pendingClaims: int.tryParse('${taDa['pending_claims'] ?? 0}') ?? 0,
       approvedClaims: int.tryParse('${taDa['approved_claims'] ?? 0}') ?? 0,
       paidClaims: int.tryParse('${taDa['paid_claims'] ?? 0}') ?? 0,
+      rejectedClaims: int.tryParse('${taDa['rejected_claims'] ?? 0}') ?? 0,
       pendingPaymentApprovals:
           int.tryParse('${paymentRequests['pending_approvals'] ?? 0}') ?? 0,
       presentToday: int.tryParse('${operations['present_today'] ?? 0}') ?? 0,
