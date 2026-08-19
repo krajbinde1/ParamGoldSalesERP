@@ -130,6 +130,30 @@ it('includes supporting_documents metadata on payment request detail', function 
         ->json('data.supporting_documents');
 
     expect($response)->toBeArray()->toHaveCount(1);
-    expect($response[0])->toHaveKeys(['id', 'file_name', 'mime_type', 'file_size', 'view_url']);
+    expect($response[0])->toHaveKeys(['id', 'file_name', 'mime_type', 'file_size', 'view_url', 'view_path']);
     expect($response[0]['view_url'])->not->toContain('storage/app');
+    expect($response[0]['view_path'])->toStartWith('/director/payment-requests/');
+    expect($response[0]['view_url'])->toContain('/api/director/payment-requests/');
+    expect($response[0])->not->toHaveKey('stored_file_path');
+});
+
+it('streams document binary content with correct content type for director', function () {
+    $admin = makePaymentAdmin();
+    $director = makeDirectorUser();
+    $request = makePendingPaymentRequest($admin);
+    $docs = app(StorePaymentRequestSupportingDocuments::class)->execute(
+        paymentRequest: $request,
+        actor: $admin,
+        files: [UploadedFile::fake()->image('bank.png')],
+    );
+    $doc = $docs[0];
+
+    Storage::disk('local')->assertExists($doc->stored_file_path);
+
+    $response = $this->actingAs($director, 'sanctum')
+        ->get('/api/director/payment-requests/'.$request->id.'/supporting-documents/'.$doc->id)
+        ->assertOk();
+
+    expect(strtolower((string) $response->headers->get('content-type')))->toContain('image/');
+    expect(strtolower((string) $response->headers->get('content-disposition')))->toContain('inline');
 });

@@ -34,11 +34,6 @@ String _vendorPrimary(Map<String, dynamic> m) {
   return v.isEmpty ? 'Vendor Not Available' : v.toUpperCase();
 }
 
-String _requestRef(Map<String, dynamic> m) {
-  final id = '${m['request_no'] ?? m['id'] ?? ''}'.trim();
-  return id.isEmpty ? '—' : 'Request #$id';
-}
-
 String _requestIdOnly(Map<String, dynamic> m) {
   final id = '${m['request_no'] ?? m['id'] ?? ''}'.trim();
   return id.isEmpty ? '—' : id;
@@ -145,16 +140,12 @@ class _DirectorPaymentRequestsScreenState
 
   bool _loading = true;
   bool _refreshing = false;
-  bool _busy = false;
   String? _error;
 
   List<Map<String, dynamic>> _pending = const [];
   List<Map<String, dynamic>> _all = const [];
   int _apiPendingCount = 0;
   double _apiPendingTotal = 0;
-
-  final Set<int> _selectedIds = {};
-  bool _didApplySelectAll = false;
 
   String _statusFilter = 'all';
   DateTimeRange? _dateRange;
@@ -226,9 +217,6 @@ class _DirectorPaymentRequestsScreenState
         _all = results[1].data;
         _loading = false;
         _refreshing = false;
-        _selectedIds.removeWhere(
-          (id) => !_pending.any((m) => int.tryParse('${m['id']}') == id),
-        );
       });
     } catch (_) {
       if (!mounted) return;
@@ -318,7 +306,11 @@ class _DirectorPaymentRequestsScreenState
   }
 
   Future<void> _openDetail(Map<String, dynamic> m) async {
+    // Backend primary key — not request_no (e.g. PR-0007).
     final id = int.tryParse('${m['id']}') ?? 0;
+    debugPrint(
+      'PARAMGOLD_PAYMENT_OPEN id=$id request_no=${m['request_no']}',
+    );
     if (id <= 0) return;
     final result = await context.push('/director/payment-requests/$id');
     if (!mounted) return;
@@ -505,49 +497,6 @@ class _DirectorPaymentRequestsScreenState
     maxCtrl.dispose();
   }
 
-  Future<void> _approveSelected(List<Map<String, dynamic>> items) async {
-    final selected = items
-        .where((item) => _selectedIds.contains(int.tryParse('${item['id']}')))
-        .toList();
-    if (selected.isEmpty) return;
-
-    final total = selected.fold<double>(0, (sum, item) => sum + _amountOf(item));
-    final confirmed = await confirmAction(
-      context,
-      title: 'Approve Selected',
-      message:
-          'Approve ${selected.length} payment request${selected.length == 1 ? '' : 's'} totaling ${_inr.format(total)}?',
-    );
-    if (!confirmed || !mounted) return;
-
-    setState(() => _busy = true);
-    try {
-      final result = await _api.approvePaymentRequestsBulk(
-        ids: selected
-            .map((item) => int.tryParse('${item['id']}') ?? 0)
-            .where((id) => id > 0)
-            .toList(),
-      );
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            'Approved ${result['approved'] ?? 0}'
-            '${(result['failed'] ?? 0) > 0 ? ', failed ${result['failed']}' : ''}',
-          ),
-        ),
-      );
-      await _load();
-    } catch (_) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Unable to approve selected requests')),
-      );
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final employee = widget.auth.session?.employee;
@@ -559,32 +508,6 @@ class _DirectorPaymentRequestsScreenState
         _dateRange != null ||
         _minAmount != null ||
         _maxAmount != null;
-
-    final selectable = _tabs.index == 0
-        ? items
-            .where((item) => item['can_approve'] == true)
-            .map((item) => int.tryParse('${item['id']}') ?? 0)
-            .where((id) => id > 0)
-            .toList()
-        : const <int>[];
-
-    if (widget.selectAllOnLoad &&
-        !_didApplySelectAll &&
-        selectable.isNotEmpty &&
-        !_loading) {
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (!mounted || _didApplySelectAll) return;
-        setState(() {
-          _selectedIds
-            ..clear()
-            ..addAll(selectable);
-          _didApplySelectAll = true;
-        });
-      });
-    }
-
-    final allSelected =
-        selectable.isNotEmpty && selectable.every(_selectedIds.contains);
 
     return PopScope(
       canPop: false,
@@ -678,52 +601,6 @@ class _DirectorPaymentRequestsScreenState
                                         onChanged: (_) => setState(() {}),
                                         onFilter: _openFilters,
                                       ),
-                                      if (_tabs.index == 0 &&
-                                          selectable.isNotEmpty) ...[
-                                        const SizedBox(height: 10),
-                                        Align(
-                                          alignment: Alignment.centerLeft,
-                                          child: Wrap(
-                                            spacing: 8,
-                                            runSpacing: 8,
-                                            children: [
-                                              OutlinedButton(
-                                                onPressed: _busy
-                                                    ? null
-                                                    : () {
-                                                        setState(() {
-                                                          if (allSelected) {
-                                                            _selectedIds
-                                                                .removeAll(
-                                                              selectable,
-                                                            );
-                                                          } else {
-                                                            _selectedIds.addAll(
-                                                              selectable,
-                                                            );
-                                                          }
-                                                        });
-                                                      },
-                                                child: Text(
-                                                  allSelected
-                                                      ? 'Clear Selection'
-                                                      : 'Select All',
-                                                ),
-                                              ),
-                                              FilledButton(
-                                                onPressed: _busy ||
-                                                        _selectedIds.isEmpty
-                                                    ? null
-                                                    : () =>
-                                                        _approveSelected(items),
-                                                child: Text(
-                                                  'Approve Selected (${_selectedIds.length})',
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
                                       const SizedBox(height: 8),
                                     ],
                                   ),
@@ -732,7 +609,9 @@ class _DirectorPaymentRequestsScreenState
                               if (items.isEmpty)
                                 SliverFillRemaining(
                                   hasScrollBody: false,
-                                  child: _EmptyPane(pendingTab: _tabs.index == 0),
+                                  child: _EmptyPane(
+                                    pendingTab: _tabs.index == 0,
+                                  ),
                                 )
                               else
                                 SliverPadding(
@@ -741,29 +620,11 @@ class _DirectorPaymentRequestsScreenState
                                   sliver: SliverList.separated(
                                     itemCount: items.length,
                                     separatorBuilder: (_, _) =>
-                                        const SizedBox(height: 12),
+                                        const SizedBox(height: 8),
                                     itemBuilder: (context, i) {
                                       final m = items[i];
-                                      final id =
-                                          int.tryParse('${m['id']}') ?? 0;
-                                      final canApprove =
-                                          m['can_approve'] == true;
                                       return _PaymentRequestCard(
                                         data: m,
-                                        selected: _selectedIds.contains(id),
-                                        showCheckbox:
-                                            _tabs.index == 0 && canApprove,
-                                        onToggleSelect: _busy || id <= 0
-                                            ? null
-                                            : (v) {
-                                                setState(() {
-                                                  if (v == true) {
-                                                    _selectedIds.add(id);
-                                                  } else {
-                                                    _selectedIds.remove(id);
-                                                  }
-                                                });
-                                              },
                                         onOpen: () => _openDetail(m),
                                       );
                                     },
@@ -797,18 +658,18 @@ class _SummaryCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 12),
       decoration: BoxDecoration(
         color: Colors.white,
-        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+        borderRadius: BorderRadius.circular(12),
         boxShadow: [
           BoxShadow(
-            color: Colors.black.withValues(alpha: 0.05),
-            blurRadius: 12,
-            offset: const Offset(0, 4),
+            color: Colors.black.withValues(alpha: 0.045),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
           ),
         ],
-        border: Border.all(color: AppColors.border.withValues(alpha: 0.6)),
+        border: Border.all(color: AppColors.border.withValues(alpha: 0.65)),
       ),
       child: Row(
         children: [
@@ -852,7 +713,7 @@ class _SummaryCard extends StatelessWidget {
 
   Widget _vDivider() => Container(
         width: 1,
-        height: 40,
+        height: 36,
         margin: const EdgeInsets.symmetric(horizontal: 2),
         color: AppColors.border.withValues(alpha: 0.7),
       );
@@ -929,7 +790,7 @@ class _SearchFilterRow extends StatelessWidget {
             onChanged: onChanged,
             textInputAction: TextInputAction.search,
             decoration: InputDecoration(
-              hintText: 'Search by Vendor Name, Amount, Request ID...',
+              hintText: 'Search by Vendor Name, Request ID, Amount...',
               hintStyle: TextStyle(
                 fontSize: 13,
                 color: AppColors.textSecondary.withValues(alpha: 0.85),
@@ -996,16 +857,10 @@ class _PaymentRequestCard extends StatelessWidget {
   const _PaymentRequestCard({
     required this.data,
     required this.onOpen,
-    this.selected = false,
-    this.showCheckbox = false,
-    this.onToggleSelect,
   });
 
   final Map<String, dynamic> data;
   final VoidCallback onOpen;
-  final bool selected;
-  final bool showCheckbox;
-  final ValueChanged<bool?>? onToggleSelect;
 
   @override
   Widget build(BuildContext context) {
@@ -1015,16 +870,19 @@ class _PaymentRequestCard extends StatelessWidget {
     final remark = '${data['remark'] ?? ''}'.trim();
     final requestedBy = _personText(data['created_by']);
     final created = _fmtDateTime(data['created_at']);
+    final requestId = _requestIdOnly(data);
 
     return Material(
       color: Colors.white,
-      borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+      elevation: 0,
+      borderRadius: BorderRadius.circular(12),
       child: InkWell(
         onTap: onOpen,
-        borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+        borderRadius: BorderRadius.circular(12),
         child: Ink(
           decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(12),
             border: Border.all(color: AppColors.border.withValues(alpha: 0.7)),
             boxShadow: [
               BoxShadow(
@@ -1035,75 +893,47 @@ class _PaymentRequestCard extends StatelessWidget {
             ],
           ),
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(14, 14, 14, 10),
+            padding: const EdgeInsets.fromLTRB(14, 12, 12, 10),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (showCheckbox) ...[
-                      Padding(
-                        padding: const EdgeInsets.only(right: 4, top: 2),
-                        child: SizedBox(
-                          width: 24,
-                          height: 24,
-                          child: Checkbox(
-                            value: selected,
-                            onChanged: onToggleSelect,
-                            materialTapTargetSize:
-                                MaterialTapTargetSize.shrinkWrap,
-                          ),
-                        ),
-                      ),
-                    ],
                     Expanded(
-                      child: Text(
-                        vendor,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.textPrimary,
-                          letterSpacing: 0.2,
-                        ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            requestId,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                              color: AppColors.primary,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            vendor,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              fontWeight: FontWeight.w800,
+                              height: 1.15,
+                              color: AppColors.textPrimary,
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                     const SizedBox(width: 8),
                     PgStatusBadge(
                       label: _badgeLabel(data),
                       tone: _badgeTone(status),
-                    ),
-                  ],
-                ),
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _requestRef(data),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          color: AppColors.textSecondary,
-                        ),
-                      ),
-                    ),
-                    Flexible(
-                      child: Text(
-                        _inr.format(amount),
-                        textAlign: TextAlign.end,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w800,
-                          color: AppColors.textPrimary,
-                        ),
-                      ),
                     ),
                   ],
                 ),
@@ -1116,9 +946,11 @@ class _PaymentRequestCard extends StatelessWidget {
                     fontWeight: FontWeight.w500,
                   ),
                 ),
-                const SizedBox(height: 4),
+                const SizedBox(height: 3),
                 Text(
                   'Requested by: $requestedBy',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: const TextStyle(
                     fontSize: 12,
                     color: AppColors.textSecondary,
@@ -1126,50 +958,57 @@ class _PaymentRequestCard extends StatelessWidget {
                   ),
                 ),
                 if (remark.isNotEmpty) ...[
-                  const SizedBox(height: 8),
-                  const Text(
-                    'Remark:',
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      color: AppColors.textSecondary,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
+                  const SizedBox(height: 3),
                   Text(
-                    remark,
-                    maxLines: 2,
+                    'Remark: $remark',
+                    maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
-                      fontSize: 13,
+                      fontSize: 12,
                       color: AppColors.textPrimary,
                       fontWeight: FontWeight.w500,
                     ),
                   ),
                 ],
-                const SizedBox(height: 8),
-                Align(
-                  alignment: Alignment.centerRight,
-                  child: TextButton(
-                    onPressed: onOpen,
-                    style: TextButton.styleFrom(
-                      foregroundColor: AppColors.primary,
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      minimumSize: Size.zero,
-                      tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                const SizedBox(height: 10),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.center,
+                  children: [
+                    const Spacer(),
+                    Text(
+                      _inr.format(amount),
+                      style: const TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w800,
+                        color: AppColors.textPrimary,
+                      ),
                     ),
-                    child: const Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          'Review & Approve',
-                          style: TextStyle(fontWeight: FontWeight.w800),
-                        ),
-                        SizedBox(width: 4),
-                        Icon(Icons.chevron_right, size: 18),
-                      ],
+                    const SizedBox(width: 8),
+                    TextButton(
+                      onPressed: onOpen,
+                      style: TextButton.styleFrom(
+                        foregroundColor: AppColors.primary,
+                        padding: const EdgeInsets.symmetric(horizontal: 2),
+                        minimumSize: Size.zero,
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        visualDensity: VisualDensity.compact,
+                      ),
+                      child: const Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            'Review & Approve',
+                            style: TextStyle(
+                              fontWeight: FontWeight.w800,
+                              fontSize: 13,
+                            ),
+                          ),
+                          SizedBox(width: 1),
+                          Icon(Icons.chevron_right, size: 18),
+                        ],
+                      ),
                     ),
-                  ),
+                  ],
                 ),
               ],
             ),
@@ -1333,18 +1172,28 @@ class _DirectorPaymentRequestDetailScreenState
   }
 
   Future<void> _load() async {
+    if (widget.requestId <= 0) {
+      setState(() {
+        _loading = false;
+        _error = 'Unable to load payment request';
+      });
+      return;
+    }
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
+      debugPrint('PARAMGOLD_PAYMENT_DETAIL_UI id=${widget.requestId}');
       final data = await _api.getPaymentRequest(widget.requestId);
       if (!mounted) return;
       setState(() {
         _data = data;
         _loading = false;
       });
-    } catch (_) {
+    } catch (error, stack) {
+      debugPrint('PARAMGOLD_PAYMENT_DETAIL_UI_FAIL id=${widget.requestId} $error');
+      debugPrint('$stack');
       if (!mounted) return;
       setState(() {
         _loading = false;
@@ -1589,11 +1438,18 @@ class _DirectorPaymentRequestDetailScreenState
                                               onUnauthorized:
                                                   widget.auth.sessionExpired,
                                             ).dio,
-                                            url: '${doc['view_url'] ?? ''}',
                                             title:
                                                 '${doc['file_name'] ?? 'Document'}',
                                             mimeType:
                                                 '${doc['mime_type'] ?? ''}',
+                                            viewPath:
+                                                '${doc['view_path'] ?? ''}',
+                                            viewUrl:
+                                                '${doc['view_url'] ?? ''}',
+                                            documentId: int.tryParse(
+                                              '${doc['id'] ?? ''}',
+                                            ),
+                                            paymentRequestId: widget.requestId,
                                           ),
                                         ),
                                   ],
@@ -1609,6 +1465,32 @@ class _DirectorPaymentRequestDetailScreenState
                                           fontSize: 13,
                                           color: AppColors.primary,
                                           fontWeight: FontWeight.w600,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                                if ((int.tryParse('${d['reminder_count'] ?? 0}') ?? 0) > 0) ...[
+                                  const SizedBox(height: 12),
+                                  _SectionCard(
+                                    title: 'Reminders',
+                                    children: [
+                                      _DetailRow(
+                                        'Reminders Sent',
+                                        '${d['reminder_count'] ?? 0}',
+                                      ),
+                                      _DetailRow(
+                                        'Last Reminder',
+                                        _fmtDateTime(
+                                          d['last_reminder_sent_at'] ??
+                                              d['last_reminded_at'],
+                                        ),
+                                      ),
+                                      _DetailRow(
+                                        'Sent by',
+                                        _personText(
+                                          d['last_reminder_sent_by'] ??
+                                              d['last_reminded_by'],
                                         ),
                                       ),
                                     ],
@@ -1852,9 +1734,14 @@ class _SupportingDocumentTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final name = '${document['file_name'] ?? 'Document'}'.trim();
     final mime = '${document['mime_type'] ?? ''}';
+    final typeLabel = documentTypeLabel(fileName: name, mimeType: mime);
     final sizeLabel = '${document['file_size_label'] ?? ''}'.trim().isNotEmpty
         ? '${document['file_size_label']}'
         : formatDocumentBytes(int.tryParse('${document['file_size'] ?? 0}'));
+    final meta = [
+      if (sizeLabel.trim().isNotEmpty && sizeLabel != '0 B') sizeLabel,
+      typeLabel,
+    ].join(' · ');
 
     return Padding(
       padding: const EdgeInsets.only(bottom: 10),
@@ -1879,14 +1766,16 @@ class _SupportingDocumentTile extends StatelessWidget {
                     color: AppColors.textPrimary,
                   ),
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  sizeLabel,
-                  style: const TextStyle(
-                    fontSize: 12,
-                    color: AppColors.textSecondary,
+                if (meta.isNotEmpty) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    meta,
+                    style: const TextStyle(
+                      fontSize: 12,
+                      color: AppColors.textSecondary,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),
