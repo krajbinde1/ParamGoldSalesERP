@@ -147,8 +147,6 @@ class _DirectorPaymentRequestsScreenState
   List<Map<String, dynamic>> _pending = const [];
   List<Map<String, dynamic>> _approvedByMe = const [];
   List<Map<String, dynamic>> _paymentDone = const [];
-  int _apiPendingCount = 0;
-  double _apiPendingTotal = 0;
 
   DateTimeRange? _dateRange;
   double? _minAmount;
@@ -239,8 +237,6 @@ class _DirectorPaymentRequestsScreenState
 
       setState(() {
         _pending = results[0].data;
-        _apiPendingCount = results[0].pendingCount;
-        _apiPendingTotal = results[0].pendingTotalAmount;
         _approvedByMe = approvedByMe;
         _paymentDone = doneById.values.toList(growable: false);
         _loading = false;
@@ -321,21 +317,35 @@ class _DirectorPaymentRequestsScreenState
   }
 
   Map<String, num> get _summary {
-    final pendingCount =
-        _apiPendingCount > 0 ? _apiPendingCount : _pending.length;
+    final items = _filtered;
     num totalAmt = 0;
-    for (final m in [..._pending, ..._approvedByMe, ..._paymentDone]) {
+    for (final m in items) {
       totalAmt += _amountOf(m);
     }
-    final totalRequests =
-        _pending.length + _approvedByMe.length + _paymentDone.length;
-    return {
-      'total': totalRequests,
-      'amount': totalAmt,
-      'pending': pendingCount,
-      'approved': _approvedByMe.length,
-      'pending_amount': _apiPendingTotal,
-    };
+    final count = items.length;
+    switch (_tabs.index) {
+      case 1: // Approved by Me
+        return {
+          'total': count,
+          'amount': totalAmt,
+          'pending': 0,
+          'approved': count,
+        };
+      case 2: // Payment Done
+        return {
+          'total': count,
+          'amount': totalAmt,
+          'pending': 0,
+          'approved': count,
+        };
+      default: // Pending
+        return {
+          'total': count,
+          'amount': totalAmt,
+          'pending': count,
+          'approved': 0,
+        };
+    }
   }
 
   Future<void> _openDetail(Map<String, dynamic> m) async {
@@ -585,6 +595,10 @@ class _DirectorPaymentRequestsScreenState
                                         totalAmount: summary['amount']!,
                                         pending: summary['pending']!.toInt(),
                                         approved: summary['approved']!.toInt(),
+                                        pendingLabel: 'Pending',
+                                        approvedLabel: _tabs.index == 2
+                                            ? 'Payment Done'
+                                            : 'Approved',
                                       ),
                                       const SizedBox(height: 12),
                                       _SearchFilterRow(
@@ -639,12 +653,16 @@ class _SummaryCard extends StatelessWidget {
     required this.totalAmount,
     required this.pending,
     required this.approved,
+    this.pendingLabel = 'Pending',
+    this.approvedLabel = 'Approved',
   });
 
   final int totalRequests;
   final num totalAmount;
   final int pending;
   final int approved;
+  final String pendingLabel;
+  final String approvedLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -684,7 +702,7 @@ class _SummaryCard extends StatelessWidget {
           Expanded(
             child: _SummaryMetric(
               icon: Icons.hourglass_top_rounded,
-              label: 'Pending',
+              label: pendingLabel,
               value: '$pending',
               accent: AppColors.warning,
             ),
@@ -692,8 +710,10 @@ class _SummaryCard extends StatelessWidget {
           _vDivider(),
           Expanded(
             child: _SummaryMetric(
-              icon: Icons.verified_outlined,
-              label: 'Approved',
+              icon: approvedLabel == 'Payment Done'
+                  ? Icons.payments_outlined
+                  : Icons.verified_outlined,
+              label: approvedLabel,
               value: '$approved',
               accent: AppColors.success,
             ),

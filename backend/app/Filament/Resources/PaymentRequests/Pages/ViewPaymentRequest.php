@@ -18,6 +18,7 @@ use Filament\Resources\Pages\ViewRecord;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\HtmlString;
 
 class ViewPaymentRequest extends ViewRecord
 {
@@ -29,6 +30,43 @@ class ViewPaymentRequest extends ViewRecord
         $record = $this->getRecord();
 
         return $record->request_no;
+    }
+
+    public function getHeading(): string|Htmlable
+    {
+        /** @var PaymentRequest $record */
+        $record = $this->getRecord();
+
+        return $record->request_no;
+    }
+
+    public function getSubheading(): string|Htmlable|null
+    {
+        /** @var PaymentRequest $record */
+        $record = $this->getRecord();
+
+        $statusLabel = e($record->displayStatusLabel());
+        $statusColor = match ((string) $record->status) {
+            PaymentRequest::STATUS_PENDING_FIRST, PaymentRequest::STATUS_PENDING_SECOND => 'warning',
+            PaymentRequest::STATUS_APPROVED_FOR_PAYMENT => 'info',
+            PaymentRequest::STATUS_PAYMENT_DONE => 'success',
+            PaymentRequest::STATUS_REJECTED_FIRST, PaymentRequest::STATUS_REJECTED_SECOND => 'danger',
+            default => 'gray',
+        };
+        $badgeClass = match ($statusColor) {
+            'success' => 'bg-success-50 text-success-700 ring-success-600/20 dark:bg-success-400/10 dark:text-success-400 dark:ring-success-400/30',
+            'warning' => 'bg-warning-50 text-warning-700 ring-warning-600/20 dark:bg-warning-400/10 dark:text-warning-400 dark:ring-warning-400/30',
+            'danger' => 'bg-danger-50 text-danger-700 ring-danger-600/20 dark:bg-danger-400/10 dark:text-danger-400 dark:ring-danger-400/30',
+            'info' => 'bg-info-50 text-info-700 ring-info-600/20 dark:bg-info-400/10 dark:text-info-400 dark:ring-info-400/30',
+            'primary' => 'bg-primary-50 text-primary-700 ring-primary-600/20 dark:bg-primary-400/10 dark:text-primary-400 dark:ring-primary-400/30',
+            default => 'bg-gray-50 text-gray-700 ring-gray-600/20 dark:bg-gray-400/10 dark:text-gray-400 dark:ring-gray-400/30',
+        };
+
+        return new HtmlString(
+            '<span class="inline-flex items-center rounded-md px-2.5 py-0.5 text-xs font-semibold ring-1 ring-inset '.$badgeClass.'">'
+            .$statusLabel
+            .'</span>'
+        );
     }
 
     protected function getHeaderActions(): array
@@ -248,13 +286,6 @@ class ViewPaymentRequest extends ViewRecord
                         'payment_proof_path',
                     ]);
                 }),
-            Action::make('viewProof')
-                ->label('View Payment Proof')
-                ->icon('heroicon-o-photo')
-                ->color('primary')
-                ->url(fn (): ?string => $record->paymentProofUrl())
-                ->openUrlInNewTab()
-                ->visible(fn (): bool => filled($record->payment_proof_path) && filled($record->paymentProofUrl())),
         ];
     }
 }

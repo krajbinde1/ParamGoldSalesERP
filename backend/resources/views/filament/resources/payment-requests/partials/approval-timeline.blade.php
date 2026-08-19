@@ -28,83 +28,93 @@
                         : ($done ? 'Completed' : ($pending ? 'Pending' : 'Not Started'));
                 }
 
-                $dotClass = $rejected
-                    ? 'bg-danger-600 text-white ring-danger-100'
-                    : ($done
-                        ? 'bg-success-600 text-white ring-success-100'
-                        : ($pending
-                            ? 'bg-warning-500 text-white ring-warning-100'
-                            : 'bg-gray-200 text-gray-500 ring-gray-100 dark:bg-gray-700 dark:text-gray-300'));
+                $state = $rejected ? 'rejected' : ($done ? 'done' : ($pending ? 'pending' : 'idle'));
 
-                $lineClass = $done && ! $rejected
-                    ? 'bg-success-300 dark:bg-success-700'
-                    : 'bg-gray-200 dark:bg-white/10';
+                $dotClass = match ($state) {
+                    'rejected' => 'border-red-500 bg-red-500 text-white dark:border-red-400 dark:bg-red-500',
+                    'done' => 'border-teal-500 bg-teal-500 text-white dark:border-teal-400 dark:bg-teal-500',
+                    'pending' => 'border-amber-500 bg-amber-500 text-white dark:border-amber-400 dark:bg-amber-500',
+                    default => 'border-gray-300 bg-white text-gray-400 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-500',
+                };
 
-                $titleClass = $rejected
-                    ? 'text-danger-700 dark:text-danger-400'
-                    : ($done || $pending
-                        ? 'text-gray-950 dark:text-white'
-                        : 'text-gray-400 dark:text-gray-500');
+                $lineClass = match ($state) {
+                    'done' => 'bg-teal-400 dark:bg-teal-500',
+                    'pending' => 'bg-amber-300 dark:bg-amber-500/70',
+                    'rejected' => 'bg-red-300 dark:bg-red-500/70',
+                    default => 'bg-gray-200 dark:bg-gray-700',
+                };
 
-                $badgeClass = $rejected
-                    ? 'bg-danger-50 text-danger-700 ring-danger-600/15 dark:bg-danger-950 dark:text-danger-300'
-                    : ($done
-                        ? 'bg-success-50 text-success-700 ring-success-600/15 dark:bg-success-950 dark:text-success-300'
-                        : ($pending
-                            ? 'bg-warning-50 text-warning-700 ring-warning-600/20 dark:bg-warning-950 dark:text-warning-300'
-                            : 'bg-gray-50 text-gray-500 ring-gray-500/10 dark:bg-gray-800 dark:text-gray-400'));
+                $badgeClass = match ($state) {
+                    'rejected' => 'bg-red-50 text-red-700 ring-red-600/20 dark:bg-red-950/40 dark:text-red-300 dark:ring-red-400/30',
+                    'done' => 'bg-teal-50 text-teal-700 ring-teal-600/20 dark:bg-teal-950/50 dark:text-teal-300 dark:ring-teal-400/30',
+                    'pending' => 'bg-amber-50 text-amber-800 ring-amber-600/20 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-400/30',
+                    default => 'bg-gray-50 text-gray-500 ring-gray-500/15 dark:bg-gray-800 dark:text-gray-400 dark:ring-white/10',
+                };
+
+                $titleClass = match ($state) {
+                    'rejected' => 'text-red-700 dark:text-red-300',
+                    'idle' => 'text-gray-400 dark:text-gray-500',
+                    default => 'text-gray-900 dark:text-gray-100',
+                };
             @endphp
-            <li class="relative flex gap-3.5 {{ $isLast ? '' : 'pb-5' }}">
-                @if (! $isLast)
-                    <span class="absolute bottom-0 left-[0.8125rem] top-7 w-0.5 {{ $lineClass }}" aria-hidden="true"></span>
-                @endif
-
-                <span
-                    class="relative z-10 mt-0.5 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-bold ring-4 {{ $dotClass }}"
-                    aria-hidden="true"
-                >
-                    @if ($rejected)
-                        ✕
-                    @elseif ($done)
-                        ✓
-                    @elseif ($pending)
-                        ●
-                    @else
-                        ○
-                    @endif
-                </span>
+            <li class="relative flex gap-4 {{ $isLast ? '' : 'pb-6' }}">
+                <div class="relative flex w-8 shrink-0 flex-col items-center">
+                    <span
+                        class="relative z-10 flex h-8 w-8 items-center justify-center rounded-full border-2 text-xs font-bold shadow-sm {{ $dotClass }}"
+                        aria-hidden="true"
+                    >
+                        @if ($rejected)
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M6 18L18 6M6 6l12 12" />
+                            </svg>
+                        @elseif ($done)
+                            <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="3">
+                                <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" />
+                            </svg>
+                        @elseif ($pending)
+                            <span class="h-2 w-2 rounded-full bg-white"></span>
+                        @else
+                            <span class="h-2 w-2 rounded-full bg-current opacity-40"></span>
+                        @endif
+                    </span>
+                    @unless ($isLast)
+                        <span class="absolute top-8 bottom-0 w-0.5 {{ $lineClass }}" aria-hidden="true"></span>
+                    @endunless
+                </div>
 
                 <div class="min-w-0 flex-1 pt-0.5">
                     <div class="flex flex-wrap items-center gap-2">
-                        <div class="text-sm font-semibold leading-5 {{ $titleClass }}">{{ $label }}</div>
-                        <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ring-inset {{ $badgeClass }}">
+                        <h4 class="text-sm font-semibold leading-5 {{ $titleClass }}">{{ $label }}</h4>
+                        <span class="inline-flex items-center rounded-md px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ring-1 ring-inset {{ $badgeClass }}">
                             {{ $badge }}
                         </span>
                     </div>
 
                     @if ($actor !== '' || $role !== '')
-                        <div class="mt-1 text-sm text-gray-700 dark:text-gray-200">
-                            @if ($actor !== '')
-                                <span class="font-medium">{{ $actor }}</span>
+                        <p class="mt-1 text-sm text-gray-700 dark:text-gray-300">
+                            @if ($actor !== '' && $role !== '')
+                                {{ $actor }} <span class="text-gray-400 dark:text-gray-500">•</span> {{ $role }}
+                            @elseif ($actor !== '')
+                                {{ $actor }}
+                            @else
+                                {{ $role }}
                             @endif
-                            @if ($role !== '')
-                                <span class="text-gray-500 dark:text-gray-400">{{ $actor !== '' ? ' · '.$role : $role }}</span>
-                            @endif
-                        </div>
+                        </p>
+                    @elseif ($pending)
+                        <p class="mt-1 text-sm text-amber-700 dark:text-amber-300">Awaiting action</p>
                     @elseif ($notStarted)
-                        <div class="mt-1 text-xs text-gray-400 dark:text-gray-500">Not started</div>
+                        <p class="mt-1 text-sm text-gray-400 dark:text-gray-500">Not started</p>
                     @endif
 
                     @if ($at !== '')
-                        <div class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ $at }}</div>
+                        <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ $at }}</p>
                     @endif
 
-                    @if ($remark !== '' && $rejected)
-                        <div class="mt-2 rounded-lg bg-danger-50 px-2.5 py-1.5 text-xs text-danger-700 dark:bg-danger-950 dark:text-danger-300">
+                    @if ($remark !== '')
+                        <p class="mt-1.5 text-xs text-gray-600 dark:text-gray-300">
+                            <span class="font-medium text-gray-500 dark:text-gray-400">Remark:</span>
                             {{ $remark }}
-                        </div>
-                    @elseif ($remark !== '')
-                        <div class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ $remark }}</div>
+                        </p>
                     @endif
                 </div>
             </li>
