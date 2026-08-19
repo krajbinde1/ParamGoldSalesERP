@@ -1,18 +1,18 @@
 <x-filament-widgets::widget class="fi-admin-director-business-performance-widget">
-    @include('filament.partials.paramgold-admin-theme')
-
-    <x-filament::section class="manager-dashboard-section">
-        <div class="manager-employee-section-header">
-            <div class="manager-employee-section-header__title-wrap">
-                <h2 class="manager-employee-section-header__title">Overall Business Performance</h2>
-                <p class="manager-employee-section-header__subtitle">{{ $periodLabel }}</p>
+    <x-filament::section>
+        <div class="pg-dash-section__head">
+            <div>
+                <h2 class="pg-dash-section__title">Overall Business Performance</h2>
+                <p class="pg-dash-section__subtitle">{{ $periodLabel }}</p>
             </div>
-            <div class="manager-employee-filters">
-                <div class="manager-period-filters" role="group" aria-label="Business performance period filters">
-                    @foreach (['today' => 'Today', 'weekly' => 'Weekly', 'monthly' => 'Monthly', 'custom' => 'Custom'] as $key => $label)
-                        <button type="button" wire:click="setBizPeriod('{{ $key }}')" @class(['manager-period-btn', 'manager-period-btn--active' => $this->isActiveBizPeriod($key)])>{{ $label }}</button>
-                    @endforeach
-                </div>
+            <div class="pg-dash-seg" role="group" aria-label="Business performance period filters">
+                @foreach (['today' => 'Today', 'weekly' => 'Weekly', 'monthly' => 'Monthly', 'custom' => 'Custom'] as $key => $label)
+                    <button
+                        type="button"
+                        wire:click="setBizPeriod('{{ $key }}')"
+                        @class(['pg-dash-seg__btn', 'pg-dash-seg__btn--active' => $this->isActiveBizPeriod($key)])
+                    >{{ $label }}</button>
+                @endforeach
             </div>
         </div>
 
@@ -35,21 +35,73 @@
             </div>
         @endif
 
-        <div class="manager-team-stats-grid">
-            <div class="manager-team-stat-card manager-team-stat-card--sales-target"><p class="manager-team-stat-card__label">Total Sales Target</p><p class="manager-team-stat-card__value">{{ $formatMoney((float) $summary['sales_target']) }}</p></div>
-            <div class="manager-team-stat-card manager-team-stat-card--sales-achievement"><p class="manager-team-stat-card__label">Total Sales Achievement</p><p class="manager-team-stat-card__value">{{ $formatMoney((float) $summary['sales_achieved']) }}</p></div>
-            <div class="manager-team-stat-card manager-team-stat-card--collection-target"><p class="manager-team-stat-card__label">Total Collection Target</p><p class="manager-team-stat-card__value">{{ $formatMoney((float) $summary['collection_target']) }}</p></div>
-            <div class="manager-team-stat-card manager-team-stat-card--collection-achievement"><p class="manager-team-stat-card__label">Total Collection Achievement</p><p class="manager-team-stat-card__value">{{ $formatMoney((float) $summary['collection_achieved']) }}</p></div>
+        <div class="pg-dash-metric-grid">
+            <div class="pg-dash-metric">
+                <div class="pg-dash-metric__top">
+                    <p class="pg-dash-metric__label">Sales Target</p>
+                    <div class="pg-dash-icon pg-dash-icon--teal" aria-hidden="true"><span class="pg-dash-icon__glyph">◎</span></div>
+                </div>
+                <p class="pg-dash-metric__value">{{ $formatMoney((float) $summary['sales_target']) }}</p>
+                @if ((float) $summary['sales_target'] <= 0)
+                    <p class="pg-dash-metric__hint">No target assigned</p>
+                @endif
+            </div>
+            <div class="pg-dash-metric">
+                <div class="pg-dash-metric__top">
+                    <p class="pg-dash-metric__label">Sales Achievement</p>
+                    <div class="pg-dash-icon pg-dash-icon--green" aria-hidden="true"><span class="pg-dash-icon__glyph">◆</span></div>
+                </div>
+                <p class="pg-dash-metric__value">{{ $formatMoney((float) $summary['sales_achieved']) }}</p>
+                <p class="pg-dash-metric__hint">{{ $formatPercentage((float) $summary['sales_percentage']) }} of target</p>
+            </div>
+            <div class="pg-dash-metric">
+                <div class="pg-dash-metric__top">
+                    <p class="pg-dash-metric__label">Collection Target</p>
+                    <div class="pg-dash-icon pg-dash-icon--blue" aria-hidden="true"><span class="pg-dash-icon__glyph">◎</span></div>
+                </div>
+                <p class="pg-dash-metric__value">{{ $formatMoney((float) $summary['collection_target']) }}</p>
+                @if ((float) $summary['collection_target'] <= 0)
+                    <p class="pg-dash-metric__hint">No target assigned</p>
+                @endif
+            </div>
+            <div class="pg-dash-metric">
+                <div class="pg-dash-metric__top">
+                    <p class="pg-dash-metric__label">Collection Achievement</p>
+                    <div class="pg-dash-icon pg-dash-icon--blue" aria-hidden="true"><span class="pg-dash-icon__glyph">◆</span></div>
+                </div>
+                <p class="pg-dash-metric__value">{{ $formatMoney((float) $summary['collection_achieved']) }}</p>
+                <p class="pg-dash-metric__hint">{{ $formatPercentage((float) $summary['collection_percentage']) }} of target</p>
+            </div>
         </div>
 
-        <div class="manager-team-progress-grid">
-            <div class="manager-team-progress-card">
-                <div class="manager-metric-row"><span class="manager-metric-row__label">Overall Sales %</span><span class="manager-metric-row__value">{{ $formatPercentage((float) $summary['sales_percentage']) }}</span></div>
-                <div class="manager-progress-track"><div class="manager-progress-bar manager-progress-bar--sales" style="width: {{ $salesBarWidth }}%;"></div></div>
+        <div class="pg-dash-progress-grid">
+            <div class="pg-dash-progress">
+                <div class="pg-dash-progress__row">
+                    <p class="pg-dash-progress__label">Sales Achievement</p>
+                    <p class="pg-dash-progress__pct">{{ $formatPercentage((float) $summary['sales_percentage']) }}</p>
+                </div>
+                <p class="pg-dash-progress__amounts">
+                    {{ $formatMoney((float) $summary['sales_achieved']) }}
+                    /
+                    {{ $formatMoney((float) $summary['sales_target']) }}
+                </p>
+                <div class="pg-dash-progress__track">
+                    <div class="pg-dash-progress__bar" style="width: {{ $salesBarWidth }}%;"></div>
+                </div>
             </div>
-            <div class="manager-team-progress-card">
-                <div class="manager-metric-row"><span class="manager-metric-row__label">Overall Collection %</span><span class="manager-metric-row__value">{{ $formatPercentage((float) $summary['collection_percentage']) }}</span></div>
-                <div class="manager-progress-track"><div class="manager-progress-bar manager-progress-bar--collection" style="width: {{ $collectionBarWidth }}%;"></div></div>
+            <div class="pg-dash-progress">
+                <div class="pg-dash-progress__row">
+                    <p class="pg-dash-progress__label">Collection Achievement</p>
+                    <p class="pg-dash-progress__pct">{{ $formatPercentage((float) $summary['collection_percentage']) }}</p>
+                </div>
+                <p class="pg-dash-progress__amounts">
+                    {{ $formatMoney((float) $summary['collection_achieved']) }}
+                    /
+                    {{ $formatMoney((float) $summary['collection_target']) }}
+                </p>
+                <div class="pg-dash-progress__track">
+                    <div class="pg-dash-progress__bar pg-dash-progress__bar--collection" style="width: {{ $collectionBarWidth }}%;"></div>
+                </div>
             </div>
         </div>
     </x-filament::section>

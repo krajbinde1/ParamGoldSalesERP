@@ -6,6 +6,7 @@ use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Widgets\AdminDirectorBusinessPerformanceWidget;
 use App\Filament\Widgets\AdminDirectorEmployeePerformanceWidget;
 use App\Filament\Widgets\AdminDirectorOrderOverviewWidget;
+use App\Filament\Widgets\AdminDirectorPaymentOverviewWidget;
 use App\Filament\Widgets\AdminDirectorQuickActionsWidget;
 use App\Filament\Widgets\AdminDirectorRecentActivityWidget;
 use App\Filament\Widgets\AdminDirectorWelcomeWidget;
@@ -72,6 +73,7 @@ class Dashboard extends BaseDashboard
                 AdminDirectorWelcomeWidget::class,
                 AdminDirectorBusinessPerformanceWidget::class,
                 AdminDirectorOrderOverviewWidget::class,
+                AdminDirectorPaymentOverviewWidget::class,
                 AdminDirectorEmployeePerformanceWidget::class,
                 AdminDirectorRecentActivityWidget::class,
                 AdminDirectorQuickActionsWidget::class,

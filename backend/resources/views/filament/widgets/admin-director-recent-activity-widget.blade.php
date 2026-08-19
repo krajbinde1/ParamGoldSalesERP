@@ -1,22 +1,26 @@
 <x-filament-widgets::widget class="fi-admin-director-recent-activity-widget">
-    <x-filament::section class="manager-dashboard-section">
-        <x-slot name="heading">Recent Activity</x-slot>
-
-        <div class="paramgold-activity-tabs">
-            @foreach ($tabs as $key => $tab)
-                <button
-                    type="button"
-                    wire:click="setActivityTab('{{ $key }}')"
-                    @class(['manager-period-btn', 'manager-period-btn--active' => $activeTab === $key])
-                >
-                    {{ $tab['label'] }}
-                </button>
-            @endforeach
+    <x-filament::section>
+        <div class="pg-dash-section__head">
+            <div>
+                <h2 class="pg-dash-section__title">Recent Activity</h2>
+                <p class="pg-dash-section__subtitle">Latest operational records</p>
+            </div>
+            <div class="pg-dash-seg" role="tablist" aria-label="Recent activity tabs">
+                @foreach ($tabs as $key => $tab)
+                    <button
+                        type="button"
+                        wire:click="setActivityTab('{{ $key }}')"
+                        @class(['pg-dash-seg__btn', 'pg-dash-seg__btn--active' => $activeTab === $key])
+                    >
+                        {{ $tab['label'] }}
+                    </button>
+                @endforeach
+            </div>
         </div>
 
-        <div class="paramgold-activity-list">
+        <div>
             @forelse ($activity[$activeTab] ?? [] as $item)
-                <div class="paramgold-activity-item">
+                <div class="pg-dash-activity-item">
                     <div>
                         <p class="paramgold-activity-item__title">{{ $item['title'] }}</p>
                         <p class="paramgold-activity-item__meta">
@@ -27,11 +31,11 @@
                     </div>
                     <div style="display:flex; align-items:center; gap:0.5rem;">
                         <span class="paramgold-status-pill paramgold-status-pill--{{ $item['status_color'] }}">{{ $item['status_label'] }}</span>
-                        <a href="{{ $tabs[$activeTab]['viewUrl']($item['id']) }}" class="paramgold-view-link">View</a>
+                        <a href="{{ $tabs[$activeTab]['viewUrl']($item['id']) }}" class="pg-dash-link">View</a>
                     </div>
                 </div>
             @empty
-                <p class="manager-empty-state">No recent records found.</p>
+                <p class="pg-dash-empty">No recent records found.</p>
             @endforelse
         </div>
     </x-filament::section>
