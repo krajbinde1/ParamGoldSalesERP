@@ -13,21 +13,6 @@
             <div class="pg-avatar" aria-hidden="true">{{ strtoupper(substr($userName, 0, 1)) }}</div>
         </div>
 
-        <div class="pg-kpi-grid">
-            @foreach ($kpis as $kpi)
-                <div class="pg-card pg-kpi">
-                    <div class="pg-icon pg-icon--{{ $kpi['tone'] }}" aria-hidden="true">
-                        <x-filament::icon :icon="$kpi['icon']" />
-                    </div>
-                    <div>
-                        <p class="pg-kpi__label">{{ $kpi['label'] }}</p>
-                        <p class="pg-kpi__value">{{ $kpi['value'] }}</p>
-                        <p class="pg-kpi__meta">{{ $kpi['meta'] }}</p>
-                    </div>
-                </div>
-            @endforeach
-        </div>
-
         <div class="pg-card pg-team">
             <div class="pg-section-head" style="margin-bottom: 0;">
                 <div>
