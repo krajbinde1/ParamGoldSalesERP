@@ -10,6 +10,12 @@
 	<string>ParamGold needs always-on location to track your field route while the app is in the background.</string>
 	<key>NSLocationAlwaysUsageDescription</key>
 	<string>ParamGold needs always-on location to track your field route while the app is in the background.</string>
+	<key>LSApplicationQueriesSchemes</key>
+	<array>
+		<string>googlemaps</string>
+		<string>comgooglemaps</string>
+		<string>maps</string>
+	</array>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>location</string>

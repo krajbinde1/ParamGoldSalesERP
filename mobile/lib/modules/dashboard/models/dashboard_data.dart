@@ -14,6 +14,12 @@ class DashboardData {
     required this.weeklyCollectionTarget,
     required this.weeklyCollectionAchieved,
     required this.weeklyCollectionPercentage,
+    this.weeklySalesRemaining = 0,
+    this.weeklyCollectionRemaining = 0,
+    this.fieldActivityTarget = 0,
+    this.fieldActivityAchieved = 0,
+    this.fieldActivityRemaining = 0,
+    this.fieldActivityPercentage = 0,
   });
 
   final String attendanceStatus;
@@ -30,6 +36,12 @@ class DashboardData {
   final double weeklyCollectionTarget;
   final double weeklyCollectionAchieved;
   final double weeklyCollectionPercentage;
+  final double weeklySalesRemaining;
+  final double weeklyCollectionRemaining;
+  final double fieldActivityTarget;
+  final double fieldActivityAchieved;
+  final double fieldActivityRemaining;
+  final double fieldActivityPercentage;
 
   factory DashboardData.fromJson(Map<String, dynamic> json) {
     final attendance = Map<String, dynamic>.from(
@@ -88,6 +100,30 @@ class DashboardData {
       weeklyCollectionPercentage: readAmount(const [
         'collection_percentage',
         'weekly_collection_percentage',
+      ]),
+      weeklySalesRemaining: readAmount(const [
+        'sales_remaining',
+        'weekly_sales_remaining',
+      ]),
+      weeklyCollectionRemaining: readAmount(const [
+        'collection_remaining',
+        'weekly_collection_remaining',
+      ]),
+      fieldActivityTarget: readAmount(const [
+        'field_activity_target',
+        'weekly_field_activity_target',
+      ]),
+      fieldActivityAchieved: readAmount(const [
+        'field_activity_achieved',
+        'weekly_field_activity_achieved',
+      ]),
+      fieldActivityRemaining: readAmount(const [
+        'field_activity_remaining',
+        'weekly_field_activity_remaining',
+      ]),
+      fieldActivityPercentage: readAmount(const [
+        'field_activity_percentage',
+        'weekly_field_activity_percentage',
       ]),
     );
   }

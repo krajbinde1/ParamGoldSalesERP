@@ -24,7 +24,9 @@ class WeeklyTarget extends Model
         'week_end_date',
         'sales_target',
         'collection_target',
+        'field_activity_target',
         'status',
+        'remark',
     ];
 
     protected function casts(): array
@@ -34,6 +36,7 @@ class WeeklyTarget extends Model
             'week_end_date' => 'date',
             'sales_target' => 'decimal:2',
             'collection_target' => 'decimal:2',
+            'field_activity_target' => 'integer',
         ];
     }
 
@@ -96,5 +99,16 @@ class WeeklyTarget extends Model
             ->whereBetween('collection_date', [$weekStart, $weekEnd])
             ->where('status', self::COLLECTION_ACHIEVEMENT_STATUS)
             ->sum('amount');
+    }
+
+    public function fieldActivityAchieved(int $employeeId): int
+    {
+        $weekStart = $this->week_start_date->toDateString();
+        $weekEnd = $this->week_end_date->toDateString();
+
+        return (int) FieldActivity::query()
+            ->where('employee_id', $employeeId)
+            ->whereBetween('activity_date', [$weekStart, $weekEnd])
+            ->count();
     }
 }

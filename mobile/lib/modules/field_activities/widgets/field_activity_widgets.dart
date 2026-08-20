@@ -75,9 +75,18 @@ class RecentFieldActivityTile extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                '${activity.village}, ${activity.taluka}',
+                [
+                  if ((activity.district ?? '').isNotEmpty) activity.district!,
+                  activity.village,
+                  activity.taluka,
+                ].where((part) => part.isNotEmpty).join(', '),
                 style: Theme.of(context).textTheme.bodyMedium,
               ),
+              if ((activity.cropName ?? '').isNotEmpty)
+                Text(
+                  'Crop: ${activity.cropName}',
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               Text(
                 '${DateFormat('d MMM yyyy').format(activity.activityDate)} • ${activity.activityTime}',
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(

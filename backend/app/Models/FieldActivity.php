@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 
@@ -21,9 +22,17 @@ class FieldActivity extends Model
 
     protected $fillable = [
         'employee_id',
+        'farmer_id',
         'farmer_name',
+        'farmer_mobile',
+        'district_id',
+        'district',
         'village',
         'taluka',
+        'taluka_id',
+        'crop_id',
+        'activity_type',
+        'remark',
         'activity_date',
         'activity_time',
         'photo_path',
@@ -59,6 +68,31 @@ class FieldActivity extends Model
     public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
+    }
+
+    public function farmer(): BelongsTo
+    {
+        return $this->belongsTo(Farmer::class);
+    }
+
+    public function districtRecord(): BelongsTo
+    {
+        return $this->belongsTo(MaharashtraDistrict::class, 'district_id');
+    }
+
+    public function talukaRecord(): BelongsTo
+    {
+        return $this->belongsTo(MaharashtraTaluka::class, 'taluka_id');
+    }
+
+    public function crop(): BelongsTo
+    {
+        return $this->belongsTo(Crop::class);
+    }
+
+    public function recommendations(): HasMany
+    {
+        return $this->hasMany(FieldActivityRecommendation::class)->orderBy('sort_order')->orderBy('id');
     }
 
     public function photoUrl(): ?string

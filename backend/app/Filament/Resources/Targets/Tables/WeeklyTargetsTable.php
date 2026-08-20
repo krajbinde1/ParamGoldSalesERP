@@ -21,8 +21,16 @@ class WeeklyTargetsTable
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('week_period')
-                    ->label('Week Period')
-                    ->state(fn ($record): string => $record->week_start_date->format('d M Y').' - '.$record->week_end_date->format('d M Y')),
+                    ->label('Period / Month')
+                    ->state(fn ($record): string => $record->week_start_date->format('F Y')),
+                TextColumn::make('week_start_date')
+                    ->label('From Date')
+                    ->date('d M Y')
+                    ->sortable(),
+                TextColumn::make('week_end_date')
+                    ->label('To Date')
+                    ->date('d M Y')
+                    ->sortable(),
                 TextColumn::make('sales_target')
                     ->label('Sales Target')
                     ->money('INR')
@@ -31,6 +39,13 @@ class WeeklyTargetsTable
                     ->label('Collection Target')
                     ->money('INR')
                     ->sortable(),
+                TextColumn::make('field_activity_target')
+                    ->label('Field Activity Target')
+                    ->sortable(),
+                TextColumn::make('remark')
+                    ->label('Remark')
+                    ->limit(40)
+                    ->toggleable(),
                 TextColumn::make('status')
                     ->badge()
                     ->color(fn (string $state): string => $state === 'active' ? 'success' : 'gray')

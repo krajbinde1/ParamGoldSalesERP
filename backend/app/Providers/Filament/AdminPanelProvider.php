@@ -9,6 +9,7 @@ use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Widgets\AccountWidget;
 use App\Filament\Widgets\FilamentInfoWidget;
 use App\Filament\Widgets\ProductionOrderStatsWidget;
+use App\Http\Controllers\Api\DealerApplicationDocumentController;
 use App\Http\Controllers\Api\Director\PaymentRequestSupportingDocumentController;
 use App\Http\Middleware\RestrictOrdersOnlyFilamentAccess;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse as LoginResponseContract;
@@ -83,6 +84,11 @@ class AdminPanelProvider extends PanelProvider
                     '/payment-requests/{paymentRequest}/supporting-documents/{supportingDocument}',
                     [PaymentRequestSupportingDocumentController::class, 'show']
                 )->name('payment-requests.supporting-documents.show');
+
+                Route::get(
+                    '/dealer-applications/{dealerApplication}/documents/{dealerApplicationDocument}',
+                    [DealerApplicationDocumentController::class, 'show']
+                )->name('dealer-applications.documents.show');
             })
             ->discoverWidgets(in: app_path('Filament/Widgets'), for: 'App\Filament\Widgets')
             ->widgets([

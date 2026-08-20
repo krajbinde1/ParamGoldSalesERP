@@ -116,12 +116,16 @@ class DashboardMetricsService
 
         $salesTarget = (float) $targets->sum('sales_target');
         $collectionTarget = (float) $targets->sum('collection_target');
+        $fieldActivityTarget = (int) $targets->sum('field_activity_target');
         $salesAchieved = round($targets->sum(
             fn (WeeklyTarget $target): float => $target->salesAchieved($target->employee_id)
         ), 2);
         $collectionAchieved = round($targets->sum(
             fn (WeeklyTarget $target): float => $target->collectionAchieved($target->employee_id)
         ), 2);
+        $fieldActivityAchieved = (int) $targets->sum(
+            fn (WeeklyTarget $target): int => $target->fieldActivityAchieved($target->employee_id)
+        );
 
         return [
             'sales_target' => $salesTarget,
@@ -130,6 +134,10 @@ class DashboardMetricsService
             'collection_target' => $collectionTarget,
             'collection_achieved' => $collectionAchieved,
             'collection_percentage' => $this->percentage($collectionTarget, $collectionAchieved),
+            'field_activity_target' => $fieldActivityTarget,
+            'field_activity_achieved' => $fieldActivityAchieved,
+            'field_activity_remaining' => max($fieldActivityTarget - $fieldActivityAchieved, 0),
+            'field_activity_percentage' => $this->percentage((float) $fieldActivityTarget, (float) $fieldActivityAchieved),
         ];
     }
 
@@ -196,10 +204,12 @@ class DashboardMetricsService
 
         $salesTarget = (float) $targets->sum('sales_target');
         $collectionTarget = (float) $targets->sum('collection_target');
+        $fieldActivityTarget = (int) $targets->sum('field_activity_target');
 
         if ($employeeId !== null) {
             $salesAchieved = $this->salesAchievedForPeriod($employeeId, $start, $end);
             $collectionAchieved = $this->collectionAchievedForPeriod($employeeId, $start, $end);
+            $fieldActivityAchieved = $this->fieldActivityAchievedForPeriod($employeeId, $start, $end);
         } else {
             $employeeIds = $targets->pluck('employee_id')->unique();
             $salesAchieved = round($employeeIds->sum(
@@ -208,6 +218,9 @@ class DashboardMetricsService
             $collectionAchieved = round($employeeIds->sum(
                 fn (int $id): float => $this->collectionAchievedForPeriod($id, $start, $end)
             ), 2);
+            $fieldActivityAchieved = (int) $employeeIds->sum(
+                fn (int $id): int => $this->fieldActivityAchievedForPeriod($id, $start, $end)
+            );
         }
 
         return [
@@ -219,6 +232,10 @@ class DashboardMetricsService
             'collection_achieved' => round((float) $collectionAchieved, 2),
             'collection_percentage' => $this->percentage($collectionTarget, (float) $collectionAchieved),
             'collection_remaining' => max($collectionTarget - (float) $collectionAchieved, 0),
+            'field_activity_target' => $fieldActivityTarget,
+            'field_activity_achieved' => $fieldActivityAchieved,
+            'field_activity_remaining' => max($fieldActivityTarget - $fieldActivityAchieved, 0),
+            'field_activity_percentage' => $this->percentage((float) $fieldActivityTarget, (float) $fieldActivityAchieved),
         ];
     }
 
@@ -244,6 +261,14 @@ class DashboardMetricsService
             ->whereBetween('collection_date', [$start->toDateString(), $end->toDateString()])
             ->where('status', Collection::STATUS_RECEIVED)
             ->sum('amount');
+    }
+
+    public function fieldActivityAchievedForPeriod(int $employeeId, Carbon $start, Carbon $end): int
+    {
+        return (int) FieldActivity::query()
+            ->where('employee_id', $employeeId)
+            ->whereBetween('activity_date', [$start->toDateString(), $end->toDateString()])
+            ->count();
     }
 
     /**
@@ -367,6 +392,10 @@ class DashboardMetricsService
             'collection_achieved' => $targets['collection_achieved'],
             'collection_percentage' => $targets['collection_percentage'],
             'collection_remaining' => $targets['collection_remaining'],
+            'field_activity_target' => $targets['field_activity_target'],
+            'field_activity_achieved' => $targets['field_activity_achieved'],
+            'field_activity_remaining' => $targets['field_activity_remaining'],
+            'field_activity_percentage' => $targets['field_activity_percentage'],
             'total_order_amount' => $totalOrderAmount,
             'total_orders' => $orders['total_orders'],
             'pending_orders' => $orders['pending_orders'],
@@ -433,6 +462,16 @@ class DashboardMetricsService
             $employees,
         )), 2);
 
+        $fieldActivityTarget = (int) array_sum(array_map(
+            fn (array $row): int => (int) $row['field_activity_target'],
+            $employees,
+        ));
+
+        $fieldActivityAchieved = (int) array_sum(array_map(
+            fn (array $row): int => (int) $row['field_activity_achieved'],
+            $employees,
+        ));
+
         return [
             'sales_target' => $salesTarget,
             'sales_achieved' => $salesAchieved,
@@ -442,6 +481,11 @@ class DashboardMetricsService
             'collection_achieved' => $collectionAchieved,
             'collection_pending' => round(max($collectionTarget - $collectionAchieved, 0), 2),
             'collection_percentage' => $this->percentage($collectionTarget, $collectionAchieved),
+            'field_activity_target' => $fieldActivityTarget,
+            'field_activity_achieved' => $fieldActivityAchieved,
+            'field_activity_pending' => max($fieldActivityTarget - $fieldActivityAchieved, 0),
+            'field_activity_remaining' => max($fieldActivityTarget - $fieldActivityAchieved, 0),
+            'field_activity_percentage' => $this->percentage((float) $fieldActivityTarget, (float) $fieldActivityAchieved),
         ];
     }
 

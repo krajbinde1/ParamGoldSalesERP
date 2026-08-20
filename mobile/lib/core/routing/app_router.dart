@@ -22,6 +22,9 @@ import '../../modules/ta_da_claims/screens/ta_da_claim_detail_screen.dart';
 import '../../modules/dealer_visits/screens/dealer_visit_dashboard_screen.dart';
 import '../../modules/dealer_visits/screens/dealer_visit_detail_screen.dart';
 import '../../modules/dealer_visits/screens/new_dealer_visit_screen.dart';
+import '../../modules/dealer_applications/screens/dealer_application_detail_screen.dart';
+import '../../modules/dealer_applications/screens/dealer_application_form_screen.dart';
+import '../../modules/dealer_applications/screens/dealer_applications_screen.dart';
 import '../../modules/field_activities/screens/field_activity_dashboard_screen.dart';
 import '../../modules/field_activities/screens/field_activity_detail_screen.dart';
 import '../../modules/field_activities/screens/new_field_activity_screen.dart';
@@ -39,6 +42,12 @@ import '../../modules/director/screens/director_dashboard_screen.dart';
 import '../../modules/director/screens/director_orders_screen.dart';
 import '../../modules/director/screens/director_payment_requests_screen.dart';
 import '../../modules/director/screens/director_route_tracking_screen.dart';
+import '../../modules/manager/screens/manager_dashboard_screen.dart';
+import '../../modules/manager/screens/manager_collection_detail_screen.dart';
+import '../../modules/manager/screens/manager_collections_screen.dart';
+import '../../modules/manager/screens/manager_field_activities_screen.dart';
+import '../../modules/manager/screens/manager_dealer_application_detail_screen.dart';
+import '../../modules/manager/screens/manager_dealer_approvals_screen.dart';
 import '../../modules/manager/screens/manager_edit_order_screen.dart';
 import '../../modules/manager/screens/manager_employee_performance_screen.dart';
 import '../../modules/manager/screens/manager_orders_screen.dart';
@@ -251,6 +260,33 @@ GoRouter createRouter(
       ],
     ),
     GoRoute(
+      path: '/dealer-applications',
+      builder: (_, _) => DealerApplicationsScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: 'new',
+          builder: (_, _) => DealerApplicationFormScreen(auth: auth),
+        ),
+        GoRoute(
+          path: ':applicationId',
+          builder: (_, state) => DealerApplicationDetailScreen(
+            auth: auth,
+            applicationId: int.parse(state.pathParameters['applicationId']!),
+          ),
+          routes: [
+            GoRoute(
+              path: 'edit',
+              builder: (_, state) => DealerApplicationFormScreen(
+                auth: auth,
+                applicationId:
+                    int.parse(state.pathParameters['applicationId']!),
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+    GoRoute(
       path: '/ta-da-claims',
       builder: (_, _) => TaDaClaimDashboardScreen(auth: auth),
       routes: [
@@ -314,6 +350,36 @@ GoRouter createRouter(
               ),
             ),
           ],
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/manager/collections',
+      builder: (_, _) => ManagerCollectionsScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':collectionId',
+          builder: (_, state) => ManagerCollectionDetailScreen(
+            auth: auth,
+            collectionId: int.parse(state.pathParameters['collectionId']!),
+          ),
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/manager/field-activities',
+      builder: (_, _) => ManagerFieldActivitiesScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':activityId',
+          builder: (_, state) => FieldActivityDetailScreen(
+            auth: auth,
+            activityId: int.parse(state.pathParameters['activityId']!),
+            loadActivity: () => ManagerFieldActivityDetailRoute.load(
+              auth,
+              int.parse(state.pathParameters['activityId']!),
+            ),
+          ),
         ),
       ],
     ),
@@ -414,6 +480,19 @@ GoRouter createRouter(
               employeeCode: extra?['code']?.toString(),
             );
           },
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/manager/dealer-approvals',
+      builder: (_, _) => ManagerDealerApprovalsScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':applicationId',
+          builder: (_, state) => ManagerDealerApplicationDetailScreen(
+            auth: auth,
+            applicationId: int.parse(state.pathParameters['applicationId']!),
+          ),
         ),
       ],
     ),

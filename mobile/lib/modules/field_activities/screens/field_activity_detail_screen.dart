@@ -10,6 +10,7 @@ import '../../../core/widgets/design/pg_empty_state.dart';
 import '../../../core/widgets/design/pg_scaffold.dart';
 import '../../../core/widgets/design/pg_status_badge.dart';
 import '../../auth/providers/auth_controller.dart';
+import '../../manager/widgets/view_captured_location_button.dart';
 import '../api/field_activity_api.dart';
 import '../models/field_activity_detail.dart';
 
@@ -18,10 +19,12 @@ class FieldActivityDetailScreen extends StatefulWidget {
     super.key,
     required this.activityId,
     required this.auth,
+    this.loadActivity,
   });
 
   final int activityId;
   final AuthController auth;
+  final Future<FieldActivityDetail> Function()? loadActivity;
 
   @override
   State<FieldActivityDetailScreen> createState() =>
@@ -37,9 +40,15 @@ class _FieldActivityDetailScreenState extends State<FieldActivityDetailScreen> {
     _future = _load();
   }
 
-  Future<FieldActivityDetail> _load() => FieldActivityApi(
-    ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
-  ).getActivity(widget.activityId);
+  Future<FieldActivityDetail> _load() {
+    if (widget.loadActivity != null) {
+      return widget.loadActivity!();
+    }
+
+    return FieldActivityApi(
+      ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
+    ).getActivity(widget.activityId);
+  }
 
   Future<void> _reload() async {
     setState(() => _future = _load());
@@ -85,7 +94,11 @@ class _FieldActivityDetailScreenState extends State<FieldActivityDetailScreen> {
               children: [
                 PgDetailHeader(
                   title: detail.farmerName,
-                  subtitle: '${detail.village}, ${detail.taluka}',
+                  subtitle: [
+                    if ((detail.district ?? '').isNotEmpty) detail.district!,
+                    detail.village,
+                    detail.taluka,
+                  ].where((part) => part.isNotEmpty).join(', '),
                   badgeLabel: detail.statusLabel,
                   badgeTone: PgStatusTone.approved,
                 ),
@@ -109,10 +122,39 @@ class _FieldActivityDetailScreenState extends State<FieldActivityDetailScreen> {
                         label: 'Activity Time',
                         value: detail.activityTime,
                       ),
-                      if (detail.employeeName != null)
+                      if ((detail.employeeName ?? '').isNotEmpty)
                         PgInvoiceRow(
                           label: 'Employee Name',
                           value: detail.employeeName!,
+                        ),
+                      PgInvoiceRow(
+                        label: 'Farmer Mobile',
+                        value: (detail.farmerMobile ?? '').isEmpty
+                            ? '-'
+                            : detail.farmerMobile!,
+                      ),
+                      if ((detail.district ?? '').isNotEmpty)
+                        PgInvoiceRow(
+                          label: 'District',
+                          value: detail.district!,
+                        ),
+                      PgInvoiceRow(
+                        label: 'Village',
+                        value: detail.village,
+                      ),
+                      PgInvoiceRow(
+                        label: 'Taluka',
+                        value: detail.taluka,
+                      ),
+                      if ((detail.cropName ?? '').isNotEmpty)
+                        PgInvoiceRow(
+                          label: 'Crop',
+                          value: detail.cropName!,
+                        ),
+                      if ((detail.remark ?? '').isNotEmpty)
+                        PgInvoiceRow(
+                          label: 'Remark',
+                          value: detail.remark!,
                         ),
                       if (detail.latitude != null && detail.longitude != null)
                         PgInvoiceRow(
@@ -121,9 +163,41 @@ class _FieldActivityDetailScreenState extends State<FieldActivityDetailScreen> {
                               'Lat ${detail.latitude!.toStringAsFixed(7)}, '
                               'Lng ${detail.longitude!.toStringAsFixed(7)}',
                         ),
+                      const SizedBox(height: AppSpacing.sm),
+                      ViewCapturedLocationButton(
+                        mapsUrl: detail.mapsUrl,
+                        latitude: detail.latitude,
+                        longitude: detail.longitude,
+                      ),
                     ],
                   ),
                 ),
+                if (detail.recommendations.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.md),
+                  PgCard(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Product Recommendations',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        for (final rec in detail.recommendations)
+                          Padding(
+                            padding: const EdgeInsets.only(bottom: 8),
+                            child: Text(
+                              [
+                                rec.productName,
+                                if ((rec.dosage ?? '').isNotEmpty) rec.dosage,
+                                if ((rec.remark ?? '').isNotEmpty) rec.remark,
+                              ].join(' • '),
+                            ),
+                          ),
+                      ],
+                    ),
+                  ),
+                ],
                 if (detail.photoUrl != null) ...[
                   const SizedBox(height: AppSpacing.md),
                   PgCard(

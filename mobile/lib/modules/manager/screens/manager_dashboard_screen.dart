@@ -139,6 +139,12 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                                 _open('/manager/orders?tab=pending'),
                           ),
                           _ModuleItem(
+                            title: 'Collections',
+                            subtitle: 'View team collections',
+                            icon: Icons.payments_rounded,
+                            onTap: () => _open('/manager/collections'),
+                          ),
+                          _ModuleItem(
                             title: 'Team Attendance',
                             subtitle: teamSize > 0
                                 ? '${data.presentToday} present today'
@@ -171,10 +177,22 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                             onTap: () => _open('/manager/ta-da-claims'),
                           ),
                           _ModuleItem(
+                            title: 'Dealer Approvals',
+                            subtitle: 'Review team dealer applications',
+                            icon: Icons.assignment_turned_in_outlined,
+                            onTap: () => _open('/manager/dealer-approvals'),
+                          ),
+                          _ModuleItem(
                             title: 'Team Activity',
-                            subtitle: "Today's Dealer & Field Visits",
+                            subtitle: "Dealer visits & field activities",
                             icon: Icons.travel_explore_rounded,
                             onTap: () => _open('/manager/team-activity'),
+                          ),
+                          _ModuleItem(
+                            title: 'Field Activities',
+                            subtitle: 'Team farmer visits & recommendations',
+                            icon: Icons.agriculture_outlined,
+                            onTap: () => _open('/manager/field-activities'),
                           ),
                         ],
                       ),

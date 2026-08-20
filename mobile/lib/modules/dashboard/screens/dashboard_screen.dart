@@ -284,6 +284,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   icon: Icons.receipt_long_outlined,
                                   onTap: () => _open('/ta-da-claims'),
                                 ),
+                                _EmployeeModuleItem(
+                                  title: 'Create Dealer',
+                                  subtitle: 'New dealer application',
+                                  icon: Icons.add_business_outlined,
+                                  onTap: () => _open('/dealer-applications/new'),
+                                ),
+                                _EmployeeModuleItem(
+                                  title: 'My Dealers',
+                                  subtitle: 'Applications & status',
+                                  icon: Icons.store_mall_directory_outlined,
+                                  onTap: () => _open('/dealer-applications'),
+                                ),
                               ],
                             ),
                             const SizedBox(height: AppSpacing.lg),
@@ -303,6 +315,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                     ),
                                     color: AppColors.primary,
                                   ),
+                                  _RemainingLine(
+                                    currency.format(
+                                      data.weeklySalesRemaining,
+                                    ),
+                                  ),
                                   const SizedBox(height: AppSpacing.md),
                                   PgProgressBar(
                                     label: 'Collection Target',
@@ -316,6 +333,24 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                     ),
                                     color: AppColors.accent,
                                   ),
+                                  _RemainingLine(
+                                    currency.format(
+                                      data.weeklyCollectionRemaining,
+                                    ),
+                                  ),
+                                  const SizedBox(height: AppSpacing.md),
+                                  PgProgressBar(
+                                    label: 'Field Activity Target',
+                                    percentage: data.fieldActivityPercentage,
+                                    currentLabel:
+                                        '${data.fieldActivityAchieved.round()}',
+                                    targetLabel:
+                                        '${data.fieldActivityTarget.round()}',
+                                    color: AppColors.info,
+                                  ),
+                                  _RemainingLine(
+                                    '${data.fieldActivityRemaining.round()}',
+                                  ),
                                 ],
                               ),
                             ),
@@ -328,6 +363,29 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
               );
             },
           ),
+        ),
+      ),
+    );
+  }
+}
+
+class _RemainingLine extends StatelessWidget {
+  const _RemainingLine(this.value);
+
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 4),
+      child: Align(
+        alignment: Alignment.centerRight,
+        child: Text(
+          'Remaining: $value',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                color: AppColors.textSecondary,
+                fontWeight: FontWeight.w600,
+              ),
         ),
       ),
     );

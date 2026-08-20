@@ -6,6 +6,7 @@ use App\Models\Concerns\EnforcesSafeDelete;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Facades\DB;
 
@@ -106,5 +107,15 @@ class Dealer extends Model
     public function visits(): HasMany
     {
         return $this->hasMany(DealerVisit::class);
+    }
+
+    public function party(): HasOne
+    {
+        return $this->hasOne(Party::class);
+    }
+
+    public function dealerApplication(): HasOne
+    {
+        return $this->hasOne(DealerApplication::class);
     }
 }

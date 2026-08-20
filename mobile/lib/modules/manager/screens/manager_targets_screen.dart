@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/api/api_errors.dart';
@@ -282,6 +283,36 @@ class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
                           ],
                         ),
                       ),
+                      const SizedBox(height: AppSpacing.md),
+                      PgCard(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            const PgSectionHeader(
+                              title: 'Field Activity Progress',
+                            ),
+                            const SizedBox(height: AppSpacing.sm),
+                            PgProgressBar(
+                              label: 'Field Activity Achievement',
+                              percentage: summary.fieldActivityPercentage,
+                              currentLabel:
+                                  '${summary.fieldActivityAchieved.round()}',
+                              targetLabel:
+                                  '${summary.fieldActivityTarget.round()}',
+                              color: AppColors.info,
+                            ),
+                            const SizedBox(height: AppSpacing.sm),
+                            _MetricRow(
+                              'Field Activity Remaining',
+                              '${summary.fieldActivityPending.round()}',
+                            ),
+                            _MetricRow(
+                              'Field Activity Achievement %',
+                              '${_formatPercent(summary.fieldActivityPercentage)}%',
+                            ),
+                          ],
+                        ),
+                      ),
                       const SizedBox(height: AppSpacing.lg),
                       const PgSectionHeader(title: 'Team-wise Breakdown'),
                       const SizedBox(height: AppSpacing.sm),
@@ -295,6 +326,20 @@ class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
                           PgCard(
                             margin:
                                 const EdgeInsets.only(bottom: AppSpacing.sm),
+                            onTap: () {
+                              final id = int.tryParse(
+                                '${employee['employee_id']}',
+                              );
+                              if (id == null) return;
+                              context.push(
+                                '/manager/employees/$id',
+                                extra: {
+                                  'period': _period,
+                                  'startDate': _startDate,
+                                  'endDate': _endDate,
+                                },
+                              );
+                            },
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -361,6 +406,31 @@ class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
                                     employee['collection_percentage'],
                                   ),
                                   color: AppColors.accent,
+                                ),
+                                const SizedBox(height: AppSpacing.sm),
+                                _MetricRow(
+                                  'Field Activity Target',
+                                  '${_toDouble(employee['field_activity_target']).round()}',
+                                ),
+                                _MetricRow(
+                                  'Field Activity Achieved',
+                                  '${_toDouble(employee['field_activity_achieved']).round()}',
+                                ),
+                                _MetricRow(
+                                  'Field Activity Remaining',
+                                  '${_toDouble(employee['field_activity_remaining']).round()}',
+                                ),
+                                _MetricRow(
+                                  'Field Activity Achievement %',
+                                  '${_formatPercent(_toDouble(employee['field_activity_percentage']))}%',
+                                ),
+                                const SizedBox(height: 4),
+                                PgProgressBar(
+                                  label: 'Field Activity',
+                                  percentage: _toDouble(
+                                    employee['field_activity_percentage'],
+                                  ),
+                                  color: AppColors.info,
                                 ),
                               ],
                             ),

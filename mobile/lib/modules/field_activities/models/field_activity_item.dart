@@ -10,6 +10,9 @@ class FieldActivityItem {
     required this.activityTime,
     required this.status,
     this.photoUrl,
+    this.cropName,
+    this.district,
+    this.farmerMobile,
   });
 
   final int id;
@@ -20,6 +23,9 @@ class FieldActivityItem {
   final String activityTime;
   final String status;
   final String? photoUrl;
+  final String? cropName;
+  final String? district;
+  final String? farmerMobile;
 
   factory FieldActivityItem.fromJson(Map<String, dynamic> json) =>
       FieldActivityItem(
@@ -31,6 +37,9 @@ class FieldActivityItem {
         activityTime: json['activity_time']?.toString() ?? '-',
         status: json['status']?.toString() ?? 'completed',
         photoUrl: json['photo_url']?.toString(),
+        cropName: json['crop_name']?.toString(),
+        district: json['district']?.toString(),
+        farmerMobile: json['farmer_mobile']?.toString(),
       );
 
   static DateTime _parseDate(Object? value) {

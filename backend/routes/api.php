@@ -15,14 +15,21 @@ use App\Http\Controllers\Api\EmployeeRoutePointController;
 use App\Http\Controllers\Api\EmployeeAuthController;
 use App\Http\Controllers\Api\EmployeeCollectionController;
 use App\Http\Controllers\Api\EmployeeDashboardController;
+use App\Http\Controllers\Api\EmployeeDealerApplicationController;
+use App\Http\Controllers\Api\DealerApplicationDocumentController;
 use App\Http\Controllers\Api\EmployeeTaDaClaimController;
 use App\Http\Controllers\Api\EmployeeDealerVisitController;
+use App\Http\Controllers\Api\EmployeeFarmerLookupController;
 use App\Http\Controllers\Api\EmployeeFieldActivityController;
+use App\Http\Controllers\Api\FieldActivityMasterController;
 use App\Http\Controllers\Api\EmployeeDealerController;
 use App\Http\Controllers\Api\EmployeeOrderController;
 use App\Http\Controllers\Api\EmployeeProductController;
 use App\Http\Controllers\Api\EmployeeTaskController;
+use App\Http\Controllers\Api\Manager\ManagerCollectionController;
 use App\Http\Controllers\Api\Manager\ManagerDashboardController;
+use App\Http\Controllers\Api\Manager\ManagerDealerApplicationController;
+use App\Http\Controllers\Api\Manager\ManagerFieldActivityController;
 use App\Http\Controllers\Api\Manager\ManagerEmployeePerformanceController;
 use App\Http\Controllers\Api\Manager\ManagerOrderController;
 use App\Http\Controllers\Api\Manager\ManagerRouteTrackingController;
@@ -59,14 +66,29 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
     Route::post('notifications/read-all', [AppNotificationController::class, 'markAllRead']);
     Route::post('notifications/{notification}/read', [AppNotificationController::class, 'markRead']);
 
+    Route::get(
+        'dealer-applications/{dealerApplication}/documents/{dealerApplicationDocument}',
+        [DealerApplicationDocumentController::class, 'show']
+    );
+
     Route::middleware('role:employee')->group(function () {
         Route::get('employee/dashboard', EmployeeDashboardController::class);
         Route::get('employee/dealers', EmployeeDealerController::class);
+        Route::get('employee/dealer-applications', [EmployeeDealerApplicationController::class, 'index']);
+        Route::post('employee/dealer-applications', [EmployeeDealerApplicationController::class, 'store']);
+        Route::get('employee/dealer-applications/{dealerApplication}', [EmployeeDealerApplicationController::class, 'show']);
+        Route::put('employee/dealer-applications/{dealerApplication}', [EmployeeDealerApplicationController::class, 'update']);
+        Route::post('employee/dealer-applications/{dealerApplication}/submit', [EmployeeDealerApplicationController::class, 'submit']);
+        Route::post('employee/dealer-applications/{dealerApplication}/documents', [EmployeeDealerApplicationController::class, 'uploadDocument']);
         Route::get('employee/orders', [EmployeeOrderController::class, 'index']);
         Route::post('employee/orders', [EmployeeOrderController::class, 'store']);
         Route::get('employee/orders/{order}', [EmployeeOrderController::class, 'show']);
         Route::put('employee/orders/{order}', [EmployeeOrderController::class, 'update']);
         Route::get('employee/products', EmployeeProductController::class);
+        Route::get('employee/field-activity-masters/districts', [FieldActivityMasterController::class, 'districts']);
+        Route::get('employee/field-activity-masters/talukas', [FieldActivityMasterController::class, 'talukas']);
+        Route::get('employee/field-activity-masters/crops', [FieldActivityMasterController::class, 'crops']);
+        Route::get('employee/farmers/lookup', EmployeeFarmerLookupController::class);
         Route::get('employee/collections', [EmployeeCollectionController::class, 'index']);
         Route::post('employee/collections', [EmployeeCollectionController::class, 'store']);
         Route::get('employee/collections/{collection}', [EmployeeCollectionController::class, 'show']);
@@ -109,6 +131,11 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::post('orders/{order}/approve', [ManagerOrderController::class, 'approve']);
         Route::post('orders/{order}/reject', [ManagerOrderController::class, 'reject']);
         Route::get('products', EmployeeProductController::class);
+        Route::get('field-activity-masters/districts', [FieldActivityMasterController::class, 'districts']);
+        Route::get('field-activity-masters/talukas', [FieldActivityMasterController::class, 'talukas']);
+        Route::get('field-activity-masters/crops', [FieldActivityMasterController::class, 'crops']);
+        Route::get('field-activities', [ManagerFieldActivityController::class, 'index']);
+        Route::get('field-activities/{fieldActivity}', [ManagerFieldActivityController::class, 'show']);
         Route::get('team-attendance', [ManagerTeamAttendanceController::class, 'index']);
         Route::get('team-attendance/employees/{employee}', [ManagerTeamAttendanceController::class, 'employeeHistory']);
         Route::get('team-attendance/{attendance}', [ManagerTeamAttendanceController::class, 'show']);
@@ -116,6 +143,13 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::get('route-tracking/{attendance}', [ManagerRouteTrackingController::class, 'show']);
         Route::get('team-activity', [ManagerTeamActivityController::class, 'index']);
         Route::get('team-activity/employees/{employee}', [ManagerTeamActivityController::class, 'employeeTimeline']);
+        Route::get('collections', [ManagerCollectionController::class, 'index']);
+        Route::get('collections/{collection}', [ManagerCollectionController::class, 'show']);
+        Route::get('dealer-applications', [ManagerDealerApplicationController::class, 'index']);
+        Route::get('dealer-applications/{dealerApplication}', [ManagerDealerApplicationController::class, 'show']);
+        Route::post('dealer-applications/{dealerApplication}/approve', [ManagerDealerApplicationController::class, 'approve']);
+        Route::post('dealer-applications/{dealerApplication}/reject', [ManagerDealerApplicationController::class, 'reject']);
+        Route::post('dealer-applications/{dealerApplication}/send-back', [ManagerDealerApplicationController::class, 'sendBack']);
         Route::get('ta-da-claims', [ManagerTaDaClaimController::class, 'index']);
         Route::get('ta-da-claims/{taDaClaim}', [ManagerTaDaClaimController::class, 'show']);
         Route::post('ta-da-claims/{taDaClaim}/approve', [ManagerTaDaClaimController::class, 'approve']);

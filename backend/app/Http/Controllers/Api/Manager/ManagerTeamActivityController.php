@@ -141,18 +141,19 @@ class ManagerTeamActivityController extends Controller
                 ->get();
 
             foreach ($dealerVisits as $visit) {
-                $timeline->push($this->formatDealerVisitTimelineItem($visit));
+                $timeline->push($this->formatDealerVisitTimelineItem($visit, $employee));
             }
         }
 
         if ($type === 'all' || $type === 'field_visit') {
             $fieldVisits = FieldActivity::query()
+                ->with(['crop', 'recommendations.product'])
                 ->where('employee_id', $employee->id)
                 ->whereDate('activity_date', $date)
                 ->get();
 
             foreach ($fieldVisits as $activity) {
-                $timeline->push($this->formatFieldVisitTimelineItem($activity));
+                $timeline->push($this->formatFieldVisitTimelineItem($activity, $employee));
             }
         }
 
@@ -211,7 +212,7 @@ class ManagerTeamActivityController extends Controller
             );
             $candidates->push([
                 'type' => 'field_visit',
-                'type_label' => 'Field Visit',
+                'type_label' => 'Field Activity',
                 'time' => $time,
                 'at' => $at,
                 'sort_key' => $at ?? '',
@@ -240,7 +241,7 @@ class ManagerTeamActivityController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function formatDealerVisitTimelineItem(DealerVisit $visit): array
+    private function formatDealerVisitTimelineItem(DealerVisit $visit, Employee $employee): array
     {
         $dealer = $visit->dealer;
         $locationParts = array_filter([
@@ -251,11 +252,15 @@ class ManagerTeamActivityController extends Controller
 
         $time = $this->formatClockTime($visit->visit_time);
         $at = $this->combineDateAndTime($visit->visit_date?->toDateString(), $visit->visit_time);
+        $latitude = $visit->latitude !== null ? (float) $visit->latitude : null;
+        $longitude = $visit->longitude !== null ? (float) $visit->longitude : null;
 
         return [
             'id' => $visit->id,
             'type' => 'dealer_visit',
             'type_label' => 'Dealer Visit',
+            'employee_id' => $employee->id,
+            'employee_name' => $employee->full_name,
             'activity_date' => $visit->visit_date?->toDateString(),
             'activity_time' => $time,
             'occurred_at' => $at,
@@ -263,10 +268,11 @@ class ManagerTeamActivityController extends Controller
             'status' => $visit->status,
             'status_label' => DealerVisit::statusLabel($visit->status),
             'photo_url' => $visit->photoUrl(),
-            'latitude' => $visit->latitude !== null ? (float) $visit->latitude : null,
-            'longitude' => $visit->longitude !== null ? (float) $visit->longitude : null,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
             'accuracy' => $visit->accuracy !== null ? (float) $visit->accuracy : null,
             'maps_url' => $visit->mapsUrl(),
+            'location_available' => $latitude !== null && $longitude !== null,
             'location' => $locationParts !== [] ? implode(', ', $locationParts) : ($dealer?->address),
             'remark' => null,
             'dealer' => [
@@ -286,7 +292,7 @@ class ManagerTeamActivityController extends Controller
     /**
      * @return array<string, mixed>
      */
-    private function formatFieldVisitTimelineItem(FieldActivity $activity): array
+    private function formatFieldVisitTimelineItem(FieldActivity $activity, Employee $employee): array
     {
         $time = $this->formatFieldActivityTime($activity);
         $rawTime = filled($activity->activity_time)
@@ -296,12 +302,27 @@ class ManagerTeamActivityController extends Controller
         $locationParts = array_filter([
             $activity->village,
             $activity->taluka,
+            $activity->district,
         ]);
+        $latitude = $activity->latitude !== null ? (float) $activity->latitude : null;
+        $longitude = $activity->longitude !== null ? (float) $activity->longitude : null;
+        $description = trim(implode(', ', array_filter([
+            $activity->farmer_name,
+            $activity->village,
+            $activity->taluka,
+            $activity->district,
+        ])));
+        $recommendations = $activity->recommendations
+            ->map(fn ($row): array => $row->toApiArray())
+            ->values()
+            ->all();
 
         return [
             'id' => $activity->id,
             'type' => 'field_visit',
-            'type_label' => 'Field Visit',
+            'type_label' => 'Field Activity',
+            'employee_id' => $employee->id,
+            'employee_name' => $employee->full_name,
             'activity_date' => $activity->activity_date?->toDateString(),
             'activity_time' => $time,
             'occurred_at' => $at,
@@ -309,18 +330,22 @@ class ManagerTeamActivityController extends Controller
             'status' => $activity->status,
             'status_label' => FieldActivity::statusLabel($activity->status),
             'photo_url' => $activity->photoUrl(),
-            'latitude' => $activity->latitude !== null ? (float) $activity->latitude : null,
-            'longitude' => $activity->longitude !== null ? (float) $activity->longitude : null,
+            'latitude' => $latitude,
+            'longitude' => $longitude,
             'accuracy' => null,
             'maps_url' => $activity->mapsUrl(),
+            'location_available' => $latitude !== null && $longitude !== null,
             'location' => $locationParts !== [] ? implode(', ', $locationParts) : null,
-            'remark' => null,
+            'remark' => $activity->remark ?: ($description !== '' ? $description : null),
             'dealer' => null,
             'field' => [
                 'farmer_name' => $activity->farmer_name,
+                'farmer_mobile' => $activity->farmer_mobile,
                 'village' => $activity->village,
                 'taluka' => $activity->taluka,
-                'district' => null,
+                'district' => $activity->district,
+                'crop_name' => $activity->crop?->name,
+                'recommendations' => $recommendations,
             ],
         ];
     }

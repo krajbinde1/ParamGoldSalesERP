@@ -14,6 +14,7 @@ import '../../../core/widgets/design/pg_status_badge.dart';
 import '../../../core/widgets/role_shell_widgets.dart';
 import '../../auth/providers/auth_controller.dart';
 import '../api/manager_api.dart';
+import '../widgets/view_captured_location_button.dart';
 
 class ManagerTeamActivityScreen extends StatefulWidget {
   const ManagerTeamActivityScreen({super.key, required this.auth});
@@ -152,7 +153,7 @@ class _ManagerTeamActivityScreenState extends State<ManagerTeamActivityScreen> {
                       for (final entry in const [
                         ('all', 'All'),
                         ('dealer_visit', 'Dealer Visits'),
-                        ('field_visit', 'Field Visits'),
+                        ('field_visit', 'Field Activities'),
                       ])
                         Padding(
                           padding: const EdgeInsets.only(right: 8),
@@ -222,7 +223,7 @@ class _ManagerTeamActivityScreenState extends State<ManagerTeamActivityScreen> {
                                 color: AppColors.primary,
                               ),
                               _StatCard(
-                                label: 'Field Visits',
+                                label: 'Field Activities',
                                 value: '${result.totalFieldVisits}',
                                 icon: Icons.agriculture_rounded,
                                 color: AppColors.success,
@@ -248,7 +249,7 @@ class _ManagerTeamActivityScreenState extends State<ManagerTeamActivityScreen> {
                         PgEmptyState(
                           message: isToday
                               ? 'No team activity recorded today.'
-                              : 'No Dealer Visits or Field Visits recorded for this date.',
+                              : 'No Dealer Visits or Field Activities recorded for this date.',
                           icon: const Icon(Icons.travel_explore_outlined),
                         )
                       else
@@ -370,7 +371,7 @@ class _EmployeeActivityCard extends StatelessWidget {
               ),
               Expanded(
                 child: Text(
-                  'Field Visits: $fieldCount',
+                  'Field Activities: $fieldCount',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         fontWeight: FontWeight.w600,
                       ),
@@ -475,7 +476,7 @@ class _ManagerEmployeeTeamActivityScreenState
                   for (final entry in const [
                     ('all', 'All'),
                     ('dealer_visit', 'Dealer Visits'),
-                    ('field_visit', 'Field Visits'),
+                    ('field_visit', 'Field Activities'),
                   ])
                     Padding(
                       padding: const EdgeInsets.only(right: 8),
@@ -558,7 +559,7 @@ class _ManagerEmployeeTeamActivityScreenState
                             ),
                             const SizedBox(height: 4),
                             Text(
-                              'Dealer Visits: ${result.dealerVisitCount}  ·  Field Visits: ${result.fieldVisitCount}',
+                              'Dealer Visits: ${result.dealerVisitCount}  ·  Field Activities: ${result.fieldVisitCount}',
                               style: Theme.of(context)
                                   .textTheme
                                   .bodySmall
@@ -572,14 +573,15 @@ class _ManagerEmployeeTeamActivityScreenState
                       if (rows.isEmpty)
                         const PgEmptyState(
                           message:
-                              'No Dealer Visits or Field Visits recorded for this date.',
+                              'No Dealer Visits or Field Activities recorded for this date.',
                           icon: Icon(Icons.event_busy_outlined),
                         )
                       else
                         for (final item in rows)
                           _TimelineCard(
                             item: item,
-                            onTap: () => _openDetail(context, item),
+                            employeeName: name,
+                            onTap: () => _openDetail(context, item, name),
                           ),
                     ],
                   ),
@@ -592,7 +594,11 @@ class _ManagerEmployeeTeamActivityScreenState
     );
   }
 
-  void _openDetail(BuildContext context, Map<String, dynamic> item) {
+  void _openDetail(
+    BuildContext context,
+    Map<String, dynamic> item, [
+    String? employeeName,
+  ]) {
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -607,6 +613,7 @@ class _ManagerEmployeeTeamActivityScreenState
         maxChildSize: 0.92,
         builder: (context, controller) => _ActivityDetailSheet(
           item: item,
+          employeeName: employeeName ?? item['employee_name']?.toString(),
           scrollController: controller,
         ),
       ),
@@ -615,10 +622,15 @@ class _ManagerEmployeeTeamActivityScreenState
 }
 
 class _TimelineCard extends StatelessWidget {
-  const _TimelineCard({required this.item, required this.onTap});
+  const _TimelineCard({
+    required this.item,
+    required this.onTap,
+    this.employeeName,
+  });
 
   final Map<String, dynamic> item;
   final VoidCallback onTap;
+  final String? employeeName;
 
   @override
   Widget build(BuildContext context) {
@@ -626,13 +638,18 @@ class _TimelineCard extends StatelessWidget {
     final time = _formatDisplayTime(item['activity_time']?.toString()) ?? '—';
     final dealer = Map<String, dynamic>.from(item['dealer'] as Map? ?? const {});
     final field = Map<String, dynamic>.from(item['field'] as Map? ?? const {});
+    final name = item['employee_name']?.toString() ?? employeeName;
 
     return PgCard(
       margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-      onTap: onTap,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+          InkWell(
+            onTap: onTap,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
           Row(
             children: [
               Text(
@@ -644,28 +661,56 @@ class _TimelineCard extends StatelessWidget {
               const Spacer(),
               PgStatusBadge(
                 label: item['type_label']?.toString() ??
-                    (isDealer ? 'Dealer Visit' : 'Field Visit'),
+                    (isDealer ? 'Dealer Visit' : 'Field Activity'),
                 tone: isDealer ? PgStatusTone.info : PgStatusTone.approved,
               ),
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
+          if ((name?.isNotEmpty ?? false)) _DetailLine('Employee', name!),
           if (isDealer) ...[
             _DetailLine('Dealer', dealer['name']?.toString() ?? '-'),
             if ((dealer['code']?.toString().isNotEmpty ?? false))
               _DetailLine('Dealer Code', dealer['code'].toString()),
           ] else ...[
+            _DetailLine(
+              'Activity Type',
+              item['type_label']?.toString() ?? 'Field Activity',
+            ),
             if ((field['farmer_name']?.toString().isNotEmpty ?? false))
               _DetailLine('Farmer', field['farmer_name'].toString()),
+            if ((field['farmer_mobile']?.toString().isNotEmpty ?? false))
+              _DetailLine('Mobile', field['farmer_mobile'].toString()),
+            if ((field['district']?.toString().isNotEmpty ?? false))
+              _DetailLine('District', field['district'].toString()),
             if ((field['village']?.toString().isNotEmpty ?? false))
               _DetailLine('Village', field['village'].toString()),
             if ((field['taluka']?.toString().isNotEmpty ?? false))
               _DetailLine('Taluka', field['taluka'].toString()),
+            if ((field['crop_name']?.toString().isNotEmpty ?? false))
+              _DetailLine('Crop', field['crop_name'].toString()),
+            ..._recommendationLines(field),
           ],
+          _DetailLine('Date', item['activity_date']?.toString() ?? '-'),
+          _DetailLine('Time', time),
           if ((item['location']?.toString().isNotEmpty ?? false))
             _DetailLine('Location', item['location'].toString()),
+          if (item['latitude'] != null)
+            _DetailLine('Latitude', '${item['latitude']}'),
+          if (item['longitude'] != null)
+            _DetailLine('Longitude', '${item['longitude']}'),
           if ((item['remark']?.toString().isNotEmpty ?? false))
             _DetailLine('Remark', item['remark'].toString()),
+              ],
+            ),
+          ),
+          const SizedBox(height: 8),
+          ViewCapturedLocationButton(
+            mapsUrl: item['maps_url'],
+            latitude: item['latitude'],
+            longitude: item['longitude'],
+            locationAvailable: item['location_available'],
+          ),
           if ((item['photo_url']?.toString().isNotEmpty ?? false)) ...[
             const SizedBox(height: 8),
             ClipRRect(
@@ -694,10 +739,12 @@ class _ActivityDetailSheet extends StatelessWidget {
   const _ActivityDetailSheet({
     required this.item,
     required this.scrollController,
+    this.employeeName,
   });
 
   final Map<String, dynamic> item;
   final ScrollController scrollController;
+  final String? employeeName;
 
   @override
   Widget build(BuildContext context) {
@@ -706,6 +753,7 @@ class _ActivityDetailSheet extends StatelessWidget {
     final field = Map<String, dynamic>.from(item['field'] as Map? ?? const {});
     final lat = item['latitude'];
     final lng = item['longitude'];
+    final name = item['employee_name']?.toString() ?? employeeName;
 
     return ListView(
       controller: scrollController,
@@ -724,12 +772,13 @@ class _ActivityDetailSheet extends StatelessWidget {
         const SizedBox(height: 16),
         Text(
           item['type_label']?.toString() ??
-              (isDealer ? 'Dealer Visit' : 'Field Visit'),
+              (isDealer ? 'Dealer Visit' : 'Field Activity'),
           style: Theme.of(context).textTheme.titleLarge?.copyWith(
                 fontWeight: FontWeight.w800,
               ),
         ),
         const SizedBox(height: 12),
+        if ((name?.isNotEmpty ?? false)) _DetailLine('Employee', name!),
         _DetailLine(
           'Time',
           _formatDisplayTime(item['activity_time']?.toString()) ?? '-',
@@ -746,21 +795,37 @@ class _ActivityDetailSheet extends StatelessWidget {
           if ((dealer['address']?.toString().isNotEmpty ?? false))
             _DetailLine('Address', dealer['address'].toString()),
         ] else ...[
+          _DetailLine(
+            'Activity Type',
+            item['type_label']?.toString() ?? 'Field Activity',
+          ),
           if ((field['farmer_name']?.toString().isNotEmpty ?? false))
             _DetailLine('Farmer', field['farmer_name'].toString()),
+          if ((field['farmer_mobile']?.toString().isNotEmpty ?? false))
+            _DetailLine('Mobile', field['farmer_mobile'].toString()),
+          if ((field['district']?.toString().isNotEmpty ?? false))
+            _DetailLine('District', field['district'].toString()),
           if ((field['village']?.toString().isNotEmpty ?? false))
             _DetailLine('Village', field['village'].toString()),
           if ((field['taluka']?.toString().isNotEmpty ?? false))
             _DetailLine('Taluka', field['taluka'].toString()),
-          if ((field['district']?.toString().isNotEmpty ?? false))
-            _DetailLine('District', field['district'].toString()),
+          if ((field['crop_name']?.toString().isNotEmpty ?? false))
+            _DetailLine('Crop', field['crop_name'].toString()),
+          ..._recommendationLines(field),
         ],
         if ((item['location']?.toString().isNotEmpty ?? false))
           _DetailLine('Location', item['location'].toString()),
-        if (lat != null && lng != null)
-          _DetailLine('GPS', '$lat, $lng'),
+        if (lat != null) _DetailLine('Latitude', '$lat'),
+        if (lng != null) _DetailLine('Longitude', '$lng'),
         if ((item['remark']?.toString().isNotEmpty ?? false))
-          _DetailLine('Remark', item['remark'].toString()),
+          _DetailLine('Remark / Description', item['remark'].toString()),
+        const SizedBox(height: 12),
+        ViewCapturedLocationButton(
+          mapsUrl: item['maps_url'],
+          latitude: lat,
+          longitude: lng,
+          locationAvailable: item['location_available'],
+        ),
         if ((item['photo_url']?.toString().isNotEmpty ?? false)) ...[
           const SizedBox(height: 12),
           ClipRRect(
@@ -817,6 +882,25 @@ class _DetailLine extends StatelessWidget {
       ),
     );
   }
+}
+
+List<Widget> _recommendationLines(Map field) {
+  final recs = field['recommendations'];
+  if (recs is! List || recs.isEmpty) return const [];
+
+  return [
+    for (final rec in recs)
+      _DetailLine(
+        'Product',
+        [
+          rec is Map ? rec['product_name']?.toString() ?? '-' : '-',
+          if (rec is Map && (rec['dosage']?.toString().isNotEmpty ?? false))
+            rec['dosage'].toString(),
+          if (rec is Map && (rec['remark']?.toString().isNotEmpty ?? false))
+            rec['remark'].toString(),
+        ].join(' • '),
+      ),
+  ];
 }
 
 String? _formatDisplayTime(String? raw) {

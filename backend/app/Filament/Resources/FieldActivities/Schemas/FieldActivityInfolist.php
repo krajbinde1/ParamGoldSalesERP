@@ -17,8 +17,28 @@ class FieldActivityInfolist
                 Section::make('Field Activity details')->columns(3)->schema([
                     TextEntry::make('employee.full_name')->label('Employee'),
                     TextEntry::make('farmer_name')->label('Farmer Name'),
+                    TextEntry::make('farmer_mobile')->label('Farmer Mobile')->placeholder('—'),
+                    TextEntry::make('district')->label('District')->placeholder('—'),
                     TextEntry::make('village')->label('Village'),
                     TextEntry::make('taluka')->label('Taluka'),
+                    TextEntry::make('crop.name')->label('Crop')->placeholder('—'),
+                    TextEntry::make('remark')->label('Activity Remark')->placeholder('—')->columnSpanFull(),
+                    TextEntry::make('recommendations_summary')
+                        ->label('Product Recommendations')
+                        ->state(function (FieldActivity $record): string {
+                            $record->loadMissing('recommendations.product');
+
+                            return $record->recommendations
+                                ->map(function ($row): string {
+                                    $name = $row->product?->product_name ?? 'Product';
+                                    $extra = collect([$row->dosage, $row->remark])->filter()->implode(' • ');
+
+                                    return $extra !== '' ? $name.' ('.$extra.')' : $name;
+                                })
+                                ->filter()
+                                ->implode("\n") ?: '—';
+                        })
+                        ->columnSpanFull(),
                     TextEntry::make('activity_date')->label('Activity Date')->date('d M Y'),
                     TextEntry::make('activity_time')->label('Activity Time')->time('h:i A'),
                     TextEntry::make('status')

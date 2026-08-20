@@ -27,6 +27,7 @@ class RoutePermissions {
       '/dealer-visits',
       '/ta-da-claims',
       '/planning',
+      '/dealer-applications',
     ];
 
     if (employeeOnlyPrefixes.any(path.startsWith)) {

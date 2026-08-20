@@ -4,6 +4,7 @@ use App\Actions\Employees\CreateEmployeeWithUserAccount;
 use App\Enums\UserRole;
 use App\Models\Collection;
 use App\Models\Dealer;
+use App\Models\FieldActivity;
 use App\Models\Order;
 use App\Models\WeeklyTarget;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -83,6 +84,7 @@ it('returns each sales employee their own current-month targets using employee_i
         'week_end_date' => '2026-08-16',
         'sales_target' => 500000,
         'collection_target' => 100000,
+        'field_activity_target' => 50,
         'status' => 'active',
     ]);
     WeeklyTarget::query()->create([
@@ -91,6 +93,7 @@ it('returns each sales employee their own current-month targets using employee_i
         'week_end_date' => '2026-08-16',
         'sales_target' => 250000,
         'collection_target' => 75000,
+        'field_activity_target' => 20,
         'status' => 'active',
     ]);
 
@@ -140,6 +143,37 @@ it('returns each sales employee their own current-month targets using employee_i
         'transaction_number' => 'TXN-TGT-2',
     ]);
 
+    FieldActivity::query()->create([
+        'employee_id' => $first->id,
+        'farmer_name' => 'Ramesh Patil',
+        'village' => 'Waluj',
+        'taluka' => 'Gangapur',
+        'activity_date' => '2026-08-14',
+        'activity_time' => '10:00:00',
+        'photo_path' => 'field-activities/first.jpg',
+        'status' => FieldActivity::STATUS_COMPLETED,
+    ]);
+    FieldActivity::query()->create([
+        'employee_id' => $first->id,
+        'farmer_name' => 'Suresh Patil',
+        'village' => 'Waluj',
+        'taluka' => 'Gangapur',
+        'activity_date' => '2026-08-15',
+        'activity_time' => '11:00:00',
+        'photo_path' => 'field-activities/first-2.jpg',
+        'status' => FieldActivity::STATUS_COMPLETED,
+    ]);
+    FieldActivity::query()->create([
+        'employee_id' => $second->id,
+        'farmer_name' => 'Hidden Farmer',
+        'village' => 'Pune',
+        'taluka' => 'Haveli',
+        'activity_date' => '2026-08-14',
+        'activity_time' => '12:00:00',
+        'photo_path' => 'field-activities/second.jpg',
+        'status' => FieldActivity::STATUS_COMPLETED,
+    ]);
+
     $this->actingAs($first->user, 'sanctum')
         ->getJson('/api/employee/dashboard')
         ->assertOk()
@@ -149,7 +183,11 @@ it('returns each sales employee their own current-month targets using employee_i
         ->assertJsonPath('collection_target', 100000)
         ->assertJsonPath('collection_achieved', 4000)
         ->assertJsonPath('weekly_sales_target', 500000)
-        ->assertJsonPath('weekly_collection_target', 100000);
+        ->assertJsonPath('weekly_collection_target', 100000)
+        ->assertJsonPath('field_activity_target', 50)
+        ->assertJsonPath('field_activity_achieved', 2)
+        ->assertJsonPath('field_activity_remaining', 48)
+        ->assertJsonPath('field_activity_percentage', 4);
 
     $this->actingAs($second->user, 'sanctum')
         ->getJson('/api/employee/dashboard')
@@ -158,7 +196,11 @@ it('returns each sales employee their own current-month targets using employee_i
         ->assertJsonPath('sales_target', 250000)
         ->assertJsonPath('sales_achieved', 8000)
         ->assertJsonPath('collection_target', 75000)
-        ->assertJsonPath('collection_achieved', 1500);
+        ->assertJsonPath('collection_achieved', 1500)
+        ->assertJsonPath('field_activity_target', 20)
+        ->assertJsonPath('field_activity_achieved', 1)
+        ->assertJsonPath('field_activity_remaining', 19)
+        ->assertJsonPath('field_activity_percentage', 5);
 
     $this->actingAs($third->user, 'sanctum')
         ->getJson('/api/employee/dashboard')
@@ -167,5 +209,9 @@ it('returns each sales employee their own current-month targets using employee_i
         ->assertJsonPath('sales_target', 0)
         ->assertJsonPath('sales_achieved', 0)
         ->assertJsonPath('collection_target', 0)
-        ->assertJsonPath('collection_achieved', 0);
+        ->assertJsonPath('collection_achieved', 0)
+        ->assertJsonPath('field_activity_target', 0)
+        ->assertJsonPath('field_activity_achieved', 0)
+        ->assertJsonPath('field_activity_remaining', 0)
+        ->assertJsonPath('field_activity_percentage', 0);
 });

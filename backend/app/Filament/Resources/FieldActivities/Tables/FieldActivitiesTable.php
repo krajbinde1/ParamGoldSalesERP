@@ -26,12 +26,24 @@ class FieldActivitiesTable
                     ->label('Farmer Name')
                     ->searchable()
                     ->sortable(),
+                TextColumn::make('farmer_mobile')
+                    ->label('Mobile')
+                    ->placeholder('—')
+                    ->toggleable(),
+                TextColumn::make('district')
+                    ->label('District')
+                    ->placeholder('—')
+                    ->toggleable(),
                 TextColumn::make('village')
                     ->label('Village')
                     ->searchable(),
                 TextColumn::make('taluka')
                     ->label('Taluka')
                     ->searchable(),
+                TextColumn::make('crop.name')
+                    ->label('Crop')
+                    ->placeholder('—')
+                    ->toggleable(),
                 TextColumn::make('activity_date')
                     ->label('Activity Date')
                     ->date('d M Y')

@@ -273,6 +273,23 @@ class _ManagerEmployeePerformanceScreenState
                                 ),
                                 const SizedBox(height: 4),
                                 _MetricRow(
+                                  'Field Activity Target',
+                                  '${_toDouble(employee['field_activity_target']).round()}',
+                                ),
+                                _MetricRow(
+                                  'Field Activity Achieved',
+                                  '${_toDouble(employee['field_activity_achieved']).round()}',
+                                ),
+                                _MetricRow(
+                                  'Field Activity Remaining',
+                                  '${_toDouble(employee['field_activity_remaining']).round()}',
+                                ),
+                                _MetricRow(
+                                  'Field Activity %',
+                                  '${employee['field_activity_percentage'] ?? 0}%',
+                                ),
+                                const SizedBox(height: 4),
+                                _MetricRow(
                                   'Total Orders',
                                   currency.format(
                                     _toDouble(employee['total_order_amount']),
@@ -604,6 +621,21 @@ class _PerformanceSummary extends StatelessWidget {
           remainingValue:
               currency.format(_toDouble(employee['collection_remaining'])),
           percentage: _toDouble(employee['collection_percentage']),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        const PgSectionHeader(title: 'Field Activity Performance'),
+        const SizedBox(height: AppSpacing.sm),
+        _PerformanceBlock(
+          targetLabel: 'Field Activity Target',
+          targetValue:
+              '${_toDouble(employee['field_activity_target']).round()}',
+          achievedLabel: 'Field Activity Achieved',
+          achievedValue:
+              '${_toDouble(employee['field_activity_achieved']).round()}',
+          remainingLabel: 'Remaining Field Activity Target',
+          remainingValue:
+              '${_toDouble(employee['field_activity_remaining']).round()}',
+          percentage: _toDouble(employee['field_activity_percentage']),
         ),
       ],
     );

@@ -3,8 +3,11 @@
 namespace App\Providers;
 
 use App\Models\Bom;
+use App\Models\Crop;
 use App\Models\Dealer;
+use App\Models\DealerApplication;
 use App\Models\Employee;
+use App\Models\Farmer;
 use App\Models\Order;
 use App\Models\PackagingMaterial;
 use App\Models\PackagingMaterialInward;
@@ -20,8 +23,11 @@ use App\Models\TaDaClaim;
 use App\Observers\OrderObserver;
 use App\Observers\PaymentRequestObserver;
 use App\Policies\BomPolicy;
+use App\Policies\CropPolicy;
+use App\Policies\DealerApplicationPolicy;
 use App\Policies\DealerPolicy;
 use App\Policies\EmployeeLoginAccessPolicy;
+use App\Policies\FarmerPolicy;
 use App\Policies\OrderPolicy;
 use App\Policies\PackagingMaterialInwardPolicy;
 use App\Policies\PackagingMaterialPolicy;
@@ -54,6 +60,9 @@ class AppServiceProvider extends ServiceProvider
     {
         Gate::policy(Employee::class, EmployeeLoginAccessPolicy::class);
         Gate::policy(Dealer::class, DealerPolicy::class);
+        Gate::policy(DealerApplication::class, DealerApplicationPolicy::class);
+        Gate::policy(Farmer::class, FarmerPolicy::class);
+        Gate::policy(Crop::class, CropPolicy::class);
         Gate::policy(Product::class, ProductPolicy::class);
         Gate::policy(Order::class, OrderPolicy::class);
         Gate::policy(TaDaClaim::class, TaDaClaimPolicy::class);

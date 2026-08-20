@@ -418,6 +418,41 @@ class ManagerApi {
     }
   }
 
+  Future<ManagerCollectionListResult> listCollections({
+    String period = 'month',
+    String? dateFrom,
+    String? dateTo,
+    int? employeeId,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '/manager/collections',
+        queryParameters: {
+          'period': period,
+          if (dateFrom != null && dateFrom.isNotEmpty) 'date_from': dateFrom,
+          if (dateTo != null && dateTo.isNotEmpty) 'date_to': dateTo,
+          if (employeeId != null) 'employee_id': employeeId,
+        },
+      );
+      return ManagerCollectionListResult.fromJson(
+        Map<String, dynamic>.from(response.data as Map),
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> getCollection(int collectionId) async {
+    try {
+      final response = await _dio.get('/manager/collections/$collectionId');
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
   Future<Map<String, dynamic>> getTaDaClaim(int claimId) async {
     try {
       final response = await _dio.get('/manager/ta-da-claims/$claimId');
@@ -511,6 +546,69 @@ class ManagerApi {
     }
   }
 
+  Future<ManagerDealerApplicationListResult> listDealerApplications({
+    String tab = 'pending',
+  }) async {
+    try {
+      final response = await _dio.get(
+        '/manager/dealer-applications',
+        queryParameters: {'tab': tab},
+      );
+      return ManagerDealerApplicationListResult.fromJson(
+        Map<String, dynamic>.from(response.data as Map),
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> getDealerApplication(int id) async {
+    try {
+      final response = await _dio.get('/manager/dealer-applications/$id');
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<void> approveDealerApplication(int id, {String? remark}) async {
+    try {
+      await _dio.post(
+        '/manager/dealer-applications/$id/approve',
+        data: remark != null ? {'remark': remark} : null,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<void> rejectDealerApplication(int id, {required String remark}) async {
+    try {
+      await _dio.post(
+        '/manager/dealer-applications/$id/reject',
+        data: {'remark': remark},
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<void> sendBackDealerApplication(
+    int id, {
+    required String remark,
+  }) async {
+    try {
+      await _dio.post(
+        '/manager/dealer-applications/$id/send-back',
+        data: {'remark': remark},
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
   Future<ManagerEmployeePerformanceListResult> listEmployeePerformance({
     String period = 'month',
     String? startDate,
@@ -579,6 +677,117 @@ class ManagerApi {
       throw mapApiError(error);
     }
   }
+
+  Future<List<Map<String, dynamic>>> fieldActivityDistricts() async {
+    try {
+      final response = await _dio.get('/manager/field-activity-masters/districts');
+      return _mapDataList(response.data);
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fieldActivityTalukas(int districtId) async {
+    try {
+      final response = await _dio.get(
+        '/manager/field-activity-masters/talukas',
+        queryParameters: {'district_id': districtId},
+      );
+      return _mapDataList(response.data);
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> fieldActivityCrops() async {
+    try {
+      final response = await _dio.get('/manager/field-activity-masters/crops');
+      return _mapDataList(response.data);
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<ManagerFieldActivityListResult> listFieldActivities({
+    int page = 1,
+    int? employeeId,
+    int? districtId,
+    int? talukaId,
+    int? cropId,
+    int? productId,
+    String? dateFrom,
+    String? dateTo,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '/manager/field-activities',
+        queryParameters: {
+          'page': page,
+          if (employeeId != null) 'employee_id': employeeId,
+          if (districtId != null) 'district_id': districtId,
+          if (talukaId != null) 'taluka_id': talukaId,
+          if (cropId != null) 'crop_id': cropId,
+          if (productId != null) 'product_id': productId,
+          if (dateFrom != null && dateFrom.isNotEmpty) 'date_from': dateFrom,
+          if (dateTo != null && dateTo.isNotEmpty) 'date_to': dateTo,
+        },
+      );
+      return ManagerFieldActivityListResult.fromJson(
+        Map<String, dynamic>.from(response.data as Map),
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> getFieldActivity(int activityId) async {
+    try {
+      final response = await _dio.get('/manager/field-activities/$activityId');
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  List<Map<String, dynamic>> _mapDataList(Object? body) {
+    if (body is! Map) return const [];
+    final raw = body['data'];
+    if (raw is! List) return const [];
+    return raw
+        .map((item) => Map<String, dynamic>.from(item as Map))
+        .toList();
+  }
+}
+
+class ManagerFieldActivityListResult {
+  const ManagerFieldActivityListResult({
+    required this.rows,
+    required this.currentPage,
+    required this.lastPage,
+    required this.total,
+  });
+
+  final List<Map<String, dynamic>> rows;
+  final int currentPage;
+  final int lastPage;
+  final int total;
+
+  factory ManagerFieldActivityListResult.fromJson(Map<String, dynamic> json) {
+    final meta = json['meta'] is Map
+        ? Map<String, dynamic>.from(json['meta'] as Map)
+        : <String, dynamic>{};
+    return ManagerFieldActivityListResult(
+      rows: (json['data'] as List?)
+              ?.map((item) => Map<String, dynamic>.from(item as Map))
+              .toList() ??
+          const [],
+      currentPage: int.tryParse('${meta['current_page'] ?? 1}') ?? 1,
+      lastPage: int.tryParse('${meta['last_page'] ?? 1}') ?? 1,
+      total: int.tryParse('${meta['total'] ?? 0}') ?? 0,
+    );
+  }
 }
 
 class ManagerEmployeePerformanceListResult {
@@ -616,6 +825,10 @@ class ManagerTargetsSummary {
     required this.collectionAchieved,
     required this.collectionPending,
     required this.collectionPercentage,
+    required this.fieldActivityTarget,
+    required this.fieldActivityAchieved,
+    required this.fieldActivityPending,
+    required this.fieldActivityPercentage,
   });
 
   final double salesTarget;
@@ -626,6 +839,10 @@ class ManagerTargetsSummary {
   final double collectionAchieved;
   final double collectionPending;
   final double collectionPercentage;
+  final double fieldActivityTarget;
+  final double fieldActivityAchieved;
+  final double fieldActivityPending;
+  final double fieldActivityPercentage;
 
   factory ManagerTargetsSummary.fromJson(Map<String, dynamic> json) {
     double n(Object? v) => double.tryParse('$v') ?? 0;
@@ -638,6 +855,12 @@ class ManagerTargetsSummary {
       collectionAchieved: n(json['collection_achieved']),
       collectionPending: n(json['collection_pending']),
       collectionPercentage: n(json['collection_percentage']),
+      fieldActivityTarget: n(json['field_activity_target']),
+      fieldActivityAchieved: n(json['field_activity_achieved']),
+      fieldActivityPending: n(
+        json['field_activity_pending'] ?? json['field_activity_remaining'],
+      ),
+      fieldActivityPercentage: n(json['field_activity_percentage']),
     );
   }
 }
@@ -813,4 +1036,98 @@ class ManagerTeamActivityTimelineResult {
       int.tryParse('${meta['dealer_visit_count'] ?? 0}') ?? 0;
   int get fieldVisitCount =>
       int.tryParse('${meta['field_visit_count'] ?? 0}') ?? 0;
+}
+
+class ManagerCollectionSummary {
+  const ManagerCollectionSummary({
+    required this.totalCollection,
+    required this.todayCollection,
+    required this.monthCollection,
+    required this.pendingEntries,
+  });
+
+  final double totalCollection;
+  final double todayCollection;
+  final double monthCollection;
+  final int pendingEntries;
+
+  factory ManagerCollectionSummary.fromJson(Map<String, dynamic>? json) {
+    final data = json ?? const {};
+    return ManagerCollectionSummary(
+      totalCollection:
+          double.tryParse('${data['total_collection'] ?? 0}') ?? 0,
+      todayCollection:
+          double.tryParse('${data['today_collection'] ?? 0}') ?? 0,
+      monthCollection:
+          double.tryParse('${data['month_collection'] ?? 0}') ?? 0,
+      pendingEntries: int.tryParse('${data['pending_entries'] ?? 0}') ?? 0,
+    );
+  }
+}
+
+class ManagerCollectionListResult {
+  const ManagerCollectionListResult({
+    required this.period,
+    required this.periodKey,
+    required this.summary,
+    required this.employees,
+    required this.rows,
+  });
+
+  final String period;
+  final String periodKey;
+  final ManagerCollectionSummary summary;
+  final List<Map<String, dynamic>> employees;
+  final List<Map<String, dynamic>> rows;
+
+  factory ManagerCollectionListResult.fromJson(Map<String, dynamic> json) {
+    return ManagerCollectionListResult(
+      period: json['period']?.toString() ?? 'This Month',
+      periodKey: json['period_key']?.toString() ?? 'month',
+      summary: ManagerCollectionSummary.fromJson(
+        json['summary'] is Map
+            ? Map<String, dynamic>.from(json['summary'] as Map)
+            : null,
+      ),
+      employees: (json['employees'] as List?)
+              ?.map((item) => Map<String, dynamic>.from(item as Map))
+              .toList() ??
+          const [],
+      rows: (json['data'] as List?)
+              ?.map((item) => Map<String, dynamic>.from(item as Map))
+              .toList() ??
+          const [],
+    );
+  }
+}
+
+class ManagerDealerApplicationListResult {
+  const ManagerDealerApplicationListResult({
+    required this.rows,
+    required this.counts,
+  });
+
+  final List<Map<String, dynamic>> rows;
+  final Map<String, int> counts;
+
+  factory ManagerDealerApplicationListResult.fromJson(
+    Map<String, dynamic> json,
+  ) {
+    final rawCounts = json['counts'] is Map
+        ? Map<String, dynamic>.from(json['counts'] as Map)
+        : const <String, dynamic>{};
+    return ManagerDealerApplicationListResult(
+      rows: (json['data'] as List?)
+              ?.map((item) => Map<String, dynamic>.from(item as Map))
+              .toList() ??
+          const [],
+      counts: {
+        'pending': int.tryParse('${rawCounts['pending'] ?? 0}') ?? 0,
+        'approved': int.tryParse('${rawCounts['approved'] ?? 0}') ?? 0,
+        'correction_required':
+            int.tryParse('${rawCounts['correction_required'] ?? 0}') ?? 0,
+        'rejected': int.tryParse('${rawCounts['rejected'] ?? 0}') ?? 0,
+      },
+    );
+  }
 }
