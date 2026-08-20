@@ -147,6 +147,11 @@ class OrderDetail {
     this.dispatchedAt,
     this.dispatchedByName,
     this.transportAmount,
+    this.vehicleNumber,
+    this.transportChargeTypeLabel,
+    this.originalGrandTotal,
+    this.transportAdjustment,
+    this.finalGrandTotal,
     this.timelineSteps = const [],
   });
 
@@ -186,6 +191,11 @@ class OrderDetail {
   final String? dispatchedAt;
   final String? dispatchedByName;
   final double? transportAmount;
+  final String? vehicleNumber;
+  final String? transportChargeTypeLabel;
+  final double? originalGrandTotal;
+  final double? transportAdjustment;
+  final double? finalGrandTotal;
   final List<OrderTimelineStep> timelineSteps;
 
   /// Display-only short form, e.g. `PG-20260813-0004` → `PG-0004`.
@@ -245,6 +255,18 @@ class OrderDetail {
       transportAmount: json['transport_amount'] == null
           ? null
           : double.tryParse('${json['transport_amount']}'),
+      vehicleNumber: (json['vehicle_no'] ?? json['vehicle_number'])?.toString(),
+      transportChargeTypeLabel:
+          json['transport_charge_type_label']?.toString(),
+      originalGrandTotal: json['original_grand_total'] == null
+          ? null
+          : double.tryParse('${json['original_grand_total']}'),
+      transportAdjustment: json['transport_adjustment'] == null
+          ? null
+          : double.tryParse('${json['transport_adjustment']}'),
+      finalGrandTotal: json['final_grand_total'] == null
+          ? null
+          : double.tryParse('${json['final_grand_total']}'),
       dealer: dealerJson is Map<String, dynamic>
           ? OrderDealer.fromJson(dealerJson)
           : (dealerJson is Map

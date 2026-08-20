@@ -113,4 +113,18 @@ class DealerApplicationApi {
       throw mapApiError(error);
     }
   }
+
+  Future<Map<String, dynamic>> deleteDocument({
+    required int applicationId,
+    required int documentId,
+  }) async {
+    try {
+      final response = await _dio.delete(
+        '/employee/dealer-applications/$applicationId/documents/$documentId',
+      );
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
 }

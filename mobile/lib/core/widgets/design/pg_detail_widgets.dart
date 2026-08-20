@@ -178,13 +178,29 @@ class PgDetailHeader extends StatelessWidget {
         Row(
           children: [
             Expanded(
-              child: Text(title, style: Theme.of(context).textTheme.titleLarge),
+              child: Text(
+                title,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
             ),
-            if (badgeLabel != null) PgStatusBadge(label: badgeLabel!, tone: badgeTone),
+            if (badgeLabel != null) ...[
+              const SizedBox(width: 8),
+              FittedBox(
+                fit: BoxFit.scaleDown,
+                child: PgStatusBadge(label: badgeLabel!, tone: badgeTone),
+              ),
+            ],
           ],
         ),
         const SizedBox(height: 4),
-        Text(subtitle, style: Theme.of(context).textTheme.bodyMedium),
+        Text(
+          subtitle,
+          maxLines: 2,
+          overflow: TextOverflow.ellipsis,
+          style: Theme.of(context).textTheme.bodyMedium,
+        ),
       ],
     ),
   );

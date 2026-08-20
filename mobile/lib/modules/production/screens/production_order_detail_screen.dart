@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/api/api_errors.dart';
@@ -67,22 +68,31 @@ class _ProductionOrderDetailScreenState
     return const {};
   }
 
-  String get _status => _order?['status']?.toString() ?? '';
+  String get _status =>
+      (_order?['status']?.toString() ?? '').trim().toLowerCase();
 
   bool get _isPendingForBilling => _status == 'pending_for_billing';
 
-  bool get _canSendForBill => _order?['can_send_for_bill'] == true;
+  bool get _canSendForBill => ProductionApi.isFlagTrue(
+        _order?['can_send_for_bill'],
+      );
 
   bool get _canDispatch =>
-      _status == 'billed' &&
-      _order?['can_dispatch'] == true &&
-      widget.auth.permissions.canDispatchOrders;
+      widget.auth.permissions.canDispatchOrders &&
+      ProductionApi.canShowDispatchAction(
+        status: _status,
+        canDispatch: _order?['can_dispatch'],
+      );
 
   Future<void> _showSendForBillModal() async {
     var vehicles = <Map<String, dynamic>>[];
     String? formError;
     var submitting = false;
     int? selectedVehicleId;
+    String? selectedChargeType;
+
+    final originalGrandTotal =
+        double.tryParse('${_order?['grand_total'] ?? 0}') ?? 0;
 
     final freightController = TextEditingController(
       text: (_order?['transport_amount'] != null &&
@@ -303,6 +313,41 @@ class _ProductionOrderDetailScreenState
                       ),
                     ),
                     const SizedBox(height: 4),
+                    Text(
+                      'Transport Charge Type *',
+                      style: Theme.of(context).textTheme.bodyMedium,
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Company Transport'),
+                      value: 'company_transport',
+                      groupValue: selectedChargeType,
+                      onChanged: submitting
+                          ? null
+                          : (value) {
+                              setModalState(() {
+                                selectedChargeType = value;
+                                formError = null;
+                              });
+                            },
+                    ),
+                    RadioListTile<String>(
+                      contentPadding: EdgeInsets.zero,
+                      dense: true,
+                      title: const Text('Transport Charges Extra'),
+                      value: 'transport_extra',
+                      groupValue: selectedChargeType,
+                      onChanged: submitting
+                          ? null
+                          : (value) {
+                              setModalState(() {
+                                selectedChargeType = value;
+                                formError = null;
+                              });
+                            },
+                    ),
+                    const SizedBox(height: 4),
                     TextField(
                       controller: freightController,
                       keyboardType: const TextInputType.numberWithOptions(
@@ -313,10 +358,20 @@ class _ProductionOrderDetailScreenState
                           RegExp(r'^\d*\.?\d{0,2}'),
                         ),
                       ],
+                      onChanged: (_) => setModalState(() {}),
                       decoration: const InputDecoration(
                         labelText: 'Transport Charges *',
                         prefixText: '₹ ',
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    _SendForBillTotalPreview(
+                      originalGrandTotal: originalGrandTotal,
+                      chargeType: selectedChargeType,
+                      charges: double.tryParse(
+                            freightController.text.trim(),
+                          ) ??
+                          0,
                     ),
                     const SizedBox(height: 12),
                     TextField(
@@ -358,10 +413,25 @@ class _ProductionOrderDetailScreenState
                             );
                             return;
                           }
+                          if (selectedChargeType == null) {
+                            setModalState(
+                              () => formError =
+                                  'Select Company Transport or Transport Charges Extra.',
+                            );
+                            return;
+                          }
                           if (freight == null || freight < 0) {
                             setModalState(
                               () => formError =
                                   'Enter a valid transport charge amount.',
+                            );
+                            return;
+                          }
+                          if (selectedChargeType == 'company_transport' &&
+                              freight > originalGrandTotal) {
+                            setModalState(
+                              () => formError =
+                                  'Company Transport charges cannot exceed the original grand total.',
                             );
                             return;
                           }
@@ -386,10 +456,16 @@ class _ProductionOrderDetailScreenState
         double.tryParse(freightController.text.trim()) ?? 0;
     final remark = remarkController.text.trim();
     final vehicleId = selectedVehicleId;
+    final chargeType = selectedChargeType;
     freightController.dispose();
     remarkController.dispose();
 
-    if (confirmed != true || !mounted || vehicleId == null) return;
+    if (confirmed != true ||
+        !mounted ||
+        vehicleId == null ||
+        chargeType == null) {
+      return;
+    }
 
     setState(() => _submitting = true);
     try {
@@ -397,6 +473,7 @@ class _ProductionOrderDetailScreenState
         widget.orderId,
         vehicleId: vehicleId,
         transportFreight: freight,
+        transportChargeType: chargeType,
         transportRemark: remark.isEmpty ? null : remark,
       );
       if (!mounted) return;
@@ -430,16 +507,37 @@ class _ProductionOrderDetailScreenState
       );
       if (!ok || !mounted) return;
 
-      safePop(context, 'dispatched');
+      _popDetail('dispatched');
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
   }
 
+  void _popDetail([Object? result]) {
+    if (!context.mounted) return;
+    if (context.canPop()) {
+      context.pop(result);
+      return;
+    }
+    smartBack(context);
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: RoleAppBar(title: 'Order Details', auth: widget.auth),
+    final canPop = context.canPop();
+    return PopScope(
+      canPop: canPop,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        _popDetail();
+      },
+      child: Scaffold(
+      appBar: RoleAppBar(
+        title: 'Order Details',
+        auth: widget.auth,
+        showBack: true,
+        onBack: () => _popDetail(),
+      ),
       body: FutureBuilder<Map<String, dynamic>>(
         future: _future,
         builder: (context, snapshot) {
@@ -545,26 +643,9 @@ class _ProductionOrderDetailScreenState
                       ),
                     )
                     .toList(growable: false),
-                summary: OrderInvoiceSummaryBlock(
-                  subtotal: double.tryParse(
-                        '${calc['gross_amount'] ?? order['gross_amount'] ?? order['subtotal'] ?? 0}',
-                      ) ??
-                      0,
-                  discount: double.tryParse(
-                        '${calc['total_discount'] ?? order['total_discount'] ?? order['discount_amount'] ?? 0}',
-                      ) ??
-                      0,
-                  gst: double.tryParse(
-                        '${calc['total_gst'] ?? order['total_gst'] ?? order['gst_amount'] ?? 0}',
-                      ) ??
-                      0,
-                  grandTotal: double.tryParse(
-                        '${calc['grand_total'] ?? order['grand_total'] ?? 0}',
-                      ) ??
-                      0,
-                  transport: order['transport_amount'] == null
-                      ? null
-                      : double.tryParse('${order['transport_amount']}') ?? 0,
+                summary: OrderInvoiceSummaryBlock.fromOrderMap(
+                  Map<String, dynamic>.from(order),
+                  calculation: calc,
                 ),
               ),
               const SizedBox(height: AppSpacing.md),
@@ -605,6 +686,89 @@ class _ProductionOrderDetailScreenState
           );
         },
       ),
+    ),
     );
   }
 }
+
+class _SendForBillTotalPreview extends StatelessWidget {
+  const _SendForBillTotalPreview({
+    required this.originalGrandTotal,
+    required this.chargeType,
+    required this.charges,
+  });
+
+  final double originalGrandTotal;
+  final String? chargeType;
+  final double charges;
+
+  @override
+  Widget build(BuildContext context) {
+    final safeCharges = charges < 0 ? 0.0 : charges;
+    var adjustment = 0.0;
+    String? error;
+    var typeLabel = '—';
+
+    if (chargeType == 'company_transport') {
+      typeLabel = 'Company Transport';
+      if (safeCharges > originalGrandTotal) {
+        error =
+            'Company Transport charges cannot exceed the original grand total.';
+      } else {
+        adjustment = -safeCharges;
+      }
+    } else if (chargeType == 'transport_extra') {
+      typeLabel = 'Transport Charges Extra';
+      adjustment = safeCharges;
+    }
+
+    if (safeCharges == 0) {
+      adjustment = 0;
+    }
+
+    final finalTotal = originalGrandTotal + adjustment;
+    final money = OrderInvoiceProductsTable.money;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        children: [
+          PgInvoiceRow(
+            label: 'Original Grand Total',
+            value: money(originalGrandTotal),
+          ),
+          PgInvoiceRow(
+            label: 'Transport Charges',
+            value: money(safeCharges),
+          ),
+          PgInvoiceRow(label: 'Transport Type', value: typeLabel),
+          PgInvoiceRow(
+            label: 'Adjustment',
+            value: chargeType == null
+                ? '—'
+                : '${adjustment < 0 ? '- ' : '+ '}${money(adjustment.abs())}',
+          ),
+          const Divider(height: 16),
+          PgInvoiceRow(
+            label: 'Final Grand Total',
+            value: money(finalTotal),
+            isTotal: true,
+          ),
+          if (error != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              error,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+

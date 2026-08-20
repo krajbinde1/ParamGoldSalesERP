@@ -395,6 +395,10 @@ class OrderInvoiceSummaryBlock extends StatelessWidget {
     required this.grandTotal,
     this.taxableValue,
     this.transport,
+    this.vehicleNo,
+    this.transportTypeLabel,
+    this.originalGrandTotal,
+    this.transportAdjustment,
     this.title = 'Order Summary',
     this.showTitle = true,
     this.extraRows = const [],
@@ -406,13 +410,71 @@ class OrderInvoiceSummaryBlock extends StatelessWidget {
   final double grandTotal;
   final double? taxableValue;
   final double? transport;
+  final String? vehicleNo;
+  final String? transportTypeLabel;
+  final double? originalGrandTotal;
+  final double? transportAdjustment;
   final String title;
   final bool showTitle;
   final List<Widget> extraRows;
 
+  bool get _hasBillingTransport {
+    return originalGrandTotal != null &&
+        (transportTypeLabel ?? '').trim().isNotEmpty;
+  }
+
+  factory OrderInvoiceSummaryBlock.fromOrderMap(
+    Map<String, dynamic> order, {
+    Map<String, dynamic>? calculation,
+    String title = 'Order Summary',
+    bool showTitle = true,
+  }) {
+    final calc = calculation ?? const <String, dynamic>{};
+    return OrderInvoiceSummaryBlock(
+      title: title,
+      showTitle: showTitle,
+      subtotal:
+          double.tryParse(
+            '${calc['gross_amount'] ?? order['gross_amount'] ?? order['subtotal'] ?? 0}',
+          ) ??
+          0,
+      discount:
+          double.tryParse(
+            '${calc['total_discount'] ?? order['total_discount'] ?? order['discount_amount'] ?? 0}',
+          ) ??
+          0,
+      gst:
+          double.tryParse(
+            '${order['gst_amount'] ?? calc['total_gst'] ?? order['total_gst'] ?? 0}',
+          ) ??
+          0,
+      grandTotal:
+          double.tryParse(
+            '${order['final_grand_total'] ?? order['grand_total'] ?? 0}',
+          ) ??
+          0,
+      transport: order['transport_amount'] == null &&
+              order['transport_charges'] == null
+          ? null
+          : double.tryParse(
+                '${order['transport_amount'] ?? order['transport_charges']}',
+              ) ??
+              0,
+      vehicleNo: (order['vehicle_no'] ?? order['vehicle_number'])?.toString(),
+      transportTypeLabel: order['transport_charge_type_label']?.toString(),
+      originalGrandTotal: order['original_grand_total'] == null
+          ? null
+          : double.tryParse('${order['original_grand_total']}'),
+      transportAdjustment: order['transport_adjustment'] == null
+          ? null
+          : double.tryParse('${order['transport_adjustment']}'),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final taxable = taxableValue ?? (subtotal - discount);
+    final vehicle = (vehicleNo ?? '').trim();
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -437,20 +499,48 @@ class OrderInvoiceSummaryBlock extends StatelessWidget {
           label: 'GST',
           value: OrderInvoiceProductsTable.money(gst),
         ),
-        if (transport != null && transport! > 0)
+        if (_hasBillingTransport) ...[
+          if (vehicle.isNotEmpty)
+            PgInvoiceRow(label: 'Vehicle No', value: vehicle),
+          PgInvoiceRow(
+            label: 'Original Grand Total',
+            value: OrderInvoiceProductsTable.money(originalGrandTotal!),
+          ),
+          PgInvoiceRow(
+            label: 'Transport Type',
+            value: transportTypeLabel!,
+          ),
+          PgInvoiceRow(
+            label: 'Transport Charges',
+            value: OrderInvoiceProductsTable.money(transport ?? 0),
+          ),
+          PgInvoiceRow(
+            label: 'Adjustment',
+            value: _formatAdjustment(transportAdjustment ?? 0),
+          ),
+        ] else if (transport != null && transport! > 0) ...[
+          if (vehicle.isNotEmpty)
+            PgInvoiceRow(label: 'Vehicle No', value: vehicle),
           PgInvoiceRow(
             label: 'Transport Charges',
             value: OrderInvoiceProductsTable.money(transport!),
           ),
+        ],
         ...extraRows,
         const Divider(height: AppSpacing.lg),
         PgInvoiceRow(
-          label: 'Grand Total',
+          label: _hasBillingTransport ? 'Final Grand Total' : 'Grand Total',
           value: OrderInvoiceProductsTable.money(grandTotal),
           isTotal: true,
         ),
       ],
     );
+  }
+
+  static String _formatAdjustment(double amount) {
+    final formatted = OrderInvoiceProductsTable.money(amount.abs());
+    if (amount < 0) return '- $formatted';
+    return '+ $formatted';
   }
 }
 

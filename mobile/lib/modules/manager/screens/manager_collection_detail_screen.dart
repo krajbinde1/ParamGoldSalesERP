@@ -19,10 +19,12 @@ class ManagerCollectionDetailScreen extends StatefulWidget {
     super.key,
     required this.auth,
     required this.collectionId,
+    this.loadCollection,
   });
 
   final AuthController auth;
   final int collectionId;
+  final Future<Map<String, dynamic>> Function()? loadCollection;
 
   @override
   State<ManagerCollectionDetailScreen> createState() =>
@@ -40,11 +42,13 @@ class _ManagerCollectionDetailScreenState
   @override
   void initState() {
     super.initState();
-    _future = _api.getCollection(widget.collectionId);
+    _future = (widget.loadCollection ??
+            () => _api.getCollection(widget.collectionId))();
   }
 
   Future<void> _reload() async {
-    setState(() => _future = _api.getCollection(widget.collectionId));
+    setState(() => _future = (widget.loadCollection ??
+            () => _api.getCollection(widget.collectionId))());
     await _future;
   }
 
@@ -108,6 +112,15 @@ class _ManagerCollectionDetailScreenState
                 .trim();
             final adminRemark = detail['admin_remark']?.toString().trim();
             final photoUrl = detail['photo_url']?.toString();
+            final dealer = detail['dealer'] is Map
+                ? Map<String, dynamic>.from(detail['dealer'] as Map)
+                : const <String, dynamic>{};
+            final submittedAt = _formatDateTime(
+              detail['submitted_at']?.toString() ??
+                  detail['created_at']?.toString(),
+            );
+            final employeeCode = detail['employee_code']?.toString().trim();
+            final receiptNo = detail['receipt_no']?.toString().trim();
 
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -133,12 +146,34 @@ class _ManagerCollectionDetailScreenState
                       const SizedBox(height: AppSpacing.sm),
                       PgInvoiceRow(
                         label: 'Employee',
-                        value: detail['employee_name']?.toString() ?? '-',
+                        value: [
+                          detail['employee_name']?.toString() ?? '-',
+                          if (employeeCode != null && employeeCode.isNotEmpty)
+                            '($employeeCode)',
+                        ].join(' '),
                       ),
                       PgInvoiceRow(
                         label: 'Dealer',
                         value: detail['dealer_name']?.toString() ?? '-',
                       ),
+                      if ((dealer['owner_name']?.toString().trim().isNotEmpty ??
+                          false))
+                        PgInvoiceRow(
+                          label: 'Owner',
+                          value: dealer['owner_name'].toString(),
+                        ),
+                      if ((dealer['mobile']?.toString().trim().isNotEmpty ??
+                          false))
+                        PgInvoiceRow(
+                          label: 'Dealer Mobile',
+                          value: dealer['mobile'].toString(),
+                        ),
+                      if ((dealer['village']?.toString().trim().isNotEmpty ??
+                          false))
+                        PgInvoiceRow(
+                          label: 'Village',
+                          value: dealer['village'].toString(),
+                        ),
                       PgInvoiceRow(
                         label: 'Amount',
                         value: currency.format(
@@ -152,10 +187,17 @@ class _ManagerCollectionDetailScreenState
                             ? '-'
                             : DateFormat('d MMM yyyy').format(date),
                       ),
+                      if (receiptNo != null && receiptNo.isNotEmpty)
+                        PgInvoiceRow(label: 'Receipt No', value: receiptNo),
                       PgInvoiceRow(
                         label: 'Status',
                         value: detail['status_label']?.toString() ?? status,
                       ),
+                      if (submittedAt != null)
+                        PgInvoiceRow(
+                          label: 'Submitted',
+                          value: submittedAt,
+                        ),
                       if (remarks != null && remarks.isNotEmpty)
                         PgInvoiceRow(label: 'Remark', value: remarks),
                       if (adminRemark != null && adminRemark.isNotEmpty)
@@ -199,4 +241,11 @@ class _ManagerCollectionDetailScreenState
       ),
     );
   }
+}
+
+String? _formatDateTime(String? raw) {
+  if (raw == null || raw.trim().isEmpty) return null;
+  final parsed = DateTime.tryParse(raw);
+  if (parsed == null) return raw;
+  return DateFormat('d MMM yyyy, h:mm a').format(parsed.toLocal());
 }

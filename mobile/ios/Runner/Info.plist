@@ -3,9 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>NSCameraUsageDescription</key>
-	<string>A live selfie is required to record attendance.</string>
+	<string>Camera is used to capture attendance selfies and dealer shop documents.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Photo library access is used to attach dealer supporting documents.</string>
 	<key>NSLocationWhenInUseUsageDescription</key>
-	<string>Your location is required to verify attendance and track field routes.</string>
+	<string>Location is used for attendance, field routes, and capturing the dealer shop GPS.</string>
 	<key>NSLocationAlwaysAndWhenInUseUsageDescription</key>
 	<string>ParamGold needs always-on location to track your field route while the app is in the background.</string>
 	<key>NSLocationAlwaysUsageDescription</key>

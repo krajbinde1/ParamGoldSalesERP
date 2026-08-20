@@ -86,7 +86,8 @@ class Order extends Model
         'sent_for_bill_by', 'sent_for_bill_at', 'transport_remark',
         'billed_by', 'billed_at', 'bill_path', 'bill_number', 'bill_date', 'billing_remark',
         'dispatched_by', 'dispatched_at', 'dispatch_date', 'dispatch_remark',
-        'transport_type', 'transport_amount', 'transporter_name', 'vehicle_id', 'vehicle_number', 'lr_number', 'lr_document_path',
+        'transport_type', 'transport_amount', 'transport_charge_type', 'original_grand_total', 'transport_adjustment',
+        'transporter_name', 'vehicle_id', 'vehicle_number', 'lr_number', 'lr_document_path',
         'subtotal_before_transport', 'taxable_amount_after_transport',
     ];
 
@@ -101,6 +102,8 @@ class Order extends Model
             'gst_amount' => 'decimal:2',
             'grand_total' => 'decimal:2',
             'transport_amount' => 'decimal:2',
+            'original_grand_total' => 'decimal:2',
+            'transport_adjustment' => 'decimal:2',
             'subtotal_before_transport' => 'decimal:2',
             'taxable_amount_after_transport' => 'decimal:2',
             'approved_at' => 'datetime',
@@ -163,7 +166,7 @@ class Order extends Model
     }
 
     /**
-     * Display-only short order number for Production Supervisor lists.
+     * Display-only short order number for Admin / Production Supervisor lists.
      * Example: PG-20260813-0001 → PG-0001. Does not change stored order_no.
      */
     public function shortOrderNo(): string
@@ -204,10 +207,10 @@ class Order extends Model
     {
         return match ($status) {
             'draft' => 'gray',
-            'pending_approval' => 'warning',
+            'pending_approval' => 'amber',
             'approved' => 'success',
             'pending_for_billing' => 'warning',
-            'billed' => 'info',
+            'billed' => 'indigo',
             'dispatched' => 'info',
             'delivered' => 'primary',
             'rejected', 'cancelled' => 'danger',
@@ -266,9 +269,11 @@ class Order extends Model
 
     public function canBeDispatched(): bool
     {
-        return $this->status === self::STATUS_BILLED
-            && filled($this->approved_at)
-            && filled($this->billed_at);
+        // Canonical status is enough: billed already means manager approved
+        // and Admin completed billing. Extra timestamp checks hid the mobile
+        // dispatch action when billed_at/approved_at were missing on otherwise
+        // billed orders.
+        return $this->status === self::STATUS_BILLED;
     }
 
     /**
@@ -389,7 +394,7 @@ class Order extends Model
             'status_text' => $isSentForBilling
                 ? ($isBilled ? null : 'Pending for Billing')
                 : 'Pending',
-            'remark' => $isSentForBilling ? $this->transport_remark : null,
+            'remark' => $isSentForBilling ? $this->sentForBillTimelineRemark() : null,
             'completed' => $isSentForBilling,
             'is_current' => $isApproved && ! $isSentForBilling,
             'is_rejection' => false,
@@ -552,6 +557,7 @@ class Order extends Model
         ?float $transportFreight = null,
         ?string $transportRemark = null,
         ?int $vehicleId = null,
+        ?string $transportChargeType = null,
     ): void {
         if (! $this->canBeSentForBilling()) {
             throw ValidationException::withMessages([
@@ -567,15 +573,25 @@ class Order extends Model
 
         if ($transportFreight === null || $transportFreight < 0) {
             throw ValidationException::withMessages([
-                'transport_freight' => ['Transport freight must be a valid non-negative amount.'],
+                'transport_freight' => ['Transport charges must be a valid non-negative amount.'],
             ]);
         }
+
+        $billingTransport = \App\Services\Orders\OrderBillingTransportCalculator::calculate(
+            originalGrandTotal: \App\Services\Orders\OrderBillingTransportCalculator::originalGrandTotal($this),
+            chargeType: (string) $transportChargeType,
+            transportCharges: $transportFreight,
+        );
 
         $this->update([
             'status' => self::STATUS_PENDING_FOR_BILLING,
             'vehicle_id' => $vehicleId,
             'vehicle_number' => trim($vehicleNumber),
-            'transport_amount' => $transportFreight,
+            'transport_charge_type' => $billingTransport['transport_charge_type'],
+            'transport_amount' => $billingTransport['transport_amount'],
+            'original_grand_total' => $billingTransport['original_grand_total'],
+            'transport_adjustment' => $billingTransport['transport_adjustment'],
+            'grand_total' => $billingTransport['final_grand_total'],
             'transport_remark' => filled($transportRemark) ? trim($transportRemark) : null,
             'sent_for_bill_by' => $userId,
             'sent_for_bill_at' => Carbon::now(self::BUSINESS_TIMEZONE),
@@ -630,11 +646,54 @@ class Order extends Model
             'total_quantity_nos' => 0,
         ]);
 
+        $itemGrandTotal = round($totals['grand_total'], 2);
+        $grandTotal = $itemGrandTotal;
+
+        if ($this->original_grand_total !== null && $this->transport_adjustment !== null) {
+            $grandTotal = round((float) $this->original_grand_total + (float) $this->transport_adjustment, 2);
+        }
+
         $this->forceFill([
             'subtotal' => round($totals['subtotal'], 2),
             'discount_amount' => round($totals['discount_amount'], 2),
             'gst_amount' => round($totals['gst_amount'], 2),
-            'grand_total' => round($totals['grand_total'], 2),
+            'grand_total' => $grandTotal,
         ])->saveQuietly();
+    }
+
+    public function sentForBillTimelineRemark(): ?string
+    {
+        $parts = [];
+        $billing = \App\Services\Orders\OrderBillingTransportCalculator::present($this);
+
+        if (filled($this->vehicle_number)) {
+            $parts[] = 'Vehicle No: '.$this->vehicle_number;
+        }
+
+        if (filled($billing['transport_charge_type_label'])) {
+            $parts[] = 'Transport Type: '.$billing['transport_charge_type_label'];
+        }
+
+        if ($billing['transport_charges'] !== null) {
+            $parts[] = 'Transport Charges: '.\App\Services\Orders\OrderBillingTransportCalculator::formatMoney(
+                (float) $billing['transport_charges'],
+            );
+        }
+
+        if (\App\Services\Orders\OrderBillingTransportCalculator::hasSavedAdjustment($this)) {
+            $parts[] = 'Final Grand Total: '.\App\Services\Orders\OrderBillingTransportCalculator::formatMoney(
+                (float) $billing['final_grand_total'],
+            );
+        }
+
+        if (filled($this->transport_remark)) {
+            $parts[] = $this->transport_remark;
+        }
+
+        if ($parts === []) {
+            return null;
+        }
+
+        return implode("\n", $parts);
     }
 }

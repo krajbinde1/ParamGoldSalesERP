@@ -1,8 +1,9 @@
 @php
     use App\Models\Order;
+    use App\Services\Orders\OrderBillingTransportCalculator;
 
     /** @var Order $record */
-    $money = static fn ($value): string => '₹'.number_format((float) $value, 2, '.', ',');
+    $money = static fn ($value): string => OrderBillingTransportCalculator::formatMoney((float) $value);
 
     $subtotal = (float) $record->subtotal;
     $discount = (float) $record->discount_amount;
@@ -11,7 +12,9 @@
         : max(0, $subtotal - $discount);
     $cgst = round(((float) $record->gst_amount) / 2, 2);
     $sgst = round(((float) $record->gst_amount) / 2, 2);
-    $grandTotal = (float) $record->grand_total;
+    $hasTransportAdjustment = OrderBillingTransportCalculator::hasSavedAdjustment($record);
+    $billing = OrderBillingTransportCalculator::present($record);
+    $grandTotal = (float) $billing['final_grand_total'];
 
     $rows = [
         ['label' => 'Subtotal', 'value' => $money($subtotal), 'emphasis' => false],
@@ -19,8 +22,23 @@
         ['label' => 'Taxable Value', 'value' => $money($taxable), 'emphasis' => false],
         ['label' => 'CGST', 'value' => $money($cgst), 'emphasis' => false],
         ['label' => 'SGST', 'value' => $money($sgst), 'emphasis' => false],
-        ['label' => 'Grand Total', 'value' => $money($grandTotal), 'emphasis' => true],
     ];
+
+    if ($hasTransportAdjustment) {
+        $rows[] = ['label' => 'Original Grand Total', 'value' => $money((float) $billing['original_grand_total']), 'emphasis' => false];
+        $rows[] = ['label' => 'Vehicle No', 'value' => $record->vehicle_number ?: '—', 'emphasis' => false];
+        $rows[] = ['label' => 'Transport Type', 'value' => $billing['transport_charge_type_label'] ?: '—', 'emphasis' => false];
+        $rows[] = ['label' => 'Transport Charges', 'value' => $money((float) ($billing['transport_charges'] ?? 0)), 'emphasis' => false];
+        $rows[] = ['label' => 'Adjustment', 'value' => OrderBillingTransportCalculator::formatAdjustment((float) $billing['transport_adjustment']), 'emphasis' => false];
+        $rows[] = ['label' => 'Final Grand Total', 'value' => $money($grandTotal), 'emphasis' => true];
+    } else {
+        if (filled($record->vehicle_number) || $record->transport_amount !== null) {
+            $rows[] = ['label' => 'Vehicle No', 'value' => $record->vehicle_number ?: '—', 'emphasis' => false];
+            $rows[] = ['label' => 'Transport Type', 'value' => $billing['transport_charge_type_label'] ?: '—', 'emphasis' => false];
+            $rows[] = ['label' => 'Transport Charges', 'value' => $record->transport_amount === null ? '—' : $money((float) $record->transport_amount), 'emphasis' => false];
+        }
+        $rows[] = ['label' => 'Grand Total', 'value' => $money($grandTotal), 'emphasis' => true];
+    }
 @endphp
 
 <div class="pg-order-summary">

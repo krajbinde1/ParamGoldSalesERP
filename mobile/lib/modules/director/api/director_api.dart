@@ -397,4 +397,15 @@ class DirectorApi {
       throw mapApiError(error);
     }
   }
+
+  Future<Map<String, dynamic>> getCollection(int collectionId) async {
+    try {
+      final response = await _dio.get('/director/collections/$collectionId');
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
 }

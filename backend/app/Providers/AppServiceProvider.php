@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use App\Models\Bom;
+use App\Models\Collection;
 use App\Models\Crop;
 use App\Models\Dealer;
 use App\Models\DealerApplication;
@@ -20,6 +21,7 @@ use App\Models\SemiFinishedMaterial;
 use App\Models\StockAdjustment;
 use App\Models\StockLedger;
 use App\Models\TaDaClaim;
+use App\Observers\CollectionObserver;
 use App\Observers\OrderObserver;
 use App\Observers\PaymentRequestObserver;
 use App\Policies\BomPolicy;
@@ -78,6 +80,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(StockAdjustment::class, StockAdjustmentPolicy::class);
 
         Order::observe(OrderObserver::class);
+        Collection::observe(CollectionObserver::class);
         PaymentRequest::observe(PaymentRequestObserver::class);
     }
 }

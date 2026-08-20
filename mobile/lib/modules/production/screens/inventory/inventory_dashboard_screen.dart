@@ -5,6 +5,7 @@ import '../../../../core/api/api_client.dart';
 import '../../../../core/api/api_errors.dart';
 import '../../../../core/design/app_colors.dart';
 import '../../../../core/design/app_spacing.dart';
+import '../../../../core/navigation/navigation_guard.dart';
 import '../../../../core/storage/session_store.dart';
 import '../../../../core/widgets/design/pg_card.dart';
 import '../../../../core/widgets/design/pg_empty_state.dart';
@@ -60,8 +61,20 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: RoleAppBar(title: 'Inventory', auth: widget.auth),
+    final canPop = context.canPop();
+    return PopScope(
+      canPop: canPop,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        smartBack(context);
+      },
+      child: Scaffold(
+      appBar: RoleAppBar(
+        title: 'Inventory',
+        auth: widget.auth,
+        showBack: true,
+        onBack: () => smartBack(context),
+      ),
       body: RefreshIndicator(
         onRefresh: _reload,
         child: FutureBuilder<Map<String, dynamic>>(
@@ -301,6 +314,7 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
           },
         ),
       ),
+    ),
     );
   }
 

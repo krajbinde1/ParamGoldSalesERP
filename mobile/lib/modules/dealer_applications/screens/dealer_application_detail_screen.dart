@@ -114,18 +114,28 @@ class _DealerApplicationDetailScreenState
                       _line('Owner', data['owner_name']),
                       _line('Mobile', data['mobile']),
                       _line('GST', data['gst_no']),
-                      _line('Location', data['location']),
-                      _line('Address', data['address']),
-                      const SizedBox(height: 8),
-                      ViewCapturedLocationButton(
-                        latitude: data['latitude'],
-                        longitude: data['longitude'],
-                      ),
+                    _line('Location', data['location']),
+                    _line('Address', data['address']),
+                    const SizedBox(height: 8),
+                    Text(
+                      'Shop Location',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 6),
+                    if (data['latitude'] != null && data['longitude'] != null) ...[
+                      Text('Latitude: ${data['latitude']}'),
+                      Text('Longitude: ${data['longitude']}'),
+                      const SizedBox(height: 6),
+                    ],
+                    ViewCapturedLocationButton(
+                      latitude: data['latitude'],
+                      longitude: data['longitude'],
+                    ),
                     ],
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
-                Text('Documents', style: Theme.of(context).textTheme.titleSmall),
+                Text('Supporting Documents', style: Theme.of(context).textTheme.titleSmall),
                 const SizedBox(height: AppSpacing.sm),
                 for (final doc in documents)
                   PgCard(

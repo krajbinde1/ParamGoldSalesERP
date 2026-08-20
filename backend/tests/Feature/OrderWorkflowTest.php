@@ -299,6 +299,7 @@ it('blocks admin reject after billed or dispatched', function () {
         actor: $production->user,
         vehicleNumber: 'MH12XY9999',
         transportFreight: 100,
+        transportChargeType: 'transport_extra',
     );
 
     app(BillOrderWithDocument::class)->execute(
@@ -439,6 +440,7 @@ it('allows production to send approved order for billing then admin bills', func
     $this->actingAs($production->user, 'sanctum')
         ->postJson("/api/production/orders/{$order->id}/send-for-bill", [
             'vehicle_id' => $vehicle->id,
+            'transport_charge_type' => 'transport_extra',
             'transport_freight' => 250,
             'transport_remark' => 'Ready for Tally billing',
         ])
@@ -447,13 +449,22 @@ it('allows production to send approved order for billing then admin bills', func
         ->assertJsonPath('data.status_label', 'Pending for Billing')
         ->assertJsonPath('data.vehicle_number', 'MH12AB1234')
         ->assertJsonPath('data.vehicle_id', $vehicle->id)
-        ->assertJsonPath('data.transport_amount', 250);
+        ->assertJsonPath('data.transport_amount', 250)
+        ->assertJsonPath('data.transport_charge_type', 'transport_extra')
+        ->assertJsonPath('data.original_grand_total', 100)
+        ->assertJsonPath('data.transport_adjustment', 250)
+        ->assertJsonPath('data.final_grand_total', 350)
+        ->assertJsonPath('data.grand_total', 350);
 
     $fresh = $order->fresh();
     expect($fresh->status)->toBe(Order::STATUS_PENDING_FOR_BILLING)
         ->and($fresh->sent_for_bill_by)->toBe($production->user->id)
         ->and($fresh->vehicle_id)->toBe($vehicle->id)
         ->and((float) $fresh->transport_amount)->toBe(250.0)
+        ->and($fresh->transport_charge_type)->toBe('transport_extra')
+        ->and((float) $fresh->original_grand_total)->toBe(100.0)
+        ->and((float) $fresh->transport_adjustment)->toBe(250.0)
+        ->and((float) $fresh->grand_total)->toBe(350.0)
         ->and($fresh->transport_remark)->toBe('Ready for Tally billing');
 
     $timeline = collect($fresh->workflowTimeline());
@@ -558,6 +569,7 @@ it('blocks non-production roles from send-for-bill and requires vehicle + freigh
         actor: $admin,
         vehicleNumber: 'MH12AB9999',
         transportFreight: 50,
+        transportChargeType: 'company_transport',
     ))->toThrow(\Illuminate\Auth\Access\AuthorizationException::class);
 });
 
@@ -582,6 +594,7 @@ it('allows production supervisor to mark billed orders as dispatched with option
         actor: $production->user,
         vehicleNumber: 'MH14DS1111',
         transportFreight: 120,
+        transportChargeType: 'transport_extra',
     );
 
     $this->actingAs($production->user, 'sanctum')
@@ -688,4 +701,41 @@ it('lets production supervisor list rejected orders without dispatching them', f
     $this->actingAs($production->user, 'sanctum')
         ->postJson("/api/production/orders/{$order->id}/dispatch")
         ->assertForbidden();
+});
+
+it('deducts company transport from original grand total only once', function () {
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000121');
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000122');
+    $production = orderWorkflowEmployee(UserRole::ProductionSupervisor, '9200000123');
+    $order = orderWorkflowPending($employee->id);
+    $order->approve($manager->user->id);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/send-for-bill", [
+            'vehicle_number' => 'MH12CT0001',
+            'transport_charge_type' => 'company_transport',
+            'transport_freight' => 5000,
+        ])
+        ->assertUnprocessable();
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/send-for-bill", [
+            'vehicle_number' => 'MH12CT0001',
+            'transport_charge_type' => 'company_transport',
+            'transport_freight' => 15,
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.original_grand_total', 100)
+        ->assertJsonPath('data.transport_adjustment', -15)
+        ->assertJsonPath('data.final_grand_total', 85)
+        ->assertJsonPath('data.grand_total', 85);
+
+    $fresh = $order->fresh();
+    expect((float) $fresh->grand_total)->toBe(85.0)
+        ->and((float) $fresh->original_grand_total)->toBe(100.0)
+        ->and((float) $fresh->subtotal)->toBe(100.0);
+
+    $fresh->recalculateTotals();
+    expect((float) $fresh->fresh()->grand_total)->toBe(85.0)
+        ->and((float) $fresh->fresh()->original_grand_total)->toBe(100.0);
 });

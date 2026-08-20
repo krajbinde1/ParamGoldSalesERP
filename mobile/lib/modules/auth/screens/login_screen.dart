@@ -4,6 +4,7 @@ import 'dart:developer' as developer;
 
 import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
+import '../../../core/widgets/app_version_label.dart';
 import '../../../core/widgets/design/pg_brand.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../providers/auth_controller.dart';
@@ -286,6 +287,10 @@ class _LoginScreenState extends State<LoginScreen> {
                       style: Theme.of(context).textTheme.bodySmall?.copyWith(
                             color: AppColors.textMuted,
                           ),
+                    ),
+                    const SizedBox(height: AppSpacing.md),
+                    AppVersionLabel(
+                      color: Colors.white.withValues(alpha: 0.55),
                     ),
                   ],
                 ),

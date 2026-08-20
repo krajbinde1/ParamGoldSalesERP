@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/api/api_errors.dart';
 import '../../../core/design/app_spacing.dart';
+import '../../../core/navigation/navigation_guard.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
 import '../../../core/widgets/role_shell_widgets.dart';
@@ -54,6 +55,7 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
   void initState() {
     super.initState();
     _tabController = TabController(length: _tabs.length, vsync: this);
+    _tabController.addListener(_onTabChanged);
     _api = ProductionApi(
       ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired)
           .dio,
@@ -63,8 +65,14 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
 
   @override
   void dispose() {
+    _tabController.removeListener(_onTabChanged);
     _tabController.dispose();
     super.dispose();
+  }
+
+  void _onTabChanged() {
+    if (!mounted || _tabController.indexIsChanging) return;
+    _reloadTab(_tabs[_tabController.index]);
   }
 
   String _statusFor(_ProductionOrderTabKey tab) => switch (tab) {
@@ -86,6 +94,23 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
       _billedFuture = _loadTab(_ProductionOrderTabKey.billed);
       _dispatchedFuture = _loadTab(_ProductionOrderTabKey.dispatched);
       _rejectedFuture = _loadTab(_ProductionOrderTabKey.rejected);
+    });
+  }
+
+  void _reloadTab(_ProductionOrderTabKey tab) {
+    setState(() {
+      switch (tab) {
+        case _ProductionOrderTabKey.approved:
+          _approvedFuture = _loadTab(tab);
+        case _ProductionOrderTabKey.sentForBill:
+          _sentForBillFuture = _loadTab(tab);
+        case _ProductionOrderTabKey.billed:
+          _billedFuture = _loadTab(tab);
+        case _ProductionOrderTabKey.dispatched:
+          _dispatchedFuture = _loadTab(tab);
+        case _ProductionOrderTabKey.rejected:
+          _rejectedFuture = _loadTab(tab);
+      }
     });
   }
 
@@ -140,10 +165,19 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final canPop = context.canPop();
+    return PopScope(
+      canPop: canPop,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        smartBack(context);
+      },
+      child: Scaffold(
       appBar: RoleAppBar(
         title: 'Orders',
         auth: widget.auth,
+        showBack: true,
+        onBack: () => smartBack(context),
         bottom: TabBar(
           controller: _tabController,
           isScrollable: true,
@@ -212,6 +246,7 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
           ),
         ],
       ),
+    ),
     );
   }
 }
@@ -283,8 +318,10 @@ class _ProductionOrderTab extends StatelessWidget {
                     final order = orders[index];
                     final id = int.tryParse('${order['id'] ?? 0}') ?? 0;
                     final canDispatchThis = canDispatch &&
-                        statusKey == 'billed' &&
-                        order['can_dispatch'] == true;
+                        ProductionApi.canShowDispatchAction(
+                          status: order['status']?.toString(),
+                          canDispatch: order['can_dispatch'],
+                        );
 
                     return ProductionOrderListCard(
                       order: order,

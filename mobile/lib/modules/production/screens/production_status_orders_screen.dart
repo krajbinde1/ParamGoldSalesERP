@@ -5,6 +5,7 @@ import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/api/api_errors.dart';
 import '../../../core/design/app_spacing.dart';
+import '../../../core/navigation/navigation_guard.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
 import '../../../core/widgets/role_shell_widgets.dart';
@@ -117,8 +118,20 @@ class _ProductionStatusOrdersScreenState
     );
     final dateTime = DateFormat('d MMM yyyy, h:mm a');
 
-    return Scaffold(
-      appBar: RoleAppBar(title: _title, auth: widget.auth),
+    final canPop = context.canPop();
+    return PopScope(
+      canPop: canPop,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        smartBack(context);
+      },
+      child: Scaffold(
+      appBar: RoleAppBar(
+        title: _title,
+        auth: widget.auth,
+        showBack: true,
+        onBack: () => smartBack(context),
+      ),
       body: FutureBuilder<List<Map<String, dynamic>>>(
         future: _future,
         builder: (context, snapshot) {
@@ -152,8 +165,10 @@ class _ProductionStatusOrdersScreenState
                       final id = int.tryParse('${order['id'] ?? 0}') ?? 0;
                       final canDispatchThis =
                           widget.auth.permissions.canDispatchOrders &&
-                              widget.status == 'billed' &&
-                              order['can_dispatch'] == true;
+                              ProductionApi.canShowDispatchAction(
+                                status: order['status']?.toString(),
+                                canDispatch: order['can_dispatch'],
+                              );
 
                       return ProductionOrderListCard(
                         order: order,
@@ -173,6 +188,7 @@ class _ProductionStatusOrdersScreenState
           );
         },
       ),
+    ),
     );
   }
 }

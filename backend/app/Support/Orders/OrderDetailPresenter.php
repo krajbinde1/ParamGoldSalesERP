@@ -143,13 +143,12 @@ final class OrderDetailPresenter
             'subtotal' => (float) $order->subtotal,
             'discount_amount' => (float) $order->discount_amount,
             'gst_amount' => (float) $order->gst_amount,
-            'grand_total' => (float) $order->grand_total,
+            'grand_total' => \App\Services\Orders\OrderBillingTransportCalculator::finalGrandTotal($order),
+            ...\App\Services\Orders\OrderBillingTransportCalculator::present($order),
             'transport_type' => $order->transport_type,
             'transport_type_label' => filled($order->transport_type)
-                ? \App\Enums\TransportType::from($order->transport_type)->label()
+                ? \App\Enums\TransportType::tryFrom((string) $order->transport_type)?->label()
                 : null,
-            'transport_amount' => $order->transport_amount !== null ? (float) $order->transport_amount : null,
-            'transport_freight' => $order->transport_amount !== null ? (float) $order->transport_amount : null,
             'subtotal_before_transport' => $order->subtotal_before_transport !== null
                 ? (float) $order->subtotal_before_transport
                 : $calculation['subtotal_before_transport'],

@@ -1510,3 +1510,14 @@ class DirectorReportsScreen extends StatelessWidget {
     );
   }
 }
+
+class DirectorCollectionDetailRoute {
+  static Future<Map<String, dynamic>> load(
+    AuthController auth,
+    int collectionId,
+  ) {
+    return DirectorApi(
+      ApiClient(SessionStore(), onUnauthorized: auth.sessionExpired).dio,
+    ).getCollection(collectionId);
+  }
+}

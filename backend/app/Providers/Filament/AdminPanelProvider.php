@@ -48,6 +48,8 @@ class AdminPanelProvider extends PanelProvider
                 'warning' => Color::Orange,
                 'danger' => Color::Red,
                 'info' => Color::Blue,
+                'amber' => Color::Amber,
+                'indigo' => Color::Indigo,
             ])
             ->navigationGroups([
                 'Sales Operations',

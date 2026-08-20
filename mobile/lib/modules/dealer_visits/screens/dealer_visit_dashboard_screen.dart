@@ -60,7 +60,11 @@ class _DealerVisitDashboardScreenState
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openNewVisit,
         icon: const Icon(Icons.add_rounded),
-        label: const Text('New Visit'),
+        label: const Text(
+          'New Visit',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
       ),
       body: RefreshIndicator(
         onRefresh: _reload,
@@ -95,32 +99,24 @@ class _DealerVisitDashboardScreenState
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(AppSpacing.screenPadding),
               children: [
-                LayoutBuilder(
-                  builder: (context, constraints) => GridView.count(
-                    crossAxisCount: 2,
-                    shrinkWrap: true,
-                    physics: const NeverScrollableScrollPhysics(),
-                    childAspectRatio: constraints.maxWidth >= 700 ? 1.8 : 1.35,
-                    mainAxisSpacing: AppSpacing.sm,
-                    crossAxisSpacing: AppSpacing.sm,
-                    children: [
-                      DealerVisitSummaryCard(
-                        label: 'Total Dealer Visits',
-                        value: '${summary.totalVisits}',
-                        color: AppColors.primary,
-                      ),
-                      DealerVisitSummaryCard(
-                        label: 'This Week Dealer Visits',
-                        value: '${summary.weekVisits}',
-                        color: AppColors.info,
-                      ),
-                      DealerVisitSummaryCard(
-                        label: "Today's Dealer Visits",
-                        value: '${summary.todayVisits}',
-                        color: AppColors.secondary,
-                      ),
-                    ],
-                  ),
+                DealerVisitSummaryGrid(
+                  children: [
+                    DealerVisitSummaryCard(
+                      label: 'Total Dealer Visits',
+                      value: '${summary.totalVisits}',
+                      color: AppColors.primary,
+                    ),
+                    DealerVisitSummaryCard(
+                      label: 'This Week Dealer Visits',
+                      value: '${summary.weekVisits}',
+                      color: AppColors.info,
+                    ),
+                    DealerVisitSummaryCard(
+                      label: "Today's Dealer Visits",
+                      value: '${summary.todayVisits}',
+                      color: AppColors.secondary,
+                    ),
+                  ],
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 const PgSectionHeader(title: 'Recent Dealer Visits'),

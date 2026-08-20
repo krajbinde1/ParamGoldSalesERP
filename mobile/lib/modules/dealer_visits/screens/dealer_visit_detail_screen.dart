@@ -151,10 +151,17 @@ class _DealerVisitDetailScreenState extends State<DealerVisitDetailScreen> {
                           ),
                         ),
                       const SizedBox(height: AppSpacing.sm),
-                      OutlinedButton.icon(
-                        onPressed: () => _openInMap(detail),
-                        icon: const Icon(Icons.map_outlined),
-                        label: const Text('Open in Map'),
+                      Align(
+                        alignment: Alignment.centerLeft,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: OutlinedButton.icon(
+                            onPressed: () => _openInMap(detail),
+                            icon: const Icon(Icons.map_outlined),
+                            label: const Text('Open in Map'),
+                          ),
+                        ),
                       ),
                     ],
                   ),
@@ -172,13 +179,15 @@ class _DealerVisitDetailScreenState extends State<DealerVisitDetailScreen> {
                         const SizedBox(height: AppSpacing.sm),
                         ClipRRect(
                           borderRadius: BorderRadius.circular(12),
-                          child: CachedNetworkImage(
-                            imageUrl: detail.photoUrl!,
-                            height: 220,
-                            width: double.infinity,
-                            fit: BoxFit.cover,
-                            errorWidget: (_, _, _) =>
-                                const Icon(Icons.broken_image, size: 48),
+                          child: AspectRatio(
+                            aspectRatio: 16 / 9,
+                            child: CachedNetworkImage(
+                              imageUrl: detail.photoUrl!,
+                              width: double.infinity,
+                              fit: BoxFit.cover,
+                              errorWidget: (_, _, _) =>
+                                  const Icon(Icons.broken_image, size: 48),
+                            ),
                           ),
                         ),
                       ],

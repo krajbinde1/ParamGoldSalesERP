@@ -10,6 +10,7 @@ import 'core/design/material_icon_retention.dart';
 import 'core/notifications/notification_navigator.dart';
 import 'core/notifications/push_notification_service.dart';
 import 'core/routing/app_router.dart';
+import 'core/updates/app_update_controller.dart';
 import 'modules/attendance/route_tracking/route_tracking_config.dart';
 import 'modules/attendance/route_tracking/route_tracking_lifecycle.dart';
 import 'modules/attendance/route_tracking/route_tracking_log.dart';
@@ -17,11 +18,16 @@ import 'modules/attendance/route_tracking/route_tracking_service.dart';
 import 'modules/auth/providers/auth_controller.dart';
 
 final authController = AuthController();
+final appUpdateController = AppUpdateController();
 final rootNavigatorKey = GlobalKey<NavigatorState>();
 
 /// Built once per process start. After adding/changing routes, do a full
 /// hot **restart** (not hot reload) so this instance is recreated.
-final appRouter = createRouter(authController, navigatorKey: rootNavigatorKey);
+final appRouter = createRouter(
+  authController,
+  appUpdateController,
+  navigatorKey: rootNavigatorKey,
+);
 
 void main() {
   runZonedGuarded(() async {

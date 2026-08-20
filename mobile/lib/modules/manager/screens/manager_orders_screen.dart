@@ -790,15 +790,9 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
                       ),
                     )
                     .toList(growable: false),
-                summary: OrderInvoiceSummaryBlock(
+                summary: OrderInvoiceSummaryBlock.fromOrderMap(
+                  Map<String, dynamic>.from(order),
                   title: 'Order Totals',
-                  subtotal:
-                      double.tryParse('${order['subtotal'] ?? 0}') ?? 0,
-                  discount:
-                      double.tryParse('${order['discount_amount'] ?? 0}') ?? 0,
-                  gst: double.tryParse('${order['gst_amount'] ?? 0}') ?? 0,
-                  grandTotal:
-                      double.tryParse('${order['grand_total'] ?? 0}') ?? 0,
                 ),
               ),
               const SizedBox(height: AppSpacing.md),

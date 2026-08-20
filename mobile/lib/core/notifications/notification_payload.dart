@@ -49,6 +49,8 @@ class NotificationPayload {
 
   int get notificationId {
     if (orderId != null) return orderId!;
+    final collectionId = int.tryParse('${raw['collection_id'] ?? ''}');
+    if (collectionId != null) return 800000 + collectionId;
     final paymentId = int.tryParse('${raw['payment_request_id'] ?? ''}');
     if (paymentId != null) return 700000 + paymentId;
     return Object.hash(type, title, body).abs().remainder(100000);
@@ -69,6 +71,10 @@ class NotificationPayload {
   /// Deep-link to the existing review/detail screen (not the alert).
   String? get reviewRoute {
     if (route != null && route!.isNotEmpty) return route;
+    if (_isCollectionType(type)) {
+      final collectionId = int.tryParse('${raw['collection_id'] ?? ''}');
+      if (collectionId != null) return '/collections/$collectionId';
+    }
     if (type == 'new_order' && orderId != null) {
       return '/manager/orders/$orderId';
     }
@@ -275,7 +281,14 @@ class NotificationPayload {
         type == 'payment_request_first_approved';
   }
 
+  static bool _isCollectionType(String type) {
+    return type == 'collection_created' ||
+        type == 'collection_received' ||
+        type == 'collection_status_updated';
+  }
+
   static bool _parseFullscreen(Map<String, dynamic> data, String type) {
+    if (_isCollectionType(type)) return false;
     if (data['fullscreen']?.toString() == '1') return true;
     if (data['fullscreen']?.toString() == '0') return false;
     // Legacy defaults for critical types when flag omitted.

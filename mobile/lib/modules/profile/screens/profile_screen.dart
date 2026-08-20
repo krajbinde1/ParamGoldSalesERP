@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
+import '../../../core/widgets/app_version_label.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_scaffold.dart';
 import '../../auth/providers/auth_controller.dart';
@@ -114,6 +115,8 @@ class ProfileScreen extends StatelessWidget {
             label: const Text('Logout'),
             onPressed: auth.loading ? null : () async => auth.logout(),
           ),
+          const SizedBox(height: AppSpacing.lg),
+          const AppVersionLabel(),
         ],
       ),
     );

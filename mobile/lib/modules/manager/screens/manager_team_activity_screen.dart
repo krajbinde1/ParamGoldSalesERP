@@ -14,6 +14,7 @@ import '../../../core/widgets/design/pg_status_badge.dart';
 import '../../../core/widgets/role_shell_widgets.dart';
 import '../../auth/providers/auth_controller.dart';
 import '../api/manager_api.dart';
+import '../widgets/manager_scrollable_filters.dart';
 import '../widgets/view_captured_location_button.dart';
 
 class ManagerTeamActivityScreen extends StatefulWidget {
@@ -146,27 +147,19 @@ class _ManagerTeamActivityScreenState extends State<ManagerTeamActivityScreen> {
                   onSubmitted: (_) => _reload(),
                 ),
                 const SizedBox(height: 10),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (final entry in const [
-                        ('all', 'All'),
-                        ('dealer_visit', 'Dealer Visits'),
-                        ('field_visit', 'Field Activities'),
-                      ])
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(entry.$2),
-                            selected: _type == entry.$1,
-                            onSelected: (selected) {
-                              if (selected) _setType(entry.$1);
-                            },
-                          ),
-                        ),
-                    ],
-                  ),
+                ManagerScrollableFilters(
+                  children: [
+                    for (final entry in const [
+                      ('all', 'All'),
+                      ('dealer_visit', 'Dealer Visits'),
+                      ('field_visit', 'Field Activities'),
+                    ])
+                      ManagerFilterChip(
+                        label: entry.$2,
+                        selected: _type == entry.$1,
+                        onPressed: () => _setType(entry.$1),
+                      ),
+                  ],
                 ),
               ],
             ),
@@ -469,29 +462,23 @@ class _ManagerEmployeeTeamActivityScreenState
         children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-            child: SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: [
-                  for (final entry in const [
-                    ('all', 'All'),
-                    ('dealer_visit', 'Dealer Visits'),
-                    ('field_visit', 'Field Activities'),
-                  ])
-                    Padding(
-                      padding: const EdgeInsets.only(right: 8),
-                      child: ChoiceChip(
-                        label: Text(entry.$2),
-                        selected: _type == entry.$1,
-                        onSelected: (selected) {
-                          if (!selected) return;
-                          setState(() => _type = entry.$1);
-                          _reload();
-                        },
-                      ),
-                    ),
-                ],
-              ),
+            child: ManagerScrollableFilters(
+              children: [
+                for (final entry in const [
+                  ('all', 'All'),
+                  ('dealer_visit', 'Dealer Visits'),
+                  ('field_visit', 'Field Activities'),
+                ])
+                  ManagerFilterChip(
+                    label: entry.$2,
+                    selected: _type == entry.$1,
+                    onPressed: () {
+                      if (_type == entry.$1) return;
+                      setState(() => _type = entry.$1);
+                      _reload();
+                    },
+                  ),
+              ],
             ),
           ),
           Expanded(

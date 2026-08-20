@@ -288,6 +288,34 @@ class ProductionApi {
         value == 'approved_by_sales_manager';
   }
 
+  static bool isBilledStatus(String? status) {
+    final value = (status ?? '').trim().toLowerCase();
+    return value == 'billed' ||
+        value == 'billing_completed' ||
+        value == 'pending_dispatch' ||
+        value == 'bill_done';
+  }
+
+  static bool isDispatchedStatus(String? status) {
+    return (status ?? '').trim().toLowerCase() == 'dispatched';
+  }
+
+  static bool isFlagTrue(Object? value) {
+    if (value == true || value == 1) return true;
+    final normalized = value?.toString().trim().toLowerCase();
+    return normalized == 'true' || normalized == '1';
+  }
+
+  /// Show Mark as Dispatched when the order is billed (or the API flag says so).
+  static bool canShowDispatchAction({
+    required String? status,
+    Object? canDispatch,
+  }) {
+    if (isDispatchedStatus(status)) return false;
+    if (isBilledStatus(status)) return true;
+    return isFlagTrue(canDispatch);
+  }
+
   Future<Map<String, dynamic>> getOrder(int orderId) async {
     try {
       final response = await _dio.get('/production/orders/$orderId');
@@ -304,6 +332,7 @@ class ProductionApi {
     int? vehicleId,
     String? vehicleNumber,
     required double transportFreight,
+    required String transportChargeType,
     String? transportRemark,
   }) async {
     try {
@@ -313,6 +342,7 @@ class ProductionApi {
           if (vehicleId != null) 'vehicle_id': vehicleId,
           if (vehicleNumber != null && vehicleNumber.trim().isNotEmpty)
             'vehicle_number': vehicleNumber.trim(),
+          'transport_charge_type': transportChargeType,
           'transport_freight': transportFreight,
           if (transportRemark != null && transportRemark.trim().isNotEmpty)
             'transport_remark': transportRemark.trim(),

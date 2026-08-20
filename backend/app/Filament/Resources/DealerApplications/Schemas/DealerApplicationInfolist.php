@@ -53,13 +53,13 @@ class DealerApplicationInfolist
                                         ->color(fn (bool $state): string => $state ? 'warning' : 'gray')
                                         ->columnSpanFull(),
                                     TextEntry::make('coordinates')
-                                        ->label('GPS')
+                                        ->label('Shop Location')
                                         ->state(function (DealerApplication $record): string {
                                             if ($record->latitude === null || $record->longitude === null) {
                                                 return 'Not captured';
                                             }
 
-                                            return $record->latitude.', '.$record->longitude;
+                                            return 'View Location ('.$record->latitude.', '.$record->longitude.')';
                                         })
                                         ->url(function (DealerApplication $record): ?string {
                                             if ($record->latitude === null || $record->longitude === null) {
@@ -71,7 +71,7 @@ class DealerApplicationInfolist
                                         ->columnSpanFull(),
                                 ]),
                             ]),
-                        Section::make('Documents')
+                        Section::make('Supporting Documents')
                             ->columnSpan(1)
                             ->schema([
                                 TextEntry::make('documents_panel')

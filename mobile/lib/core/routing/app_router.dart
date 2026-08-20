@@ -13,6 +13,8 @@ import '../../modules/auth/providers/auth_controller.dart';
 import '../../modules/auth/screens/change_password_screen.dart';
 import '../../modules/auth/screens/login_screen.dart';
 import '../../modules/auth/screens/splash_screen.dart';
+import '../../modules/updates/screens/force_update_screen.dart';
+import '../updates/app_update_controller.dart';
 import '../../modules/collections/screens/collection_dashboard_screen.dart';
 import '../../modules/collections/screens/collection_detail_screen.dart';
 import '../../modules/collections/screens/new_collection_screen.dart';
@@ -79,15 +81,21 @@ import '../notifications/critical_approval_alert_screen.dart';
 import '../notifications/notification_payload.dart';
 
 GoRouter createRouter(
-  AuthController auth, {
+  AuthController auth,
+  AppUpdateController updates, {
   GlobalKey<NavigatorState>? navigatorKey,
 }) => GoRouter(
   navigatorKey: navigatorKey,
   initialLocation: '/dashboard',
-  refreshListenable: auth,
+  refreshListenable: Listenable.merge([auth, updates]),
   redirect: (_, state) {
     final location = state.matchedLocation;
-    if (auth.initializing) return location == '/splash' ? null : '/splash';
+    if (updates.required) {
+      return location == '/update-required' ? null : '/update-required';
+    }
+    if (auth.initializing || updates.checking) {
+      return location == '/splash' ? null : '/splash';
+    }
     if (!auth.authenticated) return location == '/login' ? null : '/login';
     if (auth.mustChangePassword) {
       return location == '/change-password' ? null : '/change-password';
@@ -109,6 +117,10 @@ GoRouter createRouter(
     GoRoute(
       path: '/splash',
       builder: (_, _) => SplashScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/update-required',
+      builder: (_, _) => ForceUpdateScreen(updates: updates),
     ),
     GoRoute(
       path: '/login',
@@ -497,26 +509,19 @@ GoRouter createRouter(
       ],
     ),
     GoRoute(
+      path: '/production/orders/by-status/:status',
+      builder: (_, state) => ProductionStatusOrdersScreen(
+        auth: auth,
+        status: state.pathParameters['status'] ?? 'approved',
+      ),
+    ),
+    GoRoute(
       path: '/production/orders',
-      builder: (_, _) {
-        // TEMP DEBUG — alternate route entry (same screen class).
-        // ignore: avoid_print
-        print(
-          '[PS ApprovedOrders DEBUG] GoRoute /production/orders → '
-          'ProductionOrdersScreen (production_dashboard_screen.dart)',
-        );
-        return ProductionOrdersScreen(auth: auth);
-      },
+      builder: (_, _) => ProductionOrdersScreen(auth: auth),
       routes: [
         GoRoute(
-          path: 'by-status/:status',
-          builder: (_, state) => ProductionStatusOrdersScreen(
-            auth: auth,
-            status: state.pathParameters['status'] ?? 'approved',
-          ),
-        ),
-        GoRoute(
           path: ':orderId',
+          parentNavigatorKey: navigatorKey,
           builder: (_, state) => ProductionOrderDetailScreen(
             auth: auth,
             orderId: int.parse(state.pathParameters['orderId']!),
@@ -698,6 +703,23 @@ GoRouter createRouter(
     GoRoute(
       path: '/director/collections',
       builder: (_, _) => DirectorCollectionsScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':collectionId',
+          builder: (_, state) {
+            final collectionId =
+                int.parse(state.pathParameters['collectionId']!);
+            return ManagerCollectionDetailScreen(
+              auth: auth,
+              collectionId: collectionId,
+              loadCollection: () => DirectorCollectionDetailRoute.load(
+                auth,
+                collectionId,
+              ),
+            );
+          },
+        ),
+      ],
     ),
     GoRoute(
       path: '/director/team-activity',

@@ -34,27 +34,38 @@ class ViewCapturedLocationButton extends StatelessWidget {
             color: AppColors.textMuted,
           ),
           const SizedBox(width: 6),
-          Text(
-            'Location Not Available',
-            style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                  color: AppColors.textMuted,
-                  fontWeight: FontWeight.w600,
-                ),
+          Expanded(
+            child: Text(
+              'Location Not Available',
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.textMuted,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
           ),
         ],
       );
     }
 
-    return OutlinedButton.icon(
-      onPressed: () => openCapturedMapsLocation(
-        context,
-        mapsUrl: mapsUrl,
-        latitude: latitude,
-        longitude: longitude,
-        locationAvailable: locationAvailable,
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        alignment: Alignment.centerLeft,
+        child: OutlinedButton.icon(
+          onPressed: () => openCapturedMapsLocation(
+            context,
+            mapsUrl: mapsUrl,
+            latitude: latitude,
+            longitude: longitude,
+            locationAvailable: locationAvailable,
+          ),
+          icon: const Icon(Icons.location_on_rounded, size: 18),
+          label: const Text('View Location'),
+        ),
       ),
-      icon: const Icon(Icons.location_on_rounded, size: 18),
-      label: const Text('View Location'),
     );
   }
 }

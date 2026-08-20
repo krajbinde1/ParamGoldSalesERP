@@ -14,7 +14,8 @@ class PermissionService {
 
   bool get canApproveOrders => has('orders_approve');
   bool get canRejectOrders => has('orders_reject');
-  bool get canDispatchOrders => has('orders_dispatch');
+  bool get canDispatchOrders =>
+      has('orders_dispatch') || role.isProductionSupervisor;
   bool get canApproveTaDa => has('ta_da_approve');
   bool get canRejectTaDa => has('ta_da_reject');
   bool get canViewManagerDashboard => has('manager_dashboard');

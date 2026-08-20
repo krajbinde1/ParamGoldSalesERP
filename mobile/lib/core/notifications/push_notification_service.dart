@@ -505,9 +505,9 @@ class PushNotificationService {
               ],
             ]
           : <AndroidNotificationAction>[
-              const AndroidNotificationAction(
-                'view_order',
-                'VIEW ORDER',
+              AndroidNotificationAction(
+                payload.type.startsWith('collection_') ? 'view' : 'view_order',
+                payload.type.startsWith('collection_') ? 'VIEW' : 'VIEW ORDER',
                 showsUserInterface: true,
               ),
             ],

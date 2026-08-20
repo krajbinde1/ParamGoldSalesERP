@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Actions\DealerApplications\DeleteDealerApplicationDocument;
 use App\Actions\DealerApplications\SaveDealerApplication;
 use App\Actions\DealerApplications\StoreDealerApplicationDocument;
 use App\Actions\DealerApplications\SubmitDealerApplication;
@@ -195,6 +196,26 @@ class EmployeeDealerApplicationController extends Controller
             'message' => $document->typeLabel().' uploaded.',
             'data' => $document->toApiArray(),
             'application' => $dealerApplication->toDetailArray(),
+        ]);
+    }
+
+    public function deleteDocument(
+        Request $request,
+        DealerApplication $dealerApplication,
+        DealerApplicationDocument $dealerApplicationDocument,
+        DeleteDealerApplicationDocument $delete,
+    ): JsonResponse {
+        $this->authorize('uploadDocument', $dealerApplication);
+
+        $application = $delete->execute(
+            $dealerApplication,
+            $dealerApplicationDocument,
+            $request->user(),
+        );
+
+        return response()->json([
+            'message' => 'Document removed.',
+            'data' => $application->toDetailArray(),
         ]);
     }
 

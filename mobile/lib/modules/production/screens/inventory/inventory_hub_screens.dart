@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../../../../core/design/app_colors.dart';
 import '../../../../core/design/app_spacing.dart';
+import '../../../../core/navigation/navigation_guard.dart';
 import '../../../../core/widgets/role_shell_widgets.dart';
 import '../../../auth/providers/auth_controller.dart';
 
@@ -17,7 +18,12 @@ class InventoryHomeScreen extends StatelessWidget {
     final p = auth.permissions;
 
     return Scaffold(
-      appBar: RoleAppBar(title: 'Inventory & Manufacturing', auth: auth),
+      appBar: RoleAppBar(
+        title: 'Inventory & Manufacturing',
+        auth: auth,
+        showBack: true,
+        onBack: () => smartBack(context),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.screenPadding),
         children: [
@@ -118,7 +124,12 @@ class MaterialMastersHubScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: RoleAppBar(title: 'Material Masters', auth: auth),
+      appBar: RoleAppBar(
+        title: 'Material Masters',
+        auth: auth,
+        showBack: true,
+        onBack: () => smartBack(context),
+      ),
       body: const Center(
         child: Padding(
           padding: EdgeInsets.all(AppSpacing.screenPadding),
@@ -141,7 +152,12 @@ class MaterialInwardHubScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: RoleAppBar(title: 'Material Inward', auth: auth),
+      appBar: RoleAppBar(
+        title: 'Material Inward',
+        auth: auth,
+        showBack: true,
+        onBack: () => smartBack(context),
+      ),
       body: const Center(
         child: Padding(
           padding: EdgeInsets.all(AppSpacing.screenPadding),
@@ -165,7 +181,12 @@ class ProductionModuleHubScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final p = auth.permissions;
     return Scaffold(
-      appBar: RoleAppBar(title: 'Production Batches', auth: auth),
+      appBar: RoleAppBar(
+        title: 'Production Batches',
+        auth: auth,
+        showBack: true,
+        onBack: () => smartBack(context),
+      ),
       body: ListView(
         padding: const EdgeInsets.all(AppSpacing.screenPadding),
         children: [

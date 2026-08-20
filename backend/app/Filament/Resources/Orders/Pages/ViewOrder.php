@@ -13,8 +13,15 @@ use Filament\Actions\Action;
 use Filament\Actions\EditAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
+use Filament\Resources\Pages\ViewRecord;
+use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Contracts\View\View;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\HtmlString;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Illuminate\Contracts\Support\Htmlable;
@@ -100,7 +107,7 @@ class ViewOrder extends ViewRecord
                 ->authorize(fn (): bool => Gate::forUser(auth()->user())->allows('sendForBill', $record))
                 ->modalHeading('Send for Bill')
                 ->modalSubmitActionLabel('Send for Bill')
-                ->form(SendForBillForm::schema())
+                ->form(fn (): array => SendForBillForm::schema($record))
                 ->action(function (array $data) use ($record): void {
                     $payload = SendForBillForm::resolvePayload($data);
 
@@ -111,6 +118,7 @@ class ViewOrder extends ViewRecord
                         transportFreight: $payload['transport_freight'],
                         transportRemark: $payload['transport_remark'],
                         vehicleId: $payload['vehicle']->id,
+                        transportChargeType: $payload['transport_charge_type'],
                     );
 
                     Notification::make()
@@ -123,6 +131,10 @@ class ViewOrder extends ViewRecord
                         'vehicle_id',
                         'vehicle_number',
                         'transport_amount',
+                        'transport_charge_type',
+                        'original_grand_total',
+                        'transport_adjustment',
+                        'grand_total',
                         'transport_remark',
                         'sent_for_bill_by',
                         'sent_for_bill_at',
@@ -143,6 +155,13 @@ class ViewOrder extends ViewRecord
                 ->visible(fn (): bool => Gate::forUser(auth()->user())->allows('bill', $record))
                 ->authorize(fn (): bool => Gate::forUser(auth()->user())->allows('bill', $record))
                 ->form([
+                    Placeholder::make('billing_transport_summary')
+                        ->hiddenLabel()
+                        ->content(fn (): HtmlString => new HtmlString(
+                            view('filament.resources.orders.partials.billing-transport-summary', [
+                                'record' => $record,
+                            ])->render()
+                        )),
                     FileUpload::make('bill')
                         ->label('Upload Bill')
                         ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])

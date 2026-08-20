@@ -118,13 +118,19 @@ class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
                       itemBuilder: (context, index) {
                         final dealer = filtered[index];
                         return ListTile(
-                          title: Text(dealer.name),
+                          title: Text(
+                            dealer.name,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                          ),
                           subtitle: Text(
                             [dealer.ownerName, dealer.mobile]
                                 .where(
                                   (part) => part != null && part.isNotEmpty,
                                 )
                                 .join(' • '),
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
                           ),
                           onTap: () => Navigator.pop(context, dealer),
                         );
@@ -235,6 +241,8 @@ class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
                     alignment: Alignment.centerLeft,
                     child: Text(
                       _selectedDealer?.name ?? 'Choose dealer',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodyLarge,
                     ),
                   ),
@@ -253,23 +261,42 @@ class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
                 ),
                 const SizedBox(height: AppSpacing.sm),
                 if (_photoPath == null)
-                  FilledButton.icon(
-                    onPressed: _submitting ? null : _capturePhoto,
-                    icon: const Icon(Icons.photo_camera_outlined),
-                    label: const Text('Take Photo'),
+                  SizedBox(
+                    width: double.infinity,
+                    child: FilledButton(
+                      onPressed: _submitting ? null : _capturePhoto,
+                      child: const Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.photo_camera_outlined),
+                          SizedBox(width: 8),
+                          Flexible(
+                            child: Text(
+                              'Take Photo',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
                   )
                 else ...[
                   ClipRRect(
                     borderRadius: BorderRadius.circular(12),
-                    child: Image.file(
-                      File(_photoPath!),
-                      height: 180,
-                      width: double.infinity,
-                      fit: BoxFit.cover,
+                    child: AspectRatio(
+                      aspectRatio: 16 / 9,
+                      child: Image.file(
+                        File(_photoPath!),
+                        width: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
                     ),
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  Row(
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 4,
                     children: [
                       TextButton(
                         onPressed: _submitting ? null : _replacePhoto,
@@ -306,7 +333,13 @@ class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
                         child: CircularProgressIndicator(strokeWidth: 2),
                       ),
                       SizedBox(width: 12),
-                      Text('Capturing GPS location...'),
+                      Expanded(
+                        child: Text(
+                          'Capturing GPS location...',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
                     ],
                   )
                 else if (_location != null) ...[
@@ -317,10 +350,14 @@ class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
                         color: AppColors.approvedFg,
                       ),
                       const SizedBox(width: 8),
-                      Text(
-                        'Location Captured',
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          color: AppColors.approvedFg,
+                      Expanded(
+                        child: Text(
+                          'Location Captured',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: AppColors.approvedFg,
+                          ),
                         ),
                       ),
                     ],
@@ -359,7 +396,6 @@ class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
           const SizedBox(height: AppSpacing.lg),
           SizedBox(
             width: double.infinity,
-            height: 52,
             child: FilledButton(
               onPressed: _canSubmit ? _submit : null,
               child: _submitting
@@ -368,7 +404,11 @@ class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
                       width: 20,
                       child: CircularProgressIndicator(strokeWidth: 2),
                     )
-                  : const Text('Submit Dealer Visit'),
+                  : const Text(
+                      'Submit Dealer Visit',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
             ),
           ),
         ],

@@ -145,6 +145,7 @@ it('hides pending orders from production supervisor and blocks dispatch until bi
         actor: $production->user,
         vehicleNumber: 'MH14CD5678',
         transportFreight: 150,
+        transportChargeType: 'transport_extra',
     );
 
     expect($order->fresh()->status)->toBe(Order::STATUS_PENDING_FOR_BILLING);

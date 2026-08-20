@@ -265,6 +265,41 @@ it('warns about possible duplicates without blocking submit', function () {
         ->assertJsonPath('data.status', DealerApplication::STATUS_PENDING_MANAGER);
 });
 
+it('requires shop gps location before submit', function () {
+    $employee = dealerAppEmployee();
+    $this->actingAs($employee->user, 'sanctum');
+
+    $id = $this->postJson('/api/employee/dealer-applications', dealerAppPayload([
+        'latitude' => null,
+        'longitude' => null,
+    ]))->json('data.id');
+    attachAllDealerDocuments(DealerApplication::query()->findOrFail($id), $employee->user);
+
+    $this->postJson('/api/employee/dealer-applications/'.$id.'/submit')
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['location']);
+});
+
+it('lets an employee remove an uploaded supporting document from a draft', function () {
+    Storage::fake('local');
+
+    $employee = dealerAppEmployee();
+    $this->actingAs($employee->user, 'sanctum');
+
+    $id = $this->postJson('/api/employee/dealer-applications', dealerAppPayload())->json('data.id');
+    $upload = $this->post('/api/employee/dealer-applications/'.$id.'/documents', [
+        'document_type' => DealerApplicationDocument::TYPE_OWNER_AADHAAR,
+        'file' => UploadedFile::fake()->image('aadhaar.jpg'),
+    ], ['Accept' => 'application/json'])->assertOk();
+
+    $documentId = $upload->json('data.id');
+    $this->deleteJson('/api/employee/dealer-applications/'.$id.'/documents/'.$documentId)
+        ->assertOk()
+        ->assertJsonPath('data.documents.5.uploaded', false);
+
+    expect(DealerApplicationDocument::query()->whereKey($documentId)->exists())->toBeFalse();
+});
+
 it('requires a remark when manager rejects or sends back', function () {
     $manager = dealerAppManager();
     $employee = dealerAppEmployee(['reporting_manager_id' => $manager->id]);

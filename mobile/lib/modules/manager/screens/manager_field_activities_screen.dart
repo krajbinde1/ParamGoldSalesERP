@@ -15,6 +15,7 @@ import '../../auth/providers/auth_controller.dart';
 import '../../field_activities/models/field_activity_detail.dart';
 import '../../field_activities/widgets/searchable_picker.dart';
 import '../api/manager_api.dart';
+import '../widgets/manager_scrollable_filters.dart';
 
 class ManagerFieldActivitiesScreen extends StatefulWidget {
   const ManagerFieldActivitiesScreen({super.key, required this.auth});
@@ -37,6 +38,7 @@ class _ManagerFieldActivitiesScreenState
   List<SearchablePickerOption> _products = [];
 
   int? _employeeId;
+  String _employeeLabel = '';
   int? _districtId;
   String _districtLabel = '';
   int? _talukaId;
@@ -45,6 +47,7 @@ class _ManagerFieldActivitiesScreenState
   String _cropLabel = '';
   int? _productId;
   String _productLabel = '';
+  String _period = 'month';
   DateTime? _dateFrom;
   DateTime? _dateTo;
 
@@ -61,11 +64,33 @@ class _ManagerFieldActivitiesScreenState
     _api = ManagerApi(
       ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
     );
-    final now = DateTime.now();
-    _dateFrom = DateTime(now.year, now.month, 1);
-    _dateTo = now;
+    _applyPeriodDates('month');
     _loadFilters();
     _reload();
+  }
+
+  DateTime _dateOnly(DateTime value) =>
+      DateTime(value.year, value.month, value.day);
+
+  DateTime _weekStart(DateTime now) {
+    final today = _dateOnly(now);
+    return today.subtract(Duration(days: today.weekday - DateTime.monday));
+  }
+
+  void _applyPeriodDates(String period) {
+    final now = DateTime.now();
+    final today = _dateOnly(now);
+    _period = period;
+    if (period == 'today') {
+      _dateFrom = today;
+      _dateTo = today;
+    } else if (period == 'week') {
+      _dateFrom = _weekStart(now);
+      _dateTo = today;
+    } else if (period == 'month') {
+      _dateFrom = DateTime(now.year, now.month, 1);
+      _dateTo = today;
+    }
   }
 
   Future<void> _loadFilters() async {
@@ -163,6 +188,25 @@ class _ManagerFieldActivitiesScreenState
     }
   }
 
+  Future<void> _setPeriod(String period) async {
+    if (period == 'custom') {
+      await _pickDateRange();
+      return;
+    }
+    setState(() => _applyPeriodDates(period));
+    _reload();
+  }
+
+  String get _customChipLabel {
+    if (_period == 'custom' && _dateFrom != null && _dateTo != null) {
+      return 'Custom: ${DateFormat('d MMM').format(_dateFrom!)} – ${DateFormat('d MMM').format(_dateTo!)}';
+    }
+    return 'Custom';
+  }
+
+  String _valueChipLabel(String label, String value) =>
+      value.trim().isEmpty ? label : '$label: $value';
+
   Future<void> _pickDateRange() async {
     final from = await showDatePicker(
       context: context,
@@ -179,8 +223,33 @@ class _ManagerFieldActivitiesScreenState
     );
     if (!mounted || to == null) return;
     setState(() {
+      _period = 'custom';
       _dateFrom = from;
       _dateTo = to;
+    });
+    _reload();
+  }
+
+  Future<void> _pickEmployee() async {
+    final options = _employees
+        .map(
+          (employee) => SearchablePickerOption(
+            id: int.tryParse('${employee['employee_id']}') ?? 0,
+            label: employee['employee_name']?.toString() ?? '-',
+          ),
+        )
+        .where((option) => option.id > 0)
+        .toList();
+    final selected = await showSearchablePicker(
+      context: context,
+      title: 'Employee',
+      options: options,
+      selectedId: _employeeId,
+    );
+    if (selected == null || !mounted) return;
+    setState(() {
+      _employeeId = selected.id;
+      _employeeLabel = selected.label;
     });
     _reload();
   }
@@ -219,7 +288,12 @@ class _ManagerFieldActivitiesScreenState
   }
 
   Future<void> _pickTaluka() async {
-    if (_districtId == null) return;
+    if (_districtId == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Select a district first.')),
+      );
+      return;
+    }
     final selected = await showSearchablePicker(
       context: context,
       title: 'Taluka',
@@ -264,21 +338,6 @@ class _ManagerFieldActivitiesScreenState
     _reload();
   }
 
-  Widget _filterChip({
-    required String label,
-    required VoidCallback onTap,
-    VoidCallback? onClear,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 8, bottom: 8),
-      child: InputChip(
-        label: Text(label),
-        onPressed: onTap,
-        onDeleted: onClear,
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -319,45 +378,30 @@ class _ManagerFieldActivitiesScreenState
                   style: Theme.of(context).textTheme.titleMedium,
                 ),
                 const SizedBox(height: AppSpacing.sm),
-                InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'Employee',
-                    border: OutlineInputBorder(),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<int?>(
-                      value: _employeeId,
-                      isExpanded: true,
-                      items: [
-                        const DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('All employees'),
-                        ),
-                        ..._employees.map(
-                          (employee) => DropdownMenuItem<int?>(
-                            value: int.tryParse('${employee['employee_id']}'),
-                            child: Text(
-                              employee['employee_name']?.toString() ?? '-',
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setState(() => _employeeId = value);
-                        _reload();
-                      },
-                    ),
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                Wrap(
+                ManagerScrollableFilters(
                   children: [
-                    _filterChip(
-                      label: _districtLabel.isEmpty
-                          ? 'District'
-                          : _districtLabel,
-                      onTap: _pickDistrict,
+                    for (final entry in const [
+                      ('today', 'Today'),
+                      ('week', 'This Week'),
+                      ('month', 'This Month'),
+                    ])
+                      ManagerFilterChip(
+                        label: entry.$2,
+                        selected: _period == entry.$1,
+                        onPressed: () {
+                          if (_period == entry.$1) return;
+                          _setPeriod(entry.$1);
+                        },
+                      ),
+                    ManagerFilterChip(
+                      label: _customChipLabel,
+                      selected: _period == 'custom',
+                      onPressed: () => _setPeriod('custom'),
+                    ),
+                    ManagerFilterChip(
+                      label: _valueChipLabel('District', _districtLabel),
+                      selected: _districtId != null,
+                      onPressed: _pickDistrict,
                       onClear: _districtId == null
                           ? null
                           : () {
@@ -371,9 +415,10 @@ class _ManagerFieldActivitiesScreenState
                               _reload();
                             },
                     ),
-                    _filterChip(
-                      label: _talukaLabel.isEmpty ? 'Taluka' : _talukaLabel,
-                      onTap: _pickTaluka,
+                    ManagerFilterChip(
+                      label: _valueChipLabel('Taluka', _talukaLabel),
+                      selected: _talukaId != null,
+                      onPressed: _pickTaluka,
                       onClear: _talukaId == null
                           ? null
                           : () {
@@ -384,9 +429,10 @@ class _ManagerFieldActivitiesScreenState
                               _reload();
                             },
                     ),
-                    _filterChip(
-                      label: _cropLabel.isEmpty ? 'Crop' : _cropLabel,
-                      onTap: _pickCrop,
+                    ManagerFilterChip(
+                      label: _valueChipLabel('Crop', _cropLabel),
+                      selected: _cropId != null,
+                      onPressed: _pickCrop,
                       onClear: _cropId == null
                           ? null
                           : () {
@@ -397,11 +443,10 @@ class _ManagerFieldActivitiesScreenState
                               _reload();
                             },
                     ),
-                    _filterChip(
-                      label: _productLabel.isEmpty
-                          ? 'Product'
-                          : _productLabel,
-                      onTap: _pickProduct,
+                    ManagerFilterChip(
+                      label: _valueChipLabel('Product', _productLabel),
+                      selected: _productId != null,
+                      onPressed: _pickProduct,
                       onClear: _productId == null
                           ? null
                           : () {
@@ -412,17 +457,16 @@ class _ManagerFieldActivitiesScreenState
                               _reload();
                             },
                     ),
-                    _filterChip(
-                      label: _dateFrom != null && _dateTo != null
-                          ? '${DateFormat('d MMM').format(_dateFrom!)} – ${DateFormat('d MMM').format(_dateTo!)}'
-                          : 'Date',
-                      onTap: _pickDateRange,
-                      onClear: _dateFrom == null
+                    ManagerFilterChip(
+                      label: _valueChipLabel('Employee', _employeeLabel),
+                      selected: _employeeId != null,
+                      onPressed: _pickEmployee,
+                      onClear: _employeeId == null
                           ? null
                           : () {
                               setState(() {
-                                _dateFrom = null;
-                                _dateTo = null;
+                                _employeeId = null;
+                                _employeeLabel = '';
                               });
                               _reload();
                             },

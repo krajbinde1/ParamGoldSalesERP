@@ -17,8 +17,16 @@ use Filament\Actions\RestoreBulkAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
+use Filament\Notifications\Notification;
+use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\SelectFilter;
+use Filament\Tables\Filters\TrashedFilter;
+use Filament\Tables\Table;
+use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\HtmlString;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -47,15 +55,17 @@ class OrdersTable
 
         return $table
             ->defaultSort('created_at', 'desc')
+            ->recordActionsColumnLabel('Action')
             ->columns([
                 TextColumn::make('order_no')
                     ->label('Order No')
                     ->searchable()
                     ->sortable()
-                    ->formatStateUsing(function (string $state, Order $record) use ($isProductionSupervisor): string {
-                        return $isProductionSupervisor ? $record->shortOrderNo() : $state;
-                    }),
-                TextColumn::make('order_date')->date()->sortable(),
+                    ->formatStateUsing(fn (string $state, Order $record): string => $record->shortOrderNo()),
+                TextColumn::make('order_date')
+                    ->date()
+                    ->sortable()
+                    ->visible(fn () => $isProductionSupervisor),
                 TextColumn::make('created_at')
                     ->label('Created')
                     ->dateTime()
@@ -63,7 +73,9 @@ class OrdersTable
                     ->visible(fn () => ! $isProductionSupervisor),
                 TextColumn::make('dealer.firm_name')->label('Dealer')->searchable()->sortable(),
                 TextColumn::make('salesEmployee.full_name')->label('Sales Employee')->placeholder('-')->searchable(),
-                TextColumn::make('payment_type')->badge(),
+                TextColumn::make('payment_type')
+                    ->badge()
+                    ->visible(fn () => $isProductionSupervisor),
                 TextColumn::make('status')
                     ->badge()
                     ->formatStateUsing(fn (string $state, Order $record): string => $record->displayStatusLabel())
@@ -81,7 +93,7 @@ class OrdersTable
                     ->toggleable()
                     ->visible(fn () => $isProductionSupervisor),
                 TextColumn::make('grand_total')
-                    ->label('Grand Total')
+                    ->label('Final Grand Total')
                     ->money('INR')
                     ->sortable()
                     ->visible(fn () => ! $isProductionSupervisor),
@@ -136,7 +148,7 @@ class OrdersTable
                     ->authorize(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('sendForBill', $record))
                     ->modalHeading('Send for Bill')
                     ->modalSubmitActionLabel('Send for Bill')
-                    ->form(SendForBillForm::schema())
+                    ->form(fn (Order $record): array => SendForBillForm::schema($record))
                     ->action(function (Order $record, array $data): void {
                         $payload = SendForBillForm::resolvePayload($data);
 
@@ -147,6 +159,7 @@ class OrdersTable
                             transportFreight: $payload['transport_freight'],
                             transportRemark: $payload['transport_remark'],
                             vehicleId: $payload['vehicle']->id,
+                            transportChargeType: $payload['transport_charge_type'],
                         );
 
                         Notification::make()
@@ -168,7 +181,14 @@ class OrdersTable
                     ->color('warning')
                     ->visible(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('bill', $record))
                     ->authorize(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('bill', $record))
-                    ->form([
+                    ->form(fn (Order $record): array => [
+                        Placeholder::make('billing_transport_summary')
+                            ->hiddenLabel()
+                            ->content(fn (): HtmlString => new HtmlString(
+                                view('filament.resources.orders.partials.billing-transport-summary', [
+                                    'record' => $record,
+                                ])->render()
+                            )),
                         FileUpload::make('bill')
                             ->label('Upload Bill')
                             ->acceptedFileTypes(['application/pdf', 'image/jpeg', 'image/png', 'image/webp'])

@@ -106,9 +106,8 @@ class _ManagerEmployeePerformanceScreenState
 
   @override
   Widget build(BuildContext context) {
-    final currency = NumberFormat.currency(locale: 'en_IN', symbol: '₹');
-
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: RoleAppBar(title: 'Employee Performance', auth: widget.auth),
       body: Column(
         children: [
@@ -216,7 +215,8 @@ class _ManagerEmployeePerformanceScreenState
                     itemCount: employees.length,
                     itemBuilder: (context, index) {
                       final employee = employees[index];
-                      return PgCard(
+                      return _EmployeePerformanceCard(
+                        employee: employee,
                         onTap: () async {
                           await context.push(
                             '/manager/employees/${employee['employee_id']}',
@@ -229,74 +229,6 @@ class _ManagerEmployeePerformanceScreenState
                           if (!mounted) return;
                           _refresh();
                         },
-                        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-                        child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  employee['employee_name']?.toString() ?? '-',
-                                  style: Theme.of(context).textTheme.titleMedium,
-                                ),
-                                const SizedBox(height: 8),
-                                _MetricRow(
-                                  'Sales Target',
-                                  currency.format(
-                                    _toDouble(employee['sales_target']),
-                                  ),
-                                ),
-                                _MetricRow(
-                                  'Sales Achieved',
-                                  currency.format(
-                                    _toDouble(employee['sales_achieved']),
-                                  ),
-                                ),
-                                _MetricRow(
-                                  'Sales %',
-                                  '${employee['sales_percentage'] ?? 0}%',
-                                ),
-                                const SizedBox(height: 4),
-                                _MetricRow(
-                                  'Collection Target',
-                                  currency.format(
-                                    _toDouble(employee['collection_target']),
-                                  ),
-                                ),
-                                _MetricRow(
-                                  'Collection Achieved',
-                                  currency.format(
-                                    _toDouble(employee['collection_achieved']),
-                                  ),
-                                ),
-                                _MetricRow(
-                                  'Collection %',
-                                  '${employee['collection_percentage'] ?? 0}%',
-                                ),
-                                const SizedBox(height: 4),
-                                _MetricRow(
-                                  'Field Activity Target',
-                                  '${_toDouble(employee['field_activity_target']).round()}',
-                                ),
-                                _MetricRow(
-                                  'Field Activity Achieved',
-                                  '${_toDouble(employee['field_activity_achieved']).round()}',
-                                ),
-                                _MetricRow(
-                                  'Field Activity Remaining',
-                                  '${_toDouble(employee['field_activity_remaining']).round()}',
-                                ),
-                                _MetricRow(
-                                  'Field Activity %',
-                                  '${employee['field_activity_percentage'] ?? 0}%',
-                                ),
-                                const SizedBox(height: 4),
-                                _MetricRow(
-                                  'Total Orders',
-                                  currency.format(
-                                    _toDouble(employee['total_order_amount']),
-                                  ),
-                                ),
-                              ],
-                            ),
                       );
                     },
                   ),
@@ -308,9 +240,314 @@ class _ManagerEmployeePerformanceScreenState
       ),
     );
   }
+}
 
-  double _toDouble(Object? value) =>
-      double.tryParse('$value') ?? 0;
+class _EmployeePerformanceCard extends StatelessWidget {
+  const _EmployeePerformanceCard({
+    required this.employee,
+    required this.onTap,
+  });
+
+  final Map<String, dynamic> employee;
+  final VoidCallback onTap;
+
+  static final _ordersCurrency = NumberFormat.currency(
+    locale: 'en_IN',
+    symbol: '₹',
+    decimalDigits: 0,
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final name = employee['employee_name']?.toString() ?? '-';
+    final code = employee['employee_code']?.toString() ?? '-';
+    final salesTarget = _num(employee['sales_target']);
+    final salesAchieved = _num(employee['sales_achieved']);
+    final salesPct = _num(employee['sales_percentage']);
+    final collectionTarget = _num(employee['collection_target']);
+    final collectionAchieved = _num(employee['collection_achieved']);
+    final collectionPct = _num(employee['collection_percentage']);
+    final fieldTarget = _num(employee['field_activity_target']);
+    final fieldAchieved = _num(employee['field_activity_achieved']);
+    final fieldRemaining = _num(employee['field_activity_remaining']);
+    final fieldPct = _num(employee['field_activity_percentage']);
+    final overallPct = (salesPct + collectionPct + fieldPct) / 3;
+
+    return PgCard(
+      onTap: onTap,
+      margin: const EdgeInsets.only(bottom: AppSpacing.md),
+      padding: const EdgeInsets.fromLTRB(14, 14, 14, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textPrimary,
+                          ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      'Employee Code: $code',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 10),
+              _OverallBadge(percentage: overallPct),
+            ],
+          ),
+          const SizedBox(height: 14),
+          _PerformanceSection(
+            icon: Icons.trending_up_rounded,
+            title: 'Sales',
+            ratioLabel:
+                '${_compactInr(salesAchieved)} / ${_compactInr(salesTarget)}',
+            percentLabel: _percentLabel(salesPct),
+            progress: _barValue(salesPct),
+            color: AppColors.primary,
+          ),
+          const SizedBox(height: 12),
+          _PerformanceSection(
+            icon: Icons.payments_rounded,
+            title: 'Collection',
+            ratioLabel:
+                '${_compactInr(collectionAchieved)} / ${_compactInr(collectionTarget)}',
+            percentLabel: _percentLabel(collectionPct),
+            progress: _barValue(collectionPct),
+            color: AppColors.secondary,
+          ),
+          const SizedBox(height: 12),
+          _PerformanceSection(
+            icon: Icons.agriculture_rounded,
+            title: 'Field Activity',
+            ratioLabel:
+                '${fieldAchieved.round()} / ${fieldTarget.round()}',
+            percentLabel: _percentLabel(fieldPct),
+            progress: _barValue(fieldPct),
+            color: AppColors.info,
+            footnote: '${fieldRemaining.round()} Remaining',
+          ),
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            decoration: BoxDecoration(
+              color: AppColors.primary.withValues(alpha: 0.06),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    'Total Orders',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          color: AppColors.textPrimary,
+                        ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    _ordersCurrency.format(_num(employee['total_order_amount'])),
+                    maxLines: 1,
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          color: AppColors.primary,
+                        ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  static double _num(Object? value) => double.tryParse('$value') ?? 0;
+
+  static double _barValue(double percentage) =>
+      (percentage / 100).clamp(0.0, 1.0);
+
+  static String _percentLabel(double value) {
+    if (value == value.roundToDouble()) return '${value.toInt()}%';
+    return '${value.toStringAsFixed(1)}%';
+  }
+
+  static String _compactInr(double value) {
+    if (value == 0) return '₹0';
+    final abs = value.abs();
+    final sign = value < 0 ? '-' : '';
+    if (abs >= 10000000) {
+      return '$sign₹${(abs / 10000000).toStringAsFixed(2)}Cr';
+    }
+    if (abs >= 100000) {
+      return '$sign₹${(abs / 100000).toStringAsFixed(2)}L';
+    }
+    return NumberFormat.currency(
+      locale: 'en_IN',
+      symbol: '₹',
+      decimalDigits: 0,
+    ).format(value);
+  }
+}
+
+class _OverallBadge extends StatelessWidget {
+  const _OverallBadge({required this.percentage});
+
+  final double percentage;
+
+  @override
+  Widget build(BuildContext context) {
+    final label = percentage == percentage.roundToDouble()
+        ? '${percentage.toInt()}%'
+        : '${percentage.toStringAsFixed(0)}%';
+
+    return Container(
+      width: 48,
+      height: 48,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: AppColors.primary.withValues(alpha: 0.1),
+        shape: BoxShape.circle,
+      ),
+      child: FittedBox(
+        fit: BoxFit.scaleDown,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 6),
+          child: Text(
+            label,
+            maxLines: 1,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: AppColors.primary,
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PerformanceSection extends StatelessWidget {
+  const _PerformanceSection({
+    required this.icon,
+    required this.title,
+    required this.ratioLabel,
+    required this.percentLabel,
+    required this.progress,
+    required this.color,
+    this.footnote,
+  });
+
+  final IconData icon;
+  final String title;
+  final String ratioLabel;
+  final String percentLabel;
+  final double progress;
+  final Color color;
+  final String? footnote;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            Icon(icon, size: 16, color: color),
+            const SizedBox(width: 6),
+            Expanded(
+              child: Text(
+                title.toUpperCase(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.6,
+                      color: AppColors.textSecondary,
+                    ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Row(
+          children: [
+            Expanded(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  ratioLabel,
+                  maxLines: 1,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                        color: AppColors.textPrimary,
+                      ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Text(
+              percentLabel,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: color,
+                  ),
+            ),
+          ],
+        ),
+        if (footnote != null) ...[
+          const SizedBox(height: 2),
+          Text(
+            footnote!,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                ),
+          ),
+        ],
+        const SizedBox(height: 6),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(999),
+          child: LinearProgressIndicator(
+            value: progress,
+            minHeight: 6,
+            backgroundColor: const Color(0xFFE2E8F0),
+            color: color,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 /// Responsive period pills for Employee Performance (UI only).
@@ -807,26 +1044,4 @@ class _OrderSummaryCard extends StatelessWidget {
   }
 
   double _toDouble(Object? value) => double.tryParse('$value') ?? 0;
-}
-
-class _MetricRow extends StatelessWidget {
-  const _MetricRow(this.label, this.value);
-
-  final String label;
-  final String value;
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(label, style: Theme.of(context).textTheme.bodySmall),
-          ),
-          Text(value, style: Theme.of(context).textTheme.bodySmall),
-        ],
-      ),
-    );
-  }
 }

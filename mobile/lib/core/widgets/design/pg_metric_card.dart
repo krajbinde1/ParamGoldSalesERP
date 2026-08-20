@@ -12,6 +12,7 @@ class PgMetricCard extends StatelessWidget {
     required this.gradient,
     this.subtitle,
     this.onTap,
+    this.expand = true,
   });
 
   final String title;
@@ -21,6 +22,8 @@ class PgMetricCard extends StatelessWidget {
   final List<Color> gradient;
   final String? subtitle;
   final VoidCallback? onTap;
+  /// When false, the card sizes to its content instead of filling a grid cell.
+  final bool expand;
 
   @override
   Widget build(BuildContext context) => PgCard(
@@ -28,6 +31,7 @@ class PgMetricCard extends StatelessWidget {
     padding: const EdgeInsets.all(AppSpacing.md),
     child: Column(
       crossAxisAlignment: CrossAxisAlignment.start,
+      mainAxisSize: expand ? MainAxisSize.max : MainAxisSize.min,
       children: [
         Container(
           width: 40,
@@ -52,12 +56,13 @@ class PgMetricCard extends StatelessWidget {
             child: Center(child: icon),
           ),
         ),
-        const Spacer(),
+        if (expand) const Spacer() else const SizedBox(height: 8),
         FittedBox(
           fit: BoxFit.scaleDown,
           alignment: Alignment.centerLeft,
           child: Text(
             value,
+            maxLines: 1,
             style: Theme.of(context).textTheme.titleLarge?.copyWith(
               fontWeight: FontWeight.w800,
               color: AppColors.textPrimary,
@@ -77,6 +82,8 @@ class PgMetricCard extends StatelessWidget {
           const SizedBox(height: 2),
           Text(
             subtitle!,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ],

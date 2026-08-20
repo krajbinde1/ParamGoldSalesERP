@@ -75,9 +75,59 @@ class OrderInfolist
                                 return $record->salesEmployee?->reportingManager?->full_name ?: '—';
                             }),
                         TextEntry::make('grand_total')
-                            ->label('Grand Total')
+                            ->label(fn (Order $record): string => \App\Services\Orders\OrderBillingTransportCalculator::hasSavedAdjustment($record)
+                                ? 'Final Grand Total'
+                                : 'Grand Total')
                             ->money('INR')
                             ->weight(FontWeight::Bold),
+                    ]),
+
+                Section::make('Transport & Billing Total')
+                    ->columns([
+                        'default' => 1,
+                        'md' => 2,
+                        'xl' => 3,
+                    ])
+                    ->visible(fn (Order $record): bool => filled($record->vehicle_number)
+                        || filled($record->transport_charge_type)
+                        || $record->transport_amount !== null
+                        || $record->original_grand_total !== null)
+                    ->schema([
+                        TextEntry::make('vehicle_number')
+                            ->label('Vehicle No')
+                            ->placeholder('—'),
+                        TextEntry::make('transport_charge_type')
+                            ->label('Transport Charge Type')
+                            ->placeholder('—')
+                            ->formatStateUsing(function (?string $state): string {
+                                return \App\Enums\TransportChargeType::tryFrom((string) $state)?->label() ?: '—';
+                            }),
+                        TextEntry::make('transport_amount')
+                            ->label('Transport Charges')
+                            ->money('INR')
+                            ->placeholder('—'),
+                        TextEntry::make('original_grand_total')
+                            ->label('Original Order Total')
+                            ->money('INR')
+                            ->placeholder('—')
+                            ->visible(fn (Order $record): bool => $record->original_grand_total !== null),
+                        TextEntry::make('transport_adjustment')
+                            ->label('Adjustment')
+                            ->formatStateUsing(function ($state, Order $record): string {
+                                if ($record->transport_adjustment === null) {
+                                    return '—';
+                                }
+
+                                return \App\Services\Orders\OrderBillingTransportCalculator::formatAdjustment(
+                                    (float) $record->transport_adjustment,
+                                );
+                            })
+                            ->visible(fn (Order $record): bool => $record->transport_adjustment !== null),
+                        TextEntry::make('grand_total')
+                            ->label('Final Grand Total')
+                            ->money('INR')
+                            ->weight(FontWeight::Bold)
+                            ->visible(fn (Order $record): bool => \App\Services\Orders\OrderBillingTransportCalculator::hasSavedAdjustment($record)),
                     ]),
 
                 Section::make('Order Items')

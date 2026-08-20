@@ -2,8 +2,10 @@
 
 use App\Http\Controllers\Api\AdminEmployeeRouteController;
 use App\Http\Controllers\Api\AppNotificationController;
+use App\Http\Controllers\Api\AppVersionController;
 use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\DeviceTokenController;
+use App\Http\Controllers\Api\Director\DirectorCollectionController;
 use App\Http\Controllers\Api\Director\DirectorDashboardController;
 use App\Http\Controllers\Api\Director\DirectorOrderController;
 use App\Http\Controllers\Api\Director\DirectorPaymentRequestController;
@@ -53,6 +55,8 @@ use App\Http\Controllers\Api\Production\StockReportApiController;
 use App\Http\Controllers\Api\Production\VehicleApiController;
 use Illuminate\Support\Facades\Route;
 
+Route::get('app-version', AppVersionController::class);
+
 Route::post('login', [EmployeeAuthController::class, 'login']);
 
 Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
@@ -80,6 +84,7 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::put('employee/dealer-applications/{dealerApplication}', [EmployeeDealerApplicationController::class, 'update']);
         Route::post('employee/dealer-applications/{dealerApplication}/submit', [EmployeeDealerApplicationController::class, 'submit']);
         Route::post('employee/dealer-applications/{dealerApplication}/documents', [EmployeeDealerApplicationController::class, 'uploadDocument']);
+        Route::delete('employee/dealer-applications/{dealerApplication}/documents/{dealerApplicationDocument}', [EmployeeDealerApplicationController::class, 'deleteDocument']);
         Route::get('employee/orders', [EmployeeOrderController::class, 'index']);
         Route::post('employee/orders', [EmployeeOrderController::class, 'store']);
         Route::get('employee/orders/{order}', [EmployeeOrderController::class, 'show']);
@@ -229,6 +234,7 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::get('dashboard', DirectorDashboardController::class);
         Route::get('orders', [DirectorOrderController::class, 'index']);
         Route::get('orders/{order}', [DirectorOrderController::class, 'show']);
+        Route::get('collections/{collection}', [DirectorCollectionController::class, 'show']);
         Route::get('ta-da-claims', [DirectorTaDaClaimController::class, 'index']);
         Route::get('ta-da-claims/{taDaClaim}', [DirectorTaDaClaimController::class, 'show']);
         Route::get('route-tracking', [DirectorRouteTrackingController::class, 'index']);

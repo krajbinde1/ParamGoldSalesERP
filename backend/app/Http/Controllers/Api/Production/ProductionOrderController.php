@@ -32,9 +32,17 @@ class ProductionOrderController extends Controller
         $filterable = [...$workflowStatuses, Order::STATUS_REJECTED];
 
         // Map UI / legacy filter aliases → canonical DB statuses.
-        $status = $request->string('status')->toString();
+        $status = strtolower($request->string('status')->toString());
         if ($status === 'sent_for_bill') {
             $status = Order::STATUS_PENDING_FOR_BILLING;
+        }
+        if (in_array($status, [
+            'billed',
+            'billing_completed',
+            'pending_dispatch',
+            'bill_done',
+        ], true)) {
+            $status = Order::STATUS_BILLED;
         }
         if (in_array($status, [
             'approved_by_manager',
@@ -58,6 +66,9 @@ class ProductionOrderController extends Controller
                     $q->where('status', $status);
                     if ($status === Order::STATUS_APPROVED) {
                         $q->orderByDesc('approved_at');
+                    }
+                    if ($status === Order::STATUS_BILLED) {
+                        $q->orderByDesc('billed_at');
                     }
                     if ($status === Order::STATUS_DISPATCHED) {
                         $q->orderByDesc('dispatched_at');
@@ -98,9 +109,21 @@ class ProductionOrderController extends Controller
                 'grand_total' => (float) $order->grand_total,
                 'vehicle_id' => $order->vehicle_id,
                 'vehicle_number' => $order->vehicle_number,
+                'vehicle_no' => $order->vehicle_number,
+                'transport_charge_type' => $order->transport_charge_type,
+                'transport_charge_type_label' => filled($order->transport_charge_type)
+                    ? \App\Enums\TransportChargeType::tryFrom((string) $order->transport_charge_type)?->label()
+                    : null,
                 'transport_amount' => $order->transport_amount !== null
                     ? (float) $order->transport_amount
                     : null,
+                'original_grand_total' => $order->original_grand_total !== null
+                    ? (float) $order->original_grand_total
+                    : null,
+                'transport_adjustment' => $order->transport_adjustment !== null
+                    ? (float) $order->transport_adjustment
+                    : null,
+                'final_grand_total' => \App\Services\Orders\OrderBillingTransportCalculator::finalGrandTotal($order),
                 'bill_number' => $order->bill_number,
                 'bill_date' => $order->bill_date?->toDateString(),
                 'rejected_at' => $order->rejected_at?->toDateTimeString(),
@@ -134,12 +157,17 @@ class ProductionOrderController extends Controller
         $validated = $request->validate([
             'vehicle_id' => ['nullable', 'integer', 'exists:vehicles,id'],
             'vehicle_number' => ['nullable', 'string', 'max:50', 'required_without:vehicle_id'],
+            'transport_charge_type' => ['required', 'in:company_transport,transport_extra'],
             'transport_freight' => ['required', 'numeric', 'min:0'],
             'transport_amount' => ['nullable', 'numeric', 'min:0'],
+            'transport_charges' => ['nullable', 'numeric', 'min:0'],
             'transport_remark' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $freight = (float) ($validated['transport_freight'] ?? $validated['transport_amount'] ?? 0);
+        $freight = (float) ($validated['transport_freight']
+            ?? $validated['transport_charges']
+            ?? $validated['transport_amount']
+            ?? 0);
 
         $result = app(SendOrderForBilling::class)->execute(
             order: $order,
@@ -148,6 +176,7 @@ class ProductionOrderController extends Controller
             transportFreight: $freight,
             transportRemark: $validated['transport_remark'] ?? null,
             vehicleId: isset($validated['vehicle_id']) ? (int) $validated['vehicle_id'] : null,
+            transportChargeType: $validated['transport_charge_type'],
         );
 
         return response()->json([
@@ -178,6 +207,8 @@ class ProductionOrderController extends Controller
 
     public function dispatch(Request $request, Order $order): JsonResponse
     {
+        $this->authorize('dispatch', $order);
+
         if ($request->filled('transport_type')) {
             $validated = $request->validate([
                 'transport_type' => ['required', 'in:company_transport,outside_transport'],

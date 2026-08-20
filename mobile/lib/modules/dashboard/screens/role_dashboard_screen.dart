@@ -12,15 +12,6 @@ class RoleDashboardScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // TEMP DEBUG — role → PS shell entry.
-    if (auth.userRole == UserRole.productionSupervisor) {
-      // ignore: avoid_print
-      print(
-        '[PS ApprovedOrders DEBUG] RoleDashboardScreen → '
-        'ProductionSupervisorMainScreen '
-        '(runtime path for Production Supervisor Orders)',
-      );
-    }
     return switch (auth.userRole) {
       UserRole.manager => ManagerDashboardScreen(auth: auth),
       UserRole.productionSupervisor =>

@@ -75,26 +75,24 @@ class _ManagerTeamAttendanceScreenState
   }
 
   String _formatTime(Object? value) {
-    if (value == null) return 'Not Punched In';
-    final parsed = DateTime.tryParse(value.toString());
-    if (parsed == null) return value.toString();
-    return DateFormat('hh:mm a').format(parsed.toLocal());
-  }
-
-  String _formatPunchOut(Object? value, {required bool hasAttendance}) {
-    if (!hasAttendance) return 'Not Punched In';
-    if (value == null) return 'Not Punched Out';
+    if (value == null) return '—';
     final parsed = DateTime.tryParse(value.toString());
     if (parsed == null) return value.toString();
     return DateFormat('hh:mm a').format(parsed.toLocal());
   }
 
   String _workingDuration(Map<String, dynamic> row) {
-    final hours = row['working_hours']?.toString();
-    if (hours != null && hours.trim().isNotEmpty) return hours;
     final minutes = int.tryParse('${row['total_working_minutes'] ?? ''}');
-    if (minutes == null) return '-';
-    return '${minutes ~/ 60}h ${minutes % 60}m';
+    if (minutes != null && minutes >= 0) {
+      return '${minutes ~/ 60}h ${minutes % 60}m';
+    }
+    final hours = row['working_hours']?.toString().trim() ?? '';
+    final match = RegExp(r'^(\d+):(\d+)$').firstMatch(hours);
+    if (match != null) {
+      return '${int.parse(match.group(1)!)}h ${int.parse(match.group(2)!)}m';
+    }
+    if (hours.isNotEmpty) return hours;
+    return '-';
   }
 
   String _distance(Map<String, dynamic> row) {
@@ -103,18 +101,50 @@ class _ManagerTeamAttendanceScreenState
     return '${value.toStringAsFixed(1)} km';
   }
 
+  String _badgeLabel(Map<String, dynamic> row, String displayStatus) {
+    if (displayStatus.toLowerCase().contains('completed')) {
+      final attendance = row['attendance_status']?.toString().trim() ?? '';
+      final lower = attendance.toLowerCase();
+      if (lower == 'present' || lower.contains('half') || lower == 'absent') {
+        return attendance;
+      }
+    }
+    return displayStatus;
+  }
+
   PgStatusTone _statusTone(String status) {
     final value = status.toLowerCase();
+    if (value.contains('working')) return PgStatusTone.info;
     if (value.contains('completed') || value == 'present') {
       return PgStatusTone.approved;
     }
-    if (value.contains('working')) return PgStatusTone.info;
+    if (value.contains('half')) return PgStatusTone.pending;
+    if (value.contains('absent')) return PgStatusTone.rejected;
     return PgStatusTone.pending;
+  }
+
+  bool _isWorking(String status) => status.toLowerCase().contains('working');
+
+  bool _isNotPunchedIn(String status, bool hasAttendance) {
+    if (!hasAttendance) return true;
+    return status.toLowerCase().contains('not punched');
+  }
+
+  int? _workingMinutes(Map<String, dynamic> row) {
+    final minutes = int.tryParse('${row['total_working_minutes'] ?? ''}');
+    if (minutes != null && minutes >= 0) return minutes;
+    final hours = row['working_hours']?.toString().trim() ?? '';
+    final match = RegExp(r'^(\d+):(\d+)$').firstMatch(hours);
+    if (match != null) {
+      return int.parse(match.group(1)!) * 60 + int.parse(match.group(2)!);
+    }
+    return null;
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.background,
       appBar: RoleAppBar(title: 'Team Attendance', auth: widget.auth),
       body: RefreshIndicator(
         onRefresh: _reload,
@@ -128,47 +158,87 @@ class _ManagerTeamAttendanceScreenState
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(AppSpacing.screenPadding),
               children: [
-                PgCard(
+                InkWell(
                   onTap: _pickDate,
-                  child: Row(
-                    children: [
-                      const Icon(Icons.today_outlined),
-                      const SizedBox(width: AppSpacing.sm),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Today / Selected Date',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                            Text(
-                              DateFormat('dd MMM yyyy').format(_date),
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .titleSmall
-                                  ?.copyWith(fontWeight: FontWeight.w700),
-                            ),
-                          ],
+                  borderRadius: BorderRadius.circular(AppSpacing.radiusMd),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            DateFormat('d MMM yyyy').format(_date),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  color: AppColors.textPrimary,
+                                ),
+                          ),
                         ),
-                      ),
-                      const Icon(Icons.edit_calendar_outlined),
-                    ],
+                        IconButton(
+                          tooltip: 'Select date',
+                          onPressed: _pickDate,
+                          icon: const Icon(
+                            Icons.calendar_month_rounded,
+                            color: AppColors.primary,
+                          ),
+                        ),
+                      ],
+                    ),
                   ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
+                _AttendanceSummaryGrid(
+                  tiles: [
+                    _AttendanceSummaryTile(
+                      value: '${result?.totalEmployees ?? 0}',
+                      label: 'Total Team',
+                      icon: Icons.groups_rounded,
+                      color: AppColors.primary,
+                    ),
+                    _AttendanceSummaryTile(
+                      value: '${result?.punchedIn ?? 0}',
+                      label: 'Punched In',
+                      icon: Icons.login_rounded,
+                      color: AppColors.info,
+                    ),
+                    _AttendanceSummaryTile(
+                      value: '${result?.punchedOut ?? 0}',
+                      label: 'Punched Out',
+                      icon: Icons.logout_rounded,
+                      color: AppColors.secondary,
+                    ),
+                    _AttendanceSummaryTile(
+                      value: '${result?.notPunchedIn ?? 0}',
+                      label: 'Not Punched In',
+                      icon: Icons.hourglass_empty_rounded,
+                      color: AppColors.warning,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
                 TextField(
                   controller: _searchController,
                   decoration: InputDecoration(
-                    labelText: 'Search employee',
-                    border: const OutlineInputBorder(),
+                    hintText: 'Search employee',
                     prefixIcon: const Icon(Icons.search),
-                    suffixIcon: IconButton(
-                      onPressed: _reload,
-                      icon: const Icon(Icons.check),
-                    ),
+                    suffixIcon: _searchController.text.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear',
+                            icon: const Icon(Icons.clear),
+                            onPressed: () {
+                              _searchController.clear();
+                              setState(() {});
+                              _reload();
+                            },
+                          ),
+                    isDense: true,
+                    border: const OutlineInputBorder(),
                   ),
                   textInputAction: TextInputAction.search,
+                  onChanged: (_) => setState(() {}),
                   onSubmitted: (_) => _reload(),
                 ),
                 const SizedBox(height: AppSpacing.md),
@@ -184,29 +254,6 @@ class _ManagerTeamAttendanceScreenState
                     onRetry: _reload,
                   )
                 else ...[
-                  Wrap(
-                    spacing: 8,
-                    runSpacing: 8,
-                    children: [
-                      _SummaryChip(
-                        label: 'Total Team',
-                        value: '${result?.totalEmployees ?? 0}',
-                      ),
-                      _SummaryChip(
-                        label: 'Punched In',
-                        value: '${result?.punchedIn ?? 0}',
-                      ),
-                      _SummaryChip(
-                        label: 'Punched Out',
-                        value: '${result?.punchedOut ?? 0}',
-                      ),
-                      _SummaryChip(
-                        label: 'Not Punched In',
-                        value: '${result?.notPunchedIn ?? 0}',
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: AppSpacing.md),
                   if (rows.isEmpty)
                     const PgEmptyState(
                       message: 'No attendance recorded for this date.',
@@ -214,70 +261,51 @@ class _ManagerTeamAttendanceScreenState
                     )
                   else
                     ...rows.map((row) {
-                      final status = row['display_status']?.toString() ??
+                      final displayStatus = row['display_status']?.toString() ??
                           row['attendance_status']?.toString() ??
                           'Not Punched In';
+                      final status = _badgeLabel(row, displayStatus);
                       final hasAttendance = row['has_attendance'] == true;
                       final employeeId =
                           int.tryParse('${row['employee_id'] ?? 0}') ?? 0;
+                      final attendanceId =
+                          int.tryParse('${row['id'] ?? 0}') ?? 0;
 
-                      return PgCard(
+                      return _TeamAttendanceCard(
+                        name: row['employee_name']?.toString() ?? '-',
+                        code: row['employee_code']?.toString() ?? '-',
+                        status: status,
+                        statusTone: _statusTone(status),
+                        notPunchedIn:
+                            _isNotPunchedIn(displayStatus, hasAttendance),
+                        working: _isWorking(displayStatus),
+                        punchIn: hasAttendance
+                            ? _formatTime(row['punch_in_time'])
+                            : '—',
+                        punchOut: hasAttendance
+                            ? (row['punch_out_time'] == null
+                                ? '—'
+                                : _formatTime(row['punch_out_time']))
+                            : '—',
+                        workingLabel: _isWorking(displayStatus)
+                            ? 'In Progress'
+                            : _workingDuration(row),
+                        distance: _distance(row),
+                        workingMinutes: _workingMinutes(row),
                         onTap: employeeId <= 0
                             ? null
-                            : () => context.push(
+                            : () {
+                                if (attendanceId > 0) {
+                                  context.push(
+                                    '/manager/team-attendance/$attendanceId',
+                                  );
+                                  return;
+                                }
+                                context.push(
                                   '/manager/team-attendance/employees/$employeeId'
                                   '?date=$_dateParam',
-                                ),
-                        margin:
-                            const EdgeInsets.only(bottom: AppSpacing.sm),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              children: [
-                                Expanded(
-                                  child: Text(
-                                    row['employee_name']?.toString() ?? '-',
-                                    style: Theme.of(context)
-                                        .textTheme
-                                        .titleSmall
-                                        ?.copyWith(
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                  ),
-                                ),
-                                PgStatusBadge(
-                                  label: status,
-                                  tone: _statusTone(status),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              row['employee_code']?.toString() ?? '-',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                            const SizedBox(height: 8),
-                            Text(
-                              'Punch In: ${_formatTime(hasAttendance ? row['punch_in_time'] : null)}',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                            Text(
-                              'Punch Out: ${_formatPunchOut(row['punch_out_time'], hasAttendance: hasAttendance)}',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                            if (hasAttendance) ...[
-                              Text(
-                                'Working Duration: ${_workingDuration(row)}',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                              Text(
-                                'Distance: ${_distance(row)}',
-                                style: Theme.of(context).textTheme.bodySmall,
-                              ),
-                            ],
-                          ],
-                        ),
+                                );
+                              },
                       );
                     }),
                 ],
@@ -290,34 +318,375 @@ class _ManagerTeamAttendanceScreenState
   }
 }
 
-class _SummaryChip extends StatelessWidget {
-  const _SummaryChip({required this.label, required this.value});
+class _AttendanceSummaryGrid extends StatelessWidget {
+  const _AttendanceSummaryGrid({required this.tiles});
 
-  final String label;
-  final String value;
+  final List<Widget> tiles;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: (MediaQuery.sizeOf(context).width - 48) / 2,
-      padding: const EdgeInsets.all(12),
-      decoration: BoxDecoration(
-        border: Border.all(color: Theme.of(context).dividerColor),
-        borderRadius: BorderRadius.circular(12),
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final fourAcross = constraints.maxWidth >= 420 && tiles.length == 4;
+        if (fourAcross) {
+          return IntrinsicHeight(
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                for (var i = 0; i < tiles.length; i++) ...[
+                  if (i > 0) const SizedBox(width: AppSpacing.sm),
+                  Expanded(child: tiles[i]),
+                ],
+              ],
+            ),
+          );
+        }
+
+        return Column(
+          children: [
+            for (var i = 0; i < tiles.length; i += 2) ...[
+              if (i > 0) const SizedBox(height: AppSpacing.sm),
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: tiles[i]),
+                    const SizedBox(width: AppSpacing.sm),
+                    Expanded(
+                      child: i + 1 < tiles.length
+                          ? tiles[i + 1]
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _AttendanceSummaryTile extends StatelessWidget {
+  const _AttendanceSummaryTile({
+    required this.value,
+    required this.label,
+    required this.icon,
+    required this.color,
+  });
+
+  final String value;
+  final String label;
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return PgCard(
+      padding: const EdgeInsets.fromLTRB(10, 10, 10, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Text(label, style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: 4),
+          Icon(icon, size: 16, color: color),
+          const SizedBox(height: 6),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.textPrimary,
+                    height: 1.1,
+                  ),
+            ),
+          ),
+          const SizedBox(height: 2),
           Text(
-            value,
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
+            label,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w600,
+                  height: 1.2,
                 ),
           ),
         ],
       ),
+    );
+  }
+}
+
+class _TeamAttendanceCard extends StatelessWidget {
+  const _TeamAttendanceCard({
+    required this.name,
+    required this.code,
+    required this.status,
+    required this.statusTone,
+    required this.notPunchedIn,
+    required this.working,
+    required this.punchIn,
+    required this.punchOut,
+    required this.workingLabel,
+    required this.distance,
+    required this.workingMinutes,
+    required this.onTap,
+  });
+
+  final String name;
+  final String code;
+  final String status;
+  final PgStatusTone statusTone;
+  final bool notPunchedIn;
+  final bool working;
+  final String punchIn;
+  final String punchOut;
+  final String workingLabel;
+  final String distance;
+  final int? workingMinutes;
+  final VoidCallback? onTap;
+
+  static const _fullDayMinutes = 480;
+
+  @override
+  Widget build(BuildContext context) {
+    final showProgress = working &&
+        workingMinutes != null &&
+        workingMinutes! > 0;
+
+    return PgCard(
+      onTap: onTap,
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 3,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      name,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.textPrimary,
+                          ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      code,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Flexible(
+                flex: 2,
+                child: Align(
+                  alignment: Alignment.topRight,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: PgStatusBadge(label: status, tone: statusTone),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          if (notPunchedIn) ...[
+            const SizedBox(height: 12),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 10),
+              decoration: BoxDecoration(
+                color: AppColors.background,
+                borderRadius: BorderRadius.circular(AppSpacing.radiusSm),
+              ),
+              child: Row(
+                children: [
+                  const Icon(
+                    Icons.event_busy_rounded,
+                    size: 18,
+                    color: AppColors.textMuted,
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'No attendance recorded today',
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AppColors.textSecondary,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ] else ...[
+            const SizedBox(height: 12),
+            const Divider(height: 1),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Expanded(
+                  child: _AttendanceMetric(
+                    icon: Icons.login_rounded,
+                    label: 'IN',
+                    value: punchIn,
+                    color: AppColors.primary,
+                  ),
+                ),
+                Expanded(
+                  child: _AttendanceMetric(
+                    icon: Icons.logout_rounded,
+                    label: 'OUT',
+                    value: punchOut,
+                    color: AppColors.secondary,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                Expanded(
+                  child: _AttendanceMetric(
+                    icon: Icons.schedule_rounded,
+                    label: 'WORKING',
+                    value: workingLabel,
+                    color: working ? AppColors.info : AppColors.textPrimary,
+                  ),
+                ),
+                Expanded(
+                  child: _AttendanceMetric(
+                    icon: Icons.route_rounded,
+                    label: 'DISTANCE',
+                    value: distance,
+                    color: AppColors.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+            if (showProgress) ...[
+              const SizedBox(height: 10),
+              Text(
+                'Working Hours',
+                style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+              const SizedBox(height: 4),
+              Row(
+                children: [
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(999),
+                      child: LinearProgressIndicator(
+                        value: (workingMinutes! / _fullDayMinutes).clamp(
+                          0.0,
+                          1.0,
+                        ),
+                        minHeight: 6,
+                        color: AppColors.info,
+                        backgroundColor: const Color(0xFFE2E8F0),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      workingLabel == 'In Progress'
+                          ? _minutesLabel(workingMinutes!)
+                          : workingLabel,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                            color: AppColors.info,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ],
+        ],
+      ),
+    );
+  }
+
+  static String _minutesLabel(int minutes) {
+    return '${minutes ~/ 60}h ${minutes % 60}m';
+  }
+}
+
+class _AttendanceMetric extends StatelessWidget {
+  const _AttendanceMetric({
+    required this.icon,
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final IconData icon;
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Icon(icon, size: 16, color: AppColors.textSecondary),
+        const SizedBox(width: 6),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 0.4,
+                    ),
+              ),
+              Text(
+                value,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: color,
+                    ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }

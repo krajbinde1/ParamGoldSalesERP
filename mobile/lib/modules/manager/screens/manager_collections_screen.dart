@@ -1,4 +1,3 @@
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -14,6 +13,7 @@ import '../../../core/widgets/design/pg_status_badge.dart';
 import '../../../core/widgets/role_shell_widgets.dart';
 import '../../auth/providers/auth_controller.dart';
 import '../api/manager_api.dart';
+import '../widgets/manager_scrollable_filters.dart';
 
 class ManagerCollectionsScreen extends StatefulWidget {
   const ManagerCollectionsScreen({super.key, required this.auth});
@@ -101,6 +101,65 @@ class _ManagerCollectionsScreenState extends State<ManagerCollectionsScreen> {
     _reload();
   }
 
+  String _employeeChipLabel(List<Map<String, dynamic>> employees) {
+    if (_employeeId == null) return 'Employee';
+    Map<String, dynamic>? match;
+    for (final employee in employees) {
+      if (int.tryParse('${employee['id']}') == _employeeId) {
+        match = employee;
+        break;
+      }
+    }
+    final name = match?['full_name']?.toString().trim();
+    if (name == null || name.isEmpty) return 'Employee';
+    return 'Employee: $name';
+  }
+
+  String get _customChipLabel {
+    if (_period == 'custom' && _dateFrom != null && _dateTo != null) {
+      return 'Custom: ${DateFormat('d MMM').format(_dateFrom!)} – ${DateFormat('d MMM').format(_dateTo!)}';
+    }
+    return 'Custom';
+  }
+
+  Future<void> _pickEmployee(List<Map<String, dynamic>> employees) async {
+    final result = await showModalBottomSheet<Object>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: ListView(
+          children: [
+            ListTile(
+              title: const Text('All employees'),
+              selected: _employeeId == null,
+              onTap: () => Navigator.pop(context, 'all'),
+            ),
+            for (final employee in employees)
+              ListTile(
+                title: Text(
+                  [
+                    employee['full_name']?.toString() ?? '-',
+                    if ((employee['employee_code']?.toString().isNotEmpty ??
+                        false))
+                      '(${employee['employee_code']})',
+                  ].join(' '),
+                ),
+                selected: int.tryParse('${employee['id']}') == _employeeId,
+                onTap: () => Navigator.pop(
+                  context,
+                  int.tryParse('${employee['id']}'),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (!mounted || result == null) return;
+    setState(() {
+      _employeeId = result == 'all' ? null : result as int?;
+    });
+    _reload();
+  }
+
   PgStatusTone _statusTone(String status) {
     return switch (status) {
       'received' => PgStatusTone.paid,
@@ -148,115 +207,67 @@ class _ManagerCollectionsScreenState extends State<ManagerCollectionsScreen> {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(AppSpacing.screenPadding),
               children: [
-                LayoutBuilder(
-                  builder: (context, constraints) {
-                    final aspect = constraints.maxWidth >= 400 ? 1.85 : 1.45;
-                    return GridView.count(
-                      crossAxisCount: 2,
-                      shrinkWrap: true,
-                      physics: const NeverScrollableScrollPhysics(),
-                      mainAxisSpacing: AppSpacing.sm,
-                      crossAxisSpacing: AppSpacing.sm,
-                      childAspectRatio: aspect,
-                      children: [
-                        _SummaryTile(
-                          label: 'Total Collection',
-                          value: _currency.format(summary.totalCollection),
-                          icon: Icons.payments_rounded,
-                          accent: AppColors.primary,
-                        ),
-                        _SummaryTile(
-                          label: 'Today Collection',
-                          value: _currency.format(summary.todayCollection),
-                          icon: Icons.today_rounded,
-                          accent: AppColors.info,
-                        ),
-                        _SummaryTile(
-                          label: 'This Month Collection',
-                          value: _currency.format(summary.monthCollection),
-                          icon: Icons.calendar_month_rounded,
-                          accent: AppColors.secondary,
-                        ),
-                        _SummaryTile(
-                          label: 'Pending Collection Entries',
-                          value: '${summary.pendingEntries}',
-                          icon: Icons.hourglass_empty_rounded,
-                          accent: AppColors.warning,
-                        ),
-                      ],
-                    );
-                  },
+                _SummaryGrid(
+                  tiles: [
+                    _SummaryTile(
+                      label: 'Total Collection',
+                      value: _currency.format(summary.totalCollection),
+                      icon: Icons.payments_rounded,
+                      accent: AppColors.primary,
+                    ),
+                    _SummaryTile(
+                      label: 'Today Collection',
+                      value: _currency.format(summary.todayCollection),
+                      icon: Icons.today_rounded,
+                      accent: AppColors.info,
+                    ),
+                    _SummaryTile(
+                      label: 'This Month Collection',
+                      value: _currency.format(summary.monthCollection),
+                      icon: Icons.calendar_month_rounded,
+                      accent: AppColors.secondary,
+                    ),
+                    _SummaryTile(
+                      label: 'Pending Collection Entries',
+                      value: '${summary.pendingEntries}',
+                      icon: Icons.hourglass_empty_rounded,
+                      accent: AppColors.warning,
+                    ),
+                  ],
                 ),
                 const SizedBox(height: AppSpacing.md),
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (final entry in const [
-                        ('today', 'Today'),
-                        ('week', 'This Week'),
-                        ('month', 'This Month'),
-                        ('custom', 'Custom Date'),
-                      ])
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(
-                              entry.$1 == 'custom' &&
-                                      _period == 'custom' &&
-                                      _dateFrom != null &&
-                                      _dateTo != null
-                                  ? '${DateFormat('d MMM').format(_dateFrom!)} – ${DateFormat('d MMM').format(_dateTo!)}'
-                                  : entry.$2,
-                            ),
-                            selected: _period == entry.$1,
-                            onSelected: (selected) {
-                              if (!selected) return;
-                              _setPeriod(entry.$1);
-                            },
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.sm),
-                InputDecorator(
-                  decoration: const InputDecoration(
-                    labelText: 'Employee',
-                    border: OutlineInputBorder(),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<int?>(
-                      value: _employeeId,
-                      isExpanded: true,
-                      items: [
-                        const DropdownMenuItem<int?>(
-                          value: null,
-                          child: Text('All employees'),
-                        ),
-                        ...employees.map(
-                          (employee) => DropdownMenuItem<int?>(
-                            value: int.tryParse('${employee['id']}'),
-                            child: Text(
-                              [
-                                employee['full_name']?.toString() ?? '-',
-                                if ((employee['employee_code']
-                                        ?.toString()
-                                        .isNotEmpty ??
-                                    false))
-                                  '(${employee['employee_code']})',
-                              ].join(' '),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ),
-                      ],
-                      onChanged: (value) {
-                        setState(() => _employeeId = value);
-                        _reload();
-                      },
+                ManagerScrollableFilters(
+                  children: [
+                    for (final entry in const [
+                      ('today', 'Today'),
+                      ('week', 'This Week'),
+                      ('month', 'This Month'),
+                    ])
+                      ManagerFilterChip(
+                        label: entry.$2,
+                        selected: _period == entry.$1,
+                        onPressed: () {
+                          if (_period == entry.$1) return;
+                          _setPeriod(entry.$1);
+                        },
+                      ),
+                    ManagerFilterChip(
+                      label: _customChipLabel,
+                      selected: _period == 'custom',
+                      onPressed: () => _setPeriod('custom'),
                     ),
-                  ),
+                    ManagerFilterChip(
+                      label: _employeeChipLabel(employees),
+                      selected: _employeeId != null,
+                      onPressed: () => _pickEmployee(employees),
+                      onClear: _employeeId == null
+                          ? null
+                          : () {
+                              setState(() => _employeeId = null);
+                              _reload();
+                            },
+                    ),
+                  ],
                 ),
                 const SizedBox(height: AppSpacing.lg),
                 const PgSectionHeader(title: 'Team Collections'),
@@ -267,77 +278,23 @@ class _ManagerCollectionsScreenState extends State<ManagerCollectionsScreen> {
                   )
                 else
                   for (final row in result.rows)
-                    PgCard(
-                      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    _CollectionListRow(
+                      dealerName: row['dealer_name']?.toString() ?? '-',
+                      amount: _currency.format(
+                        double.tryParse('${row['amount'] ?? 0}') ?? 0,
+                      ),
+                      employeeName: row['employee_name']?.toString() ?? '-',
+                      dateLabel: _formatDate(
+                        row['collection_date']?.toString(),
+                      ),
+                      statusLabel: row['status_label']?.toString() ??
+                          row['status']?.toString() ??
+                          'Pending Verification',
+                      statusTone: _statusTone(
+                        row['status']?.toString() ?? 'pending',
+                      ),
                       onTap: () => context.push(
                         '/manager/collections/${row['id']}',
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Row(
-                            children: [
-                              Expanded(
-                                child: Text(
-                                  row['dealer_name']?.toString() ?? '-',
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleMedium
-                                      ?.copyWith(fontWeight: FontWeight.w700),
-                                ),
-                              ),
-                              PgStatusBadge(
-                                label: row['status_label']?.toString() ??
-                                    row['status']?.toString() ??
-                                    'Pending',
-                                tone: _statusTone(
-                                  row['status']?.toString() ?? 'pending',
-                                ),
-                              ),
-                            ],
-                          ),
-                          const SizedBox(height: 8),
-                          _InfoLine(
-                            'Employee',
-                            row['employee_name']?.toString() ?? '-',
-                          ),
-                          _InfoLine(
-                            'Amount',
-                            NumberFormat.currency(
-                              locale: 'en_IN',
-                              symbol: '₹',
-                              decimalDigits: 2,
-                            ).format(
-                              double.tryParse('${row['amount'] ?? 0}') ?? 0,
-                            ),
-                          ),
-                          _InfoLine(
-                            'Date',
-                            _formatDate(row['collection_date']?.toString()),
-                          ),
-                          if ((row['remarks']?.toString().trim().isNotEmpty ??
-                              false))
-                            _InfoLine('Remark', row['remarks'].toString()),
-                          if ((row['photo_url']?.toString().isNotEmpty ??
-                              false)) ...[
-                            const SizedBox(height: 8),
-                            ClipRRect(
-                              borderRadius: BorderRadius.circular(10),
-                              child: CachedNetworkImage(
-                                imageUrl: row['photo_url'].toString(),
-                                height: 120,
-                                width: double.infinity,
-                                fit: BoxFit.cover,
-                                errorWidget: (_, _, _) => Container(
-                                  height: 80,
-                                  color: AppColors.border,
-                                  alignment: Alignment.center,
-                                  child: const Icon(Icons.broken_image_outlined),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ],
                       ),
                     ),
               ],
@@ -353,6 +310,55 @@ class _ManagerCollectionsScreenState extends State<ManagerCollectionsScreen> {
     final parsed = DateTime.tryParse(raw);
     if (parsed == null) return raw;
     return DateFormat('d MMM yyyy').format(parsed);
+  }
+}
+
+class _SummaryGrid extends StatelessWidget {
+  const _SummaryGrid({required this.tiles});
+
+  final List<Widget> tiles;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final gap = AppSpacing.sm;
+        final maxWidth = constraints.maxWidth;
+        final twoCol = maxWidth >= 320;
+        if (!twoCol) {
+          return Column(
+            children: [
+              for (var i = 0; i < tiles.length; i++) ...[
+                if (i > 0) SizedBox(height: gap),
+                tiles[i],
+              ],
+            ],
+          );
+        }
+
+        return Column(
+          children: [
+            for (var i = 0; i < tiles.length; i += 2) ...[
+              if (i > 0) SizedBox(height: gap),
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: tiles[i]),
+                    SizedBox(width: gap),
+                    Expanded(
+                      child: i + 1 < tiles.length
+                          ? tiles[i + 1]
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
   }
 }
 
@@ -372,32 +378,25 @@ class _SummaryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return PgCard(
-      padding: const EdgeInsets.all(AppSpacing.md),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          Container(
-            width: 34,
-            height: 34,
-            decoration: BoxDecoration(
-              color: accent.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Icon(icon, size: 18, color: accent),
-          ),
-          const Spacer(),
+          Icon(icon, size: 20, color: accent),
+          const SizedBox(height: 8),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
             child: Text(
               value,
               maxLines: 1,
-              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
                     fontWeight: FontWeight.w800,
                   ),
             ),
           ),
-          const SizedBox(height: 2),
+          const SizedBox(height: 4),
           Text(
             label,
             maxLines: 2,
@@ -405,6 +404,7 @@ class _SummaryTile extends StatelessWidget {
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
                   color: AppColors.textSecondary,
                   fontWeight: FontWeight.w600,
+                  height: 1.25,
                 ),
           ),
         ],
@@ -413,36 +413,76 @@ class _SummaryTile extends StatelessWidget {
   }
 }
 
-class _InfoLine extends StatelessWidget {
-  const _InfoLine(this.label, this.value);
+class _CollectionListRow extends StatelessWidget {
+  const _CollectionListRow({
+    required this.dealerName,
+    required this.amount,
+    required this.employeeName,
+    required this.dateLabel,
+    required this.statusLabel,
+    required this.statusTone,
+    required this.onTap,
+  });
 
-  final String label;
-  final String value;
+  final String dealerName;
+  final String amount;
+  final String employeeName;
+  final String dateLabel;
+  final String statusLabel;
+  final PgStatusTone statusTone;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 4),
+    return PgCard(
+      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+      padding: const EdgeInsets.fromLTRB(14, 10, 8, 10),
+      onTap: onTap,
       child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 88,
-            child: Text(
-              label,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.textMuted,
-                    fontWeight: FontWeight.w600,
-                  ),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  dealerName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  amount,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  '$employeeName • $dateLabel',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textMuted,
+                        fontWeight: FontWeight.w500,
+                      ),
+                ),
+                const SizedBox(height: 8),
+                FittedBox(
+                  fit: BoxFit.scaleDown,
+                  alignment: Alignment.centerLeft,
+                  child: PgStatusBadge(label: statusLabel, tone: statusTone),
+                ),
+              ],
             ),
           ),
-          Expanded(
-            child: Text(
-              value,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
-                  ),
-            ),
+          const Icon(
+            Icons.chevron_right_rounded,
+            color: AppColors.textMuted,
           ),
         ],
       ),

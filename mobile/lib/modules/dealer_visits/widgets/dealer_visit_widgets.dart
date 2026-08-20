@@ -22,15 +22,61 @@ class DealerVisitSummaryCard extends StatelessWidget {
   final Widget icon;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
-    height: 110,
-    child: PgMetricCard(
-      title: label,
-      value: value,
-      icon: icon,
-      gradient: [color, color.withValues(alpha: 0.7)],
-    ),
+  Widget build(BuildContext context) => PgMetricCard(
+    title: label,
+    value: value,
+    icon: icon,
+    expand: false,
+    gradient: [color, color.withValues(alpha: 0.7)],
   );
+}
+
+class DealerVisitSummaryGrid extends StatelessWidget {
+  const DealerVisitSummaryGrid({super.key, required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const gap = AppSpacing.sm;
+        final twoCol = constraints.maxWidth >= 320;
+        if (!twoCol) {
+          return Column(
+            children: [
+              for (var i = 0; i < children.length; i++) ...[
+                if (i > 0) const SizedBox(height: gap),
+                children[i],
+              ],
+            ],
+          );
+        }
+
+        return Column(
+          children: [
+            for (var i = 0; i < children.length; i += 2) ...[
+              if (i > 0) const SizedBox(height: gap),
+              IntrinsicHeight(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Expanded(child: children[i]),
+                    const SizedBox(width: gap),
+                    Expanded(
+                      child: i + 1 < children.length
+                          ? children[i + 1]
+                          : const SizedBox.shrink(),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ],
+        );
+      },
+    );
+  }
 }
 
 class DealerVisitStatusBadge extends StatelessWidget {
@@ -71,11 +117,15 @@ class RecentDealerVisitTile extends StatelessWidget {
             children: [
               Text(
                 visit.dealerName,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.titleSmall,
               ),
               const SizedBox(height: 4),
               Text(
                 '${DateFormat('d MMM yyyy').format(visit.visitDate)} • ${visit.visitTime}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: AppColors.textSecondary,
                 ),
@@ -83,7 +133,11 @@ class RecentDealerVisitTile extends StatelessWidget {
             ],
           ),
         ),
-        DealerVisitStatusBadge(status: visit.status),
+        const SizedBox(width: 8),
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          child: DealerVisitStatusBadge(status: visit.status),
+        ),
       ],
     ),
   );

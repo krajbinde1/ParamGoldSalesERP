@@ -30,6 +30,12 @@ class SubmitDealerApplication
             ]);
         }
 
+        if ($application->latitude === null || $application->longitude === null) {
+            throw ValidationException::withMessages([
+                'location' => 'Please capture dealer shop location before submitting.',
+            ]);
+        }
+
         $missing = $application->missingDocumentTypes();
         if ($missing !== []) {
             $labels = array_map(

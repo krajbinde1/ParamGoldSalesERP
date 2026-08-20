@@ -189,6 +189,16 @@ class _ManagerDealerApplicationDetailScreenState
                     _line('Location', data['location']),
                     _line('Employee', data['employee_name']),
                     const SizedBox(height: 8),
+                    Text(
+                      'Shop Location',
+                      style: Theme.of(context).textTheme.titleSmall,
+                    ),
+                    const SizedBox(height: 6),
+                    if (data['latitude'] != null && data['longitude'] != null) ...[
+                      Text('Latitude: ${data['latitude']}'),
+                      Text('Longitude: ${data['longitude']}'),
+                      const SizedBox(height: 6),
+                    ],
                     ViewCapturedLocationButton(
                       latitude: data['latitude'],
                       longitude: data['longitude'],
@@ -197,33 +207,49 @@ class _ManagerDealerApplicationDetailScreenState
                 ),
               ),
               const SizedBox(height: AppSpacing.md),
-              Text('Documents', style: Theme.of(context).textTheme.titleSmall),
+              Text('Supporting Documents', style: Theme.of(context).textTheme.titleSmall),
               const SizedBox(height: AppSpacing.sm),
-              for (final doc in documents)
-                PgCard(
-                  margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(doc['document_name']?.toString() ?? '-'),
-                      ),
-                      if (doc['uploaded'] == true)
-                        TextButton(
-                          onPressed: () => openSecureDocument(
-                            context,
-                            dio: _client.dio,
-                            title: doc['document_name']?.toString() ?? 'Document',
-                            mimeType: doc['mime_type']?.toString(),
-                            viewPath: doc['view_path']?.toString(),
-                            documentId: int.tryParse('${doc['id'] ?? ''}'),
+                for (final doc in documents)
+                  PgCard(
+                    margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(doc['document_name']?.toString() ?? '-'),
+                              Text(
+                                doc['uploaded'] == true
+                                    ? [
+                                        'Uploaded',
+                                        if ((doc['original_filename']
+                                                    ?.toString()
+                                                    .isNotEmpty ??
+                                                false))
+                                          doc['original_filename'].toString(),
+                                      ].join(' • ')
+                                    : 'Not Uploaded',
+                                style: Theme.of(context).textTheme.bodySmall,
+                              ),
+                            ],
                           ),
-                          child: const Text('View'),
-                        )
-                      else
-                        const Text('Not Uploaded'),
-                    ],
+                        ),
+                        if (doc['uploaded'] == true)
+                          TextButton(
+                            onPressed: () => openSecureDocument(
+                              context,
+                              dio: _client.dio,
+                              title: doc['document_name']?.toString() ?? 'Document',
+                              mimeType: doc['mime_type']?.toString(),
+                              viewPath: doc['view_path']?.toString(),
+                              documentId: int.tryParse('${doc['id'] ?? ''}'),
+                            ),
+                            child: const Text('View'),
+                          ),
+                      ],
+                    ),
                   ),
-                ),
               const SizedBox(height: AppSpacing.md),
               Text('Timeline', style: Theme.of(context).textTheme.titleSmall),
               const SizedBox(height: AppSpacing.sm),

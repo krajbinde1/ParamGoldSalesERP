@@ -26,6 +26,7 @@ final class SendOrderForBilling
         float $transportFreight = 0,
         ?string $transportRemark = null,
         ?int $vehicleId = null,
+        ?string $transportChargeType = null,
     ): array {
         if (! Gate::forUser($actor)->allows('sendForBill', $order)) {
             throw new AuthorizationException('You are not allowed to send this order for billing.');
@@ -43,24 +44,30 @@ final class SendOrderForBilling
             [
                 'vehicle_id' => $resolved['vehicle_id'],
                 'vehicle_number' => $resolved['vehicle_number'],
+                'transport_charge_type' => $transportChargeType,
                 'transport_freight' => $transportFreight,
                 'transport_remark' => $transportRemark,
             ],
             [
                 'vehicle_id' => ['nullable', 'integer', Rule::exists('vehicles', 'id')->where('is_active', true)],
                 'vehicle_number' => ['required', 'string', 'max:50'],
+                'transport_charge_type' => ['required', Rule::in(['company_transport', 'transport_extra'])],
                 'transport_freight' => ['required', 'numeric', 'min:0'],
                 'transport_remark' => ['nullable', 'string', 'max:2000'],
             ],
+            [
+                'transport_charge_type.required' => 'Select Company Transport or Transport Charges Extra.',
+            ],
         )->validate();
 
-        return DB::transaction(function () use ($order, $actor, $resolved, $transportFreight, $transportRemark): array {
+        return DB::transaction(function () use ($order, $actor, $resolved, $transportFreight, $transportRemark, $transportChargeType): array {
             $order->sendForBilling(
                 userId: $actor->id,
                 vehicleNumber: $resolved['vehicle_number'],
                 transportFreight: $transportFreight,
                 transportRemark: $transportRemark,
                 vehicleId: $resolved['vehicle_id'],
+                transportChargeType: $transportChargeType,
             );
 
             return ['order' => $order->fresh()];
