@@ -5,6 +5,7 @@ import '../../../../core/api/api_client.dart';
 import '../../../../core/api/api_errors.dart';
 import '../../../../core/design/app_colors.dart';
 import '../../../../core/design/app_spacing.dart';
+import '../../../../core/navigation/navigation_guard.dart';
 import '../../../../core/network/network_guard.dart';
 import '../../../../core/storage/session_store.dart';
 import '../../../../core/widgets/design/pg_card.dart';
@@ -292,6 +293,14 @@ class _ProductionEntryWizardScreenState
         appBar: RoleAppBar(
           title: _reviewMode ? 'Review Production' : 'New Production Entry',
           auth: widget.auth,
+          showBack: true,
+          onBack: () {
+            if (_reviewMode) {
+              setState(() => _reviewMode = false);
+              return;
+            }
+            smartBack(context);
+          },
         ),
         body: _reviewMode ? _buildReview() : _buildForm(),
       ),
