@@ -41,16 +41,20 @@ class ProductionDashboardController extends Controller
             ->map(fn (Order $order): array => $this->formatOrder($order));
 
         $approvedCount = Order::query()->where('status', Order::STATUS_APPROVED)->count();
+        $sentForBillCount = Order::query()->where('status', Order::STATUS_PENDING_FOR_BILLING)->count();
         $billedCount = Order::query()->where('status', Order::STATUS_BILLED)->count();
         $dispatchedCount = Order::query()->where('status', Order::STATUS_DISPATCHED)->count();
+        $rejectedCount = Order::query()->where('status', Order::STATUS_REJECTED)->count();
 
         return response()->json([
             'success' => true,
             'summary' => [
                 'approved_orders' => $approvedCount,
+                'sent_for_bill_orders' => $sentForBillCount,
                 'billed_orders' => $billedCount,
                 'ready_for_dispatch' => $billedCount,
                 'dispatched_orders' => $dispatchedCount,
+                'rejected_orders' => $rejectedCount,
             ],
             'approved_orders' => $approvedOrders,
             'billed_orders' => $billedOrders,

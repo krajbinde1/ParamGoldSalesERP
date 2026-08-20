@@ -379,7 +379,7 @@ class OrderTimelineStep {
         statusText: approvedDone ? null : 'Pending',
       ),
       OrderTimelineStep(
-        label: 'Sent for Bill',
+        label: 'Sent for Bill by Production Supervisor',
         isComplete: sentDone,
         isCurrent: approvedDone && !sentDone,
         isRejected: false,
@@ -388,14 +388,14 @@ class OrderTimelineStep {
             : 'Pending',
       ),
       OrderTimelineStep(
-        label: 'Billed',
+        label: 'Billed by Admin',
         isComplete: billedDone,
         isCurrent: sentDone && !billedDone,
         isRejected: false,
         statusText: billedDone ? null : 'Pending',
       ),
       OrderTimelineStep(
-        label: 'Dispatched',
+        label: 'Dispatched by Production Supervisor',
         isComplete: dispatchedDone,
         isCurrent: billedDone && !dispatchedDone,
         isRejected: false,

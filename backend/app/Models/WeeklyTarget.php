@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class WeeklyTarget extends Model
 {
@@ -46,6 +47,15 @@ class WeeklyTarget extends Model
         return Carbon::now(self::BUSINESS_TIMEZONE)->startOfDay();
     }
 
+    public static function updatedAtBusinessDateSql(): string
+    {
+        if (DB::connection()->getDriverName() === 'sqlite') {
+            return "date(datetime(updated_at, '+5 hours', '+30 minutes'))";
+        }
+
+        return "DATE(CONVERT_TZ(updated_at, '+00:00', '+05:30'))";
+    }
+
     public static function activeForEmployee(int $employeeId, ?Carbon $date = null): ?self
     {
         $date ??= self::businessToday();
@@ -69,7 +79,7 @@ class WeeklyTarget extends Model
             ->where(function ($query) use ($weekStart, $weekEnd) {
                 $query->whereBetween('order_date', [$weekStart, $weekEnd])
                     ->orWhereRaw(
-                        "DATE(CONVERT_TZ(updated_at, '+00:00', '+05:30')) BETWEEN ? AND ?",
+                        self::updatedAtBusinessDateSql().' BETWEEN ? AND ?',
                         [$weekStart, $weekEnd]
                     );
             })

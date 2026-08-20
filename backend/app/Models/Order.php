@@ -266,7 +266,9 @@ class Order extends Model
 
     public function canBeDispatched(): bool
     {
-        return $this->status === self::STATUS_BILLED;
+        return $this->status === self::STATUS_BILLED
+            && filled($this->approved_at)
+            && filled($this->billed_at);
     }
 
     /**
@@ -410,7 +412,7 @@ class Order extends Model
 
         $steps[] = [
             'key' => 'dispatched',
-            'label' => 'Dispatched',
+            'label' => 'Dispatched by Production Supervisor',
             'actor' => $isDispatched ? $this->dispatchedByUser?->name : null,
             'actor_role' => $isDispatched
                 ? ($this->displayActorRole($this->dispatchedByUser) ?? 'Production Supervisor')
@@ -592,6 +594,7 @@ class Order extends Model
             'status' => self::STATUS_DISPATCHED,
             'dispatched_by' => $userId,
             'dispatched_at' => Carbon::now(self::BUSINESS_TIMEZONE),
+            'dispatch_date' => Carbon::now(self::BUSINESS_TIMEZONE)->toDateString(),
             'dispatch_remark' => filled($remark) ? trim($remark) : null,
         ]);
     }

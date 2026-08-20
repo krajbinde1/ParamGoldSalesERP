@@ -1,12 +1,10 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:intl/intl.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/api/api_errors.dart';
 import '../../../core/design/app_spacing.dart';
+import '../../../core/navigation/navigation_guard.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/utils/bill_document.dart';
 import '../../../core/utils/order_number.dart';
@@ -22,6 +20,7 @@ import '../../orders/widgets/order_info_card.dart';
 import '../../orders/widgets/order_invoice_products_table.dart';
 import '../../orders/widgets/order_widgets.dart';
 import '../api/production_api.dart';
+import '../widgets/mark_as_dispatched_dialog.dart';
 
 class ProductionOrderDetailScreen extends StatefulWidget {
   const ProductionOrderDetailScreen({
@@ -42,12 +41,7 @@ class _ProductionOrderDetailScreenState
     extends State<ProductionOrderDetailScreen> {
   late Future<Map<String, dynamic>> _future;
   Map<String, dynamic>? _order;
-  String? _transportType;
-  final _transportAmountController = TextEditingController();
-  String? _amountError;
   bool _submitting = false;
-  bool _calculating = false;
-  Timer? _debounce;
 
   ProductionApi get _api => ProductionApi(
     ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
@@ -57,30 +51,11 @@ class _ProductionOrderDetailScreenState
   void initState() {
     super.initState();
     _future = _loadOrder();
-    _transportAmountController.addListener(_onTransportAmountChanged);
-  }
-
-  @override
-  void dispose() {
-    _debounce?.cancel();
-    _transportAmountController.removeListener(_onTransportAmountChanged);
-    _transportAmountController.dispose();
-    super.dispose();
   }
 
   Future<Map<String, dynamic>> _loadOrder() async {
     final order = await _api.getOrder(widget.orderId);
     _order = order;
-    if (_transportType == null && order['transport_type'] != null) {
-      _transportType = order['transport_type']?.toString();
-    }
-    if (order['transport_amount'] != null &&
-        _transportAmountController.text.isEmpty) {
-      final amount = double.tryParse('${order['transport_amount']}') ?? 0;
-      if (amount > 0) {
-        _transportAmountController.text = amount.toStringAsFixed(2);
-      }
-    }
     return order;
   }
 
@@ -96,88 +71,12 @@ class _ProductionOrderDetailScreenState
 
   bool get _isPendingForBilling => _status == 'pending_for_billing';
 
-  bool get _isBilled =>
-      _status == 'billed' && (_order?['can_dispatch'] == true);
-
   bool get _canSendForBill => _order?['can_send_for_bill'] == true;
 
   bool get _canDispatch =>
-      _isBilled && widget.auth.permissions.canDispatchOrders;
-
-  void _onTransportAmountChanged() {
-    if (!mounted || !_canDispatch || _transportType == null) return;
-    _debounce?.cancel();
-    _debounce = Timer(const Duration(milliseconds: 450), _refreshCalculation);
-    setState(() => _validateAmount());
-  }
-
-  void _validateAmount() {
-    final text = _transportAmountController.text.trim();
-    if (text.isEmpty) {
-      _amountError = 'Transport amount is required.';
-      return;
-    }
-    final amount = double.tryParse(text);
-    if (amount == null) {
-      _amountError = 'Enter a valid numeric amount.';
-      return;
-    }
-    if (amount < 0) {
-      _amountError = 'Transport amount cannot be negative.';
-      return;
-    }
-    final subtotal =
-        double.tryParse('${_calculation['subtotal_before_transport'] ?? 0}') ??
-        0;
-    if (amount > subtotal) {
-      _amountError = 'Transport amount cannot exceed subtotal before transport.';
-      return;
-    }
-    _amountError = null;
-  }
-
-  Future<void> _refreshCalculation() async {
-    if (!_canDispatch || _transportType == null) return;
-    final text = _transportAmountController.text.trim();
-    if (text.isEmpty) return;
-
-    final amount = double.tryParse(text);
-    if (amount == null || amount < 0) return;
-
-    setState(() => _calculating = true);
-    try {
-      final updated = await _api.calculateDispatch(
-        widget.orderId,
-        transportType: _transportType!,
-        transportAmount: amount,
-      );
-      if (!mounted) return;
-      setState(() {
-        _order = updated;
-        _validateAmount();
-      });
-    } catch (error) {
-      if (!mounted) return;
-      final message = errorMessage(error);
-      setState(() => _amountError = message);
-    } finally {
-      if (mounted) setState(() => _calculating = false);
-    }
-  }
-
-  Future<void> _onTransportTypeChanged(String? value) async {
-    if (value == null) return;
-    setState(() => _transportType = value);
-    await _refreshCalculation();
-  }
-
-  bool get _canSubmitDispatch {
-    if (!_canDispatch || _submitting || _calculating) return false;
-    if (_transportType == null) return false;
-    _validateAmount();
-    return _amountError == null &&
-        _transportAmountController.text.trim().isNotEmpty;
-  }
+      _status == 'billed' &&
+      _order?['can_dispatch'] == true &&
+      widget.auth.permissions.canDispatchOrders;
 
   Future<void> _showSendForBillModal() async {
     var vehicles = <Map<String, dynamic>>[];
@@ -519,92 +418,19 @@ class _ProductionOrderDetailScreenState
   }
 
   Future<void> _dispatch() async {
-    if (!_canSubmitDispatch || _submitting) return;
-
-    final calc = _calculation;
-    final transportLabel = _transportType == 'outside_transport'
-        ? 'Outside Transport'
-        : 'Company Transport';
-    final amount =
-        double.tryParse(_transportAmountController.text.trim()) ?? 0;
-    final currency = NumberFormat.currency(
-      locale: 'en_IN',
-      symbol: '₹',
-      decimalDigits: 2,
-    );
-
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirm Dispatch'),
-        content: SingleChildScrollView(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _ConfirmRow('Order', _order?['order_no']?.toString() ?? '-'),
-              _ConfirmRow('Transport Type', transportLabel),
-              _ConfirmRow('Transport Amount', currency.format(amount)),
-              _ConfirmRow(
-                'Taxable After Transport',
-                currency.format(
-                  double.tryParse(
-                        '${calc['taxable_amount_after_transport'] ?? 0}',
-                      ) ??
-                      0,
-                ),
-              ),
-              _ConfirmRow(
-                'Total GST',
-                currency.format(
-                  double.tryParse('${calc['total_gst'] ?? 0}') ?? 0,
-                ),
-              ),
-              _ConfirmRow(
-                'Grand Total',
-                currency.format(
-                  double.tryParse('${calc['grand_total'] ?? 0}') ?? 0,
-                ),
-                emphasized: true,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Confirm Dispatch'),
-          ),
-        ],
-      ),
-    );
-
-    if (confirmed != true || !mounted) return;
+    if (!_canDispatch || _submitting) return;
 
     setState(() => _submitting = true);
     try {
-      final updated = await _api.dispatchOrder(
-        widget.orderId,
-        transportType: _transportType!,
-        transportAmount: amount,
+      final ok = await confirmAndDispatchProductionOrder(
+        context: context,
+        api: _api,
+        order: _order ?? const {},
+        showSuccessMessage: false,
       );
-      if (!mounted) return;
-      setState(() {
-        _order = updated;
-        _future = Future.value(updated);
-      });
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Order dispatched.')));
-    } catch (error) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(errorMessage(error))));
+      if (!ok || !mounted) return;
+
+      safePop(context, 'dispatched');
     } finally {
       if (mounted) setState(() => _submitting = false);
     }
@@ -651,6 +477,28 @@ class _ProductionOrderDetailScreenState
                     ? Map<String, dynamic>.from(dealer)
                     : null,
               ),
+              if (_canDispatch) ...[
+                const SizedBox(height: AppSpacing.md),
+                SizedBox(
+                  width: double.infinity,
+                  child: FilledButton.icon(
+                    onPressed: _submitting ? null : _dispatch,
+                    icon: _submitting
+                        ? const SizedBox(
+                            width: 18,
+                            height: 18,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          )
+                        : const Icon(Icons.local_shipping_outlined),
+                    label: Text(
+                      _submitting ? 'Dispatching...' : 'Mark as Dispatched',
+                    ),
+                    style: FilledButton.styleFrom(
+                      minimumSize: const Size.fromHeight(48),
+                    ),
+                  ),
+                ),
+              ],
               if (billUrl.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.md),
                 OutlinedButton.icon(
@@ -753,126 +601,10 @@ class _ProductionOrderDetailScreenState
                   ],
                 ),
               ),
-              if (_canDispatch) ...[
-                const SizedBox(height: AppSpacing.md),
-                PgCard(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Dispatch Transport',
-                        style: Theme.of(context).textTheme.titleMedium,
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      Text(
-                        'Transport Type *',
-                        style: Theme.of(context).textTheme.bodyMedium,
-                      ),
-                      const SizedBox(height: 8),
-                      SegmentedButton<String>(
-                        segments: const [
-                          ButtonSegment(
-                            value: 'company_transport',
-                            label: Text('Company'),
-                          ),
-                          ButtonSegment(
-                            value: 'outside_transport',
-                            label: Text('Outside'),
-                          ),
-                        ],
-                        selected: _transportType != null
-                            ? {_transportType!}
-                            : const {},
-                        emptySelectionAllowed: true,
-                        onSelectionChanged: (selection) {
-                          if (selection.isEmpty) return;
-                          _onTransportTypeChanged(selection.first);
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      TextField(
-                        controller: _transportAmountController,
-                        enabled: _transportType != null,
-                        keyboardType: const TextInputType.numberWithOptions(
-                          decimal: true,
-                        ),
-                        inputFormatters: [
-                          FilteringTextInputFormatter.allow(
-                            RegExp(r'^\d*\.?\d{0,2}'),
-                          ),
-                        ],
-                        decoration: InputDecoration(
-                          labelText: 'Transport Amount *',
-                          prefixText: '₹ ',
-                          errorText: _amountError,
-                          suffixIcon: _calculating
-                              ? const Padding(
-                                  padding: EdgeInsets.all(12),
-                                  child: SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
-                                    ),
-                                  ),
-                                )
-                              : null,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: AppSpacing.md),
-                FilledButton(
-                  onPressed: _canSubmitDispatch ? _dispatch : null,
-                  child: _submitting
-                      ? const SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('Mark as Dispatched'),
-                ),
-              ],
             ],
           );
         },
       ),
     );
   }
-}
-
-class _ConfirmRow extends StatelessWidget {
-  const _ConfirmRow(this.label, this.value, {this.emphasized = false});
-
-  final String label;
-  final String value;
-  final bool emphasized;
-
-  @override
-  Widget build(BuildContext context) => Padding(
-    padding: const EdgeInsets.only(bottom: 8),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Expanded(
-          child: Text(
-            label,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              fontWeight: emphasized ? FontWeight.w700 : null,
-            ),
-          ),
-        ),
-        Expanded(
-          child: Text(
-            value,
-            textAlign: TextAlign.end,
-            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-              fontWeight: emphasized ? FontWeight.w700 : null,
-            ),
-          ),
-        ),
-      ],
-    ),
-  );
 }

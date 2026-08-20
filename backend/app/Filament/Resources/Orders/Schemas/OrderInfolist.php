@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Orders\Schemas;
 
 use App\Models\Order;
 use Filament\Infolists\Components\TextEntry;
+use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\FontWeight;
@@ -14,18 +15,19 @@ class OrderInfolist
     public static function configure(Schema $schema): Schema
     {
         return $schema
+            ->columns(1)
             ->components([
                 Section::make('Order Overview')
                     ->columns([
                         'default' => 1,
-                        'md' => 3,
+                        'md' => 2,
+                        'xl' => 3,
                     ])
                     ->schema([
                         TextEntry::make('order_no')
                             ->label('Order No')
                             ->formatStateUsing(fn (?string $state, Order $record): string => $record->shortOrderNo())
-                            ->weight(FontWeight::SemiBold)
-                            ->copyable(false),
+                            ->weight(FontWeight::SemiBold),
                         TextEntry::make('order_date')
                             ->label('Order Date')
                             ->date('d M Y'),
@@ -79,6 +81,7 @@ class OrderInfolist
                     ]),
 
                 Section::make('Order Items')
+                    ->columnSpanFull()
                     ->schema([
                         TextEntry::make('items_table')
                             ->hiddenLabel()
@@ -92,38 +95,52 @@ class OrderInfolist
                             ->columnSpanFull(),
                     ]),
 
-                Section::make('Order Summary')
+                Grid::make([
+                    'default' => 1,
+                    'lg' => 5,
+                ])
                     ->schema([
-                        TextEntry::make('order_summary')
-                            ->hiddenLabel()
-                            ->html()
-                            ->state(fn (Order $record): string => 'summary')
-                            ->formatStateUsing(fn ($state, Order $record): HtmlString => new HtmlString(
-                                view('filament.resources.orders.partials.order-summary', [
-                                    'record' => $record,
-                                ])->render()
-                            ))
-                            ->columnSpanFull(),
-                    ]),
+                        Section::make('Order Summary')
+                            ->columnSpan([
+                                'default' => 1,
+                                'lg' => 2,
+                            ])
+                            ->schema([
+                                TextEntry::make('order_summary')
+                                    ->hiddenLabel()
+                                    ->html()
+                                    ->state(fn (Order $record): string => 'summary')
+                                    ->formatStateUsing(fn ($state, Order $record): HtmlString => new HtmlString(
+                                        view('filament.resources.orders.partials.order-summary', [
+                                            'record' => $record,
+                                        ])->render()
+                                    ))
+                                    ->columnSpanFull(),
+                            ]),
 
-                Section::make('Order Workflow')
-                    ->schema([
-                        TextEntry::make('billing_gate')
-                            ->hiddenLabel()
-                            ->visible(fn (Order $record): bool => $record->isAwaitingSendForBill())
-                            ->state('Waiting for Production Supervisor to Send for Bill.')
-                            ->color('warning')
-                            ->weight(FontWeight::SemiBold),
-                        TextEntry::make('workflow_timeline')
-                            ->hiddenLabel()
-                            ->html()
-                            ->state(fn (Order $record): string => 'workflow')
-                            ->formatStateUsing(fn ($state, Order $record): HtmlString => new HtmlString(
-                                view('filament.resources.orders.partials.order-workflow-timeline', [
-                                    'steps' => $record->workflowTimeline(),
-                                ])->render()
-                            ))
-                            ->columnSpanFull(),
+                        Section::make('Order Workflow')
+                            ->columnSpan([
+                                'default' => 1,
+                                'lg' => 3,
+                            ])
+                            ->schema([
+                                TextEntry::make('billing_gate')
+                                    ->hiddenLabel()
+                                    ->visible(fn (Order $record): bool => $record->isAwaitingSendForBill())
+                                    ->state('Waiting for Production Supervisor to Send for Bill.')
+                                    ->color('warning')
+                                    ->weight(FontWeight::SemiBold),
+                                TextEntry::make('workflow_timeline')
+                                    ->hiddenLabel()
+                                    ->html()
+                                    ->state(fn (Order $record): string => 'workflow')
+                                    ->formatStateUsing(fn ($state, Order $record): HtmlString => new HtmlString(
+                                        view('filament.resources.orders.partials.order-workflow-timeline', [
+                                            'steps' => $record->workflowTimeline(),
+                                        ])->render()
+                                    ))
+                                    ->columnSpanFull(),
+                            ]),
                     ]),
 
                 Section::make('Billing')

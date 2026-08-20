@@ -66,12 +66,14 @@ class ProductionOrderCounts {
     required this.sentForBill,
     required this.billed,
     required this.dispatched,
+    this.rejected = 0,
   });
 
   final int approved;
   final int sentForBill;
   final int billed;
   final int dispatched;
+  final int rejected;
 
   factory ProductionOrderCounts.fromJson(Map<String, dynamic> json) =>
       ProductionOrderCounts(
@@ -83,6 +85,7 @@ class ProductionOrderCounts {
                 0,
         billed: int.tryParse('${json['billed'] ?? 0}') ?? 0,
         dispatched: int.tryParse('${json['dispatched'] ?? 0}') ?? 0,
+        rejected: int.tryParse('${json['rejected'] ?? 0}') ?? 0,
       );
 }
 
@@ -389,17 +392,17 @@ class ProductionApi {
 
   Future<Map<String, dynamic>> dispatchOrder(
     int orderId, {
-    required String transportType,
-    required double transportAmount,
+    String? transportType,
+    double? transportAmount,
     String? remark,
   }) async {
     try {
       final response = await _dio.post(
         '/production/orders/$orderId/dispatch',
         data: {
-          'transport_type': transportType,
-          'transport_amount': transportAmount,
-          if (remark != null) 'remark': remark,
+          if (transportType != null) 'transport_type': transportType,
+          if (transportAmount != null) 'transport_amount': transportAmount,
+          if (remark != null && remark.trim().isNotEmpty) 'remark': remark.trim(),
         },
       );
       return Map<String, dynamic>.from(

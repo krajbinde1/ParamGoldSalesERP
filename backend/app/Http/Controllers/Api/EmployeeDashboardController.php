@@ -4,48 +4,65 @@ namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
+use App\Models\Employee;
 use App\Models\EmployeeTask;
 use App\Models\Order;
-use App\Models\WeeklyTarget;
+use App\Services\Dashboard\DashboardMetricsService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class EmployeeDashboardController extends Controller
 {
+    public function __construct(
+        private readonly DashboardMetricsService $metrics,
+    ) {}
+
     public function __invoke(Request $request): JsonResponse
     {
-        $employee = $request->user()->employee;
+        $employee = $request->user()?->employee;
+
+        if ($employee === null) {
+            return response()->json($this->payload(
+                employee: null,
+                attendance: null,
+                targets: $this->zeroTargets(),
+            ));
+        }
+
+        $range = $this->metrics->resolveDateRange('month');
+        $targets = $this->metrics->targetSummaryForPeriod(
+            $employee->id,
+            $range['start'],
+            $range['end'],
+        );
+
         $attendance = Attendance::query()
             ->where('employee_id', $employee->id)
             ->whereDate('attendance_date', today())
             ->first();
 
-        $weeklyTarget = WeeklyTarget::activeForEmployee($employee->id);
+        return response()->json($this->payload(
+            employee: $employee,
+            attendance: $attendance,
+            targets: $targets,
+        ));
+    }
 
-        $weeklySalesTarget = 0.0;
-        $weeklySalesAchieved = 0.0;
-        $weeklyCollectionTarget = 0.0;
-        $weeklyCollectionAchieved = 0.0;
+    /**
+     * @param  array<string, mixed>  $targets
+     */
+    private function payload(?Employee $employee, ?Attendance $attendance, array $targets): array
+    {
+        $salesTarget = (float) ($targets['sales_target'] ?? 0);
+        $salesAchieved = (float) ($targets['sales_achieved'] ?? 0);
+        $salesPercentage = (float) ($targets['sales_percentage'] ?? 0);
+        $collectionTarget = (float) ($targets['collection_target'] ?? 0);
+        $collectionAchieved = (float) ($targets['collection_achieved'] ?? 0);
+        $collectionPercentage = (float) ($targets['collection_percentage'] ?? 0);
 
-        if ($weeklyTarget !== null) {
-            $weeklySalesTarget = (float) $weeklyTarget->sales_target;
-            $weeklySalesAchieved = round($weeklyTarget->salesAchieved($employee->id), 2);
-            $weeklyCollectionTarget = (float) $weeklyTarget->collection_target;
-            $weeklyCollectionAchieved = round($weeklyTarget->collectionAchieved($employee->id), 2);
-        }
-
-        $weeklySalesPercentage = $this->achievementPercentage(
-            $weeklySalesTarget,
-            $weeklySalesAchieved,
-        );
-        $weeklyCollectionPercentage = $this->achievementPercentage(
-            $weeklyCollectionTarget,
-            $weeklyCollectionAchieved,
-        );
-
-        return response()->json([
+        return [
             'success' => true,
-            'employee' => [
+            'employee' => $employee === null ? null : [
                 'id' => $employee->id,
                 'employee_code' => $employee->employee_code,
                 'full_name' => $employee->full_name,
@@ -61,40 +78,52 @@ class EmployeeDashboardController extends Controller
                 'punch_out' => $attendance?->punch_out_time,
                 'working_hours' => $attendance?->working_hours,
             ],
-            'weekly_sales_target' => $weeklySalesTarget,
-            'weekly_sales_achieved' => $weeklySalesAchieved,
-            'weekly_sales_percentage' => $weeklySalesPercentage,
-            'weekly_collection_target' => $weeklyCollectionTarget,
-            'weekly_collection_achieved' => $weeklyCollectionAchieved,
-            'weekly_collection_percentage' => $weeklyCollectionPercentage,
+            'sales_target' => $salesTarget,
+            'sales_achieved' => $salesAchieved,
+            'sales_percentage' => $salesPercentage,
+            'collection_target' => $collectionTarget,
+            'collection_achieved' => $collectionAchieved,
+            'collection_percentage' => $collectionPercentage,
+            'weekly_sales_target' => $salesTarget,
+            'weekly_sales_achieved' => $salesAchieved,
+            'weekly_sales_percentage' => $salesPercentage,
+            'weekly_collection_target' => $collectionTarget,
+            'weekly_collection_achieved' => $collectionAchieved,
+            'weekly_collection_percentage' => $collectionPercentage,
             'today_dealer_visits' => 0,
             'today_field_activities' => 0,
             'today_planning' => [
-                'pending' => EmployeeTask::query()
+                'pending' => $employee === null ? 0 : EmployeeTask::query()
                     ->where('employee_id', $employee->id)
                     ->whereDate('due_date', today())
                     ->where('is_completed', false)
                     ->count(),
-                'completed' => EmployeeTask::query()
+                'completed' => $employee === null ? 0 : EmployeeTask::query()
                     ->where('employee_id', $employee->id)
                     ->where('is_completed', true)
                     ->whereDate('completed_at', today())
                     ->count(),
             ],
             'summary' => [
-                'today_orders' => Order::query()
+                'today_orders' => $employee === null ? 0 : Order::query()
                     ->where('sales_employee_id', $employee->id)
                     ->whereDate('order_date', today())
                     ->count(),
                 'pending_ta_da_claims' => 0,
                 'today_field_activities' => 0,
                 'today_dealer_visits' => 0,
-                'weekly_sales_target' => $weeklySalesTarget,
-                'weekly_sales_achieved' => $weeklySalesAchieved,
-                'weekly_sales_percentage' => $weeklySalesPercentage,
-                'weekly_collection_target' => $weeklyCollectionTarget,
-                'weekly_collection_achieved' => $weeklyCollectionAchieved,
-                'weekly_collection_percentage' => $weeklyCollectionPercentage,
+                'sales_target' => $salesTarget,
+                'sales_achieved' => $salesAchieved,
+                'sales_percentage' => $salesPercentage,
+                'collection_target' => $collectionTarget,
+                'collection_achieved' => $collectionAchieved,
+                'collection_percentage' => $collectionPercentage,
+                'weekly_sales_target' => $salesTarget,
+                'weekly_sales_achieved' => $salesAchieved,
+                'weekly_sales_percentage' => $salesPercentage,
+                'weekly_collection_target' => $collectionTarget,
+                'weekly_collection_achieved' => $collectionAchieved,
+                'weekly_collection_percentage' => $collectionPercentage,
             ],
             'permissions' => [
                 'attendance' => true,
@@ -103,11 +132,21 @@ class EmployeeDashboardController extends Controller
                 'field_activity' => true,
                 'dealer_visit' => true,
             ],
-        ]);
+        ];
     }
 
-    private function achievementPercentage(float $target, float $achieved): float
+    /**
+     * @return array<string, float>
+     */
+    private function zeroTargets(): array
     {
-        return $target > 0 ? round(($achieved / $target) * 100, 2) : 0.0;
+        return [
+            'sales_target' => 0.0,
+            'sales_achieved' => 0.0,
+            'sales_percentage' => 0.0,
+            'collection_target' => 0.0,
+            'collection_achieved' => 0.0,
+            'collection_percentage' => 0.0,
+        ];
     }
 }

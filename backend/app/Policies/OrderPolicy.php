@@ -36,6 +36,7 @@ class OrderPolicy
                 Order::STATUS_PENDING_FOR_BILLING,
                 Order::STATUS_BILLED,
                 Order::STATUS_DISPATCHED,
+                Order::STATUS_REJECTED,
             ], true);
         }
 
@@ -48,6 +49,7 @@ class OrderPolicy
                 Order::STATUS_PENDING_FOR_BILLING,
                 Order::STATUS_BILLED,
                 Order::STATUS_DISPATCHED,
+                Order::STATUS_REJECTED,
             ], true),
             default => false,
         };

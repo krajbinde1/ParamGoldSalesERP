@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Production;
 
+use App\Actions\Orders\DispatchOrder;
 use App\Actions\Orders\DispatchOrderWithTransport;
 use App\Actions\Orders\SendOrderForBilling;
 use App\Http\Controllers\Controller;
@@ -22,12 +23,13 @@ class ProductionOrderController extends Controller
     {
         $this->authorize('viewAny', Order::class);
 
-        $allowed = [
+        $workflowStatuses = [
             Order::STATUS_APPROVED,
             Order::STATUS_PENDING_FOR_BILLING,
             Order::STATUS_BILLED,
             Order::STATUS_DISPATCHED,
         ];
+        $filterable = [...$workflowStatuses, Order::STATUS_REJECTED];
 
         // Map UI / legacy filter aliases → canonical DB statuses.
         $status = $request->string('status')->toString();
@@ -43,19 +45,29 @@ class ProductionOrderController extends Controller
         }
 
         $orders = Order::query()
-            ->whereIn('status', $allowed)
             ->with([
                 'dealer:id,firm_name,village,address,mobile',
                 'salesEmployee:id,full_name',
                 'approvedByUser:id,name',
+                'dispatchedByUser:id,name',
+                'rejectedByUser:id,name',
             ])
             ->when(
-                filled($status) && in_array($status, $allowed, true),
+                filled($status) && in_array($status, $filterable, true),
                 function ($q) use ($status): void {
                     $q->where('status', $status);
                     if ($status === Order::STATUS_APPROVED) {
                         $q->orderByDesc('approved_at');
                     }
+                    if ($status === Order::STATUS_DISPATCHED) {
+                        $q->orderByDesc('dispatched_at');
+                    }
+                    if ($status === Order::STATUS_REJECTED) {
+                        $q->orderByDesc('rejected_at');
+                    }
+                },
+                function ($q) use ($workflowStatuses): void {
+                    $q->whereIn('status', $workflowStatuses);
                 },
             )
             ->orderByDesc('created_at')
@@ -74,6 +86,10 @@ class ProductionOrderController extends Controller
                 'sent_for_bill_at' => $order->sent_for_bill_at?->toDateTimeString(),
                 'billed_at' => $order->billed_at?->toDateTimeString(),
                 'dispatched_at' => $order->dispatched_at?->toDateTimeString(),
+                'dispatch_date' => $order->dispatch_date?->toDateString(),
+                'dispatched_by' => $order->dispatched_by,
+                'dispatched_by_name' => $order->dispatchedByUser?->name,
+                'dispatch_remark' => $order->dispatch_remark,
                 'dealer_name' => $order->dealer?->firm_name,
                 'dealer_village' => $order->dealer?->village,
                 'delivery_address' => $order->dealer?->address,
@@ -87,6 +103,9 @@ class ProductionOrderController extends Controller
                     : null,
                 'bill_number' => $order->bill_number,
                 'bill_date' => $order->bill_date?->toDateString(),
+                'rejected_at' => $order->rejected_at?->toDateTimeString(),
+                'rejected_by_name' => $order->rejectedByUser?->name,
+                'rejection_remark' => $order->rejection_remark,
                 'status' => $order->status,
                 'status_label' => $order->displayStatusLabel(),
                 'can_send_for_bill' => $order->canBeSentForBilling(),
@@ -96,13 +115,7 @@ class ProductionOrderController extends Controller
                 'current_page' => $orders->currentPage(),
                 'last_page' => $orders->lastPage(),
                 'total' => $orders->total(),
-                'counts' => [
-                    'approved' => Order::query()->where('status', Order::STATUS_APPROVED)->count(),
-                    'sent_for_bill' => Order::query()->where('status', Order::STATUS_PENDING_FOR_BILLING)->count(),
-                    'pending_for_billing' => Order::query()->where('status', Order::STATUS_PENDING_FOR_BILLING)->count(),
-                    'billed' => Order::query()->where('status', Order::STATUS_BILLED)->count(),
-                    'dispatched' => Order::query()->where('status', Order::STATUS_DISPATCHED)->count(),
-                ],
+                'counts' => $this->statusCounts(),
             ],
         ]);
     }
@@ -165,33 +178,79 @@ class ProductionOrderController extends Controller
 
     public function dispatch(Request $request, Order $order): JsonResponse
     {
-        $validated = $request->validate([
-            'transport_type' => ['required', 'in:company_transport,outside_transport'],
-            'transport_amount' => ['required', 'numeric', 'min:0'],
-            'remark' => ['nullable', 'string', 'max:2000'],
-            'dispatch_date' => ['nullable', 'date'],
-            'transporter_name' => ['nullable', 'string', 'max:255'],
-            'vehicle_number' => ['nullable', 'string', 'max:50'],
-            'lr_number' => ['nullable', 'string', 'max:100'],
-            'lr_document' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf,webp', 'max:10240'],
-        ]);
+        if ($request->filled('transport_type')) {
+            $validated = $request->validate([
+                'transport_type' => ['required', 'in:company_transport,outside_transport'],
+                'transport_amount' => ['required', 'numeric', 'min:0'],
+                'remark' => ['nullable', 'string', 'max:2000'],
+                'dispatch_remark' => ['nullable', 'string', 'max:2000'],
+                'dispatch_date' => ['nullable', 'date'],
+                'transporter_name' => ['nullable', 'string', 'max:255'],
+                'vehicle_number' => ['nullable', 'string', 'max:50'],
+                'lr_number' => ['nullable', 'string', 'max:100'],
+                'lr_document' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf,webp', 'max:10240'],
+            ]);
 
-        $result = app(DispatchOrderWithTransport::class)->execute(
-            order: $order,
-            actor: $request->user(),
-            transportType: $validated['transport_type'],
-            transportAmount: (float) $validated['transport_amount'],
-            remark: $validated['remark'] ?? null,
-            dispatchDate: $validated['dispatch_date'] ?? null,
-            transporterName: $validated['transporter_name'] ?? null,
-            vehicleNumber: $validated['vehicle_number'] ?? null,
-            lrNumber: $validated['lr_number'] ?? null,
-            lrDocument: $validated['lr_document'] ?? null,
-        );
+            $result = app(DispatchOrderWithTransport::class)->execute(
+                order: $order,
+                actor: $request->user(),
+                transportType: $validated['transport_type'],
+                transportAmount: (float) $validated['transport_amount'],
+                remark: $validated['remark'] ?? $validated['dispatch_remark'] ?? null,
+                dispatchDate: $validated['dispatch_date'] ?? null,
+                transporterName: $validated['transporter_name'] ?? null,
+                vehicleNumber: $validated['vehicle_number'] ?? null,
+                lrNumber: $validated['lr_number'] ?? null,
+                lrDocument: $validated['lr_document'] ?? null,
+            );
+        } else {
+            $validated = $request->validate([
+                'remark' => ['nullable', 'string', 'max:2000'],
+                'dispatch_remark' => ['nullable', 'string', 'max:2000'],
+            ]);
+
+            $result = app(DispatchOrder::class)->execute(
+                order: $order,
+                actor: $request->user(),
+                remark: $validated['remark'] ?? $validated['dispatch_remark'] ?? null,
+            );
+        }
 
         return response()->json([
             'message' => 'Order dispatched successfully.',
             'data' => $this->presenter->present($result['order']),
+            'meta' => [
+                'counts' => $this->statusCounts(),
+            ],
         ]);
+    }
+
+    /**
+     * @return array<string, int>
+     */
+    private function statusCounts(): array
+    {
+        $counts = Order::query()
+            ->selectRaw('status, COUNT(*) as aggregate')
+            ->whereIn('status', [
+                Order::STATUS_APPROVED,
+                Order::STATUS_PENDING_FOR_BILLING,
+                Order::STATUS_BILLED,
+                Order::STATUS_DISPATCHED,
+                Order::STATUS_REJECTED,
+            ])
+            ->groupBy('status')
+            ->pluck('aggregate', 'status');
+
+        $sentForBill = (int) ($counts[Order::STATUS_PENDING_FOR_BILLING] ?? 0);
+
+        return [
+            'approved' => (int) ($counts[Order::STATUS_APPROVED] ?? 0),
+            'sent_for_bill' => $sentForBill,
+            'pending_for_billing' => $sentForBill,
+            'billed' => (int) ($counts[Order::STATUS_BILLED] ?? 0),
+            'dispatched' => (int) ($counts[Order::STATUS_DISPATCHED] ?? 0),
+            'rejected' => (int) ($counts[Order::STATUS_REJECTED] ?? 0),
+        ];
     }
 }

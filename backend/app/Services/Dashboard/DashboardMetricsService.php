@@ -230,7 +230,7 @@ class DashboardMetricsService
             ->where(function ($query) use ($start, $end): void {
                 $query->whereBetween('order_date', [$start->toDateString(), $end->toDateString()])
                     ->orWhereRaw(
-                        "DATE(CONVERT_TZ(updated_at, '+00:00', '+05:30')) BETWEEN ? AND ?",
+                        WeeklyTarget::updatedAtBusinessDateSql().' BETWEEN ? AND ?',
                         [$start->toDateString(), $end->toDateString()]
                     );
             })

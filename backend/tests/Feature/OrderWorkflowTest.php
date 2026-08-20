@@ -560,3 +560,132 @@ it('blocks non-production roles from send-for-bill and requires vehicle + freigh
         transportFreight: 50,
     ))->toThrow(\Illuminate\Auth\Access\AuthorizationException::class);
 });
+
+it('allows production supervisor to mark billed orders as dispatched with optional remark', function () {
+    Storage::fake('public');
+
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000101');
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000102');
+    $production = orderWorkflowEmployee(UserRole::ProductionSupervisor, '9200000103');
+    $admin = orderWorkflowAdmin();
+    $order = orderWorkflowPending($employee->id);
+    $order->approve($manager->user->id);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/dispatch", [
+            'remark' => 'Should not dispatch approved orders',
+        ])
+        ->assertForbidden();
+
+    app(SendOrderForBilling::class)->execute(
+        order: $order->fresh(),
+        actor: $production->user,
+        vehicleNumber: 'MH14DS1111',
+        transportFreight: 120,
+    );
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/dispatch", [
+            'remark' => 'Should not dispatch pending-for-billing orders',
+        ])
+        ->assertForbidden();
+
+    app(BillOrderWithDocument::class)->execute(
+        order: $order->fresh(),
+        actor: $admin,
+        bill: UploadedFile::fake()->create('bill.pdf', 100, 'application/pdf'),
+        billNumber: 'BILL-DSP-1',
+    );
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/dispatch")
+        ->assertForbidden();
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/dispatch")
+        ->assertForbidden();
+
+    $this->actingAs($admin, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/dispatch")
+        ->assertForbidden();
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson('/api/production/orders?status=billed')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $order->id)
+        ->assertJsonPath('data.0.can_dispatch', true)
+        ->assertJsonPath('meta.counts.billed', 1)
+        ->assertJsonPath('meta.counts.dispatched', 0);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/dispatch", [
+            'remark' => 'Loaded on MH14DS1111',
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.status', Order::STATUS_DISPATCHED)
+        ->assertJsonPath('data.dispatched_by', $production->user->id)
+        ->assertJsonPath('data.dispatched_by_name', $production->user->name)
+        ->assertJsonPath('data.dispatch_remark', 'Loaded on MH14DS1111')
+        ->assertJsonPath('data.can_dispatch', false)
+        ->assertJsonPath('data.can_edit', false)
+        ->assertJsonPath('meta.counts.billed', 0)
+        ->assertJsonPath('meta.counts.dispatched', 1);
+
+    $fresh = $order->fresh();
+    expect($fresh->status)->toBe(Order::STATUS_DISPATCHED)
+        ->and($fresh->dispatched_by)->toBe($production->user->id)
+        ->and($fresh->dispatch_remark)->toBe('Loaded on MH14DS1111')
+        ->and($fresh->dispatched_at)->not->toBeNull()
+        ->and($fresh->dispatch_date?->toDateString())->toBe(now('Asia/Kolkata')->toDateString());
+
+    $timeline = collect($fresh->workflowTimeline());
+    expect($timeline->firstWhere('key', 'dispatched')['label'])
+        ->toBe('Dispatched by Production Supervisor');
+    expect($timeline->firstWhere('key', 'dispatched')['actor'])->toBe($production->user->name);
+    expect($timeline->firstWhere('key', 'dispatched')['completed'])->toBeTrue();
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson('/api/production/orders?status=billed')
+        ->assertOk()
+        ->assertJsonCount(0, 'data')
+        ->assertJsonPath('meta.counts.billed', 0)
+        ->assertJsonPath('meta.counts.dispatched', 1);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson('/api/production/orders?status=dispatched')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $order->id)
+        ->assertJsonPath('data.0.dispatched_by_name', $production->user->name);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/dispatch", [
+            'remark' => 'Already dispatched',
+        ])
+        ->assertForbidden();
+});
+
+it('lets production supervisor list rejected orders without dispatching them', function () {
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000111');
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000112');
+    $production = orderWorkflowEmployee(UserRole::ProductionSupervisor, '9200000113');
+    $employee->update(['reporting_manager_id' => $manager->id]);
+    $order = orderWorkflowPending($employee->id);
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson("/api/manager/orders/{$order->id}/reject", [
+            'rejection_reason' => 'Dealer credit hold',
+        ])
+        ->assertOk();
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson('/api/production/orders?status=rejected')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $order->id)
+        ->assertJsonPath('data.0.status', Order::STATUS_REJECTED)
+        ->assertJsonPath('data.0.can_dispatch', false)
+        ->assertJsonPath('meta.counts.rejected', 1);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/dispatch")
+        ->assertForbidden();
+});

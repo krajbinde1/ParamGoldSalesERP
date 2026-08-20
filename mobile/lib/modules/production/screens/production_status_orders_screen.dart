@@ -4,17 +4,14 @@ import 'package:intl/intl.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/api/api_errors.dart';
-import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/storage/session_store.dart';
-import '../../../core/utils/order_number.dart';
-import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
-import '../../../core/widgets/design/pg_status_badge.dart';
 import '../../../core/widgets/role_shell_widgets.dart';
 import '../../auth/providers/auth_controller.dart';
-import '../../orders/models/order.dart';
 import '../api/production_api.dart';
+import '../widgets/mark_as_dispatched_dialog.dart';
+import '../widgets/production_order_list_card.dart';
 
 /// Dedicated Production Supervisor list for one order status.
 class ProductionStatusOrdersScreen extends StatefulWidget {
@@ -42,6 +39,7 @@ class _ProductionStatusOrdersScreenState
         'sent_for_bill' => 'Sent for Bill Orders',
         'billed' => 'Billed Orders',
         'dispatched' => 'Dispatched Orders',
+        'rejected' => 'Rejected Orders',
         _ => 'Orders',
       };
 
@@ -50,6 +48,7 @@ class _ProductionStatusOrdersScreenState
         'sent_for_bill' => 'No orders sent for billing.',
         'billed' => 'No billed orders.',
         'dispatched' => 'No dispatched orders.',
+        'rejected' => 'No rejected orders.',
         _ => 'No orders.',
       };
 
@@ -86,6 +85,27 @@ class _ProductionStatusOrdersScreenState
     final next = _load();
     setState(() => _future = next);
     await next;
+  }
+
+  Future<void> _openOrder(int id) async {
+    final result = await context.push<Object?>('/production/orders/$id');
+    if (!mounted) return;
+    await _refresh();
+    if (!mounted) return;
+    if (result == 'dispatched' && widget.status == 'billed') {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Order moved to Dispatched.')),
+      );
+    }
+  }
+
+  Future<void> _dispatchFromList(Map<String, dynamic> order) async {
+    final ok = await confirmAndDispatchProductionOrder(
+      context: context,
+      api: _api,
+      order: order,
+    );
+    if (ok && mounted) await _refresh();
   }
 
   @override
@@ -130,167 +150,28 @@ class _ProductionStatusOrdersScreenState
                     itemBuilder: (context, index) {
                       final order = orders[index];
                       final id = int.tryParse('${order['id'] ?? 0}') ?? 0;
-                      return _StatusOrderCard(
+                      final canDispatchThis =
+                          widget.auth.permissions.canDispatchOrders &&
+                              widget.status == 'billed' &&
+                              order['can_dispatch'] == true;
+
+                      return ProductionOrderListCard(
                         order: order,
                         statusKey: widget.status,
                         currency: currency,
                         dateTime: dateTime,
-                        onTap: () async {
-                          if (id <= 0) return;
-                          await context.push('/production/orders/$id');
-                          if (mounted) await _refresh();
+                        onTap: () {
+                          if (id > 0) _openOrder(id);
                         },
+                        showDispatchAction: canDispatchThis,
+                        onDispatch: canDispatchThis
+                            ? () => _dispatchFromList(order)
+                            : null,
                       );
                     },
                   ),
           );
         },
-      ),
-    );
-  }
-}
-
-class _StatusOrderCard extends StatelessWidget {
-  const _StatusOrderCard({
-    required this.order,
-    required this.statusKey,
-    required this.currency,
-    required this.dateTime,
-    required this.onTap,
-  });
-
-  final Map<String, dynamic> order;
-  final String statusKey;
-  final NumberFormat currency;
-  final DateFormat dateTime;
-  final VoidCallback onTap;
-
-  String _formatDateTime(Object? raw) {
-    if (raw == null) return '-';
-    final parsed = DateTime.tryParse(raw.toString());
-    if (parsed == null) return raw.toString();
-    return dateTime.format(parsed.toLocal());
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final amount = double.tryParse('${order['grand_total'] ?? 0}') ?? 0;
-    final status = order['status']?.toString() ?? '';
-    final freight = double.tryParse(
-      '${order['transport_amount'] ?? order['transport_freight'] ?? ''}',
-    );
-
-    return PgCard(
-      margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-      onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Expanded(
-                child: Text(
-                  productionOrderListNo(order),
-                  style: Theme.of(context).textTheme.titleSmall,
-                ),
-              ),
-              PgStatusBadge(
-                label: OrderStatusRules.badgeLabel(
-                  status,
-                  statusLabel: order['status_label']?.toString(),
-                ),
-                tone: PgStatusRules.orderTone(status),
-              ),
-            ],
-          ),
-          const SizedBox(height: 6),
-          if (statusKey == 'dispatched') ...[
-            Text(
-              'Dealer: ${order['dealer_name'] ?? '-'}',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            Text(
-              'Village: ${order['dealer_village'] ?? '-'}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            Text(
-              'Sales Person: ${order['employee_name'] ?? '-'}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            Text(
-              'Dispatch Date: ${_formatDateTime(order['dispatched_at'])}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-            ),
-          ] else ...[
-            Text(
-              'Dealer: ${order['dealer_name'] ?? '-'}',
-              style: Theme.of(context).textTheme.bodyMedium,
-            ),
-            Text(
-              'Sales: ${order['employee_name'] ?? '-'}',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-            Text(
-              'Date: ${_formatDateTime(order['order_date'] ?? order['created_at'])} • ${currency.format(amount)}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: AppColors.textSecondary,
-                  ),
-            ),
-            if ((order['payment_type']?.toString() ?? '').isNotEmpty)
-              Text(
-                'Payment: ${order['payment_type']}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-              ),
-            if (statusKey != 'approved') ...[
-              if ((order['vehicle_number']?.toString() ?? '').isNotEmpty)
-                Text(
-                  'Vehicle: ${order['vehicle_number']}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                ),
-              if (freight != null)
-                Text(
-                  'Freight: ${currency.format(freight)}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                ),
-            ],
-            if (statusKey == 'sent_for_bill')
-              Text(
-                'Sent: ${_formatDateTime(order['sent_for_bill_at'])}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-              ),
-            if (statusKey == 'billed') ...[
-              if ((order['bill_number']?.toString() ?? '').isNotEmpty)
-                Text(
-                  'Bill No: ${order['bill_number']}',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                ),
-              Text(
-                'Bill Date: ${order['bill_date'] ?? '-'}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-              ),
-              Text(
-                'Billed: ${_formatDateTime(order['billed_at'])}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: AppColors.textSecondary,
-                    ),
-              ),
-            ],
-          ],
-        ],
       ),
     );
   }

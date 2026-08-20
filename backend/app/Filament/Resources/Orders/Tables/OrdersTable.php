@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Orders\Tables;
 
 use App\Actions\Orders\BillOrderWithDocument;
+use App\Actions\Orders\DispatchOrder;
 use App\Actions\Orders\RejectOrderWithRemarks;
 use App\Actions\Orders\SendOrderForBilling;
 use App\Filament\Support\SendForBillForm;
@@ -197,9 +198,11 @@ class OrdersTable
                     }),
                 Action::make('dispatch')
                     ->label('Mark as Dispatched')
-                    ->color('info')
+                    ->icon('heroicon-o-truck')
+                    ->color('success')
                     ->modalHeading('Mark as Dispatched')
-                    ->modalSubmitActionLabel('Dispatched')
+                    ->modalSubmitActionLabel('Confirm Dispatch')
+                    ->modalCancelActionLabel('Cancel')
                     ->visible(fn (Order $record): bool => $record->status === Order::STATUS_BILLED
                         && auth()->user()?->canActAsProductionSupervisor()
                         && Gate::forUser(auth()->user())->allows('dispatch', $record))
@@ -207,12 +210,14 @@ class OrdersTable
                     ->form([
                         Textarea::make('dispatch_remark')
                             ->label('Remark')
+                            ->placeholder('Optional')
                             ->rows(3)
                             ->maxLength(2000),
                     ])
                     ->action(function (Order $record, array $data): void {
-                        $record->dispatch(
-                            userId: auth()->id(),
+                        app(DispatchOrder::class)->execute(
+                            order: $record,
+                            actor: auth()->user(),
                             remark: $data['dispatch_remark'] ?? null,
                         );
 

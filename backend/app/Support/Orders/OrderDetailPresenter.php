@@ -54,6 +54,9 @@ final class OrderDetailPresenter
         $billedAtLabel = $order->billed_at
             ? $order->billed_at->timezone('Asia/Kolkata')->format('d M Y • h:i A')
             : null;
+        $dispatchedAtLabel = $order->dispatched_at
+            ? $order->dispatched_at->timezone('Asia/Kolkata')->format('d M Y • h:i A')
+            : null;
 
         return [
             'id' => $order->id,
@@ -124,9 +127,11 @@ final class OrderDetailPresenter
                 ? 'Waiting for Production Supervisor to Send for Bill.'
                 : null,
             'dispatched_at' => $order->dispatched_at?->toDateTimeString(),
+            'dispatched_at_label' => $dispatchedAtLabel,
             'dispatch_date' => $order->dispatch_date?->toDateString(),
+            'dispatched_by' => $order->dispatched_by,
             'dispatched_by_name' => $order->dispatchedByUser?->name,
-            'dispatched_by_role' => $order->displayActorRole($order->dispatchedByUser),
+            'dispatched_by_role' => $order->displayActorRole($order->dispatchedByUser) ?? 'Production Supervisor',
             'dispatch_remark' => $order->dispatch_remark,
             'transporter_name' => $order->transporter_name,
             'vehicle_id' => $order->vehicle_id,

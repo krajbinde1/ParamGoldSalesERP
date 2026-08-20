@@ -47,7 +47,7 @@ class ProductionOrderStatsWidget extends StatsOverviewWidget
                 ->url(OrderResource::getUrl('index', [
                     'tab' => Order::STATUS_APPROVED,
                 ])),
-            Stat::make('Pending for Billing', (string) $pendingForBillingCount)
+            Stat::make('Sent for Bill', (string) $pendingForBillingCount)
                 ->description('Awaiting Admin billing')
                 ->color('warning')
                 ->url(OrderResource::getUrl('index', [

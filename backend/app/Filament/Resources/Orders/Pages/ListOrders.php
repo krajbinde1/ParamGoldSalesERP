@@ -39,6 +39,15 @@ class ListOrders extends ListRecords
             ?? data_get($this->tableFilters, 'status.value')
             ?? data_get($this->tableFilters, 'status');
 
+        if ($requested === 'sent_for_bill') {
+            $requested = Order::STATUS_PENDING_FOR_BILLING;
+        }
+
+        if (auth()->user()?->usesProductionSupervisorDashboard()
+            && $requested === Order::STATUS_PENDING_APPROVAL) {
+            $requested = Order::STATUS_APPROVED;
+        }
+
         if (! is_string($requested) || ! in_array($requested, self::STATUS_TABS, true)) {
             return;
         }
@@ -62,6 +71,26 @@ class ListOrders extends ListRecords
 
     public function getTabs(): array
     {
+        if (auth()->user()?->usesProductionSupervisorDashboard()) {
+            return [
+                'approved' => Tab::make('Approved')
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_APPROVED))
+                    ->badge(fn (): int => Order::query()->where('status', Order::STATUS_APPROVED)->count()),
+                'pending_for_billing' => Tab::make('Sent for Bill')
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_PENDING_FOR_BILLING))
+                    ->badge(fn (): int => Order::query()->where('status', Order::STATUS_PENDING_FOR_BILLING)->count()),
+                'billed' => Tab::make('Billed')
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_BILLED))
+                    ->badge(fn (): int => Order::query()->where('status', Order::STATUS_BILLED)->count()),
+                'dispatched' => Tab::make('Dispatched')
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_DISPATCHED))
+                    ->badge(fn (): int => Order::query()->where('status', Order::STATUS_DISPATCHED)->count()),
+                'rejected' => Tab::make('Rejected')
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_REJECTED))
+                    ->badge(fn (): int => Order::query()->where('status', Order::STATUS_REJECTED)->count()),
+            ];
+        }
+
         return [
             'all' => Tab::make('All'),
             'pending_approval' => Tab::make('Pending Approval')

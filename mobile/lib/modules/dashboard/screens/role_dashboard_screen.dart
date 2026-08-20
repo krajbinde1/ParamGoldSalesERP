@@ -26,7 +26,12 @@ class RoleDashboardScreen extends StatelessWidget {
       UserRole.productionSupervisor =>
         ProductionSupervisorMainScreen(auth: auth),
       UserRole.director => DirectorDashboardScreen(auth: auth),
-      UserRole.employee => DashboardScreen(auth: auth),
+      UserRole.employee => DashboardScreen(
+        key: ValueKey(
+          'employee-dashboard-${auth.session?.employee.id ?? auth.session?.user.employeeId}',
+        ),
+        auth: auth,
+      ),
     };
   }
 }

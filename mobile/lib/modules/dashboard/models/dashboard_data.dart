@@ -42,8 +42,13 @@ class DashboardData {
       json['today_planning'] as Map? ?? const {},
     );
 
-    double readAmount(String rootKey, String summaryKey) =>
-        _asDouble(json[rootKey]) ?? _asDouble(summary[summaryKey]) ?? 0;
+    double readAmount(List<String> keys) {
+      for (final key in keys) {
+        final value = _asDouble(json[key]) ?? _asDouble(summary[key]);
+        if (value != null) return value;
+      }
+      return 0;
+    }
 
     return DashboardData(
       attendanceStatus: attendance['status']?.toString() ?? 'absent',
@@ -60,30 +65,30 @@ class DashboardData {
           0,
       todayPlanningPending: _asInt(planning['pending']) ?? 0,
       todayPlanningCompleted: _asInt(planning['completed']) ?? 0,
-      weeklySalesTarget: readAmount(
+      weeklySalesTarget: readAmount(const [
+        'sales_target',
         'weekly_sales_target',
-        'weekly_sales_target',
-      ),
-      weeklySalesAchieved: readAmount(
+      ]),
+      weeklySalesAchieved: readAmount(const [
+        'sales_achieved',
         'weekly_sales_achieved',
-        'weekly_sales_achieved',
-      ),
-      weeklySalesPercentage: readAmount(
+      ]),
+      weeklySalesPercentage: readAmount(const [
+        'sales_percentage',
         'weekly_sales_percentage',
-        'weekly_sales_percentage',
-      ),
-      weeklyCollectionTarget: readAmount(
+      ]),
+      weeklyCollectionTarget: readAmount(const [
+        'collection_target',
         'weekly_collection_target',
-        'weekly_collection_target',
-      ),
-      weeklyCollectionAchieved: readAmount(
+      ]),
+      weeklyCollectionAchieved: readAmount(const [
+        'collection_achieved',
         'weekly_collection_achieved',
-        'weekly_collection_achieved',
-      ),
-      weeklyCollectionPercentage: readAmount(
+      ]),
+      weeklyCollectionPercentage: readAmount(const [
+        'collection_percentage',
         'weekly_collection_percentage',
-        'weekly_collection_percentage',
-      ),
+      ]),
     );
   }
 

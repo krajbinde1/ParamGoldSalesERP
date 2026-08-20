@@ -40,7 +40,23 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
   @override
   void initState() {
     super.initState();
+    ref.invalidate(todayAttendanceProvider);
     _loadAll();
+  }
+
+  @override
+  void didUpdateWidget(covariant DashboardScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    final previousEmployeeId =
+        oldWidget.auth.session?.employee.id ??
+        oldWidget.auth.session?.user.employeeId;
+    final currentEmployeeId =
+        widget.auth.session?.employee.id ??
+        widget.auth.session?.user.employeeId;
+    if (previousEmployeeId != currentEmployeeId) {
+      ref.invalidate(todayAttendanceProvider);
+      _reload();
+    }
   }
 
   void _loadAll() {

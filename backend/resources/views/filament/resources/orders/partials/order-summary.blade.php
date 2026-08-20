@@ -2,7 +2,7 @@
     use App\Models\Order;
 
     /** @var Order $record */
-    $money = static fn ($value): string => '₹'.number_format((float) $value, 2);
+    $money = static fn ($value): string => '₹'.number_format((float) $value, 2, '.', ',');
 
     $subtotal = (float) $record->subtotal;
     $discount = (float) $record->discount_amount;
@@ -23,16 +23,58 @@
     ];
 @endphp
 
-<div class="flex w-full justify-end">
-    <dl class="m-0 w-full max-w-xs space-y-1.5 p-0">
+<div class="pg-order-summary">
+    <style>
+        .pg-order-summary { width: 100%; }
+        .pg-order-summary__list {
+            margin: 0;
+            padding: 4px 0 0;
+            list-style: none;
+        }
+        .pg-order-summary__row {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 16px;
+            padding: 7px 0;
+        }
+        .pg-order-summary__label {
+            margin: 0;
+            font-size: 13px;
+            color: #64748B;
+            font-weight: 500;
+        }
+        .pg-order-summary__value {
+            margin: 0;
+            font-size: 13px;
+            color: #0F172A;
+            font-weight: 600;
+            font-variant-numeric: tabular-nums;
+            white-space: nowrap;
+        }
+        .pg-order-summary__row--grand {
+            margin-top: 6px;
+            padding-top: 12px;
+            border-top: 1px solid #E2E8F0;
+        }
+        .pg-order-summary__row--grand .pg-order-summary__label {
+            font-size: 14px;
+            font-weight: 700;
+            color: #0F172A;
+        }
+        .pg-order-summary__row--grand .pg-order-summary__value {
+            font-size: 18px;
+            font-weight: 800;
+            color: #0F766E;
+            letter-spacing: -0.02em;
+        }
+    </style>
+
+    <dl class="pg-order-summary__list">
         @foreach ($rows as $row)
-            <div class="flex items-baseline justify-between gap-6 {{ $row['emphasis'] ? 'mt-1 border-t border-gray-200 pt-2 dark:border-gray-700' : '' }}">
-                <dt class="{{ $row['emphasis'] ? 'text-sm font-semibold text-gray-950 dark:text-white' : 'text-sm text-gray-500 dark:text-gray-400' }}">
-                    {{ $row['label'] }}
-                </dt>
-                <dd class="m-0 text-right tabular-nums {{ $row['emphasis'] ? 'text-base font-bold text-gray-950 dark:text-white' : 'text-sm text-gray-950 dark:text-gray-100' }}">
-                    {{ $row['value'] }}
-                </dd>
+            <div class="pg-order-summary__row {{ $row['emphasis'] ? 'pg-order-summary__row--grand' : '' }}">
+                <dt class="pg-order-summary__label">{{ $row['label'] }}</dt>
+                <dd class="pg-order-summary__value">{{ $row['value'] }}</dd>
             </div>
         @endforeach
     </dl>
