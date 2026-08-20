@@ -104,25 +104,27 @@ class OrderInfolist
                             }),
                         TextEntry::make('transport_amount')
                             ->label('Transport Charges')
-                            ->money('INR')
+                            ->formatStateUsing(function ($state, Order $record): string {
+                                if ($record->transport_amount === null && $record->transport_adjustment === null) {
+                                    return '—';
+                                }
+
+                                if ($record->transport_adjustment !== null) {
+                                    return \App\Services\Orders\OrderBillingTransportCalculator::formatAdjustment(
+                                        (float) $record->transport_adjustment,
+                                    );
+                                }
+
+                                return \App\Services\Orders\OrderBillingTransportCalculator::formatMoney(
+                                    (float) $record->transport_amount,
+                                );
+                            })
                             ->placeholder('—'),
                         TextEntry::make('original_grand_total')
                             ->label('Original Order Total')
                             ->money('INR')
                             ->placeholder('—')
                             ->visible(fn (Order $record): bool => $record->original_grand_total !== null),
-                        TextEntry::make('transport_adjustment')
-                            ->label('Adjustment')
-                            ->formatStateUsing(function ($state, Order $record): string {
-                                if ($record->transport_adjustment === null) {
-                                    return '—';
-                                }
-
-                                return \App\Services\Orders\OrderBillingTransportCalculator::formatAdjustment(
-                                    (float) $record->transport_adjustment,
-                                );
-                            })
-                            ->visible(fn (Order $record): bool => $record->transport_adjustment !== null),
                         TextEntry::make('grand_total')
                             ->label('Final Grand Total')
                             ->money('INR')

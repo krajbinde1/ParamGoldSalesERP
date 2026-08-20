@@ -7,6 +7,10 @@ return [
     | Mobile APK version (mandatory in-app update)
     |--------------------------------------------------------------------------
     |
+    | These values are the fallback for GET /api/app-version until Admin
+    | saves App Update Settings. After a row exists in mobile_app_settings,
+    | the API uses the database and these env keys are ignored.
+    |
     | latest_build is the source of truth for update checks. Increment it
     | for every APK you upload to the permanent download URL.
     |
@@ -14,7 +18,7 @@ return [
     | 1. Bump Flutter pubspec.yaml version AND +build number
     | 2. Build app-release.apk
     | 3. Replace https://paramgold.in/apk/paramgold-latest.apk
-    | 4. Set MOBILE_APP_LATEST_VERSION and MOBILE_APP_LATEST_BUILD to match
+    | 4. Admin Web → App Update Settings → save version + build
     |
     | latest_build must match (or stay below) the uploaded APK's build, or
     | installed apps will loop on the update screen.

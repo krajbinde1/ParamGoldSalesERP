@@ -512,11 +512,11 @@ class OrderInvoiceSummaryBlock extends StatelessWidget {
           ),
           PgInvoiceRow(
             label: 'Transport Charges',
-            value: OrderInvoiceProductsTable.money(transport ?? 0),
-          ),
-          PgInvoiceRow(
-            label: 'Adjustment',
-            value: _formatAdjustment(transportAdjustment ?? 0),
+            value: _formatSignedCharges(
+              transport ?? 0,
+              transportAdjustment,
+              transportTypeLabel,
+            ),
           ),
         ] else if (transport != null && transport! > 0) ...[
           if (vehicle.isNotEmpty)
@@ -537,10 +537,21 @@ class OrderInvoiceSummaryBlock extends StatelessWidget {
     );
   }
 
-  static String _formatAdjustment(double amount) {
-    final formatted = OrderInvoiceProductsTable.money(amount.abs());
-    if (amount < 0) return '- $formatted';
-    return '+ $formatted';
+  static String _formatSignedCharges(
+    double charges,
+    double? adjustment,
+    String? typeLabel,
+  ) {
+    final formatted = OrderInvoiceProductsTable.money(charges.abs());
+    if (adjustment != null) {
+      if (adjustment < 0) return '- $formatted';
+      return '+ $formatted';
+    }
+
+    final type = (typeLabel ?? '').toLowerCase();
+    if (type.contains('company')) return '- $formatted';
+    if (type.contains('extra')) return '+ $formatted';
+    return formatted;
   }
 }
 

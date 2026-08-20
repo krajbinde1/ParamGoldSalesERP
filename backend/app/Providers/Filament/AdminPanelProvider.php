@@ -55,6 +55,7 @@ class AdminPanelProvider extends PanelProvider
                 'Sales Operations',
                 'Employee Management',
                 'Inventory & Manufacturing',
+                'System',
             ])
             ->navigation(fn (): bool => ! request()->routeIs('filament.admin.resources.employee-routes.view'))
             ->topbar(fn (): bool => ! request()->routeIs('filament.admin.resources.employee-routes.view'))

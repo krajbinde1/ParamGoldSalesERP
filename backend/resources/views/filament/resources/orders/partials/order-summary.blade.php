@@ -28,8 +28,7 @@
         $rows[] = ['label' => 'Original Grand Total', 'value' => $money((float) $billing['original_grand_total']), 'emphasis' => false];
         $rows[] = ['label' => 'Vehicle No', 'value' => $record->vehicle_number ?: '—', 'emphasis' => false];
         $rows[] = ['label' => 'Transport Type', 'value' => $billing['transport_charge_type_label'] ?: '—', 'emphasis' => false];
-        $rows[] = ['label' => 'Transport Charges', 'value' => $money((float) ($billing['transport_charges'] ?? 0)), 'emphasis' => false];
-        $rows[] = ['label' => 'Adjustment', 'value' => OrderBillingTransportCalculator::formatAdjustment((float) $billing['transport_adjustment']), 'emphasis' => false];
+        $rows[] = ['label' => 'Transport Charges', 'value' => OrderBillingTransportCalculator::formatAdjustment((float) $billing['transport_adjustment']), 'emphasis' => false];
         $rows[] = ['label' => 'Final Grand Total', 'value' => $money($grandTotal), 'emphasis' => true];
     } else {
         if (filled($record->vehicle_number) || $record->transport_amount !== null) {
