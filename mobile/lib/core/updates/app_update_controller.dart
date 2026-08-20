@@ -49,6 +49,7 @@ class AppUpdateController extends ChangeNotifier {
   AppUpdateDownloadState downloadState = AppUpdateDownloadState.idle;
   double downloadProgress = 0;
   String? _downloadedPath;
+  Future<void>? _inFlightCheck;
 
   String get latestVersion => latest?.latestVersion ?? '';
   String get message =>
@@ -69,7 +70,44 @@ class AppUpdateController extends ChangeNotifier {
     });
   }
 
-  Future<void> initialize() async {
+  Future<void> initialize() {
+    return _runExclusiveCheck(_initialize);
+  }
+
+  Future<void> retryCheck() => initialize();
+
+  /// Recheck `/api/app-version` after a real background → foreground return.
+  /// Skips duplicate resume events and never blocks the UI with the splash gate.
+  Future<void> checkOnForegroundResume() {
+    if (required || downloadState == AppUpdateDownloadState.downloading) {
+      return Future.value();
+    }
+    return _runExclusiveCheck(_checkFromForeground, skipIfBusy: true);
+  }
+
+  Future<void> _runExclusiveCheck(
+    Future<void> Function() work, {
+    bool skipIfBusy = false,
+  }) async {
+    final inFlight = _inFlightCheck;
+    if (inFlight != null) {
+      if (skipIfBusy) return;
+      await inFlight;
+      return;
+    }
+
+    final future = work();
+    _inFlightCheck = future;
+    try {
+      await future;
+    } finally {
+      if (identical(_inFlightCheck, future)) {
+        _inFlightCheck = null;
+      }
+    }
+  }
+
+  Future<void> _initialize() async {
     checking = true;
     _notify();
     try {
@@ -102,7 +140,25 @@ class AppUpdateController extends ChangeNotifier {
     }
   }
 
-  Future<void> retryCheck() => initialize();
+  Future<void> _checkFromForeground() async {
+    try {
+      if (!Platform.isAndroid) return;
+
+      if (installedBuild <= 0 || installedVersion.isEmpty) {
+        final info = await PackageInfo.fromPlatform();
+        installedVersion = info.version;
+        installedBuild = int.tryParse(info.buildNumber) ?? 0;
+      }
+
+      final wasRequired = required;
+      await _refreshFromApi();
+      if (required != wasRequired) {
+        _notify();
+      }
+    } catch (error) {
+      debugPrint('App update resume check failed: $error');
+    }
+  }
 
   Future<void> _refreshFromApi() async {
     try {

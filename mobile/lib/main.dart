@@ -81,10 +81,13 @@ class ParamGoldApp extends StatefulWidget {
   State<ParamGoldApp> createState() => _ParamGoldAppState();
 }
 
-class _ParamGoldAppState extends State<ParamGoldApp> {
+class _ParamGoldAppState extends State<ParamGoldApp> with WidgetsBindingObserver {
+  bool _returnedFromBackground = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       unawaited(
         NotificationNavigator.start(
@@ -94,6 +97,26 @@ class _ParamGoldAppState extends State<ParamGoldApp> {
         ),
       );
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      _returnedFromBackground = true;
+      return;
+    }
+    if (state != AppLifecycleState.resumed || !_returnedFromBackground) {
+      return;
+    }
+    _returnedFromBackground = false;
+    unawaited(appUpdateController.checkOnForegroundResume());
   }
 
   @override
