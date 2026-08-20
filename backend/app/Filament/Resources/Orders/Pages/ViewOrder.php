@@ -22,11 +22,6 @@ use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Contracts\View\View;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\HtmlString;
-use Filament\Notifications\Notification;
-use Filament\Resources\Pages\ViewRecord;
-use Illuminate\Contracts\Support\Htmlable;
-use Illuminate\Contracts\View\View;
-use Illuminate\Support\Facades\Gate;
 
 class ViewOrder extends ViewRecord
 {
