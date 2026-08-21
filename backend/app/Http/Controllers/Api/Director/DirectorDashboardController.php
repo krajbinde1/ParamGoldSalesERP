@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\PaymentRequest;
 use App\Services\Dashboard\DashboardMetricsService;
+use App\Services\Dashboard\DirectorDashboardDataService;
 use App\Services\PaymentRequests\PaymentRequestApproverResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -21,6 +22,7 @@ class DirectorDashboardController extends Controller
     public function __construct(
         private readonly DashboardMetricsService $metrics,
         private readonly PaymentRequestApproverResolver $approvers,
+        private readonly DirectorDashboardDataService $monitoring,
     ) {}
 
     public function __invoke(Request $request): JsonResponse
@@ -104,6 +106,7 @@ class DirectorDashboardController extends Controller
                 ],
             ],
             'employee_performance' => $employeePerformance,
+            'monitoring' => $this->monitoring->snapshot($user),
         ]);
     }
 }

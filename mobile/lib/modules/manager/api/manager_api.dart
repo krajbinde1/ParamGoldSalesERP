@@ -129,6 +129,8 @@ class ManagerOrderCounts {
     required this.billed,
     required this.all,
     this.returnedByProduction = 0,
+    this.onHold = 0,
+    this.sentForBill = 0,
   });
 
   final int pendingApproval;
@@ -138,6 +140,8 @@ class ManagerOrderCounts {
   final int billed;
   final int all;
   final int returnedByProduction;
+  final int onHold;
+  final int sentForBill;
 
   int get placed => pendingApproval;
 
@@ -156,6 +160,12 @@ class ManagerOrderCounts {
       returnedByProduction:
           int.tryParse(
                 '${counts['returned_by_production'] ?? counts['reverted_to_manager'] ?? 0}',
+              ) ??
+              0,
+      onHold: int.tryParse('${counts['on_hold'] ?? 0}') ?? 0,
+      sentForBill:
+          int.tryParse(
+                '${counts['pending_for_billing'] ?? counts['sent_for_bill'] ?? 0}',
               ) ??
               0,
     );

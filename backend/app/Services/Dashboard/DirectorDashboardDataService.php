@@ -71,7 +71,10 @@ class DirectorDashboardDataService
         $rejected = (int) ($orderStatusCounts[Order::STATUS_REJECTED] ?? 0);
         $onHold = (int) ($orderStatusCounts[Order::STATUS_ON_HOLD] ?? 0);
         $reverted = (int) ($orderStatusCounts[Order::STATUS_REVERTED_TO_MANAGER] ?? 0);
-        $pendingOrders = $pendingApproval + $sentForBill + $billed;
+        $pendingOrders = 0;
+        foreach (Order::activeNonDispatchedStatuses() as $status) {
+            $pendingOrders += (int) ($orderStatusCounts[$status] ?? 0);
+        }
 
         $delayPending24 = Order::query()
             ->where('status', Order::STATUS_PENDING_APPROVAL)
@@ -111,6 +114,12 @@ class DirectorDashboardDataService
 
         $dealerVisitsToday = DealerVisit::query()->whereDate('visit_date', $today)->count();
         $fieldVisitsToday = FieldActivity::query()->whereDate('activity_date', $today)->count();
+        $employeesWithFieldToday = FieldActivity::query()
+            ->whereDate('activity_date', $today)
+            ->when($activeEmployeeIds->isNotEmpty(), fn ($query) => $query->whereIn('employee_id', $activeEmployeeIds))
+            ->distinct()
+            ->pluck('employee_id');
+        $noFieldActivityToday = max($activeEmployeeIds->count() - $employeesWithFieldToday->count(), 0);
 
         $payments = $this->paymentSnapshot($user, $today);
 
@@ -126,6 +135,7 @@ class DirectorDashboardDataService
             'not_punched_in' => max($activeEmployeeIds->count() - $punchedInIds->count(), 0),
             'dealer_visits' => $dealerVisitsToday,
             'field_visits' => $fieldVisitsToday,
+            'no_field_activity_today' => $noFieldActivityToday,
             'active_routes' => $activeRoutes,
             'pending_orders' => $pendingOrders,
             'pipeline' => [

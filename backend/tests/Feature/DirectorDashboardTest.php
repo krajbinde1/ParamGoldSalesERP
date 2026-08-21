@@ -172,7 +172,7 @@ it('counts today sales, punch-in of active employees, and pending workflow order
         ->and($snapshot['active_employees'])->toBe(2)
         ->and($snapshot['punched_in'])->toBe(1)
         ->and($snapshot['not_punched_in'])->toBe(1)
-        ->and($snapshot['pending_orders'])->toBe(3)
+        ->and($snapshot['pending_orders'])->toBe(4)
         ->and($snapshot['pipeline']['placed'])->toBe(1)
         ->and($snapshot['pipeline']['sent_for_bill'])->toBe(1)
         ->and($snapshot['pipeline']['billed'])->toBe(1)
@@ -342,4 +342,76 @@ it('renders director monitoring widgets and hides them from managers', function 
     $this->actingAs($manager);
     expect(AdminDirectorWelcomeWidget::canView())->toBeFalse()
         ->and(AdminDirectorAttentionWidget::canView())->toBeFalse();
+});
+
+it('counts all active non-dispatched order statuses as pending and matches the orders filter', function (): void {
+    $director = directorDashDirector();
+    $employee = directorDashEmployee('Pending Scope Sales', '9910000099');
+    $dealer = directorDashDealer();
+
+    $included = [
+        directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_PENDING_APPROVAL]),
+        directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_APPROVED]),
+        directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_ON_HOLD]),
+        directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_REVERTED_TO_MANAGER]),
+        directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_PENDING_FOR_BILLING]),
+        directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_BILLED]),
+    ];
+    $dispatched = directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_DISPATCHED]);
+    $rejected = directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_REJECTED]);
+
+    $snapshot = app(DirectorDashboardDataService::class)->snapshot($director);
+
+    expect($snapshot['pending_orders'])->toBe(6)
+        ->and(Order::query()->activeNonDispatched()->count())->toBe(6);
+
+    Livewire::actingAs($director)
+        ->test(ListOrders::class)
+        ->filterTable('pending_not_dispatched')
+        ->assertCanSeeTableRecords($included)
+        ->assertCanNotSeeTableRecords([$dispatched, $rejected])
+        ->assertCountTableRecords(6);
+
+    Livewire::actingAs($director)
+        ->test(AdminDirectorWelcomeWidget::class)
+        ->assertSuccessful()
+        ->assertSee('Today Field Visits')
+        ->assertSeeHtml('filters%5Bpending_not_dispatched%5D%5BisActive%5D=1')
+        ->assertDontSee('Payment Approval');
+});
+
+it('exposes a monitoring snapshot on the director mobile dashboard api', function () {
+    $director = directorDashDirector('Mobile Dashboard Director');
+    $this->actingAs($director, 'sanctum');
+
+    $this->getJson('/api/director/dashboard')
+        ->assertOk()
+        ->assertJsonPath('success', true)
+        ->assertJsonStructure([
+            'company_summary' => [
+                'targets',
+                'orders',
+                'operations',
+                'payment_requests',
+            ],
+            'employee_performance',
+            'monitoring' => [
+                'today_sales',
+                'today_collection',
+                'punched_in',
+                'not_punched_in',
+                'no_field_activity_today',
+                'pipeline' => [
+                    'placed',
+                    'approved',
+                    'sent_for_bill',
+                    'billed',
+                    'dispatched',
+                    'on_hold',
+                    'reverted_to_manager',
+                ],
+                'payments',
+                'team_performance',
+            ],
+        ]);
 });

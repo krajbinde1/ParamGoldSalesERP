@@ -48,11 +48,13 @@ class DirectorOrderController extends Controller
                 }
 
                 if ($status === 'approved') {
-                    // Approved but not yet billed (includes pending_for_billing).
-                    $q->whereIn('status', [
-                        Order::STATUS_APPROVED,
-                        Order::STATUS_PENDING_FOR_BILLING,
-                    ]);
+                    $q->where('status', Order::STATUS_APPROVED);
+
+                    return;
+                }
+
+                if ($status === 'pending_for_billing') {
+                    $q->where('status', Order::STATUS_PENDING_FOR_BILLING);
 
                     return;
                 }
@@ -170,10 +172,9 @@ class DirectorOrderController extends Controller
         return [
             'pending_approval' => (clone $base)->where('status', Order::STATUS_PENDING_APPROVAL)->count(),
             'placed' => (clone $base)->where('status', Order::STATUS_PENDING_APPROVAL)->count(),
-            'approved' => (clone $base)->whereIn('status', [
-                Order::STATUS_APPROVED,
-                Order::STATUS_PENDING_FOR_BILLING,
-            ])->count(),
+            'approved' => (clone $base)->where('status', Order::STATUS_APPROVED)->count(),
+            'pending_for_billing' => (clone $base)->where('status', Order::STATUS_PENDING_FOR_BILLING)->count(),
+            'sent_for_bill' => (clone $base)->where('status', Order::STATUS_PENDING_FOR_BILLING)->count(),
             'billed' => (clone $base)->where('status', Order::STATUS_BILLED)->count(),
             'rejected' => (clone $base)->where('status', Order::STATUS_REJECTED)->count(),
             'dispatched' => (clone $base)->where('status', Order::STATUS_DISPATCHED)->count(),

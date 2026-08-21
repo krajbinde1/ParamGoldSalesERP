@@ -52,6 +52,10 @@ class OrdersTable
                     Order::STATUS_PENDING_FOR_BILLING,
                     Order::STATUS_BILLED,
                 ])),
+            Filter::make('pending_not_dispatched')
+                ->label('Pending / Not Dispatched')
+                ->toggle()
+                ->query(fn (Builder $query): Builder => $query->activeNonDispatched()),
             SelectFilter::make('stuck_since')
                 ->label('Delayed')
                 ->options([

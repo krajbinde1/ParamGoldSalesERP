@@ -15,7 +15,16 @@ import '../../manager/api/manager_api.dart';
 import '../../manager/screens/manager_orders_screen.dart';
 import '../api/director_api.dart';
 
-enum _DirectorOrderTabKey { pending, approved, billed, dispatched, rejected }
+enum _DirectorOrderTabKey {
+  pending,
+  approved,
+  onHold,
+  returned,
+  sentForBill,
+  billed,
+  dispatched,
+  rejected,
+}
 
 /// Director company-wide order monitoring — Manager-style list, view-only detail.
 class DirectorOrdersScreen extends StatefulWidget {
@@ -39,6 +48,9 @@ class _DirectorOrdersScreenState extends State<DirectorOrdersScreen>
 
   Future<DirectorOrderListResult>? _pendingFuture;
   Future<DirectorOrderListResult>? _approvedFuture;
+  Future<DirectorOrderListResult>? _onHoldFuture;
+  Future<DirectorOrderListResult>? _returnedFuture;
+  Future<DirectorOrderListResult>? _sentForBillFuture;
   Future<DirectorOrderListResult>? _billedFuture;
   Future<DirectorOrderListResult>? _dispatchedFuture;
   Future<DirectorOrderListResult>? _rejectedFuture;
@@ -55,6 +67,9 @@ class _DirectorOrdersScreenState extends State<DirectorOrdersScreen>
   static const _tabs = [
     _DirectorOrderTabKey.pending,
     _DirectorOrderTabKey.approved,
+    _DirectorOrderTabKey.onHold,
+    _DirectorOrderTabKey.returned,
+    _DirectorOrderTabKey.sentForBill,
     _DirectorOrderTabKey.billed,
     _DirectorOrderTabKey.dispatched,
     _DirectorOrderTabKey.rejected,
@@ -65,9 +80,12 @@ class _DirectorOrdersScreenState extends State<DirectorOrdersScreen>
     super.initState();
     final initialIndex = switch (widget.initialStatus) {
       'approved' => 1,
-      'billed' => 2,
-      'dispatched' => 3,
-      'rejected' => 4,
+      'on_hold' || 'hold' => 2,
+      'reverted_to_manager' || 'returned' || 'returned_by_production' => 3,
+      'pending_for_billing' || 'sent_for_bill' => 4,
+      'billed' => 5,
+      'dispatched' => 6,
+      'rejected' => 7,
       'pending' || 'pending_approval' || 'placed' => 0,
       _ => 0,
     };
@@ -93,6 +111,9 @@ class _DirectorOrdersScreenState extends State<DirectorOrdersScreen>
       status: switch (tab) {
         _DirectorOrderTabKey.pending => 'pending_approval',
         _DirectorOrderTabKey.approved => 'approved',
+        _DirectorOrderTabKey.onHold => 'on_hold',
+        _DirectorOrderTabKey.returned => 'reverted_to_manager',
+        _DirectorOrderTabKey.sentForBill => 'pending_for_billing',
         _DirectorOrderTabKey.billed => 'billed',
         _DirectorOrderTabKey.dispatched => 'dispatched',
         _DirectorOrderTabKey.rejected => 'rejected',
@@ -104,6 +125,9 @@ class _DirectorOrdersScreenState extends State<DirectorOrdersScreen>
     setState(() {
       _pendingFuture = _loadTab(_DirectorOrderTabKey.pending);
       _approvedFuture = _loadTab(_DirectorOrderTabKey.approved);
+      _onHoldFuture = _loadTab(_DirectorOrderTabKey.onHold);
+      _returnedFuture = _loadTab(_DirectorOrderTabKey.returned);
+      _sentForBillFuture = _loadTab(_DirectorOrderTabKey.sentForBill);
       _billedFuture = _loadTab(_DirectorOrderTabKey.billed);
       _dispatchedFuture = _loadTab(_DirectorOrderTabKey.dispatched);
       _rejectedFuture = _loadTab(_DirectorOrderTabKey.rejected);
@@ -115,6 +139,9 @@ class _DirectorOrdersScreenState extends State<DirectorOrdersScreen>
     await Future.wait([
       _pendingFuture!,
       _approvedFuture!,
+      _onHoldFuture!,
+      _returnedFuture!,
+      _sentForBillFuture!,
       _billedFuture!,
       _dispatchedFuture!,
       _rejectedFuture!,
@@ -124,6 +151,9 @@ class _DirectorOrdersScreenState extends State<DirectorOrdersScreen>
   void _updateCounts(ManagerOrderCounts counts) {
     if (_counts.pendingApproval == counts.pendingApproval &&
         _counts.approved == counts.approved &&
+        _counts.onHold == counts.onHold &&
+        _counts.returnedByProduction == counts.returnedByProduction &&
+        _counts.sentForBill == counts.sentForBill &&
         _counts.billed == counts.billed &&
         _counts.dispatched == counts.dispatched &&
         _counts.rejected == counts.rejected) {
@@ -160,6 +190,9 @@ class _DirectorOrdersScreenState extends State<DirectorOrdersScreen>
             tabs: [
               Tab(text: 'Pending (${_counts.pendingApproval})'),
               Tab(text: 'Approved (${_counts.approved})'),
+              Tab(text: 'On Hold (${_counts.onHold})'),
+              Tab(text: 'Returned (${_counts.returnedByProduction})'),
+              Tab(text: 'For Bill (${_counts.sentForBill})'),
               Tab(text: 'Billed (${_counts.billed})'),
               Tab(text: 'Dispatched (${_counts.dispatched})'),
               Tab(text: 'Rejected (${_counts.rejected})'),
@@ -179,6 +212,27 @@ class _DirectorOrdersScreenState extends State<DirectorOrdersScreen>
             _DirectorOrderTab(
               future: _approvedFuture,
               emptyMessage: 'No approved orders.',
+              onCounts: _updateCounts,
+              onRefresh: _refreshAll,
+              onTap: _openOrderDetail,
+            ),
+            _DirectorOrderTab(
+              future: _onHoldFuture,
+              emptyMessage: 'No orders on hold.',
+              onCounts: _updateCounts,
+              onRefresh: _refreshAll,
+              onTap: _openOrderDetail,
+            ),
+            _DirectorOrderTab(
+              future: _returnedFuture,
+              emptyMessage: 'No orders returned to manager.',
+              onCounts: _updateCounts,
+              onRefresh: _refreshAll,
+              onTap: _openOrderDetail,
+            ),
+            _DirectorOrderTab(
+              future: _sentForBillFuture,
+              emptyMessage: 'No orders pending billing.',
               onCounts: _updateCounts,
               onRefresh: _refreshAll,
               onTap: _openOrderDetail,

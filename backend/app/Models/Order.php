@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -49,6 +50,28 @@ class Order extends Model
         'rejected' => 'Rejected',
         'cancelled' => 'Cancelled',
     ];
+
+    /**
+     * Placed orders still in the active workflow (not dispatched, rejected, cancelled, or draft).
+     *
+     * @return list<string>
+     */
+    public static function activeNonDispatchedStatuses(): array
+    {
+        return [
+            self::STATUS_PENDING_APPROVAL,
+            self::STATUS_APPROVED,
+            self::STATUS_ON_HOLD,
+            self::STATUS_REVERTED_TO_MANAGER,
+            self::STATUS_PENDING_FOR_BILLING,
+            self::STATUS_BILLED,
+        ];
+    }
+
+    public function scopeActiveNonDispatched(Builder $query): Builder
+    {
+        return $query->whereIn('status', self::activeNonDispatchedStatuses());
+    }
 
     private const STATUS_TRANSITIONS = [
         'draft' => ['pending_approval'],

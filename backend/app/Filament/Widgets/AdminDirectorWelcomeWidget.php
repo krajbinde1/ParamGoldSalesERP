@@ -5,8 +5,8 @@ namespace App\Filament\Widgets;
 use App\Filament\Resources\Attendances\AttendanceResource;
 use App\Filament\Resources\Collections\CollectionResource;
 use App\Filament\Resources\DealerVisits\DealerVisitResource;
+use App\Filament\Resources\FieldActivities\FieldActivityResource;
 use App\Filament\Resources\Orders\OrderResource;
-use App\Filament\Resources\PaymentRequests\PaymentRequestResource;
 use App\Services\Dashboard\DirectorDashboardDataService;
 use Filament\Facades\Filament;
 use Filament\Widgets\Widget;
@@ -33,9 +33,6 @@ class AdminDirectorWelcomeWidget extends Widget
         $data = app(DirectorDashboardDataService::class)->snapshot($user);
         $today = $data['today'];
         $format = DirectorDashboardDataService::formatCompact(...);
-        $payments = $data['payments'];
-        $paymentCount = (int) $payments['my_pending_count'];
-        $canOpenPayments = PaymentRequestResource::canAccess();
 
         return [
             'userName' => $user?->employee?->full_name ?? $user?->name ?? 'User',
@@ -89,26 +86,24 @@ class AdminDirectorWelcomeWidget extends Widget
                 [
                     'label' => 'Pending Orders',
                     'value' => (string) $data['pending_orders'],
-                    'hint' => 'Requiring action',
+                    'hint' => 'Not yet dispatched',
                     'tone' => ((int) $data['pending_orders'] > 0) ? 'amber' : 'green',
                     'icon' => 'heroicon-o-clipboard-document-list',
                     'alert' => false,
                     'url' => OrderResource::getUrl('index', [
-                        'filters' => ['action_required' => ['isActive' => true]],
+                        'filters' => ['pending_not_dispatched' => ['isActive' => true]],
                     ]),
                 ],
                 [
-                    'label' => 'Payment Approval',
-                    'value' => $paymentCount.' Pending',
-                    'hint' => $paymentCount > 0 ? 'Requires your action' : 'Nothing waiting',
-                    'tone' => $paymentCount > 0 ? 'red' : 'green',
-                    'icon' => 'heroicon-o-shield-check',
-                    'alert' => $paymentCount > 0,
-                    'url' => $canOpenPayments
-                        ? PaymentRequestResource::getUrl('index', [
-                            'filters' => ['workflow_status' => ['value' => $payments['my_filter']]],
-                        ])
-                        : null,
+                    'label' => 'Today Field Visits',
+                    'value' => (string) $data['field_visits'],
+                    'hint' => 'Field activities today',
+                    'tone' => 'blue',
+                    'icon' => 'heroicon-o-map-pin',
+                    'alert' => false,
+                    'url' => FieldActivityResource::getUrl('index', [
+                        'filters' => ['activity_date' => ['date' => $today]],
+                    ]),
                 ],
             ],
         ];

@@ -14,6 +14,18 @@ import '../api/director_api.dart';
 
 final _inr = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
 
+String _compactInr(double amount) {
+  final sign = amount < 0 ? '-' : '';
+  final abs = amount.abs();
+  if (abs >= 10000000) {
+    return '$sign₹${(abs / 10000000).toStringAsFixed(2)} Cr';
+  }
+  if (abs >= 100000) {
+    return '$sign₹${(abs / 100000).toStringAsFixed(2)} L';
+  }
+  return _inr.format(amount);
+}
+
 /// Director sales/team lists: login role manager|employee only.
 bool _isDirectorSalesTeamRole(Map<String, dynamic> row) {
   final role = '${row['role'] ?? ''}'.toLowerCase().trim();
@@ -74,7 +86,7 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
         : 'D';
 
     return Scaffold(
-      backgroundColor: AppColors.background,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
       body: RefreshIndicator(
         color: AppColors.primary,
         onRefresh: _reload,
@@ -121,125 +133,69 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                   ),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
-                      const PgSectionHeader(title: 'Executive Summary'),
-                      _KpiGrid(
-                        items: [
-                          _KpiItem(
-                            label: 'Sales MTD',
-                            value: _inr.format(data.salesAchieved),
-                            icon: Icons.trending_up_rounded,
-                            accent: AppColors.primary,
-                            onTap: () => _open('/director/sales-performance'),
-                          ),
-                          _KpiItem(
-                            label: 'Collections MTD',
-                            value: _inr.format(data.collectionAmount > 0
-                                ? data.collectionAmount
-                                : data.collectionAchieved),
-                            icon: Icons.account_balance_wallet_outlined,
-                            accent: AppColors.accent,
-                            onTap: () => _open('/director/collections'),
-                          ),
-                          _KpiItem(
-                            label: 'Pending Payment Approvals',
-                            value: '${data.pendingPaymentApprovals}',
-                            icon: Icons.payments_outlined,
-                            accent: data.pendingPaymentApprovals > 0
-                                ? AppColors.warning
-                                : AppColors.textSecondary,
-                            onTap: () => _open('/director/payment-requests'),
-                          ),
-                          _KpiItem(
-                            label: 'Pending Orders',
-                            value: '${data.pendingOrders}',
-                            icon: Icons.pending_actions_rounded,
-                            accent: data.pendingOrders > 0
-                                ? AppColors.warning
-                                : AppColors.textSecondary,
-                            onTap: () =>
-                                _open('/director/orders?status=pending_approval'),
-                          ),
-                        ],
-                      ),
+                      _OverviewGrid(data: data, onOpen: _open),
+                      const SizedBox(height: AppSpacing.md),
+                      _AttentionSection(data: data, onOpen: _open),
+                      const SizedBox(height: AppSpacing.md),
+                      _MonthPerformanceSection(data: data, onOpen: _open),
+                      const SizedBox(height: AppSpacing.md),
+                      _TeamActivitySection(data: data, onOpen: _open),
+                      const SizedBox(height: AppSpacing.md),
+                      _OrderPipelineSection(data: data, onOpen: _open),
+                      const SizedBox(height: AppSpacing.md),
+                      _PaymentSection(data: data, onOpen: _open),
+                      const SizedBox(height: AppSpacing.md),
+                      _TeamPerformanceSection(data: data, onOpen: _open),
+                      const SizedBox(height: AppSpacing.md),
+                      _CollectionSection(data: data, onOpen: _open),
                       const SizedBox(height: AppSpacing.lg),
-                      const PgSectionHeader(title: 'Team Snapshot'),
-                      _KpiGrid(
-                        items: [
-                          _KpiItem(
-                            label: 'Present Today',
-                            value: '${data.presentToday}',
-                            icon: Icons.groups_outlined,
-                            accent: AppColors.success,
-                            onTap: () => _open('/director/team-activity'),
-                          ),
-                          _KpiItem(
-                            label: 'Dealer Visits',
-                            value: '${data.dealerVisits}',
-                            icon: Icons.storefront_outlined,
-                            accent: AppColors.primary,
-                            onTap: () => _open('/director/team-activity'),
-                          ),
-                          _KpiItem(
-                            label: 'Field Visits',
-                            value: '${data.fieldActivities}',
-                            icon: Icons.travel_explore_rounded,
-                            accent: AppColors.accent,
-                            onTap: () => _open('/director/team-activity'),
-                          ),
-                          _KpiItem(
-                            label: 'Dispatched',
-                            value: '${data.dispatchedOrders}',
-                            icon: Icons.local_shipping_outlined,
-                            accent: AppColors.info,
-                            onTap: () =>
-                                _open('/director/orders?status=dispatched'),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      const PgSectionHeader(title: 'Management'),
+                      const PgSectionHeader(title: 'Modules'),
                       _ModuleList(
                         items: [
                           _ModuleItem(
                             title: 'Payment Approval',
-                            subtitle: data.pendingPaymentApprovals > 0
-                                ? '${data.pendingPaymentApprovals} Pending'
-                                : 'No Pending Approvals',
+                            subtitle: data.myPendingPayments > 0
+                                ? '${data.myPendingPayments} pending my approval'
+                                : 'No pending approvals',
                             icon: Icons.payments_outlined,
                             onTap: () => _open('/director/payment-requests'),
                           ),
                           _ModuleItem(
                             title: 'Order Monitoring',
                             subtitle:
-                                '${data.pendingOrders} pending · ${data.dispatchedOrders} dispatched',
+                                '${data.placedOrders} pending · ${data.dispatchedOrders} dispatched',
                             icon: Icons.fact_check_outlined,
                             onTap: () => _open('/director/orders'),
                           ),
                           _ModuleItem(
                             title: 'Sales Performance',
                             subtitle:
-                                '${data.salesPercentage.round()}% of ${_inr.format(data.salesTarget)} target',
+                                '${data.salesPercentage.round()}% of ${_compactInr(data.salesTarget)} target',
                             icon: Icons.insights_rounded,
                             onTap: () => _open('/director/sales-performance'),
                           ),
                           _ModuleItem(
                             title: 'Collections',
-                            subtitle: _inr.format(data.collectionAmount > 0
-                                ? data.collectionAmount
-                                : data.collectionAchieved),
+                            subtitle: _compactInr(
+                              data.monthCollection > 0
+                                  ? data.monthCollection
+                                  : data.collectionAchieved,
+                            ),
                             icon: Icons.account_balance_wallet_outlined,
                             onTap: () => _open('/director/collections'),
                           ),
                           _ModuleItem(
                             title: 'Team Activity',
                             subtitle:
-                                '${data.presentToday} present · ${data.dealerVisits} dealer visits',
+                                '${data.punchedIn} punched in · ${data.dealerVisits} dealer visits',
                             icon: Icons.groups_rounded,
                             onTap: () => _open('/director/team-activity'),
                           ),
                           _ModuleItem(
                             title: 'Route Tracking',
-                            subtitle: 'Manager & Employee routes',
+                            subtitle: data.activeRoutes > 0
+                                ? '${data.activeRoutes} active routes'
+                                : 'Manager & Employee routes',
                             icon: Icons.route_outlined,
                             onTap: () => _open('/director/route-tracking'),
                           ),
@@ -332,6 +288,14 @@ class _DirectorHeader extends StatelessWidget {
                         height: 1.2,
                       ),
                 ),
+                const SizedBox(height: 2),
+                Text(
+                  'Company monitoring',
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.78),
+                        fontWeight: FontWeight.w600,
+                      ),
+                ),
               ],
             ),
           ),
@@ -421,6 +385,847 @@ class _DirectorProfileMenu extends StatelessWidget {
               )
             : null,
       ),
+    );
+  }
+}
+
+class _OverviewGrid extends StatelessWidget {
+  const _OverviewGrid({required this.data, required this.onOpen});
+
+  final DirectorDashboardData data;
+  final Future<void> Function(String path) onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final salesValue = data.hasMonitoring
+        ? _compactInr(data.todaySales)
+        : _compactInr(data.salesAchieved);
+    final collectionValue = data.hasMonitoring
+        ? _compactInr(data.todayCollection)
+        : _compactInr(
+            data.collectionAmount > 0
+                ? data.collectionAmount
+                : data.collectionAchieved,
+          );
+
+    final items = [
+      _DashTile(
+        label: data.hasMonitoring ? 'Today Sales' : 'Sales MTD',
+        value: salesValue,
+        icon: Icons.trending_up_rounded,
+        accent: AppColors.primary,
+        onTap: () => onOpen('/director/sales-performance'),
+      ),
+      _DashTile(
+        label: data.hasMonitoring ? 'Today Collection' : 'Collection MTD',
+        value: collectionValue,
+        icon: Icons.account_balance_wallet_outlined,
+        accent: AppColors.accent,
+        onTap: () => onOpen('/director/collections'),
+      ),
+      _DashTile(
+        label: 'Team Punch In',
+        value: data.activeEmployees > 0
+            ? '${data.punchedIn} / ${data.activeEmployees}'
+            : '${data.punchedIn}',
+        subtitle: '${data.notPunchedIn} Not Punched In',
+        icon: Icons.fingerprint_rounded,
+        accent: data.notPunchedIn > 0 ? AppColors.warning : AppColors.success,
+        onTap: () => onOpen('/director/team-activity'),
+      ),
+      _DashTile(
+        label: 'Dealer Visits Today',
+        value: '${data.dealerVisits}',
+        icon: Icons.storefront_outlined,
+        accent: AppColors.primary,
+        onTap: () => onOpen('/director/team-activity'),
+      ),
+      _DashTile(
+        label: 'Pending Orders',
+        value: '${data.placedOrders}',
+        icon: Icons.pending_actions_rounded,
+        accent: data.placedOrders > 0 ? AppColors.warning : AppColors.success,
+        onTap: () => onOpen('/director/orders?status=pending_approval'),
+      ),
+      _DashTile(
+        label: 'Payment Approval',
+        value: '${data.myPendingPayments}',
+        icon: Icons.payments_outlined,
+        accent: data.myPendingPayments > 0
+            ? AppColors.warning
+            : AppColors.textSecondary,
+        onTap: () => onOpen('/director/payment-requests?filter=pending'),
+      ),
+    ];
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final aspect = constraints.maxWidth >= 400 ? 1.7 : 1.38;
+        return GridView.builder(
+          itemCount: items.length,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisSpacing: AppSpacing.sm,
+            crossAxisSpacing: AppSpacing.sm,
+            childAspectRatio: aspect,
+          ),
+          itemBuilder: (context, index) => items[index],
+        );
+      },
+    );
+  }
+}
+
+class _DashTile extends StatelessWidget {
+  const _DashTile({
+    required this.label,
+    required this.value,
+    required this.icon,
+    required this.accent,
+    required this.onTap,
+    this.subtitle,
+  });
+
+  final String label;
+  final String value;
+  final String? subtitle;
+  final IconData icon;
+  final Color accent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return PgCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 28,
+                height: 28,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: 0.12),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Icon(icon, size: 15, color: accent),
+              ),
+              const Spacer(),
+              Icon(Icons.chevron_right_rounded, size: 16, color: accent),
+            ],
+          ),
+          const Spacer(),
+          Text(
+            value,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          if (subtitle != null)
+            Text(
+              subtitle!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: accent,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AttentionItem {
+  const _AttentionItem({
+    required this.label,
+    required this.count,
+    required this.path,
+  });
+
+  final String label;
+  final int count;
+  final String path;
+}
+
+class _AttentionSection extends StatelessWidget {
+  const _AttentionSection({required this.data, required this.onOpen});
+
+  final DirectorDashboardData data;
+  final Future<void> Function(String path) onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      _AttentionItem(
+        label: 'Employees Not Punched In',
+        count: data.notPunchedIn,
+        path: '/director/team-activity',
+      ),
+      _AttentionItem(
+        label: 'Payment Requests Pending',
+        count: data.myPendingPayments,
+        path: '/director/payment-requests?filter=pending',
+      ),
+      _AttentionItem(
+        label: 'Orders Pending Approval',
+        count: data.placedOrders,
+        path: '/director/orders?status=pending_approval',
+      ),
+      _AttentionItem(
+        label: 'Orders Pending Billing',
+        count: data.sentForBillOrders,
+        path: '/director/orders?status=pending_for_billing',
+      ),
+      _AttentionItem(
+        label: 'Orders On Hold',
+        count: data.onHoldOrders,
+        path: '/director/orders?status=on_hold',
+      ),
+      _AttentionItem(
+        label: 'Orders Returned to Manager',
+        count: data.revertedOrders,
+        path: '/director/orders?status=reverted_to_manager',
+      ),
+      _AttentionItem(
+        label: 'Billed Orders Waiting for Dispatch',
+        count: data.billedOrders,
+        path: '/director/orders?status=billed',
+      ),
+      _AttentionItem(
+        label: 'Employees With No Field Activity Today',
+        count: data.noFieldActivityToday,
+        path: '/director/team-activity',
+      ),
+    ].where((item) => item.count > 0).toList(growable: false);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const PgSectionHeader(title: 'Attention Required'),
+        if (items.isEmpty)
+          PgCard(
+            padding: const EdgeInsets.all(12),
+            child: Text(
+              'No urgent issues right now.',
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+          )
+        else
+          PgCard(
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Column(
+              children: [
+                for (var i = 0; i < items.length; i++) ...[
+                  if (i > 0) const Divider(height: 1),
+                  ListTile(
+                    dense: true,
+                    visualDensity: VisualDensity.compact,
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 12),
+                    leading: Container(
+                      width: 8,
+                      height: 8,
+                      decoration: BoxDecoration(
+                        color: items[i].count > 5
+                            ? AppColors.error
+                            : AppColors.warning,
+                        shape: BoxShape.circle,
+                      ),
+                    ),
+                    title: Text(
+                      items[i].label,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                    trailing: Text(
+                      '${items[i].count}',
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.warning,
+                          ),
+                    ),
+                    onTap: () => onOpen(items[i].path),
+                  ),
+                ],
+              ],
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _MonthPerformanceSection extends StatelessWidget {
+  const _MonthPerformanceSection({required this.data, required this.onOpen});
+
+  final DirectorDashboardData data;
+  final Future<void> Function(String path) onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const PgSectionHeader(title: 'This Month Performance'),
+        _TargetCard(
+          title: 'Sales',
+          target: data.salesTarget,
+          achieved: data.salesAchieved,
+          remaining: data.salesRemaining,
+          percentage: data.salesPercentage,
+          color: AppColors.primary,
+          onTap: () => onOpen('/director/sales-performance'),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        _TargetCard(
+          title: 'Collection',
+          target: data.collectionTarget,
+          achieved: data.collectionAchieved,
+          remaining: data.collectionRemaining,
+          percentage: data.collectionPercentage,
+          color: AppColors.accent,
+          onTap: () => onOpen('/director/collections'),
+        ),
+      ],
+    );
+  }
+}
+
+class _TargetCard extends StatelessWidget {
+  const _TargetCard({
+    required this.title,
+    required this.target,
+    required this.achieved,
+    required this.remaining,
+    required this.percentage,
+    required this.color,
+    required this.onTap,
+  });
+
+  final String title;
+  final double target;
+  final double achieved;
+  final double remaining;
+  final double percentage;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final progress = (percentage / 100).clamp(0.0, 1.0);
+    return PgCard(
+      onTap: onTap,
+      padding: const EdgeInsets.all(12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                title,
+                style: theme.textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+              const Spacer(),
+              Text(
+                '${percentage.round()}%',
+                style: theme.textTheme.titleSmall?.copyWith(
+                  color: color,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          ClipRRect(
+            borderRadius: BorderRadius.circular(99),
+            child: LinearProgressIndicator(
+              value: progress,
+              minHeight: 7,
+              color: color,
+              backgroundColor: color.withValues(alpha: 0.14),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              Expanded(child: _kv('Target', _compactInr(target))),
+              Expanded(child: _kv('Achieved', _compactInr(achieved))),
+              Expanded(child: _kv('Remaining', _compactInr(remaining))),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _kv(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+        Text(
+          value,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+        ),
+      ],
+    );
+  }
+}
+
+class _TeamActivitySection extends StatelessWidget {
+  const _TeamActivitySection({required this.data, required this.onOpen});
+
+  final DirectorDashboardData data;
+  final Future<void> Function(String path) onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final chips = [
+      ('Active Employees', '${data.activeEmployees}', Icons.badge_outlined, '/director/employees'),
+      ('Punched In', '${data.punchedIn}', Icons.fingerprint_rounded, '/director/team-activity'),
+      ('Not Punched In', '${data.notPunchedIn}', Icons.person_off_outlined, '/director/team-activity'),
+      ('Dealer Visits', '${data.dealerVisits}', Icons.storefront_outlined, '/director/team-activity'),
+      ('Field Visits', '${data.fieldActivities}', Icons.travel_explore_rounded, '/director/team-activity'),
+      ('Active Routes', '${data.activeRoutes}', Icons.route_outlined, '/director/route-tracking'),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const PgSectionHeader(title: 'Team Activity Today'),
+        GridView.builder(
+          itemCount: chips.length,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 3,
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            childAspectRatio: 1.15,
+          ),
+          itemBuilder: (context, index) {
+            final chip = chips[index];
+            return PgCard(
+              onTap: () => onOpen(chip.$4),
+              padding: const EdgeInsets.all(8),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(chip.$3, size: 16, color: AppColors.primary),
+                  const SizedBox(height: 4),
+                  Text(
+                    chip.$2,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  Text(
+                    chip.$1,
+                    textAlign: TextAlign.center,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+}
+
+class _OrderPipelineSection extends StatelessWidget {
+  const _OrderPipelineSection({required this.data, required this.onOpen});
+
+  final DirectorDashboardData data;
+  final Future<void> Function(String path) onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final stages = [
+      ('Placed', data.placedOrders, '/director/orders?status=pending_approval'),
+      ('Approved', data.approvedOrders, '/director/orders?status=approved'),
+      ('Sent for Bill', data.sentForBillOrders, '/director/orders?status=pending_for_billing'),
+      ('Billed', data.billedOrders, '/director/orders?status=billed'),
+      ('Dispatched', data.dispatchedOrders, '/director/orders?status=dispatched'),
+    ];
+    final extras = [
+      ('On Hold', data.onHoldOrders, '/director/orders?status=on_hold'),
+      ('Returned to Manager', data.revertedOrders, '/director/orders?status=reverted_to_manager'),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const PgSectionHeader(title: 'Order Pipeline'),
+        PgCard(
+          padding: const EdgeInsets.all(12),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (var i = 0; i < stages.length; i++) ...[
+                _PipelineChip(
+                  label: stages[i].$1,
+                  count: stages[i].$2,
+                  onTap: () => onOpen(stages[i].$3),
+                ),
+                if (i < stages.length - 1)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 10),
+                    child: Icon(
+                      Icons.arrow_forward_rounded,
+                      size: 14,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+              ],
+            ],
+          ),
+        ),
+        const SizedBox(height: AppSpacing.sm),
+        Row(
+          children: [
+            for (final extra in extras)
+              Expanded(
+                child: Padding(
+                  padding: EdgeInsets.only(
+                    right: extra == extras.last ? 0 : 8,
+                  ),
+                  child: _PipelineChip(
+                    label: extra.$1,
+                    count: extra.$2,
+                    tone: AppColors.warning,
+                    onTap: () => onOpen(extra.$3),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _PipelineChip extends StatelessWidget {
+  const _PipelineChip({
+    required this.label,
+    required this.count,
+    required this.onTap,
+    this.tone,
+  });
+
+  final String label;
+  final int count;
+  final VoidCallback onTap;
+  final Color? tone;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = tone ?? AppColors.primary;
+    return Material(
+      color: color.withValues(alpha: 0.08),
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(12),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '$count',
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: color,
+                    ),
+              ),
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.labelSmall,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PaymentSection extends StatelessWidget {
+  const _PaymentSection({required this.data, required this.onOpen});
+
+  final DirectorDashboardData data;
+  final Future<void> Function(String path) onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const PgSectionHeader(title: 'Payment Approval'),
+        PgCard(
+          onTap: () => onOpen('/director/payment-requests?filter=pending'),
+          padding: const EdgeInsets.all(12),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: _payStat(
+                      context,
+                      'Pending My Approval',
+                      '${data.myPendingPayments}',
+                    ),
+                  ),
+                  Expanded(
+                    child: _payStat(
+                      context,
+                      'Pending amount',
+                      _compactInr(data.myPendingPaymentAmount),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: _payStat(
+                      context,
+                      'Pending Next Approval',
+                      '${data.nextPendingPayments}',
+                    ),
+                  ),
+                  Expanded(
+                    child: _payStat(
+                      context,
+                      'Payment Done Today',
+                      '${data.paidTodayPayments}',
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _payStat(BuildContext context, String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: Theme.of(context).textTheme.labelSmall),
+        Text(
+          value,
+          style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TeamPerformanceSection extends StatelessWidget {
+  const _TeamPerformanceSection({required this.data, required this.onOpen});
+
+  final DirectorDashboardData data;
+  final Future<void> Function(String path) onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const PgSectionHeader(title: 'Team Performance'),
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Expanded(
+              child: _PeopleListCard(
+                title: 'Top Performers',
+                empty: 'No ranked employees yet.',
+                rows: data.topPerformers.take(5).toList(),
+                positive: true,
+                onOpen: onOpen,
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: _PeopleListCard(
+                title: 'Needs Attention',
+                empty: 'No low-activity employees.',
+                rows: data.needsAttention.take(5).toList(),
+                positive: false,
+                onOpen: onOpen,
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+}
+
+class _PeopleListCard extends StatelessWidget {
+  const _PeopleListCard({
+    required this.title,
+    required this.empty,
+    required this.rows,
+    required this.positive,
+    required this.onOpen,
+  });
+
+  final String title;
+  final String empty;
+  final List<Map<String, dynamic>> rows;
+  final bool positive;
+  final Future<void> Function(String path) onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    return PgCard(
+      onTap: () => onOpen('/director/employees'),
+      padding: const EdgeInsets.all(10),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          const SizedBox(height: 6),
+          if (rows.isEmpty)
+            Text(empty, style: Theme.of(context).textTheme.labelSmall)
+          else
+            ...rows.map((row) {
+              final name = (row['employee_name'] ?? row['name'] ?? '—')
+                  .toString();
+              final pct = double.tryParse(
+                    '${row['sales_percentage'] ?? row['sales_pct'] ?? 0}',
+                  ) ??
+                  0;
+              return Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.labelSmall,
+                      ),
+                    ),
+                    Text(
+                      '${pct.round()}%',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
+                        color: positive ? AppColors.success : AppColors.warning,
+                      ),
+                    ),
+                  ],
+                ),
+              );
+            }),
+        ],
+      ),
+    );
+  }
+}
+
+class _CollectionSection extends StatelessWidget {
+  const _CollectionSection({required this.data, required this.onOpen});
+
+  final DirectorDashboardData data;
+  final Future<void> Function(String path) onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = [
+      ('Today\'s Collection', _compactInr(data.todayCollection), '/director/collections'),
+      ('This Month Collection', _compactInr(data.monthCollection > 0 ? data.monthCollection : data.collectionAchieved), '/director/collections'),
+      ('Total Outstanding', _compactInr(data.totalOutstanding), '/director/collections'),
+      ('High Outstanding Dealers', '${data.highOutstandingDealers}', '/director/collections'),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const PgSectionHeader(title: 'Collection & Outstanding'),
+        GridView.builder(
+          itemCount: items.length,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisSpacing: 8,
+            crossAxisSpacing: 8,
+            childAspectRatio: 2.1,
+          ),
+          itemBuilder: (context, index) {
+            final item = items[index];
+            return PgCard(
+              onTap: () => onOpen(item.$3),
+              padding: const EdgeInsets.all(10),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Text(
+                    item.$1,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.labelSmall,
+                  ),
+                  Text(
+                    item.$2,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ],
+              ),
+            );
+          },
+        ),
+      ],
     );
   }
 }

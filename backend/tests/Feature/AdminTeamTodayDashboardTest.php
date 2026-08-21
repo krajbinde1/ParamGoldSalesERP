@@ -200,13 +200,15 @@ it('renders clickable director KPI cards in the expected order', function (): vo
             'Team Punch In',
             'Dealer Visits Today',
             'Pending Orders',
-            'Payment Approval',
+            'Today Field Visits',
         ])
         ->assertSeeHtml('filters%5Border_date%5D%5Bdate%5D='.$today)
         ->assertSeeHtml('filters%5Bcollection_date%5D%5Bdate%5D='.$today)
         ->assertSeeHtml('filters%5Bpunched_in%5D%5BisActive%5D=1')
         ->assertSeeHtml('filters%5Bvisit_date%5D%5Bdate%5D='.$today)
-        ->assertSeeHtml('filters%5Baction_required%5D%5BisActive%5D=1');
+        ->assertSeeHtml('filters%5Bpending_not_dispatched%5D%5BisActive%5D=1')
+        ->assertSeeHtml('filters%5Bactivity_date%5D%5Bdate%5D='.$today)
+        ->assertDontSee('Payment Approval');
 });
 
 it('filters today attendance to unique punched-in employees from the dashboard card', function (): void {
