@@ -4,35 +4,26 @@
             <div class="pg-section-head">
                 <div>
                     <h2 class="pg-section-title">Payment Approval</h2>
-                    <p class="pg-section-sub">Approval pipeline snapshot</p>
+                    <p class="pg-section-sub">Your queue, next stage, and payments completed today</p>
                 </div>
             </div>
 
-            <div class="pg-pipeline">
+            <div class="pg-status-grid pg-status-grid--3">
                 @foreach ($stats as $stat)
-                    @if ($stat['url'])
-                        <a href="{{ $stat['url'] }}" class="pg-pipeline__step">
-                            <div class="pg-icon pg-icon--{{ $stat['tone'] }}" style="margin: 0 auto;" aria-hidden="true">
-                                <x-filament::icon :icon="$stat['icon']" />
-                            </div>
-                            <p class="pg-pipeline__label">{{ $stat['label'] }}</p>
-                            <p class="pg-pipeline__value">{{ $stat['value'] }}</p>
-                            @if ($stat['showArrow'])
-                                <span class="pg-pipeline__arrow" aria-hidden="true">›</span>
-                            @endif
-                        </a>
-                    @else
-                        <div class="pg-pipeline__step">
-                            <div class="pg-icon pg-icon--{{ $stat['tone'] }}" style="margin: 0 auto;" aria-hidden="true">
-                                <x-filament::icon :icon="$stat['icon']" />
-                            </div>
-                            <p class="pg-pipeline__label">{{ $stat['label'] }}</p>
-                            <p class="pg-pipeline__value">{{ $stat['value'] }}</p>
-                            @if ($stat['showArrow'])
-                                <span class="pg-pipeline__arrow" aria-hidden="true">›</span>
-                            @endif
+                    @php
+                        $tag = filled($stat['url'] ?? null) ? 'a' : 'div';
+                    @endphp
+                    <{{ $tag }}
+                        @if (filled($stat['url'] ?? null)) href="{{ $stat['url'] }}" @endif
+                        class="pg-status {{ ($stat['alert'] ?? false) ? 'pg-status--alert' : '' }}"
+                    >
+                        <div class="pg-icon pg-icon--{{ $stat['tone'] }}" aria-hidden="true">
+                            <x-filament::icon :icon="$stat['icon']" />
                         </div>
-                    @endif
+                        <p class="pg-status__label">{{ $stat['label'] }}</p>
+                        <p class="pg-status__value">{{ $stat['value'] }}</p>
+                        <p class="pg-kpi__meta">{{ $stat['hint'] }}</p>
+                    </{{ $tag }}>
                 @endforeach
             </div>
         </x-filament::section>

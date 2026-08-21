@@ -35,7 +35,9 @@ class PaymentRequestResource extends Resource
 
     public static function canAccess(): bool
     {
-        return auth()->user()?->isAdminUser() ?? false;
+        $user = auth()->user();
+
+        return $user?->can('viewAny', PaymentRequest::class) ?? false;
     }
 
     public static function shouldRegisterNavigation(): bool

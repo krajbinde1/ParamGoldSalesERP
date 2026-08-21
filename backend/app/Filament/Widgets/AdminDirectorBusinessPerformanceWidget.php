@@ -3,8 +3,10 @@
 namespace App\Filament\Widgets;
 
 use App\Filament\Concerns\InteractsWithManagerDashboardFilters;
+use App\Filament\Resources\Collections\CollectionResource;
+use App\Filament\Resources\Orders\OrderResource;
+use App\Services\Dashboard\DirectorDashboardDataService;
 use Filament\Widgets\Widget;
-use Illuminate\Support\Number;
 use Livewire\Attributes\Url;
 
 class AdminDirectorBusinessPerformanceWidget extends Widget
@@ -108,15 +110,24 @@ class AdminDirectorBusinessPerformanceWidget extends Widget
         );
 
         $summary = $data['summary'];
+        $format = DirectorDashboardDataService::formatCompact(...);
+        $salesTarget = (float) $summary['sales_target'];
+        $salesAchieved = (float) $summary['sales_achieved'];
+        $collectionTarget = (float) $summary['collection_target'];
+        $collectionAchieved = (float) $summary['collection_achieved'];
 
         return [
             'summary' => $summary,
             'periodLabel' => $data['range']['label'],
             'showCustomPeriod' => $this->normalizeManagerPeriod($this->bizPeriod) === 'custom',
-            'formatMoney' => fn (float $amount): string => Number::currency($amount, 'INR', 'en_IN'),
-            'formatPercentage' => fn (float $percentage): string => number_format($percentage, 2).'%',
+            'formatMoney' => $format,
+            'formatPercentage' => fn (float $percentage): string => number_format($percentage, 0).'%',
             'salesBarWidth' => min((float) $summary['sales_percentage'], 100),
             'collectionBarWidth' => min((float) $summary['collection_percentage'], 100),
+            'salesRemaining' => $format(max($salesTarget - $salesAchieved, 0)),
+            'collectionRemaining' => $format(max($collectionTarget - $collectionAchieved, 0)),
+            'salesUrl' => OrderResource::getUrl('index'),
+            'collectionUrl' => CollectionResource::getUrl('index'),
         ];
     }
 }

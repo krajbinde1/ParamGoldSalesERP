@@ -42,6 +42,7 @@ use App\Policies\SemiFinishedMaterialPolicy;
 use App\Policies\StockAdjustmentPolicy;
 use App\Policies\StockLedgerPolicy;
 use App\Policies\TaDaClaimPolicy;
+use App\Services\Dashboard\DirectorDashboardDataService;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -52,7 +53,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        $this->app->scoped(DirectorDashboardDataService::class);
     }
 
     /**

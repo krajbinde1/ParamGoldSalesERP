@@ -2,16 +2,20 @@
 
 namespace App\Filament\Resources\Collections\Tables;
 
+use App\Filament\Support\TodayDateFilter;
 use App\Models\Collection;
+use App\Support\AttendanceCalendar;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Textarea;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class CollectionsTable
 {
@@ -37,6 +41,20 @@ class CollectionsTable
             ])
             ->filters([
                 SelectFilter::make('status')->options(Collection::statusLabels()),
+                TodayDateFilter::make('collection_date', 'Collection Date'),
+                Filter::make('this_month_received')
+                    ->label('This month received')
+                    ->toggle()
+                    ->query(function (Builder $query): Builder {
+                        $now = AttendanceCalendar::now();
+
+                        return $query
+                            ->whereBetween('collection_date', [
+                                $now->copy()->startOfMonth()->toDateString(),
+                                $now->copy()->endOfMonth()->toDateString(),
+                            ])
+                            ->where('status', Collection::STATUS_RECEIVED);
+                    }),
                 TrashedFilter::make(),
             ])
             ->recordActions([

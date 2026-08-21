@@ -10,10 +10,13 @@ use Filament\Actions\RestoreBulkAction;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\IconColumn;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Support\Facades\DB;
 
 class DealersTable
 {
@@ -90,6 +93,12 @@ class DealersTable
                     ->placeholder('All dealers')
                     ->trueLabel('Active dealers')
                     ->falseLabel('Inactive dealers'),
+                Filter::make('high_outstanding')
+                    ->label('High outstanding')
+                    ->toggle()
+                    ->query(fn (Builder $query): Builder => $query
+                        ->where('credit_limit', '>', 0)
+                        ->whereColumn('outstanding', '>=', DB::raw('credit_limit * 0.9'))),
                 SelectFilter::make('state')
                     ->options(fn (): array => Dealer::query()
                         ->whereNotNull('state')

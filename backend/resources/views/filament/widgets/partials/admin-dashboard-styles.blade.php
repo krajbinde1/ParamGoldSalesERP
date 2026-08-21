@@ -214,6 +214,11 @@
 
     @media (min-width: 1120px) {
         .pg-admin-dash .pg-kpi-grid { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+        .pg-admin-dash .pg-kpi-grid--6 { grid-template-columns: repeat(6, minmax(0, 1fr)); }
+    }
+
+    @media (min-width: 720px) and (max-width: 1119px) {
+        .pg-admin-dash .pg-kpi-grid--6 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
     }
 
     .pg-admin-dash .pg-kpi {
@@ -224,9 +229,14 @@
         transition: box-shadow 0.15s ease, border-color 0.15s ease;
     }
 
-    .pg-admin-dash .pg-kpi:hover {
-        border-color: rgba(15, 118, 110, 0.28);
-        box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+    .pg-admin-dash .pg-kpi--alert {
+        border-color: rgba(220, 38, 38, 0.35);
+        background: #FEF2F2;
+    }
+
+    .pg-admin-dash a.pg-kpi {
+        text-decoration: none;
+        color: inherit;
     }
 
     .pg-admin-dash .pg-kpi__label {
@@ -443,6 +453,22 @@
         border: 1px solid var(--pg-border);
         border-radius: 0.7rem;
         background: #fff;
+        display: block;
+        text-decoration: none;
+        color: inherit;
+        transition: border-color 0.15s ease, box-shadow 0.15s ease;
+    }
+
+    .pg-admin-dash a.pg-progress:hover {
+        border-color: rgba(15, 118, 110, 0.28);
+        box-shadow: 0 4px 14px rgba(15, 23, 42, 0.05);
+    }
+
+    .pg-admin-dash .pg-progress__remain {
+        margin: 0.55rem 0 0;
+        font-size: 0.75rem;
+        font-weight: 650;
+        color: var(--pg-muted);
     }
 
     .pg-admin-dash .pg-progress__row {
@@ -801,6 +827,9 @@
     .fi-admin-director-payment-overview-widget .fi-section,
     .fi-admin-director-employee-performance-widget .fi-section,
     .fi-admin-director-recent-activity-widget .fi-section,
+    .fi-admin-director-attention-widget .fi-section,
+    .fi-admin-director-team-activity-widget .fi-section,
+    .fi-admin-director-collection-outstanding-widget .fi-section,
     .fi-admin-director-quick-actions-widget .fi-section {
         border: 1px solid #E2E8F0;
         border-radius: 0.75rem;
@@ -812,6 +841,9 @@
     .fi-admin-director-payment-overview-widget .fi-section-header,
     .fi-admin-director-employee-performance-widget .fi-section-header,
     .fi-admin-director-recent-activity-widget .fi-section-header,
+    .fi-admin-director-attention-widget .fi-section-header,
+    .fi-admin-director-team-activity-widget .fi-section-header,
+    .fi-admin-director-collection-outstanding-widget .fi-section-header,
     .fi-admin-director-quick-actions-widget .fi-section-header {
         display: none;
     }
@@ -824,5 +856,230 @@
         border-color: #0F766E;
         background: #0F766E;
         color: #fff;
+    }
+
+    .pg-admin-dash .pg-attention {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0.55rem;
+    }
+
+    @media (min-width: 720px) {
+        .pg-admin-dash .pg-attention { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    @media (min-width: 1120px) {
+        .pg-admin-dash .pg-attention { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    }
+
+    .pg-admin-dash .pg-attention__item {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem;
+        padding: 0.75rem 0.9rem;
+        border: 1px solid var(--pg-border);
+        border-radius: 0.65rem;
+        background: #fff;
+        text-decoration: none;
+        color: var(--pg-navy);
+        font-size: 0.875rem;
+        font-weight: 650;
+    }
+
+    .pg-admin-dash .pg-attention__item:hover {
+        border-color: rgba(15, 118, 110, 0.3);
+    }
+
+    .pg-admin-dash .pg-attention__dot {
+        width: 0.55rem;
+        height: 0.55rem;
+        border-radius: 999px;
+        flex-shrink: 0;
+        background: #94A3B8;
+    }
+
+    .pg-admin-dash .pg-attention__item--red {
+        border-color: rgba(220, 38, 38, 0.22);
+        background: #FEF2F2;
+    }
+    .pg-admin-dash .pg-attention__item--red .pg-attention__dot { background: #DC2626; }
+
+    .pg-admin-dash .pg-attention__item--orange {
+        border-color: rgba(217, 119, 6, 0.25);
+        background: #FFFBEB;
+    }
+    .pg-admin-dash .pg-attention__item--orange .pg-attention__dot { background: #D97706; }
+
+    .pg-admin-dash .pg-attention__item--green {
+        border-color: rgba(22, 163, 74, 0.2);
+        background: #F0FDF4;
+        color: #166534;
+    }
+    .pg-admin-dash .pg-attention__item--green .pg-attention__dot { background: #16A34A; }
+
+    .pg-admin-dash .pg-flow {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: stretch;
+        gap: 0.5rem;
+    }
+
+    .pg-admin-dash .pg-flow__stage {
+        flex: 1 1 7.5rem;
+        min-width: 7rem;
+        padding: 0.85rem 0.9rem;
+        border: 1px solid var(--pg-border);
+        border-radius: 0.65rem;
+        text-align: center;
+        text-decoration: none;
+        color: inherit;
+        background: #fff;
+    }
+
+    .pg-admin-dash .pg-flow__stage:hover {
+        border-color: rgba(15, 118, 110, 0.3);
+    }
+
+    .pg-admin-dash .pg-flow__stage--stuck {
+        border-color: rgba(217, 119, 6, 0.4);
+        background: #FFFBEB;
+    }
+
+    .pg-admin-dash .pg-flow__stage--rejected {
+        flex: 0 1 7rem;
+        opacity: 0.9;
+    }
+
+    .pg-admin-dash .pg-flow__label {
+        margin: 0;
+        font-size: 0.7rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--pg-muted);
+    }
+
+    .pg-admin-dash .pg-flow__value {
+        margin: 0.35rem 0 0;
+        font-size: 1.35rem;
+        font-weight: 750;
+        color: var(--pg-navy);
+    }
+
+    .pg-admin-dash .pg-flow__arrow {
+        align-self: center;
+        color: #94A3B8;
+        font-weight: 700;
+    }
+
+    @media (max-width: 719px) {
+        .pg-admin-dash .pg-flow__arrow { display: none; }
+    }
+
+    .pg-admin-dash .pg-delay {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.5rem;
+        margin-top: 0.85rem;
+    }
+
+    .pg-admin-dash .pg-delay__item {
+        padding: 0.4rem 0.7rem;
+        border-radius: 999px;
+        background: #FFFBEB;
+        border: 1px solid rgba(217, 119, 6, 0.25);
+        color: #92400E;
+        font-size: 0.75rem;
+        font-weight: 650;
+        text-decoration: none;
+    }
+
+    .pg-admin-dash .pg-split {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 1rem;
+    }
+
+    @media (min-width: 800px) {
+        .pg-admin-dash .pg-split { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+
+    .pg-admin-dash .pg-split__title {
+        margin: 0 0 0.65rem;
+        font-size: 0.75rem;
+        font-weight: 750;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--pg-muted);
+    }
+
+    .pg-admin-dash .pg-person {
+        display: flex;
+        justify-content: space-between;
+        gap: 0.75rem;
+        padding: 0.55rem 0;
+        border-bottom: 1px solid var(--pg-border);
+        text-decoration: none;
+        color: inherit;
+    }
+
+    .pg-admin-dash .pg-person:last-child { border-bottom: 0; }
+
+    .pg-admin-dash .pg-person__name {
+        font-weight: 650;
+        color: var(--pg-navy);
+    }
+
+    .pg-admin-dash .pg-person__pct {
+        font-variant-numeric: tabular-nums;
+        font-weight: 750;
+    }
+
+    .pg-admin-dash .pg-person__pct--good { color: #15803D; }
+    .pg-admin-dash .pg-person__pct--warn { color: #B45309; }
+
+    .pg-admin-dash .pg-activity {
+        list-style: none;
+        margin: 0;
+        padding: 0;
+    }
+
+    .pg-admin-dash .pg-activity__item {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        padding: 0.7rem 0;
+        border-bottom: 1px solid var(--pg-border);
+    }
+
+    .pg-admin-dash .pg-activity__item:last-child { border-bottom: 0; }
+
+    .pg-admin-dash .pg-activity__text {
+        margin: 0;
+        font-weight: 650;
+        color: var(--pg-navy);
+    }
+
+    .pg-admin-dash .pg-activity__meta,
+    .pg-admin-dash .pg-activity__when {
+        margin: 0.15rem 0 0;
+        font-size: 0.75rem;
+        color: var(--pg-muted);
+        white-space: nowrap;
+    }
+
+    .pg-admin-dash .pg-status--alert {
+        border-color: rgba(220, 38, 38, 0.3);
+        background: #FEF2F2;
+    }
+
+    .pg-admin-dash a.pg-status {
+        text-decoration: none;
+        color: inherit;
+    }
+
+    @media (min-width: 800px) {
+        .pg-admin-dash .pg-status-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        .pg-admin-dash .pg-status-grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
     }
 </style>

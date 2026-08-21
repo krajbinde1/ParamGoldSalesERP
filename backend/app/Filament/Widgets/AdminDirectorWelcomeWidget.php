@@ -3,14 +3,13 @@
 namespace App\Filament\Widgets;
 
 use App\Filament\Resources\Attendances\AttendanceResource;
+use App\Filament\Resources\Collections\CollectionResource;
 use App\Filament\Resources\DealerVisits\DealerVisitResource;
-use App\Filament\Resources\FieldActivities\FieldActivityResource;
-use App\Services\Attendance\AttendanceStatusCalculator;
-use App\Services\Dashboard\AdminDashboardDataService;
-use App\Support\AttendanceCalendar;
+use App\Filament\Resources\Orders\OrderResource;
+use App\Filament\Resources\PaymentRequests\PaymentRequestResource;
+use App\Services\Dashboard\DirectorDashboardDataService;
 use Filament\Facades\Filament;
 use Filament\Widgets\Widget;
-use Illuminate\Support\Carbon;
 
 class AdminDirectorWelcomeWidget extends Widget
 {
@@ -31,68 +30,85 @@ class AdminDirectorWelcomeWidget extends Widget
     protected function getViewData(): array
     {
         $user = Filament::auth()->user();
-        $now = Carbon::now(AttendanceCalendar::TIMEZONE);
-        $counts = app(AdminDashboardDataService::class)->teamTodayCounts();
-        $today = $counts['today'];
+        $data = app(DirectorDashboardDataService::class)->snapshot($user);
+        $today = $data['today'];
+        $format = DirectorDashboardDataService::formatCompact(...);
+        $payments = $data['payments'];
+        $paymentCount = (int) $payments['my_pending_count'];
+        $canOpenPayments = PaymentRequestResource::canAccess();
 
         return [
             'userName' => $user?->employee?->full_name ?? $user?->name ?? 'User',
-            'roleLabel' => $user?->adminDirectorRoleLabel() ?? 'Admin',
-            'currentDate' => $now->format('l, d F Y'),
-            'teamToday' => [
+            'roleLabel' => $user?->adminDirectorRoleLabel() ?? 'Director',
+            'currentDate' => now('Asia/Kolkata')->format('l, d F Y'),
+            'kpis' => [
                 [
-                    'label' => 'Punched In',
-                    'value' => $counts['punched_in'],
+                    'label' => 'Today Sales',
+                    'value' => $format((float) $data['today_sales']),
+                    'hint' => 'Orders placed today',
                     'tone' => 'teal',
+                    'icon' => 'heroicon-o-banknotes',
+                    'alert' => false,
+                    'url' => OrderResource::getUrl('index', [
+                        'filters' => ['order_date' => ['date' => $today]],
+                    ]),
+                ],
+                [
+                    'label' => 'Today Collection',
+                    'value' => $format((float) $data['today_collection']),
+                    'hint' => 'Collections entered today',
+                    'tone' => 'green',
+                    'icon' => 'heroicon-o-wallet',
+                    'alert' => false,
+                    'url' => CollectionResource::getUrl('index', [
+                        'filters' => ['collection_date' => ['date' => $today]],
+                    ]),
+                ],
+                [
+                    'label' => 'Team Punch In',
+                    'value' => $data['punched_in'].' / '.$data['active_employees'],
+                    'hint' => $data['not_punched_in'].' Not Punched In',
+                    'tone' => ((int) $data['not_punched_in'] > 0) ? 'amber' : 'green',
                     'icon' => 'heroicon-o-finger-print',
+                    'alert' => false,
                     'url' => AttendanceResource::getUrl('index', [
                         'filters' => ['punched_in' => ['isActive' => true]],
                     ]),
                 ],
                 [
-                    'label' => 'Present',
-                    'value' => $counts['present'],
-                    'tone' => 'green',
-                    'icon' => 'heroicon-o-check-circle',
-                    'url' => AttendanceResource::getUrl('index', [
-                        'filters' => ['attendance_status' => ['value' => AttendanceStatusCalculator::STATUS_PRESENT]],
-                    ]),
-                ],
-                [
-                    'label' => 'Absent',
-                    'value' => $counts['absent'],
-                    'tone' => 'red',
-                    'icon' => 'heroicon-o-user-minus',
-                    'url' => AttendanceResource::getUrl('index', [
-                        'filters' => ['attendance_status' => ['value' => AttendanceStatusCalculator::STATUS_ABSENT]],
-                    ]),
-                ],
-                [
-                    'label' => 'Half Day',
-                    'value' => $counts['half_day'],
-                    'tone' => 'amber',
-                    'icon' => 'heroicon-o-clock',
-                    'url' => AttendanceResource::getUrl('index', [
-                        'filters' => ['attendance_status' => ['value' => AttendanceStatusCalculator::STATUS_HALF_DAY]],
-                    ]),
-                ],
-                [
-                    'label' => 'Dealer Visits',
-                    'value' => $counts['dealer_visits'],
+                    'label' => 'Dealer Visits Today',
+                    'value' => (string) $data['dealer_visits'],
+                    'hint' => 'Field visits to dealers',
                     'tone' => 'blue',
                     'icon' => 'heroicon-o-building-storefront',
+                    'alert' => false,
                     'url' => DealerVisitResource::getUrl('index', [
                         'filters' => ['visit_date' => ['date' => $today]],
                     ]),
                 ],
                 [
-                    'label' => 'Field Visits',
-                    'value' => $counts['field_visits'],
-                    'tone' => 'teal',
-                    'icon' => 'heroicon-o-map-pin',
-                    'url' => FieldActivityResource::getUrl('index', [
-                        'filters' => ['activity_date' => ['date' => $today]],
+                    'label' => 'Pending Orders',
+                    'value' => (string) $data['pending_orders'],
+                    'hint' => 'Requiring action',
+                    'tone' => ((int) $data['pending_orders'] > 0) ? 'amber' : 'green',
+                    'icon' => 'heroicon-o-clipboard-document-list',
+                    'alert' => false,
+                    'url' => OrderResource::getUrl('index', [
+                        'filters' => ['action_required' => ['isActive' => true]],
                     ]),
+                ],
+                [
+                    'label' => 'Payment Approval',
+                    'value' => $paymentCount.' Pending',
+                    'hint' => $paymentCount > 0 ? 'Requires your action' : 'Nothing waiting',
+                    'tone' => $paymentCount > 0 ? 'red' : 'green',
+                    'icon' => 'heroicon-o-shield-check',
+                    'alert' => $paymentCount > 0,
+                    'url' => $canOpenPayments
+                        ? PaymentRequestResource::getUrl('index', [
+                            'filters' => ['workflow_status' => ['value' => $payments['my_filter']]],
+                        ])
+                        : null,
                 ],
             ],
         ];

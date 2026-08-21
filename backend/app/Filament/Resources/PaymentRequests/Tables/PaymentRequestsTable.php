@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\PaymentRequests\Tables;
 
 use App\Actions\PaymentRequests\SendPaymentRequestReminder;
+use App\Filament\Support\TodayDateFilter;
 use App\Models\PaymentRequest;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
@@ -120,6 +121,7 @@ class PaymentRequestsTable
                             default => $query,
                         };
                     }),
+                TodayDateFilter::make('payment_done_at', 'Payment Date'),
             ])
             ->recordActions([
                 Action::make('sendReminder')

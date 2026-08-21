@@ -3,12 +3,12 @@
 namespace App\Filament\Widgets;
 
 use App\Filament\Resources\PaymentRequests\PaymentRequestResource;
-use App\Models\PaymentRequest;
+use App\Services\Dashboard\DirectorDashboardDataService;
 use Filament\Widgets\Widget;
 
 class AdminDirectorPaymentOverviewWidget extends Widget
 {
-    protected static ?int $sort = 4;
+    protected static ?int $sort = 8;
 
     protected int|string|array $columnSpan = 'full';
 
@@ -24,53 +24,47 @@ class AdminDirectorPaymentOverviewWidget extends Widget
      */
     protected function getViewData(): array
     {
+        $data = app(DirectorDashboardDataService::class)->snapshot();
+        $payments = $data['payments'];
+        $today = $data['today'];
+        $format = DirectorDashboardDataService::formatCompact(...);
         $canOpen = PaymentRequestResource::canAccess();
-        $counts = PaymentRequest::query()
-            ->selectRaw('status, COUNT(*) as aggregate')
-            ->whereIn('status', [
-                PaymentRequest::STATUS_PENDING_FIRST,
-                PaymentRequest::STATUS_PENDING_SECOND,
-                PaymentRequest::STATUS_APPROVED_FOR_PAYMENT,
-                PaymentRequest::STATUS_PAYMENT_DONE,
-            ])
-            ->groupBy('status')
-            ->pluck('aggregate', 'status');
 
-        $indexUrl = $canOpen ? PaymentRequestResource::getUrl('index') : null;
+        $url = function (array $filters) use ($canOpen): ?string {
+            return $canOpen ? PaymentRequestResource::getUrl('index', ['filters' => $filters]) : null;
+        };
 
         return [
             'stats' => [
                 [
-                    'label' => 'Pending First Approval',
-                    'value' => (int) ($counts[PaymentRequest::STATUS_PENDING_FIRST] ?? 0),
-                    'tone' => 'amber',
+                    'label' => 'Pending My Approval',
+                    'value' => $payments['my_pending_count'].' Requests',
+                    'hint' => $format((float) $payments['my_pending_amount']),
+                    'tone' => ((int) $payments['my_pending_count'] > 0) ? 'red' : 'green',
                     'icon' => 'heroicon-o-clock',
-                    'url' => $indexUrl,
-                    'showArrow' => true,
+                    'alert' => (int) $payments['my_pending_count'] > 0,
+                    'url' => $url(['workflow_status' => ['value' => $payments['my_filter']]]),
                 ],
                 [
-                    'label' => 'Pending Second Approval',
-                    'value' => (int) ($counts[PaymentRequest::STATUS_PENDING_SECOND] ?? 0),
+                    'label' => 'Pending Next Approval',
+                    'value' => $payments['next_count'].' Requests',
+                    'hint' => $format((float) $payments['next_amount']),
                     'tone' => 'amber',
                     'icon' => 'heroicon-o-clipboard-document-check',
-                    'url' => $indexUrl,
-                    'showArrow' => true,
+                    'alert' => false,
+                    'url' => $url(['workflow_status' => ['value' => $payments['next_filter']]]),
                 ],
                 [
-                    'label' => 'Approved for Payment',
-                    'value' => (int) ($counts[PaymentRequest::STATUS_APPROVED_FOR_PAYMENT] ?? 0),
-                    'tone' => 'blue',
-                    'icon' => 'heroicon-o-check-badge',
-                    'url' => $indexUrl,
-                    'showArrow' => true,
-                ],
-                [
-                    'label' => 'Payment Done',
-                    'value' => (int) ($counts[PaymentRequest::STATUS_PAYMENT_DONE] ?? 0),
+                    'label' => 'Payment Done Today',
+                    'value' => $payments['paid_today_count'].' Requests',
+                    'hint' => $format((float) $payments['paid_today_amount']),
                     'tone' => 'green',
                     'icon' => 'heroicon-o-banknotes',
-                    'url' => $indexUrl,
-                    'showArrow' => false,
+                    'alert' => false,
+                    'url' => $url([
+                        'workflow_status' => ['value' => 'payment_done'],
+                        'payment_done_at' => ['date' => $today],
+                    ]),
                 ],
             ],
         ];

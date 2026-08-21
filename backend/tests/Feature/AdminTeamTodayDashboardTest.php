@@ -187,26 +187,26 @@ it('counts punched in from punch time not present status and keeps other today m
         ->and($queries)->toBe(3);
 });
 
-it('renders clickable team today cards in the expected order', function (): void {
+it('renders clickable director KPI cards in the expected order', function (): void {
     $admin = teamTodayAdmin();
+    $today = AttendanceCalendar::today()->toDateString();
 
     Livewire::actingAs($admin)
         ->test(AdminDirectorWelcomeWidget::class)
         ->assertSuccessful()
         ->assertSeeInOrder([
-            'Punched In',
-            'Present',
-            'Absent',
-            'Half Day',
-            'Dealer Visits',
-            'Field Visits',
+            'Today Sales',
+            'Today Collection',
+            'Team Punch In',
+            'Dealer Visits Today',
+            'Pending Orders',
+            'Payment Approval',
         ])
+        ->assertSeeHtml('filters%5Border_date%5D%5Bdate%5D='.$today)
+        ->assertSeeHtml('filters%5Bcollection_date%5D%5Bdate%5D='.$today)
         ->assertSeeHtml('filters%5Bpunched_in%5D%5BisActive%5D=1')
-        ->assertSeeHtml('filters%5Battendance_status%5D%5Bvalue%5D=Present')
-        ->assertSeeHtml('filters%5Battendance_status%5D%5Bvalue%5D=Absent')
-        ->assertSeeHtml('filters%5Battendance_status%5D%5Bvalue%5D=Half%20Day')
-        ->assertSeeHtml('filters%5Bvisit_date%5D%5Bdate%5D='.AttendanceCalendar::today()->toDateString())
-        ->assertSeeHtml('filters%5Bactivity_date%5D%5Bdate%5D='.AttendanceCalendar::today()->toDateString());
+        ->assertSeeHtml('filters%5Bvisit_date%5D%5Bdate%5D='.$today)
+        ->assertSeeHtml('filters%5Baction_required%5D%5BisActive%5D=1');
 });
 
 it('filters today attendance to unique punched-in employees from the dashboard card', function (): void {

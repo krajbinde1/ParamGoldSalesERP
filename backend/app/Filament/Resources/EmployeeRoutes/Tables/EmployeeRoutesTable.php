@@ -4,11 +4,11 @@ namespace App\Filament\Resources\EmployeeRoutes\Tables;
 
 use App\Filament\Resources\EmployeeRoutes\EmployeeRouteResource;
 use App\Filament\Support\EmployeeSelect;
+use App\Filament\Support\TodayDateFilter;
 use App\Models\Attendance;
 use App\Services\EmployeeRouteAnalysisService;
 use App\Support\AttendanceCalendar;
 use Filament\Actions\Action;
-use Filament\Forms\Components\DatePicker;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
@@ -70,19 +70,11 @@ class EmployeeRoutesTable
                     ->relationship('employee', 'full_name')
                     ->tap(fn (SelectFilter $filter) => EmployeeSelect::applyRelationshipFilter($filter))
                     ->preload(),
-                Filter::make('attendance_date')
-                    ->label('Date')
-                    ->schema([
-                        DatePicker::make('date')
-                            ->label('Date')
-                            ->native(false),
-                    ])
-                    ->query(function (Builder $query, array $data): Builder {
-                        return $query->when(
-                            filled($data['date'] ?? null),
-                            fn (Builder $builder): Builder => $builder->whereDate('attendance_date', $data['date']),
-                        );
-                    }),
+                TodayDateFilter::make('attendance_date', 'Date'),
+                Filter::make('active_now')
+                    ->label('Currently on route')
+                    ->toggle()
+                    ->query(fn (Builder $query): Builder => $query->whereNotNull('punch_in_time')->whereNull('punch_out_time')),
                 SelectFilter::make('month')
                     ->label('Month')
                     ->options(self::monthOptions())

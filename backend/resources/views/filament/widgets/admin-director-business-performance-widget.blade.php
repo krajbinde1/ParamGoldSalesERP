@@ -3,7 +3,7 @@
         <x-filament::section>
             <div class="pg-section-head">
                 <div>
-                    <h2 class="pg-section-title">Business Performance</h2>
+                    <h2 class="pg-section-title">This Month Performance</h2>
                     <p class="pg-section-sub">{{ $periodLabel }}</p>
                 </div>
                 <div class="pg-seg" role="group" aria-label="Business performance period filters">
@@ -36,93 +36,35 @@
                 </div>
             @endif
 
-            @php
-                $metrics = [
-                    [
-                        'label' => 'Sales Target',
-                        'value' => $formatMoney((float) $summary['sales_target']),
-                        'hint' => (float) $summary['sales_target'] <= 0 ? 'No target assigned' : null,
-                        'tone' => 'teal',
-                        'icon' => 'heroicon-o-flag',
-                    ],
-                    [
-                        'label' => 'Sales Achievement',
-                        'value' => $formatMoney((float) $summary['sales_achieved']),
-                        'hint' => $formatPercentage((float) $summary['sales_percentage']).' of target',
-                        'tone' => 'green',
-                        'icon' => 'heroicon-o-arrow-trending-up',
-                    ],
-                    [
-                        'label' => 'Collection Target',
-                        'value' => $formatMoney((float) $summary['collection_target']),
-                        'hint' => (float) $summary['collection_target'] <= 0 ? 'No target assigned' : null,
-                        'tone' => 'blue',
-                        'icon' => 'heroicon-o-building-library',
-                    ],
-                    [
-                        'label' => 'Collection Achievement',
-                        'value' => $formatMoney((float) $summary['collection_achieved']),
-                        'hint' => $formatPercentage((float) $summary['collection_percentage']).' of target',
-                        'tone' => 'blue',
-                        'icon' => 'heroicon-o-banknotes',
-                    ],
-                ];
-            @endphp
-
-            <div class="pg-metric-grid">
-                @foreach ($metrics as $metric)
-                    <div class="pg-metric">
-                        <div class="pg-metric__top">
-                            <p class="pg-metric__label">{{ $metric['label'] }}</p>
-                            <div class="pg-icon pg-icon--{{ $metric['tone'] }}" aria-hidden="true">
-                                <x-filament::icon :icon="$metric['icon']" />
-                            </div>
-                        </div>
-                        <p class="pg-metric__value">{{ $metric['value'] }}</p>
-                        @if ($metric['hint'])
-                            <p class="pg-metric__hint">{{ $metric['hint'] }}</p>
-                        @endif
-                    </div>
-                @endforeach
-            </div>
-
             <div class="pg-progress-grid">
-                <div class="pg-progress">
+                <a href="{{ $salesUrl }}" class="pg-progress">
                     <div class="pg-progress__row">
-                        <p class="pg-progress__label">Sales Performance</p>
+                        <p class="pg-progress__label">Sales</p>
                         <p class="pg-progress__pct">{{ $formatPercentage((float) $summary['sales_percentage']) }}</p>
                     </div>
                     <p class="pg-progress__amounts">
-                        {{ $formatMoney((float) $summary['sales_achieved']) }}
-                        /
-                        @if ((float) $summary['sales_target'] <= 0)
-                            No target assigned
-                        @else
-                            {{ $formatMoney((float) $summary['sales_target']) }}
-                        @endif
+                        Target: {{ $formatMoney((float) $summary['sales_target']) }}
+                        · Achievement: {{ $formatMoney((float) $summary['sales_achieved']) }}
                     </p>
                     <div class="pg-progress__track">
                         <div class="pg-progress__bar" style="width: {{ $salesBarWidth }}%;"></div>
                     </div>
-                </div>
-                <div class="pg-progress">
+                    <p class="pg-progress__remain">Remaining: {{ $salesRemaining }}</p>
+                </a>
+                <a href="{{ $collectionUrl }}" class="pg-progress">
                     <div class="pg-progress__row">
-                        <p class="pg-progress__label">Collection Performance</p>
+                        <p class="pg-progress__label">Collection</p>
                         <p class="pg-progress__pct">{{ $formatPercentage((float) $summary['collection_percentage']) }}</p>
                     </div>
                     <p class="pg-progress__amounts">
-                        {{ $formatMoney((float) $summary['collection_achieved']) }}
-                        /
-                        @if ((float) $summary['collection_target'] <= 0)
-                            No target assigned
-                        @else
-                            {{ $formatMoney((float) $summary['collection_target']) }}
-                        @endif
+                        Target: {{ $formatMoney((float) $summary['collection_target']) }}
+                        · Achievement: {{ $formatMoney((float) $summary['collection_achieved']) }}
                     </p>
                     <div class="pg-progress__track">
                         <div class="pg-progress__bar pg-progress__bar--blue" style="width: {{ $collectionBarWidth }}%;"></div>
                     </div>
-                </div>
+                    <p class="pg-progress__remain">Remaining: {{ $collectionRemaining }}</p>
+                </a>
             </div>
         </x-filament::section>
     </div>

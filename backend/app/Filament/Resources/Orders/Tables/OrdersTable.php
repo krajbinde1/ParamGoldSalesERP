@@ -7,7 +7,9 @@ use App\Actions\Orders\DispatchOrder;
 use App\Actions\Orders\RejectOrderWithRemarks;
 use App\Actions\Orders\SendOrderForBilling;
 use App\Filament\Support\SendForBillForm;
+use App\Filament\Support\TodayDateFilter;
 use App\Models\Order;
+use App\Support\AttendanceCalendar;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
@@ -22,9 +24,11 @@ use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\HtmlString;
 
@@ -37,6 +41,40 @@ class OrdersTable
 
         $filters = [
             SelectFilter::make('payment_type')->options(['Cash' => 'Cash', 'Credit' => 'Credit']),
+            TodayDateFilter::make('order_date', 'Order Date'),
+            Filter::make('action_required')
+                ->label('Action required')
+                ->toggle()
+                ->query(fn (Builder $query): Builder => $query->whereIn('status', [
+                    Order::STATUS_PENDING_APPROVAL,
+                    Order::STATUS_PENDING_FOR_BILLING,
+                    Order::STATUS_BILLED,
+                ])),
+            SelectFilter::make('stuck_since')
+                ->label('Delayed')
+                ->options([
+                    'pending_24h' => 'Pending approval > 24 hours',
+                    'billing_12h' => 'Waiting for billing > 12 hours',
+                    'dispatch_24h' => 'Billed not dispatched > 24 hours',
+                ])
+                ->query(function (Builder $query, array $data): Builder {
+                    $now = AttendanceCalendar::now();
+
+                    return match ($data['value'] ?? null) {
+                        'pending_24h' => $query
+                            ->where('status', Order::STATUS_PENDING_APPROVAL)
+                            ->where('created_at', '<=', $now->copy()->subHours(24)),
+                        'billing_12h' => $query
+                            ->where('status', Order::STATUS_PENDING_FOR_BILLING)
+                            ->whereNotNull('sent_for_bill_at')
+                            ->where('sent_for_bill_at', '<=', $now->copy()->subHours(12)),
+                        'dispatch_24h' => $query
+                            ->where('status', Order::STATUS_BILLED)
+                            ->whereNotNull('billed_at')
+                            ->where('billed_at', '<=', $now->copy()->subHours(24)),
+                        default => $query,
+                    };
+                }),
         ];
 
         // Do not register a status SelectFilter for PS at all.

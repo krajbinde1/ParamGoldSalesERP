@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class Order extends Model
@@ -16,6 +17,10 @@ class Order extends Model
     public const STATUS_PENDING_APPROVAL = 'pending_approval';
 
     public const STATUS_APPROVED = 'approved';
+
+    public const STATUS_ON_HOLD = 'on_hold';
+
+    public const STATUS_REVERTED_TO_MANAGER = 'reverted_to_manager';
 
     public const STATUS_PENDING_FOR_BILLING = 'pending_for_billing';
 
@@ -35,6 +40,8 @@ class Order extends Model
         'draft' => 'Draft',
         'pending_approval' => 'Pending for Manager Approval',
         'approved' => 'Approved by Sales Manager',
+        'on_hold' => 'On Hold',
+        'reverted_to_manager' => 'Returned by Production',
         'pending_for_billing' => 'Pending for Billing',
         'billed' => 'Billed',
         'dispatched' => 'Dispatched',
@@ -47,7 +54,9 @@ class Order extends Model
         'draft' => ['pending_approval'],
         'pending_approval' => ['approved', 'rejected', 'cancelled'],
         // Billing requires Production Supervisor "Send for Bill" first.
-        'approved' => ['pending_for_billing', 'rejected'],
+        'approved' => ['pending_for_billing', 'rejected', 'on_hold', 'reverted_to_manager'],
+        'on_hold' => ['approved', 'rejected'],
+        'reverted_to_manager' => ['approved', 'rejected'],
         'pending_for_billing' => ['billed', 'rejected'],
         'billed' => ['dispatched'],
         'dispatched' => [],
@@ -83,6 +92,10 @@ class Order extends Model
         'remarks', 'status', 'subtotal', 'discount_amount', 'gst_amount', 'grand_total',
         'approved_by', 'approved_at', 'rejected_by', 'rejected_by_role', 'rejected_at', 'rejection_remark',
         'last_edited_by', 'last_edited_at', 'last_edited_by_role',
+        'held_by', 'held_at', 'hold_remark', 'hold_return_status',
+        'hold_released_by', 'hold_released_at',
+        'reverted_by', 'reverted_at', 'revert_remark',
+        'reapproved_by', 'reapproved_at',
         'sent_for_bill_by', 'sent_for_bill_at', 'transport_remark',
         'billed_by', 'billed_at', 'bill_path', 'bill_number', 'bill_date', 'billing_remark',
         'dispatched_by', 'dispatched_at', 'dispatch_date', 'dispatch_remark',
@@ -109,6 +122,10 @@ class Order extends Model
             'approved_at' => 'datetime',
             'rejected_at' => 'datetime',
             'last_edited_at' => 'datetime',
+            'held_at' => 'datetime',
+            'hold_released_at' => 'datetime',
+            'reverted_at' => 'datetime',
+            'reapproved_at' => 'datetime',
             'sent_for_bill_at' => 'datetime',
             'billed_at' => 'datetime',
             'dispatched_at' => 'datetime',
@@ -143,6 +160,31 @@ class Order extends Model
     public function lastEditedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'last_edited_by');
+    }
+
+    public function heldByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'held_by');
+    }
+
+    public function holdReleasedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'hold_released_by');
+    }
+
+    public function revertedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reverted_by');
+    }
+
+    public function reapprovedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'reapproved_by');
+    }
+
+    public function workflowEvents(): HasMany
+    {
+        return $this->hasMany(OrderWorkflowEvent::class)->orderBy('created_at')->orderBy('id');
     }
 
     public function billedByUser(): BelongsTo
@@ -209,6 +251,8 @@ class Order extends Model
             'draft' => 'gray',
             'pending_approval' => 'amber',
             'approved' => 'success',
+            'on_hold' => 'warning',
+            'reverted_to_manager' => 'info',
             'pending_for_billing' => 'warning',
             'billed' => 'indigo',
             'dispatched' => 'info',
@@ -225,12 +269,18 @@ class Order extends Model
 
     public function canBeEdited(): bool
     {
-        return $this->status === 'pending_approval';
+        return in_array($this->status, [
+            self::STATUS_PENDING_APPROVAL,
+            self::STATUS_REVERTED_TO_MANAGER,
+        ], true);
     }
 
     public function canBeApproved(): bool
     {
-        return $this->status === 'pending_approval';
+        return in_array($this->status, [
+            self::STATUS_PENDING_APPROVAL,
+            self::STATUS_REVERTED_TO_MANAGER,
+        ], true);
     }
 
     public function canBeRejected(): bool
@@ -240,7 +290,10 @@ class Order extends Model
 
     public function canBeRejectedByManager(): bool
     {
-        return $this->status === self::STATUS_PENDING_APPROVAL;
+        return in_array($this->status, [
+            self::STATUS_PENDING_APPROVAL,
+            self::STATUS_REVERTED_TO_MANAGER,
+        ], true);
     }
 
     public function canBeRejectedByAdmin(): bool
@@ -248,8 +301,25 @@ class Order extends Model
         return in_array($this->status, [
             self::STATUS_PENDING_APPROVAL,
             self::STATUS_APPROVED,
+            self::STATUS_ON_HOLD,
+            self::STATUS_REVERTED_TO_MANAGER,
             self::STATUS_PENDING_FOR_BILLING,
         ], true);
+    }
+
+    public function canBeHeld(): bool
+    {
+        return $this->status === self::STATUS_APPROVED;
+    }
+
+    public function canBeReleasedFromHold(): bool
+    {
+        return $this->status === self::STATUS_ON_HOLD;
+    }
+
+    public function canBeRevertedToManager(): bool
+    {
+        return $this->status === self::STATUS_APPROVED;
     }
 
     public function canBeSentForBilling(): bool
@@ -304,6 +374,8 @@ class Order extends Model
             'billedByUser.employee:id,full_name,designation',
             'dispatchedByUser:id,name,role,job_role,employee_id',
             'dispatchedByUser.employee:id,full_name,designation',
+            'workflowEvents.user:id,name,role,job_role,employee_id',
+            'workflowEvents.user.employee:id,full_name,designation',
         ]);
 
         $format = fn ($value): ?string => $value === null
@@ -327,7 +399,8 @@ class Order extends Model
             'is_rejection' => false,
         ]];
 
-        if (filled($this->rejected_at) || $this->status === self::STATUS_REJECTED) {
+        if ((filled($this->rejected_at) || $this->status === self::STATUS_REJECTED)
+            && blank($this->approved_at)) {
             $steps[] = [
                 'key' => 'rejected',
                 'label' => $this->displayStatusLabel(),
@@ -345,9 +418,15 @@ class Order extends Model
             return $steps;
         }
 
+        $isOnHold = $this->status === self::STATUS_ON_HOLD;
+        $isReverted = $this->status === self::STATUS_REVERTED_TO_MANAGER;
+        $isRejected = $this->status === self::STATUS_REJECTED || filled($this->rejected_at);
+
         $isApproved = filled($this->approved_at)
             || in_array($this->status, [
                 self::STATUS_APPROVED,
+                self::STATUS_ON_HOLD,
+                self::STATUS_REVERTED_TO_MANAGER,
                 self::STATUS_PENDING_FOR_BILLING,
                 self::STATUS_BILLED,
                 self::STATUS_DISPATCHED,
@@ -379,9 +458,28 @@ class Order extends Model
             'status_text' => $isApproved ? null : 'Pending',
             'remark' => null,
             'completed' => $isApproved,
-            'is_current' => ! $isApproved,
+            'is_current' => false,
             'is_rejection' => false,
         ];
+
+        foreach ($this->workflowEvents as $event) {
+            $eventIsCurrent = ($isOnHold && $event->action === OrderWorkflowEvent::ACTION_HELD && $event->is($this->workflowEvents->last()))
+                || ($isReverted && $event->action === OrderWorkflowEvent::ACTION_REVERTED && $event->is($this->workflowEvents->last()));
+
+            $steps[] = [
+                'key' => $event->action,
+                'label' => $event->timelineLabel(),
+                'actor' => $event->user?->name,
+                'actor_role' => $this->displayActorRole($event->user)
+                    ?? ($event->user_role ?: null),
+                'at' => $format($event->created_at),
+                'status_text' => $eventIsCurrent ? $this->displayStatusLabel() : null,
+                'remark' => $event->remark,
+                'completed' => true,
+                'is_current' => $eventIsCurrent,
+                'is_rejection' => false,
+            ];
+        }
 
         $steps[] = [
             'key' => 'pending_for_billing',
