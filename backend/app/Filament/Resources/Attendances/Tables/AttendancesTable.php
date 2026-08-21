@@ -9,9 +9,11 @@ use App\Support\AttendanceCalendar;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
+use Filament\Tables\Filters\Filter;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class AttendancesTable
 {
@@ -68,6 +70,17 @@ class AttendancesTable
                     ->relationship('employee', 'full_name')
                     ->tap(fn (SelectFilter $filter) => EmployeeSelect::applyRelationshipFilter($filter))
                     ->preload(),
+                Filter::make('punched_in')
+                    ->label('Punched In')
+                    ->toggle()
+                    ->query(function (Builder $query, array $data): Builder {
+                        if (! ($data['isActive'] ?? false)) {
+                            return $query;
+                        }
+
+                        return $query->whereNotNull('punch_in_time');
+                    })
+                    ->indicateUsing(fn (array $data): ?string => ($data['isActive'] ?? false) ? 'Punched In' : null),
                 SelectFilter::make('attendance_status')
                     ->label('Attendance Status')
                     ->options(Attendance::ATTENDANCE_STATUS_LABELS),

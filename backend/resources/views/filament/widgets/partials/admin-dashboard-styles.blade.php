@@ -271,9 +271,15 @@
         background: #FAFBFC;
     }
 
-    @media (min-width: 900px) {
+    @media (min-width: 720px) {
         .pg-admin-dash .pg-team__strip {
-            grid-template-columns: repeat(5, minmax(0, 1fr));
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+    }
+
+    @media (min-width: 1100px) {
+        .pg-admin-dash .pg-team__strip {
+            grid-template-columns: repeat(6, minmax(0, 1fr));
         }
     }
 
@@ -284,19 +290,40 @@
         padding: 0.85rem 1rem;
         min-width: 0;
         border-bottom: 1px solid var(--pg-border);
+        text-decoration: none;
+        color: inherit;
+        cursor: pointer;
+        transition: background-color 0.15s ease, box-shadow 0.15s ease;
     }
 
-    @media (min-width: 900px) {
+    .pg-admin-dash a.pg-team__cell:hover {
+        background: #fff;
+        box-shadow: inset 0 0 0 1px rgba(15, 118, 110, 0.18);
+    }
+
+    .pg-admin-dash a.pg-team__cell:focus-visible {
+        outline: 2px solid rgba(15, 118, 110, 0.45);
+        outline-offset: -2px;
+        z-index: 1;
+    }
+
+    @media (max-width: 719px) {
+        .pg-admin-dash .pg-team__cell:nth-child(odd) { border-right: 1px solid var(--pg-border); }
+        .pg-admin-dash .pg-team__cell:nth-last-child(-n+2) { border-bottom: 0; }
+    }
+
+    @media (min-width: 720px) and (max-width: 1099px) {
+        .pg-admin-dash .pg-team__cell:not(:nth-child(3n)) { border-right: 1px solid var(--pg-border); }
+        .pg-admin-dash .pg-team__cell:nth-last-child(-n+3) { border-bottom: 0; }
+    }
+
+    @media (min-width: 1100px) {
         .pg-admin-dash .pg-team__cell {
             border-bottom: 0;
             border-right: 1px solid var(--pg-border);
+            padding: 0.85rem 0.75rem;
         }
         .pg-admin-dash .pg-team__cell:last-child { border-right: 0; }
-    }
-
-    @media (max-width: 899px) {
-        .pg-admin-dash .pg-team__cell:nth-last-child(-n+2) { border-bottom: 0; }
-        .pg-admin-dash .pg-team__cell:nth-child(odd) { border-right: 1px solid var(--pg-border); }
     }
 
     .pg-admin-dash .pg-team__label {

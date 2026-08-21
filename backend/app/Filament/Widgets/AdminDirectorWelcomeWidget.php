@@ -2,10 +2,11 @@
 
 namespace App\Filament\Widgets;
 
-use App\Models\Attendance;
-use App\Models\DealerVisit;
-use App\Models\FieldActivity;
+use App\Filament\Resources\Attendances\AttendanceResource;
+use App\Filament\Resources\DealerVisits\DealerVisitResource;
+use App\Filament\Resources\FieldActivities\FieldActivityResource;
 use App\Services\Attendance\AttendanceStatusCalculator;
+use App\Services\Dashboard\AdminDashboardDataService;
 use App\Support\AttendanceCalendar;
 use Filament\Facades\Filament;
 use Filament\Widgets\Widget;
@@ -31,33 +32,68 @@ class AdminDirectorWelcomeWidget extends Widget
     {
         $user = Filament::auth()->user();
         $now = Carbon::now(AttendanceCalendar::TIMEZONE);
-        $today = $now->toDateString();
-
-        $presentToday = Attendance::query()
-            ->whereDate('attendance_date', $today)
-            ->where('attendance_status', AttendanceStatusCalculator::STATUS_PRESENT)
-            ->count();
-        $halfDayToday = Attendance::query()
-            ->whereDate('attendance_date', $today)
-            ->where('attendance_status', AttendanceStatusCalculator::STATUS_HALF_DAY)
-            ->count();
-        $absentToday = Attendance::query()
-            ->whereDate('attendance_date', $today)
-            ->where('attendance_status', AttendanceStatusCalculator::STATUS_ABSENT)
-            ->count();
-        $dealerVisitsToday = DealerVisit::query()->whereDate('visit_date', $today)->count();
-        $fieldVisitsToday = FieldActivity::query()->whereDate('activity_date', $today)->count();
+        $counts = app(AdminDashboardDataService::class)->teamTodayCounts();
+        $today = $counts['today'];
 
         return [
             'userName' => $user?->employee?->full_name ?? $user?->name ?? 'User',
             'roleLabel' => $user?->adminDirectorRoleLabel() ?? 'Admin',
             'currentDate' => $now->format('l, d F Y'),
             'teamToday' => [
-                ['label' => 'Present', 'value' => $presentToday, 'tone' => 'green', 'icon' => 'heroicon-o-check-circle'],
-                ['label' => 'Absent', 'value' => $absentToday, 'tone' => 'red', 'icon' => 'heroicon-o-user-minus'],
-                ['label' => 'Half Day', 'value' => $halfDayToday, 'tone' => 'amber', 'icon' => 'heroicon-o-clock'],
-                ['label' => 'Dealer Visits', 'value' => $dealerVisitsToday, 'tone' => 'blue', 'icon' => 'heroicon-o-building-storefront'],
-                ['label' => 'Field Visits', 'value' => $fieldVisitsToday, 'tone' => 'teal', 'icon' => 'heroicon-o-map-pin'],
+                [
+                    'label' => 'Punched In',
+                    'value' => $counts['punched_in'],
+                    'tone' => 'teal',
+                    'icon' => 'heroicon-o-finger-print',
+                    'url' => AttendanceResource::getUrl('index', [
+                        'filters' => ['punched_in' => ['isActive' => true]],
+                    ]),
+                ],
+                [
+                    'label' => 'Present',
+                    'value' => $counts['present'],
+                    'tone' => 'green',
+                    'icon' => 'heroicon-o-check-circle',
+                    'url' => AttendanceResource::getUrl('index', [
+                        'filters' => ['attendance_status' => ['value' => AttendanceStatusCalculator::STATUS_PRESENT]],
+                    ]),
+                ],
+                [
+                    'label' => 'Absent',
+                    'value' => $counts['absent'],
+                    'tone' => 'red',
+                    'icon' => 'heroicon-o-user-minus',
+                    'url' => AttendanceResource::getUrl('index', [
+                        'filters' => ['attendance_status' => ['value' => AttendanceStatusCalculator::STATUS_ABSENT]],
+                    ]),
+                ],
+                [
+                    'label' => 'Half Day',
+                    'value' => $counts['half_day'],
+                    'tone' => 'amber',
+                    'icon' => 'heroicon-o-clock',
+                    'url' => AttendanceResource::getUrl('index', [
+                        'filters' => ['attendance_status' => ['value' => AttendanceStatusCalculator::STATUS_HALF_DAY]],
+                    ]),
+                ],
+                [
+                    'label' => 'Dealer Visits',
+                    'value' => $counts['dealer_visits'],
+                    'tone' => 'blue',
+                    'icon' => 'heroicon-o-building-storefront',
+                    'url' => DealerVisitResource::getUrl('index', [
+                        'filters' => ['visit_date' => ['date' => $today]],
+                    ]),
+                ],
+                [
+                    'label' => 'Field Visits',
+                    'value' => $counts['field_visits'],
+                    'tone' => 'teal',
+                    'icon' => 'heroicon-o-map-pin',
+                    'url' => FieldActivityResource::getUrl('index', [
+                        'filters' => ['activity_date' => ['date' => $today]],
+                    ]),
+                ],
             ],
         ];
     }

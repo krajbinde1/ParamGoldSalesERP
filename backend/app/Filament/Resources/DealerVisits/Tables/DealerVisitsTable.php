@@ -4,6 +4,7 @@ namespace App\Filament\Resources\DealerVisits\Tables;
 
 use App\Models\DealerVisit;
 use App\Filament\Support\EmployeeSelect;
+use App\Filament\Support\TodayDateFilter;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -55,6 +56,7 @@ class DealerVisitsTable
                     ->relationship('dealer', 'firm_name')
                     ->searchable()
                     ->preload(),
+                TodayDateFilter::make('visit_date', 'Visit Date'),
                 TrashedFilter::make(),
             ])
             ->recordActions([

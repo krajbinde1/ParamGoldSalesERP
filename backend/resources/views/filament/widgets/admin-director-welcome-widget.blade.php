@@ -22,7 +22,7 @@
             </div>
             <div class="pg-team__strip">
                 @foreach ($teamToday as $cell)
-                    <div class="pg-team__cell">
+                    <a href="{{ $cell['url'] }}" class="pg-team__cell" aria-label="{{ $cell['label'] }}: {{ $cell['value'] }}">
                         <div class="pg-icon pg-icon--{{ $cell['tone'] }}" aria-hidden="true">
                             <x-filament::icon :icon="$cell['icon']" />
                         </div>
@@ -30,7 +30,7 @@
                             <p class="pg-team__label">{{ $cell['label'] }}</p>
                             <p class="pg-team__value">{{ $cell['value'] }}</p>
                         </div>
-                    </div>
+                    </a>
                 @endforeach
             </div>
         </div>

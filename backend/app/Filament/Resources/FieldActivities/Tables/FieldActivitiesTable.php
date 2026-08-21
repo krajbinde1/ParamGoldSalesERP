@@ -4,6 +4,7 @@ namespace App\Filament\Resources\FieldActivities\Tables;
 
 use App\Models\FieldActivity;
 use App\Filament\Support\EmployeeSelect;
+use App\Filament\Support\TodayDateFilter;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -71,6 +72,7 @@ class FieldActivitiesTable
                     ->relationship('employee', 'full_name')
                     ->tap(fn (SelectFilter $filter) => EmployeeSelect::applyRelationshipFilter($filter))
                     ->preload(),
+                TodayDateFilter::make('activity_date', 'Activity Date'),
                 TrashedFilter::make(),
             ])
             ->recordActions([
