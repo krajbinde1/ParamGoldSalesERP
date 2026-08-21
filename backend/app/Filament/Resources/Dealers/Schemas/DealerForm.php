@@ -75,14 +75,20 @@ class DealerForm
                             ->label('GST Number')
                             ->extraInputAttributes(['class' => 'uppercase'])
                             ->dehydrateStateUsing(fn (?string $state): ?string => filled($state) ? strtoupper($state) : null)
-                            ->rule('nullable|regex:/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[A-Z0-9]{1}Z[A-Z0-9]{1}$/')
+                            ->rules([
+                                'nullable',
+                                'regex:/^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[A-Z0-9]{1}Z[A-Z0-9]{1}$/',
+                            ])
                             ->validationMessages(['regex' => 'Enter a valid GSTIN.'])
                             ->maxLength(15),
                         TextInput::make('pan_no')
                             ->label('PAN Number')
                             ->extraInputAttributes(['class' => 'uppercase'])
                             ->dehydrateStateUsing(fn (?string $state): ?string => filled($state) ? strtoupper($state) : null)
-                            ->rule('nullable|regex:/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/')
+                            ->rules([
+                                'nullable',
+                                'regex:/^[A-Z]{5}[0-9]{4}[A-Z]{1}$/',
+                            ])
                             ->validationMessages(['regex' => 'Enter a valid PAN.'])
                             ->maxLength(10),
                         TextInput::make('fertilizer_license_no')
@@ -101,7 +107,10 @@ class DealerForm
                         TextInput::make('taluka')->required()->maxLength(255),
                         TextInput::make('village')->required()->maxLength(255),
                         TextInput::make('pincode')
-                            ->rule('nullable|regex:/^[1-9][0-9]{5}$/')
+                            ->rules([
+                                'nullable',
+                                'regex:/^[1-9][0-9]{5}$/',
+                            ])
                             ->validationMessages(['regex' => 'Enter a valid 6-digit PIN code.'])
                             ->maxLength(6),
                     ]),
