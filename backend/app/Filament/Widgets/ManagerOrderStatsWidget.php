@@ -40,6 +40,15 @@ class ManagerOrderStatsWidget extends Widget
                     ]),
                 ],
                 [
+                    'label' => 'Returned by Production',
+                    'value' => Order::query()->where('status', Order::STATUS_REVERTED_TO_MANAGER)->count(),
+                    'description' => 'Needs manager re-approval',
+                    'color' => 'warning',
+                    'url' => OrderResource::getUrl('index', [
+                        'tab' => Order::STATUS_REVERTED_TO_MANAGER,
+                    ]),
+                ],
+                [
                     'label' => 'Approved Orders',
                     'value' => Order::query()->where('status', 'approved')->count(),
                     'description' => 'Approved and ready',

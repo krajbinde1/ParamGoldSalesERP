@@ -61,7 +61,15 @@ final class SendOrderForBilling
         )->validate();
 
         return DB::transaction(function () use ($order, $actor, $resolved, $transportFreight, $transportRemark, $transportChargeType): array {
-            $order->sendForBilling(
+            $locked = Order::query()->whereKey($order->id)->lockForUpdate()->firstOrFail();
+
+            if (! $locked->canBeSentForBilling()) {
+                throw ValidationException::withMessages([
+                    'status' => 'Only orders approved by Sales Manager can be sent for billing.',
+                ]);
+            }
+
+            $locked->sendForBilling(
                 userId: $actor->id,
                 vehicleNumber: $resolved['vehicle_number'],
                 transportFreight: $transportFreight,
@@ -70,7 +78,7 @@ final class SendOrderForBilling
                 transportChargeType: $transportChargeType,
             );
 
-            return ['order' => $order->fresh()];
+            return ['order' => $locked->fresh()];
         });
     }
 

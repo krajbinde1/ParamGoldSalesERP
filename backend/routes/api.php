@@ -166,6 +166,9 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::get('orders', [ProductionOrderController::class, 'index']);
         Route::get('orders/{order}', [ProductionOrderController::class, 'show']);
         Route::post('orders/{order}/send-for-bill', [ProductionOrderController::class, 'sendForBill']);
+        Route::post('orders/{order}/hold', [ProductionOrderController::class, 'hold']);
+        Route::post('orders/{order}/release-hold', [ProductionOrderController::class, 'releaseHold']);
+        Route::post('orders/{order}/revert-to-manager', [ProductionOrderController::class, 'revertToManager']);
         Route::post('orders/{order}/dispatch-calculation', [ProductionOrderController::class, 'calculateDispatch']);
         Route::post('orders/{order}/dispatch', [ProductionOrderController::class, 'dispatch']);
 

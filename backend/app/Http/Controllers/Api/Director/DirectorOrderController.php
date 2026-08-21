@@ -23,7 +23,7 @@ class DirectorOrderController extends Controller
         $this->authorize('viewAny', Order::class);
 
         $validated = $request->validate([
-            'status' => ['nullable', 'string', 'in:pending_approval,placed,approved,pending_for_billing,billed,dispatched,rejected'],
+            'status' => ['nullable', 'string', 'in:pending_approval,placed,approved,on_hold,reverted_to_manager,returned_to_manager,returned_by_production,pending_for_billing,billed,dispatched,rejected'],
             'sales_person' => ['nullable', 'string', 'max:100'],
             'dealer' => ['nullable', 'string', 'max:100'],
             'order_no' => ['nullable', 'string', 'max:50'],
@@ -53,6 +53,18 @@ class DirectorOrderController extends Controller
                         Order::STATUS_APPROVED,
                         Order::STATUS_PENDING_FOR_BILLING,
                     ]);
+
+                    return;
+                }
+
+                if (in_array($status, ['reverted_to_manager', 'returned_to_manager', 'returned_by_production'], true)) {
+                    $q->where('status', Order::STATUS_REVERTED_TO_MANAGER);
+
+                    return;
+                }
+
+                if ($status === 'on_hold') {
+                    $q->where('status', Order::STATUS_ON_HOLD);
 
                     return;
                 }
@@ -165,6 +177,9 @@ class DirectorOrderController extends Controller
             'billed' => (clone $base)->where('status', Order::STATUS_BILLED)->count(),
             'rejected' => (clone $base)->where('status', Order::STATUS_REJECTED)->count(),
             'dispatched' => (clone $base)->where('status', Order::STATUS_DISPATCHED)->count(),
+            'on_hold' => (clone $base)->where('status', Order::STATUS_ON_HOLD)->count(),
+            'reverted_to_manager' => (clone $base)->where('status', Order::STATUS_REVERTED_TO_MANAGER)->count(),
+            'returned_by_production' => (clone $base)->where('status', Order::STATUS_REVERTED_TO_MANAGER)->count(),
             'all' => (clone $base)->count(),
         ];
     }

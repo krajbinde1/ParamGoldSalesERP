@@ -20,6 +20,8 @@ class ListOrders extends ListRecords
      */
     private const STATUS_TABS = [
         Order::STATUS_APPROVED,
+        Order::STATUS_ON_HOLD,
+        Order::STATUS_REVERTED_TO_MANAGER,
         Order::STATUS_PENDING_FOR_BILLING,
         Order::STATUS_BILLED,
         Order::STATUS_DISPATCHED,
@@ -41,6 +43,14 @@ class ListOrders extends ListRecords
 
         if ($requested === 'sent_for_bill') {
             $requested = Order::STATUS_PENDING_FOR_BILLING;
+        }
+
+        if (in_array($requested, ['returned_by_production', 'returned_to_manager', 'reverted'], true)) {
+            $requested = Order::STATUS_REVERTED_TO_MANAGER;
+        }
+
+        if (in_array($requested, ['hold', 'on-hold'], true)) {
+            $requested = Order::STATUS_ON_HOLD;
         }
 
         if (auth()->user()?->usesProductionSupervisorDashboard()
@@ -76,6 +86,12 @@ class ListOrders extends ListRecords
                 'approved' => Tab::make('Approved')
                     ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_APPROVED))
                     ->badge(fn (): int => Order::query()->where('status', Order::STATUS_APPROVED)->count()),
+                'on_hold' => Tab::make('On Hold')
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_ON_HOLD))
+                    ->badge(fn (): int => Order::query()->where('status', Order::STATUS_ON_HOLD)->count()),
+                'reverted_to_manager' => Tab::make('Returned to Manager')
+                    ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_REVERTED_TO_MANAGER))
+                    ->badge(fn (): int => Order::query()->where('status', Order::STATUS_REVERTED_TO_MANAGER)->count()),
                 'pending_for_billing' => Tab::make('Sent for Bill')
                     ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_PENDING_FOR_BILLING))
                     ->badge(fn (): int => Order::query()->where('status', Order::STATUS_PENDING_FOR_BILLING)->count()),
@@ -96,9 +112,15 @@ class ListOrders extends ListRecords
             'pending_approval' => Tab::make('Pending Approval')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_PENDING_APPROVAL))
                 ->badge(fn (): int => Order::query()->where('status', Order::STATUS_PENDING_APPROVAL)->count()),
+            'reverted_to_manager' => Tab::make('Returned by Production')
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_REVERTED_TO_MANAGER))
+                ->badge(fn (): int => Order::query()->where('status', Order::STATUS_REVERTED_TO_MANAGER)->count()),
             'approved' => Tab::make('Approved')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_APPROVED))
                 ->badge(fn (): int => Order::query()->where('status', Order::STATUS_APPROVED)->count()),
+            'on_hold' => Tab::make('On Hold')
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_ON_HOLD))
+                ->badge(fn (): int => Order::query()->where('status', Order::STATUS_ON_HOLD)->count()),
             'pending_for_billing' => Tab::make('Pending for Billing')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_PENDING_FOR_BILLING))
                 ->badge(fn (): int => Order::query()->where('status', Order::STATUS_PENDING_FOR_BILLING)->count()),

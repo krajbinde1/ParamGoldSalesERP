@@ -106,6 +106,25 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                   ),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
+                      if (data.returnedByProduction > 0) ...[
+                        PgCard(
+                          child: ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.undo_rounded),
+                            title: Text(
+                              'Returned by Production: ${data.returnedByProduction}',
+                            ),
+                            subtitle: const Text(
+                              'Orders waiting for manager re-approval',
+                            ),
+                            trailing: const Icon(Icons.chevron_right),
+                            onTap: () => _open(
+                              '/manager/orders?tab=returned',
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.md),
+                      ],
                       _SummaryGrid(
                         pendingOrders: data.pendingOrders,
                         presentToday: data.presentToday,

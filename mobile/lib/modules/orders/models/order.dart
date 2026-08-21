@@ -108,6 +108,8 @@ abstract final class OrderStatusRules {
       'draft' => 'Pending for Manager Approval',
       'pending_approval' => 'Pending for Manager Approval',
       'approved' => 'Approved by Sales Manager',
+      'on_hold' => 'On Hold',
+      'reverted_to_manager' => 'Returned by Production',
       'pending_for_billing' => 'Pending for Billing',
       'sent_for_bill' => 'Pending for Billing',
       'billed' => 'Billed',

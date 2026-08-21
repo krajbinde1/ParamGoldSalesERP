@@ -27,7 +27,7 @@ class ManagerOrderController extends Controller
         $this->authorize('viewAny', Order::class);
 
         $validated = $request->validate([
-            'status' => ['nullable', 'string', 'in:pending_approval,placed,approved,billed,dispatched,rejected'],
+            'status' => ['nullable', 'string', 'in:pending_approval,placed,approved,on_hold,reverted_to_manager,returned_to_manager,returned_by_production,billed,dispatched,rejected'],
             'sales_person' => ['nullable', 'string', 'max:100'],
             'sales_employee_id' => ['nullable', 'integer'],
             'dealer' => ['nullable', 'string', 'max:100'],
@@ -55,6 +55,18 @@ class ManagerOrderController extends Controller
 
                 if ($status === 'approved') {
                     $q->whereIn('status', [Order::STATUS_APPROVED, Order::STATUS_BILLED]);
+
+                    return;
+                }
+
+                if (in_array($status, ['reverted_to_manager', 'returned_to_manager', 'returned_by_production'], true)) {
+                    $q->where('status', Order::STATUS_REVERTED_TO_MANAGER);
+
+                    return;
+                }
+
+                if ($status === 'on_hold') {
+                    $q->where('status', Order::STATUS_ON_HOLD);
 
                     return;
                 }
@@ -129,6 +141,8 @@ class ManagerOrderController extends Controller
                 'status' => $order->status,
                 'status_label' => $order->displayStatusLabel(),
                 'approved_at' => $order->approved_at?->toDateTimeString(),
+                'reverted_at' => $order->reverted_at?->toDateTimeString(),
+                'revert_remark' => $order->revert_remark,
                 'rejected_at' => $order->rejected_at?->toDateTimeString(),
                 'rejected_by_name' => $order->rejectedByUser?->name,
                 'rejection_remark' => $order->rejection_remark,
@@ -219,15 +233,20 @@ class ManagerOrderController extends Controller
         ]);
 
         $order->approve($request->user()->id, $validated['remark'] ?? null);
+        $fresh = $order->fresh();
 
         return response()->json([
-            'message' => 'Order approved successfully.',
+            'message' => filled($fresh->reapproved_at)
+                ? 'Order re-approved successfully.'
+                : 'Order approved successfully.',
             'data' => [
-                'id' => $order->id,
-                'status' => $order->fresh()->status,
-                'status_label' => $order->fresh()->displayStatusLabel(),
-                'approved_by' => $order->fresh()->approved_by,
-                'approved_at' => $order->fresh()->approved_at?->toDateTimeString(),
+                'id' => $fresh->id,
+                'status' => $fresh->status,
+                'status_label' => $fresh->displayStatusLabel(),
+                'approved_by' => $fresh->approved_by,
+                'approved_at' => $fresh->approved_at?->toDateTimeString(),
+                'reapproved_by' => $fresh->reapproved_by,
+                'reapproved_at' => $fresh->reapproved_at?->toDateTimeString(),
             ],
         ]);
     }
@@ -276,6 +295,9 @@ class ManagerOrderController extends Controller
             'pending_approval' => (clone $base)->where('status', Order::STATUS_PENDING_APPROVAL)->count(),
             'placed' => (clone $base)->where('status', Order::STATUS_PENDING_APPROVAL)->count(),
             'approved' => (clone $base)->whereIn('status', [Order::STATUS_APPROVED, Order::STATUS_BILLED])->count(),
+            'on_hold' => (clone $base)->where('status', Order::STATUS_ON_HOLD)->count(),
+            'reverted_to_manager' => (clone $base)->where('status', Order::STATUS_REVERTED_TO_MANAGER)->count(),
+            'returned_by_production' => (clone $base)->where('status', Order::STATUS_REVERTED_TO_MANAGER)->count(),
             'billed' => (clone $base)->where('status', Order::STATUS_BILLED)->count(),
             'rejected' => (clone $base)->where('status', Order::STATUS_REJECTED)->count(),
             'dispatched' => (clone $base)->where('status', Order::STATUS_DISPATCHED)->count(),

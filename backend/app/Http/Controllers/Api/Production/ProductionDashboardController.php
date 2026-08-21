@@ -41,6 +41,8 @@ class ProductionDashboardController extends Controller
             ->map(fn (Order $order): array => $this->formatOrder($order));
 
         $approvedCount = Order::query()->where('status', Order::STATUS_APPROVED)->count();
+        $onHoldCount = Order::query()->where('status', Order::STATUS_ON_HOLD)->count();
+        $revertedCount = Order::query()->where('status', Order::STATUS_REVERTED_TO_MANAGER)->count();
         $sentForBillCount = Order::query()->where('status', Order::STATUS_PENDING_FOR_BILLING)->count();
         $billedCount = Order::query()->where('status', Order::STATUS_BILLED)->count();
         $dispatchedCount = Order::query()->where('status', Order::STATUS_DISPATCHED)->count();
@@ -50,6 +52,9 @@ class ProductionDashboardController extends Controller
             'success' => true,
             'summary' => [
                 'approved_orders' => $approvedCount,
+                'on_hold_orders' => $onHoldCount,
+                'reverted_orders' => $revertedCount,
+                'returned_to_manager' => $revertedCount,
                 'sent_for_bill_orders' => $sentForBillCount,
                 'billed_orders' => $billedCount,
                 'ready_for_dispatch' => $billedCount,

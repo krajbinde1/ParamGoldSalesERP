@@ -458,13 +458,20 @@ class Order extends Model
             'status_text' => $isApproved ? null : 'Pending',
             'remark' => null,
             'completed' => $isApproved,
-            'is_current' => false,
+            'is_current' => ! $isApproved && ! $isRejected,
             'is_rejection' => false,
         ];
 
+        $latestHeld = $this->workflowEvents->last(
+            fn (OrderWorkflowEvent $event): bool => $event->action === OrderWorkflowEvent::ACTION_HELD,
+        );
+        $latestReverted = $this->workflowEvents->last(
+            fn (OrderWorkflowEvent $event): bool => $event->action === OrderWorkflowEvent::ACTION_REVERTED,
+        );
+
         foreach ($this->workflowEvents as $event) {
-            $eventIsCurrent = ($isOnHold && $event->action === OrderWorkflowEvent::ACTION_HELD && $event->is($this->workflowEvents->last()))
-                || ($isReverted && $event->action === OrderWorkflowEvent::ACTION_REVERTED && $event->is($this->workflowEvents->last()));
+            $eventIsCurrent = ($isOnHold && $latestHeld !== null && $event->is($latestHeld))
+                || ($isReverted && $latestReverted !== null && $event->is($latestReverted));
 
             $steps[] = [
                 'key' => $event->action,
@@ -494,7 +501,7 @@ class Order extends Model
                 : 'Pending',
             'remark' => $isSentForBilling ? $this->sentForBillTimelineRemark() : null,
             'completed' => $isSentForBilling,
-            'is_current' => $isApproved && ! $isSentForBilling,
+            'is_current' => $isApproved && ! $isSentForBilling && ! $isOnHold && ! $isReverted && ! $isRejected,
             'is_rejection' => false,
         ];
 
@@ -524,9 +531,25 @@ class Order extends Model
             'status_text' => $isDispatched ? null : 'Pending',
             'remark' => $isDispatched ? $this->dispatch_remark : null,
             'completed' => $isDispatched,
-            'is_current' => $isBilled && ! $isDispatched,
+            'is_current' => $isBilled && ! $isDispatched && ! $isRejected,
             'is_rejection' => false,
         ];
+
+        if ($isRejected) {
+            $steps[] = [
+                'key' => 'rejected',
+                'label' => $this->displayStatusLabel(),
+                'actor' => $this->rejectedByUser?->name,
+                'actor_role' => $this->rejected_by_role
+                    ?: $this->displayActorRole($this->rejectedByUser),
+                'at' => $format($this->rejected_at),
+                'status_text' => null,
+                'remark' => $this->rejection_remark,
+                'completed' => true,
+                'is_current' => true,
+                'is_rejection' => true,
+            ];
+        }
 
         return $steps;
     }
@@ -569,22 +592,119 @@ class Order extends Model
 
     public function approve(?int $userId = null, ?string $remark = null): void
     {
-        if (! $this->canBeApproved()) {
-            throw ValidationException::withMessages([
-                'status' => ['Only pending orders can be approved.'],
-            ]);
-        }
+        DB::transaction(function () use ($userId, $remark): void {
+            /** @var self $locked */
+            $locked = static::query()->whereKey($this->id)->lockForUpdate()->firstOrFail();
 
-        $this->update([
-            'status' => self::STATUS_APPROVED,
-            'approved_by' => $userId,
-            'approved_at' => Carbon::now(self::BUSINESS_TIMEZONE),
-            'rejected_by' => null,
-            'rejected_by_role' => null,
-            'rejected_at' => null,
-            'rejection_remark' => null,
-            'remarks' => filled($remark) ? trim($remark) : $this->remarks,
-        ]);
+            if ($locked->status === self::STATUS_REVERTED_TO_MANAGER) {
+                $locked->reapproveLocked($userId, $remark);
+                $this->refresh();
+
+                return;
+            }
+
+            if ($locked->status !== self::STATUS_PENDING_APPROVAL) {
+                throw ValidationException::withMessages([
+                    'status' => ['Only pending or returned orders can be approved.'],
+                ]);
+            }
+
+            $locked->update([
+                'status' => self::STATUS_APPROVED,
+                'approved_by' => $userId,
+                'approved_at' => Carbon::now(self::BUSINESS_TIMEZONE),
+                'rejected_by' => null,
+                'rejected_by_role' => null,
+                'rejected_at' => null,
+                'rejection_remark' => null,
+                'remarks' => filled($remark) ? trim($remark) : $locked->remarks,
+            ]);
+
+            $this->refresh();
+        });
+    }
+
+    public function placeOnHold(User $actor, string $remark): void
+    {
+        $remark = trim($remark);
+        $this->assertRemark($remark, 'hold_remark');
+
+        DB::transaction(function () use ($actor, $remark): void {
+            /** @var self $locked */
+            $locked = static::query()->whereKey($this->id)->lockForUpdate()->firstOrFail();
+
+            if (! $locked->canBeHeld()) {
+                throw ValidationException::withMessages([
+                    'status' => ['Only manager-approved orders can be put on hold.'],
+                ]);
+            }
+
+            $now = Carbon::now(self::BUSINESS_TIMEZONE);
+            $locked->update([
+                'status' => self::STATUS_ON_HOLD,
+                'held_by' => $actor->id,
+                'held_at' => $now,
+                'hold_remark' => $remark,
+                'hold_return_status' => self::STATUS_APPROVED,
+                'hold_released_by' => null,
+                'hold_released_at' => null,
+            ]);
+            $locked->recordWorkflowEvent(OrderWorkflowEvent::ACTION_HELD, $actor, $remark, $now);
+            $this->refresh();
+        });
+    }
+
+    public function releaseHold(User $actor): void
+    {
+        DB::transaction(function () use ($actor): void {
+            /** @var self $locked */
+            $locked = static::query()->whereKey($this->id)->lockForUpdate()->firstOrFail();
+
+            if (! $locked->canBeReleasedFromHold()) {
+                throw ValidationException::withMessages([
+                    'status' => ['Only orders currently on hold can be released.'],
+                ]);
+            }
+
+            $now = Carbon::now(self::BUSINESS_TIMEZONE);
+            $returnStatus = $locked->hold_return_status ?: self::STATUS_APPROVED;
+            $locked->update([
+                'status' => $returnStatus,
+                'hold_released_by' => $actor->id,
+                'hold_released_at' => $now,
+            ]);
+            $locked->recordWorkflowEvent(OrderWorkflowEvent::ACTION_RELEASED, $actor, null, $now);
+            $this->refresh();
+        });
+    }
+
+    public function revertToManager(User $actor, string $remark): void
+    {
+        $remark = trim($remark);
+        $this->assertRemark($remark, 'revert_remark');
+
+        DB::transaction(function () use ($actor, $remark): void {
+            /** @var self $locked */
+            $locked = static::query()->whereKey($this->id)->lockForUpdate()->firstOrFail();
+
+            if (! $locked->canBeRevertedToManager()) {
+                throw ValidationException::withMessages([
+                    'status' => ['Only manager-approved orders can be returned to the manager.'],
+                ]);
+            }
+
+            $now = Carbon::now(self::BUSINESS_TIMEZONE);
+            $locked->update([
+                'status' => self::STATUS_REVERTED_TO_MANAGER,
+                'reverted_by' => $actor->id,
+                'reverted_at' => $now,
+                'revert_remark' => $remark,
+                'reapproved_by' => null,
+                'reapproved_at' => null,
+            ]);
+            $locked->recordWorkflowEvent(OrderWorkflowEvent::ACTION_REVERTED, $actor, $remark, $now);
+            $this->refresh();
+        });
     }
 
     public function reject(?int $userId = null, ?string $remark = null, ?string $rejectedByRole = null): void
@@ -793,5 +913,53 @@ class Order extends Model
         }
 
         return implode("\n", $parts);
+    }
+
+    private function reapproveLocked(?int $userId, ?string $remark): void
+    {
+        $now = Carbon::now(self::BUSINESS_TIMEZONE);
+
+        $this->update([
+            'status' => self::STATUS_APPROVED,
+            'reapproved_by' => $userId,
+            'reapproved_at' => $now,
+            'rejected_by' => null,
+            'rejected_by_role' => null,
+            'rejected_at' => null,
+            'rejection_remark' => null,
+            'remarks' => filled($remark) ? trim($remark) : $this->remarks,
+        ]);
+
+        if ($userId) {
+            $actor = User::query()->find($userId);
+            if ($actor !== null) {
+                $this->recordWorkflowEvent(
+                    OrderWorkflowEvent::ACTION_REAPPROVED,
+                    $actor,
+                    filled($remark) ? trim($remark) : null,
+                    $now,
+                );
+            }
+        }
+    }
+
+    private function recordWorkflowEvent(string $action, User $actor, ?string $remark, Carbon $at): void
+    {
+        $this->workflowEvents()->create([
+            'action' => $action,
+            'user_id' => $actor->id,
+            'user_role' => $this->displayActorRole($actor) ?? $actor->roleEnum()->label(),
+            'remark' => $remark,
+            'created_at' => $at,
+        ]);
+    }
+
+    private function assertRemark(string $remark, string $field): void
+    {
+        if (blank($remark) || mb_strlen($remark) < 3) {
+            throw ValidationException::withMessages([
+                $field => ['Remark is required (minimum 3 characters).'],
+            ]);
+        }
     }
 }

@@ -66,6 +66,8 @@ class ProductionOrderCounts {
     required this.sentForBill,
     required this.billed,
     required this.dispatched,
+    this.onHold = 0,
+    this.returnedToManager = 0,
     this.rejected = 0,
   });
 
@@ -73,6 +75,8 @@ class ProductionOrderCounts {
   final int sentForBill;
   final int billed;
   final int dispatched;
+  final int onHold;
+  final int returnedToManager;
   final int rejected;
 
   factory ProductionOrderCounts.fromJson(Map<String, dynamic> json) =>
@@ -85,6 +89,12 @@ class ProductionOrderCounts {
                 0,
         billed: int.tryParse('${json['billed'] ?? 0}') ?? 0,
         dispatched: int.tryParse('${json['dispatched'] ?? 0}') ?? 0,
+        onHold: int.tryParse('${json['on_hold'] ?? 0}') ?? 0,
+        returnedToManager:
+            int.tryParse(
+                  '${json['returned_to_manager'] ?? json['reverted_to_manager'] ?? 0}',
+                ) ??
+                0,
         rejected: int.tryParse('${json['rejected'] ?? 0}') ?? 0,
       );
 }
@@ -347,6 +357,53 @@ class ProductionApi {
           if (transportRemark != null && transportRemark.trim().isNotEmpty)
             'transport_remark': transportRemark.trim(),
         },
+      );
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> holdOrder(
+    int orderId, {
+    required String remark,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/production/orders/$orderId/hold',
+        data: {'remark': remark.trim()},
+      );
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> releaseHold(int orderId) async {
+    try {
+      final response = await _dio.post(
+        '/production/orders/$orderId/release-hold',
+      );
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> revertToManager(
+    int orderId, {
+    required String remark,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/production/orders/$orderId/revert-to-manager',
+        data: {'remark': remark.trim()},
       );
       return Map<String, dynamic>.from(
         (response.data as Map)['data'] as Map,

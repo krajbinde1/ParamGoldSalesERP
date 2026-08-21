@@ -67,6 +67,12 @@ class ManagerDashboardController extends Controller
                 'approved_orders' => (clone $teamOrderScope)
                     ->whereIn('status', [Order::STATUS_APPROVED, Order::STATUS_BILLED])
                     ->count(),
+                'returned_by_production' => (clone $teamOrderScope)
+                    ->where('status', Order::STATUS_REVERTED_TO_MANAGER)
+                    ->count(),
+                'on_hold_orders' => (clone $teamOrderScope)
+                    ->where('status', Order::STATUS_ON_HOLD)
+                    ->count(),
                 'dispatched_orders' => (clone $teamOrderScope)
                     ->where('status', Order::STATUS_DISPATCHED)
                     ->count(),

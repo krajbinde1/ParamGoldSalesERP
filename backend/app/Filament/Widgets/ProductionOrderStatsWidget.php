@@ -24,6 +24,14 @@ class ProductionOrderStatsWidget extends StatsOverviewWidget
             ->where('status', Order::STATUS_APPROVED)
             ->count();
 
+        $onHoldCount = Order::query()
+            ->where('status', Order::STATUS_ON_HOLD)
+            ->count();
+
+        $revertedCount = Order::query()
+            ->where('status', Order::STATUS_REVERTED_TO_MANAGER)
+            ->count();
+
         $pendingForBillingCount = Order::query()
             ->where('status', Order::STATUS_PENDING_FOR_BILLING)
             ->count();
@@ -46,6 +54,18 @@ class ProductionOrderStatsWidget extends StatsOverviewWidget
                 ->color('success')
                 ->url(OrderResource::getUrl('index', [
                     'tab' => Order::STATUS_APPROVED,
+                ])),
+            Stat::make('On Hold', (string) $onHoldCount)
+                ->description('Paused by Production')
+                ->color('warning')
+                ->url(OrderResource::getUrl('index', [
+                    'tab' => Order::STATUS_ON_HOLD,
+                ])),
+            Stat::make('Returned to Manager', (string) $revertedCount)
+                ->description('Waiting for manager re-approval')
+                ->color('info')
+                ->url(OrderResource::getUrl('index', [
+                    'tab' => Order::STATUS_REVERTED_TO_MANAGER,
                 ])),
             Stat::make('Sent for Bill', (string) $pendingForBillingCount)
                 ->description('Awaiting Admin billing')

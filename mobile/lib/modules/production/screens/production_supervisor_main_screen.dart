@@ -24,7 +24,7 @@ class ProductionSupervisorMainScreen extends StatelessWidget {
           ModuleTile(
             icon: const Icon(Icons.local_shipping_outlined),
             label: 'Orders',
-            subtitle: 'Approved, send for bill, billed and dispatch',
+            subtitle: 'Approved, on hold, returned, send for bill and dispatch',
             onTap: () => _open(context, '/production/orders'),
           ),
           const SizedBox(height: AppSpacing.md),

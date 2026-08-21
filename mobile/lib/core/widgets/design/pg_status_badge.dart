@@ -14,7 +14,10 @@ enum PgStatusTone {
 abstract final class PgStatusRules {
   static PgStatusTone orderTone(String status) {
     final normalized = status.toLowerCase().replaceAll(' ', '_');
-    if (normalized.contains('pending') || normalized == 'draft') {
+    if (normalized.contains('pending') ||
+        normalized == 'draft' ||
+        normalized == 'on_hold' ||
+        normalized == 'reverted_to_manager') {
       return PgStatusTone.pending;
     }
     if (normalized.contains('billed')) return PgStatusTone.pending;

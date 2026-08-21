@@ -182,6 +182,52 @@ class OrderInfolist
                                     ->state('Waiting for Production Supervisor to Send for Bill.')
                                     ->color('warning')
                                     ->weight(FontWeight::SemiBold),
+                                TextEntry::make('on_hold_banner')
+                                    ->hiddenLabel()
+                                    ->visible(fn (Order $record): bool => $record->status === Order::STATUS_ON_HOLD)
+                                    ->state(fn (Order $record): string => 'On Hold. Send for Bill is blocked until Release Hold.'
+                                        .(filled($record->hold_remark) ? ' Remark: '.$record->hold_remark : ''))
+                                    ->color('warning')
+                                    ->weight(FontWeight::SemiBold)
+                                    ->columnSpanFull(),
+                                TextEntry::make('reverted_banner')
+                                    ->hiddenLabel()
+                                    ->visible(fn (Order $record): bool => $record->status === Order::STATUS_REVERTED_TO_MANAGER)
+                                    ->state(fn (Order $record): string => 'Returned by Production. Waiting for Manager re-approval.'
+                                        .(filled($record->revert_remark) ? ' Remark: '.$record->revert_remark : ''))
+                                    ->color('info')
+                                    ->weight(FontWeight::SemiBold)
+                                    ->columnSpanFull(),
+                                TextEntry::make('hold_details')
+                                    ->label('Hold / Revert Details')
+                                    ->visible(fn (Order $record): bool => filled($record->held_at) || filled($record->reverted_at))
+                                    ->state(function (Order $record): string {
+                                        $record->loadMissing(['heldByUser:id,name', 'revertedByUser:id,name', 'reapprovedByUser:id,name']);
+                                        $lines = [];
+                                        if (filled($record->held_at)) {
+                                            $lines[] = 'Held by: '.($record->heldByUser?->name ?: '—');
+                                            $lines[] = 'Held at: '.$record->held_at->timezone('Asia/Kolkata')->format('d M Y • h:i A');
+                                            if (filled($record->hold_remark)) {
+                                                $lines[] = 'Hold remark: '.$record->hold_remark;
+                                            }
+                                        }
+                                        if (filled($record->reverted_at)) {
+                                            $lines[] = 'Reverted by: '.($record->revertedByUser?->name ?: '—');
+                                            $lines[] = 'Reverted at: '.$record->reverted_at->timezone('Asia/Kolkata')->format('d M Y • h:i A');
+                                            if (filled($record->revert_remark)) {
+                                                $lines[] = 'Revert remark: '.$record->revert_remark;
+                                            }
+                                        }
+                                        if (filled($record->reapproved_at)) {
+                                            $lines[] = 'Re-approved by: '.($record->reapprovedByUser?->name ?: '—');
+                                            $lines[] = 'Re-approved at: '.$record->reapproved_at->timezone('Asia/Kolkata')->format('d M Y • h:i A');
+                                        }
+
+                                        return implode("\n", $lines);
+                                    })
+                                    ->html()
+                                    ->formatStateUsing(fn (?string $state): HtmlString => new HtmlString(nl2br(e($state ?? ''))))
+                                    ->columnSpanFull(),
                                 TextEntry::make('workflow_timeline')
                                     ->hiddenLabel()
                                     ->html()

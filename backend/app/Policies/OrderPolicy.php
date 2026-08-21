@@ -33,6 +33,8 @@ class OrderPolicy
         if ($user->canActAsProductionSupervisor()) {
             return in_array($order->status, [
                 Order::STATUS_APPROVED,
+                Order::STATUS_ON_HOLD,
+                Order::STATUS_REVERTED_TO_MANAGER,
                 Order::STATUS_PENDING_FOR_BILLING,
                 Order::STATUS_BILLED,
                 Order::STATUS_DISPATCHED,
@@ -46,6 +48,8 @@ class OrderPolicy
             UserRole::Director => true,
             UserRole::ProductionSupervisor => in_array($order->status, [
                 Order::STATUS_APPROVED,
+                Order::STATUS_ON_HOLD,
+                Order::STATUS_REVERTED_TO_MANAGER,
                 Order::STATUS_PENDING_FOR_BILLING,
                 Order::STATUS_BILLED,
                 Order::STATUS_DISPATCHED,
@@ -133,6 +137,46 @@ class OrderPolicy
             return false;
         }
 
+        if ($user->isAdminUser() || $user->isDirectorUser()) {
+            return false;
+        }
+
+        if ($user->canActAsProductionSupervisor()) {
+            return true;
+        }
+
+        return $user->hasRole(UserRole::ProductionSupervisor);
+    }
+
+    public function hold(User $user, Order $order): bool
+    {
+        if (! $order->canBeHeld()) {
+            return false;
+        }
+
+        return $this->isProductionActor($user);
+    }
+
+    public function releaseHold(User $user, Order $order): bool
+    {
+        if (! $order->canBeReleasedFromHold()) {
+            return false;
+        }
+
+        return $this->isProductionActor($user);
+    }
+
+    public function revertToManager(User $user, Order $order): bool
+    {
+        if (! $order->canBeRevertedToManager()) {
+            return false;
+        }
+
+        return $this->isProductionActor($user);
+    }
+
+    private function isProductionActor(User $user): bool
+    {
         if ($user->isAdminUser() || $user->isDirectorUser()) {
             return false;
         }

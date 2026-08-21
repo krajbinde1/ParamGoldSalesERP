@@ -60,6 +60,20 @@ class AdminDirectorAttentionWidget extends Widget
                 'hide_when_zero' => false,
             ],
             [
+                'label' => ($pipeline['reverted_to_manager'] ?? 0).' Orders Returned by Production',
+                'count' => (int) ($pipeline['reverted_to_manager'] ?? 0),
+                'tone' => ((int) ($pipeline['reverted_to_manager'] ?? 0) > 0) ? 'orange' : 'green',
+                'url' => OrderResource::getUrl('index', ['tab' => Order::STATUS_REVERTED_TO_MANAGER]),
+                'hide_when_zero' => false,
+            ],
+            [
+                'label' => ($pipeline['on_hold'] ?? 0).' Orders On Hold',
+                'count' => (int) ($pipeline['on_hold'] ?? 0),
+                'tone' => ((int) ($pipeline['on_hold'] ?? 0) > 0) ? 'orange' : 'green',
+                'url' => OrderResource::getUrl('index', ['tab' => Order::STATUS_ON_HOLD]),
+                'hide_when_zero' => false,
+            ],
+            [
                 'label' => $pipeline['sent_for_bill'].' Orders Pending for Billing',
                 'count' => (int) $pipeline['sent_for_bill'],
                 'tone' => ((int) $pipeline['sent_for_bill'] > 0) ? 'orange' : 'green',

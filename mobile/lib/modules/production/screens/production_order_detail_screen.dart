@@ -13,6 +13,7 @@ import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_detail_widgets.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
 import '../../../core/widgets/design/pg_status_badge.dart';
+import '../../../core/widgets/prompt_dialog.dart';
 import '../../../core/widgets/role_shell_widgets.dart';
 import '../../auth/providers/auth_controller.dart';
 import '../../orders/models/order.dart';
@@ -76,6 +77,14 @@ class _ProductionOrderDetailScreenState
   bool get _canSendForBill => ProductionApi.isFlagTrue(
         _order?['can_send_for_bill'],
       );
+
+  bool get _canHold => ProductionApi.isFlagTrue(_order?['can_hold']);
+
+  bool get _canReleaseHold =>
+      ProductionApi.isFlagTrue(_order?['can_release_hold']);
+
+  bool get _canRevertToManager =>
+      ProductionApi.isFlagTrue(_order?['can_revert_to_manager']);
 
   bool get _canDispatch =>
       widget.auth.permissions.canDispatchOrders &&
@@ -513,6 +522,120 @@ class _ProductionOrderDetailScreenState
     }
   }
 
+  Future<void> _holdOrder() async {
+    if (!_canHold || _submitting) return;
+    final remark = await promptRemarkDialog(
+      context,
+      title: 'Hold Order',
+      label: 'Hold Remark / Reason',
+      submitLabel: 'Confirm Hold',
+      required: true,
+    );
+    if (remark == null || !mounted) return;
+
+    setState(() => _submitting = true);
+    try {
+      final updated = await _api.holdOrder(widget.orderId, remark: remark);
+      if (!mounted) return;
+      setState(() {
+        _order = updated;
+        _future = Future.value(updated);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Order put on hold.')),
+      );
+      _popDetail('held');
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(errorMessage(error))));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<void> _releaseHold() async {
+    if (!_canReleaseHold || _submitting) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Release Hold'),
+        content: const Text(
+          'Release this order back to Production? Manager approval stays valid.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('Release Hold'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+
+    setState(() => _submitting = true);
+    try {
+      final updated = await _api.releaseHold(widget.orderId);
+      if (!mounted) return;
+      setState(() {
+        _order = updated;
+        _future = Future.value(updated);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Hold released.')),
+      );
+      _popDetail('released');
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(errorMessage(error))));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
+  Future<void> _revertToManager() async {
+    if (!_canRevertToManager || _submitting) return;
+    final remark = await promptRemarkDialog(
+      context,
+      title: 'Revert to Manager',
+      label: 'Revert Remark',
+      submitLabel: 'Confirm Revert',
+      required: true,
+    );
+    if (remark == null || !mounted) return;
+
+    setState(() => _submitting = true);
+    try {
+      final updated = await _api.revertToManager(
+        widget.orderId,
+        remark: remark,
+      );
+      if (!mounted) return;
+      setState(() {
+        _order = updated;
+        _future = Future.value(updated);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Order returned to manager.')),
+      );
+      _popDetail('reverted');
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(errorMessage(error))));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
   void _popDetail([Object? result]) {
     if (!context.mounted) return;
     if (context.canPop()) {
@@ -622,6 +745,50 @@ class _ProductionOrderDetailScreenState
                       : const Icon(Icons.send_outlined),
                   label: Text(
                     _submitting ? 'Sending...' : 'Send for Bill',
+                  ),
+                ),
+              ],
+              if (_canHold) ...[
+                const SizedBox(height: AppSpacing.sm),
+                OutlinedButton.icon(
+                  onPressed: _submitting ? null : _holdOrder,
+                  icon: const Icon(Icons.pause_circle_outline),
+                  label: const Text('Hold Order'),
+                ),
+              ],
+              if (_canRevertToManager) ...[
+                const SizedBox(height: AppSpacing.sm),
+                OutlinedButton.icon(
+                  onPressed: _submitting ? null : _revertToManager,
+                  icon: const Icon(Icons.undo),
+                  label: const Text('Revert to Manager'),
+                ),
+              ],
+              if (_canReleaseHold) ...[
+                const SizedBox(height: AppSpacing.md),
+                FilledButton.icon(
+                  onPressed: _submitting ? null : _releaseHold,
+                  icon: const Icon(Icons.play_circle_outline),
+                  label: const Text('Release Hold'),
+                ),
+              ],
+              if (_status == 'on_hold') ...[
+                const SizedBox(height: AppSpacing.md),
+                PgCard(
+                  child: Text(
+                    'This order is on hold. Send for Bill is blocked until the hold is released.'
+                    '${(order['hold_remark']?.toString().trim().isNotEmpty ?? false) ? '\nRemark: ${order['hold_remark']}' : ''}',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                ),
+              ],
+              if (_status == 'reverted_to_manager') ...[
+                const SizedBox(height: AppSpacing.md),
+                PgCard(
+                  child: Text(
+                    'Returned to Manager for review. Send for Bill is unavailable until re-approval.'
+                    '${(order['revert_remark']?.toString().trim().isNotEmpty ?? false) ? '\nRemark: ${order['revert_remark']}' : ''}',
+                    style: Theme.of(context).textTheme.bodyMedium,
                   ),
                 ),
               ],

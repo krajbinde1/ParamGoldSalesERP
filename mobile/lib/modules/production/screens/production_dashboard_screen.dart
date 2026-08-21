@@ -16,6 +16,8 @@ import '../widgets/production_order_list_card.dart';
 
 enum _ProductionOrderTabKey {
   approved,
+  onHold,
+  returnedToManager,
   sentForBill,
   billed,
   dispatched,
@@ -37,6 +39,8 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
   late ProductionApi _api;
 
   Future<ProductionOrderListResult>? _approvedFuture;
+  Future<ProductionOrderListResult>? _onHoldFuture;
+  Future<ProductionOrderListResult>? _returnedFuture;
   Future<ProductionOrderListResult>? _sentForBillFuture;
   Future<ProductionOrderListResult>? _billedFuture;
   Future<ProductionOrderListResult>? _dispatchedFuture;
@@ -77,6 +81,8 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
 
   String _statusFor(_ProductionOrderTabKey tab) => switch (tab) {
         _ProductionOrderTabKey.approved => 'approved',
+        _ProductionOrderTabKey.onHold => 'on_hold',
+        _ProductionOrderTabKey.returnedToManager => 'reverted_to_manager',
         _ProductionOrderTabKey.sentForBill => 'sent_for_bill',
         _ProductionOrderTabKey.billed => 'billed',
         _ProductionOrderTabKey.dispatched => 'dispatched',
@@ -90,6 +96,8 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
   void _reloadAll() {
     setState(() {
       _approvedFuture = _loadTab(_ProductionOrderTabKey.approved);
+      _onHoldFuture = _loadTab(_ProductionOrderTabKey.onHold);
+      _returnedFuture = _loadTab(_ProductionOrderTabKey.returnedToManager);
       _sentForBillFuture = _loadTab(_ProductionOrderTabKey.sentForBill);
       _billedFuture = _loadTab(_ProductionOrderTabKey.billed);
       _dispatchedFuture = _loadTab(_ProductionOrderTabKey.dispatched);
@@ -102,6 +110,10 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
       switch (tab) {
         case _ProductionOrderTabKey.approved:
           _approvedFuture = _loadTab(tab);
+        case _ProductionOrderTabKey.onHold:
+          _onHoldFuture = _loadTab(tab);
+        case _ProductionOrderTabKey.returnedToManager:
+          _returnedFuture = _loadTab(tab);
         case _ProductionOrderTabKey.sentForBill:
           _sentForBillFuture = _loadTab(tab);
         case _ProductionOrderTabKey.billed:
@@ -118,6 +130,8 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
     _reloadAll();
     await Future.wait([
       _approvedFuture!,
+      _onHoldFuture!,
+      _returnedFuture!,
       _sentForBillFuture!,
       _billedFuture!,
       _dispatchedFuture!,
@@ -127,6 +141,8 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
 
   void _updateCounts(ProductionOrderCounts counts) {
     if (_counts.approved == counts.approved &&
+        _counts.onHold == counts.onHold &&
+        _counts.returnedToManager == counts.returnedToManager &&
         _counts.sentForBill == counts.sentForBill &&
         _counts.billed == counts.billed &&
         _counts.dispatched == counts.dispatched &&
@@ -148,6 +164,10 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
       );
     } else if (result == 'sent_for_bill') {
       _tabController.animateTo(_ProductionOrderTabKey.sentForBill.index);
+    } else if (result == 'held') {
+      _tabController.animateTo(_ProductionOrderTabKey.onHold.index);
+    } else if (result == 'reverted') {
+      _tabController.animateTo(_ProductionOrderTabKey.returnedToManager.index);
     }
   }
 
@@ -184,6 +204,8 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
           tabAlignment: TabAlignment.start,
           tabs: [
             Tab(text: 'Approved (${_counts.approved})'),
+            Tab(text: 'On Hold (${_counts.onHold})'),
+            Tab(text: 'Returned (${_counts.returnedToManager})'),
             Tab(text: 'Sent for Bill (${_counts.sentForBill})'),
             Tab(text: 'Billed (${_counts.billed})'),
             Tab(text: 'Dispatched (${_counts.dispatched})'),
@@ -198,6 +220,26 @@ class _ProductionOrdersScreenState extends State<ProductionOrdersScreen>
             future: _approvedFuture,
             statusKey: 'approved',
             emptyMessage: 'No approved orders.',
+            canDispatch: widget.auth.permissions.canDispatchOrders,
+            onCounts: _updateCounts,
+            onRefresh: _refreshAll,
+            onTap: _openOrder,
+            onDispatch: _dispatchFromList,
+          ),
+          _ProductionOrderTab(
+            future: _onHoldFuture,
+            statusKey: 'on_hold',
+            emptyMessage: 'No orders on hold.',
+            canDispatch: widget.auth.permissions.canDispatchOrders,
+            onCounts: _updateCounts,
+            onRefresh: _refreshAll,
+            onTap: _openOrder,
+            onDispatch: _dispatchFromList,
+          ),
+          _ProductionOrderTab(
+            future: _returnedFuture,
+            statusKey: 'reverted_to_manager',
+            emptyMessage: 'No orders returned to manager.',
             canDispatch: widget.auth.permissions.canDispatchOrders,
             onCounts: _updateCounts,
             onRefresh: _refreshAll,

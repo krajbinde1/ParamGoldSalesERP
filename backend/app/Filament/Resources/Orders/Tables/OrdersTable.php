@@ -6,6 +6,7 @@ use App\Actions\Orders\BillOrderWithDocument;
 use App\Actions\Orders\DispatchOrder;
 use App\Actions\Orders\RejectOrderWithRemarks;
 use App\Actions\Orders\SendOrderForBilling;
+use App\Filament\Support\OrderHoldRevertActions;
 use App\Filament\Support\SendForBillForm;
 use App\Filament\Support\TodayDateFilter;
 use App\Models\Order;
@@ -47,6 +48,7 @@ class OrdersTable
                 ->toggle()
                 ->query(fn (Builder $query): Builder => $query->whereIn('status', [
                     Order::STATUS_PENDING_APPROVAL,
+                    Order::STATUS_REVERTED_TO_MANAGER,
                     Order::STATUS_PENDING_FOR_BILLING,
                     Order::STATUS_BILLED,
                 ])),
@@ -141,7 +143,9 @@ class OrdersTable
                     ->visible(fn (Order $record): bool => ! $ordersOnlyUser() && $record->canTransitionTo('pending_approval'))
                     ->action(fn (Order $record) => $record->transitionTo('pending_approval')),
                 Action::make('approve')
-                    ->label('Approve')
+                    ->label(fn (Order $record): string => $record->status === Order::STATUS_REVERTED_TO_MANAGER
+                        ? 'Re-Approve'
+                        : 'Approve')
                     ->color('success')
                     ->visible(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('approve', $record))
                     ->authorize(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('approve', $record))
@@ -173,6 +177,7 @@ class OrdersTable
                             rejectedByRole: $role,
                         );
                     }),
+                ...OrderHoldRevertActions::make(),
                 Action::make('sendForBill')
                     ->label('Send for Bill')
                     ->color('warning')

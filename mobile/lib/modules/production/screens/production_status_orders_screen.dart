@@ -37,6 +37,8 @@ class _ProductionStatusOrdersScreenState
 
   String get _title => switch (widget.status) {
         'approved' => 'Approved Orders',
+        'on_hold' => 'On Hold Orders',
+        'reverted_to_manager' => 'Returned to Manager',
         'sent_for_bill' => 'Sent for Bill Orders',
         'billed' => 'Billed Orders',
         'dispatched' => 'Dispatched Orders',
@@ -46,6 +48,8 @@ class _ProductionStatusOrdersScreenState
 
   String get _emptyMessage => switch (widget.status) {
         'approved' => 'No approved orders.',
+        'on_hold' => 'No orders on hold.',
+        'reverted_to_manager' => 'No orders returned to manager.',
         'sent_for_bill' => 'No orders sent for billing.',
         'billed' => 'No billed orders.',
         'dispatched' => 'No dispatched orders.',

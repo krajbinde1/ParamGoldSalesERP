@@ -26,6 +26,14 @@ final class OrderDetailPresenter
             'approvedByUser.employee:id,full_name,designation',
             'rejectedByUser:id,name,role,job_role,employee_id',
             'rejectedByUser.employee:id,full_name,designation',
+            'heldByUser:id,name,role,job_role,employee_id',
+            'heldByUser.employee:id,full_name,designation',
+            'holdReleasedByUser:id,name,role,job_role,employee_id',
+            'holdReleasedByUser.employee:id,full_name,designation',
+            'revertedByUser:id,name,role,job_role,employee_id',
+            'revertedByUser.employee:id,full_name,designation',
+            'reapprovedByUser:id,name,role,job_role,employee_id',
+            'reapprovedByUser.employee:id,full_name,designation',
             'lastEditedByUser:id,name',
             'sentForBillByUser:id,name,role,job_role,employee_id',
             'sentForBillByUser.employee:id,full_name,designation',
@@ -98,6 +106,33 @@ final class OrderDetailPresenter
                 ])))
                 : null,
             'approval_remark' => $order->remarks,
+            'held_at' => $order->held_at?->toDateTimeString(),
+            'held_at_label' => $order->held_at
+                ? $order->held_at->timezone('Asia/Kolkata')->format('d M Y • h:i A')
+                : null,
+            'held_by' => $order->held_by,
+            'held_by_name' => $order->heldByUser?->name,
+            'held_by_role' => $order->displayActorRole($order->heldByUser),
+            'hold_remark' => $order->hold_remark,
+            'hold_released_at' => $order->hold_released_at?->toDateTimeString(),
+            'hold_released_at_label' => $order->hold_released_at
+                ? $order->hold_released_at->timezone('Asia/Kolkata')->format('d M Y • h:i A')
+                : null,
+            'hold_released_by_name' => $order->holdReleasedByUser?->name,
+            'reverted_at' => $order->reverted_at?->toDateTimeString(),
+            'reverted_at_label' => $order->reverted_at
+                ? $order->reverted_at->timezone('Asia/Kolkata')->format('d M Y • h:i A')
+                : null,
+            'reverted_by' => $order->reverted_by,
+            'reverted_by_name' => $order->revertedByUser?->name,
+            'reverted_by_role' => $order->displayActorRole($order->revertedByUser) ?? 'Production Supervisor',
+            'revert_remark' => $order->revert_remark,
+            'reapproved_at' => $order->reapproved_at?->toDateTimeString(),
+            'reapproved_at_label' => $order->reapproved_at
+                ? $order->reapproved_at->timezone('Asia/Kolkata')->format('d M Y • h:i A')
+                : null,
+            'reapproved_by_name' => $order->reapprovedByUser?->name,
+            'reapproved_by_role' => $order->displayActorRole($order->reapprovedByUser) ?? 'Sales Manager',
             'rejected_at' => $order->rejected_at?->toDateTimeString(),
             'rejected_by' => $order->rejected_by,
             'rejected_by_name' => $order->rejectedByUser?->name,
@@ -166,6 +201,9 @@ final class OrderDetailPresenter
             'timeline' => $order->workflowTimeline(),
             'can_dispatch' => $order->canBeDispatched(),
             'can_send_for_bill' => $order->canBeSentForBilling(),
+            'can_hold' => $order->canBeHeld(),
+            'can_release_hold' => $order->canBeReleasedFromHold(),
+            'can_revert_to_manager' => $order->canBeRevertedToManager(),
             'can_bill' => $order->canBeBilled(),
             'can_approve' => $order->canBeApproved(),
             'can_reject' => $order->canBeRejected(),

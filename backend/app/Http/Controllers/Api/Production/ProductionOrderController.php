@@ -4,6 +4,9 @@ namespace App\Http\Controllers\Api\Production;
 
 use App\Actions\Orders\DispatchOrder;
 use App\Actions\Orders\DispatchOrderWithTransport;
+use App\Actions\Orders\HoldOrder;
+use App\Actions\Orders\ReleaseOrderHold;
+use App\Actions\Orders\RevertOrderToManager;
 use App\Actions\Orders\SendOrderForBilling;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
@@ -25,6 +28,8 @@ class ProductionOrderController extends Controller
 
         $workflowStatuses = [
             Order::STATUS_APPROVED,
+            Order::STATUS_ON_HOLD,
+            Order::STATUS_REVERTED_TO_MANAGER,
             Order::STATUS_PENDING_FOR_BILLING,
             Order::STATUS_BILLED,
             Order::STATUS_DISPATCHED,
@@ -51,6 +56,17 @@ class ProductionOrderController extends Controller
         ], true)) {
             $status = Order::STATUS_APPROVED;
         }
+        if (in_array($status, [
+            'returned_to_manager',
+            'returned_by_production',
+            'reverted',
+            'reverted_orders',
+        ], true)) {
+            $status = Order::STATUS_REVERTED_TO_MANAGER;
+        }
+        if (in_array($status, ['hold', 'on-hold'], true)) {
+            $status = Order::STATUS_ON_HOLD;
+        }
 
         $orders = Order::query()
             ->with([
@@ -66,6 +82,12 @@ class ProductionOrderController extends Controller
                     $q->where('status', $status);
                     if ($status === Order::STATUS_APPROVED) {
                         $q->orderByDesc('approved_at');
+                    }
+                    if ($status === Order::STATUS_ON_HOLD) {
+                        $q->orderByDesc('held_at');
+                    }
+                    if ($status === Order::STATUS_REVERTED_TO_MANAGER) {
+                        $q->orderByDesc('reverted_at');
                     }
                     if ($status === Order::STATUS_BILLED) {
                         $q->orderByDesc('billed_at');
@@ -132,7 +154,14 @@ class ProductionOrderController extends Controller
                 'status' => $order->status,
                 'status_label' => $order->displayStatusLabel(),
                 'can_send_for_bill' => $order->canBeSentForBilling(),
+                'can_hold' => $order->canBeHeld(),
+                'can_release_hold' => $order->canBeReleasedFromHold(),
+                'can_revert_to_manager' => $order->canBeRevertedToManager(),
                 'can_dispatch' => $order->canBeDispatched(),
+                'held_at' => $order->held_at?->toDateTimeString(),
+                'hold_remark' => $order->hold_remark,
+                'reverted_at' => $order->reverted_at?->toDateTimeString(),
+                'revert_remark' => $order->revert_remark,
             ])->values(),
             'meta' => [
                 'current_page' => $orders->currentPage(),
@@ -182,6 +211,66 @@ class ProductionOrderController extends Controller
         return response()->json([
             'message' => 'Order sent for billing successfully.',
             'data' => $this->presenter->present($result['order']),
+        ]);
+    }
+
+    public function hold(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate([
+            'remark' => ['required_without:hold_remark', 'nullable', 'string', 'min:3', 'max:2000'],
+            'hold_remark' => ['required_without:remark', 'nullable', 'string', 'min:3', 'max:2000'],
+        ]);
+
+        $result = app(HoldOrder::class)->execute(
+            order: $order,
+            actor: $request->user(),
+            remark: (string) ($validated['remark'] ?? $validated['hold_remark']),
+        );
+
+        return response()->json([
+            'message' => 'Order put on hold.',
+            'data' => $this->presenter->present($result['order']),
+            'meta' => [
+                'counts' => $this->statusCounts(),
+            ],
+        ]);
+    }
+
+    public function releaseHold(Request $request, Order $order): JsonResponse
+    {
+        $result = app(ReleaseOrderHold::class)->execute(
+            order: $order,
+            actor: $request->user(),
+        );
+
+        return response()->json([
+            'message' => 'Order hold released.',
+            'data' => $this->presenter->present($result['order']),
+            'meta' => [
+                'counts' => $this->statusCounts(),
+            ],
+        ]);
+    }
+
+    public function revertToManager(Request $request, Order $order): JsonResponse
+    {
+        $validated = $request->validate([
+            'remark' => ['required_without:revert_remark', 'nullable', 'string', 'min:3', 'max:2000'],
+            'revert_remark' => ['required_without:remark', 'nullable', 'string', 'min:3', 'max:2000'],
+        ]);
+
+        $result = app(RevertOrderToManager::class)->execute(
+            order: $order,
+            actor: $request->user(),
+            remark: (string) ($validated['remark'] ?? $validated['revert_remark']),
+        );
+
+        return response()->json([
+            'message' => 'Order returned to manager for review.',
+            'data' => $this->presenter->present($result['order']),
+            'meta' => [
+                'counts' => $this->statusCounts(),
+            ],
         ]);
     }
 
@@ -265,6 +354,8 @@ class ProductionOrderController extends Controller
             ->selectRaw('status, COUNT(*) as aggregate')
             ->whereIn('status', [
                 Order::STATUS_APPROVED,
+                Order::STATUS_ON_HOLD,
+                Order::STATUS_REVERTED_TO_MANAGER,
                 Order::STATUS_PENDING_FOR_BILLING,
                 Order::STATUS_BILLED,
                 Order::STATUS_DISPATCHED,
@@ -277,6 +368,9 @@ class ProductionOrderController extends Controller
 
         return [
             'approved' => (int) ($counts[Order::STATUS_APPROVED] ?? 0),
+            'on_hold' => (int) ($counts[Order::STATUS_ON_HOLD] ?? 0),
+            'reverted_to_manager' => (int) ($counts[Order::STATUS_REVERTED_TO_MANAGER] ?? 0),
+            'returned_to_manager' => (int) ($counts[Order::STATUS_REVERTED_TO_MANAGER] ?? 0),
             'sent_for_bill' => $sentForBill,
             'pending_for_billing' => $sentForBill,
             'billed' => (int) ($counts[Order::STATUS_BILLED] ?? 0),

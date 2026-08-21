@@ -32,7 +32,7 @@ final class UpdatePendingOrder
     ): Order {
         if (! $order->canBeEdited()) {
             throw ValidationException::withMessages([
-                'status' => ['Only orders pending approval can be edited.'],
+                'status' => ['Only orders pending approval or returned by Production can be edited.'],
             ]);
         }
 

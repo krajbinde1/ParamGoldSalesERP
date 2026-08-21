@@ -56,9 +56,12 @@ class OrderResource extends Resource
         ) {
             $query->whereIn('status', [
                 Order::STATUS_APPROVED,
+                Order::STATUS_ON_HOLD,
+                Order::STATUS_REVERTED_TO_MANAGER,
                 Order::STATUS_PENDING_FOR_BILLING,
                 Order::STATUS_BILLED,
                 Order::STATUS_DISPATCHED,
+                Order::STATUS_REJECTED,
             ]);
         }
 

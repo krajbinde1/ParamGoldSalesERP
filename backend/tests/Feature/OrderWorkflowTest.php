@@ -739,3 +739,197 @@ it('deducts company transport from original grand total only once', function () 
     expect((float) $fresh->fresh()->grand_total)->toBe(85.0)
         ->and((float) $fresh->fresh()->original_grand_total)->toBe(100.0);
 });
+
+it('lets production hold an approved order and release it without manager re-approval', function () {
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000201');
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000202');
+    $production = orderWorkflowEmployee(UserRole::ProductionSupervisor, '9200000203');
+    $employee->update(['reporting_manager_id' => $manager->id]);
+    $order = orderWorkflowPending($employee->id);
+    $order->approve($manager->user->id);
+    $originalApprovedAt = $order->fresh()->approved_at?->toDateTimeString();
+    $originalOrderNo = $order->order_no;
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/hold", [])
+        ->assertUnprocessable();
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/hold", [
+            'remark' => 'Stock not available',
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.status', Order::STATUS_ON_HOLD)
+        ->assertJsonPath('data.status_label', 'On Hold')
+        ->assertJsonPath('data.can_send_for_bill', false)
+        ->assertJsonPath('data.can_hold', false)
+        ->assertJsonPath('data.can_release_hold', true)
+        ->assertJsonPath('data.hold_remark', 'Stock not available')
+        ->assertJsonPath('data.approved_by', $manager->user->id);
+
+    $held = $order->fresh();
+    expect($held->status)->toBe(Order::STATUS_ON_HOLD)
+        ->and($held->held_by)->toBe($production->user->id)
+        ->and($held->hold_remark)->toBe('Stock not available')
+        ->and($held->approved_by)->toBe($manager->user->id)
+        ->and($held->approved_at?->toDateTimeString())->toBe($originalApprovedAt)
+        ->and($held->order_no)->toBe($originalOrderNo)
+        ->and($held->canBeSentForBilling())->toBeFalse();
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/send-for-bill", [
+            'vehicle_number' => 'MH12HOLD01',
+            'transport_charge_type' => 'transport_extra',
+            'transport_freight' => 10,
+        ])
+        ->assertForbidden();
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson('/api/production/orders?status=approved')
+        ->assertOk()
+        ->assertJsonMissing(['id' => $order->id]);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson('/api/production/orders?status=on_hold')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $order->id)
+        ->assertJsonPath('meta.counts.on_hold', 1);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/release-hold")
+        ->assertOk()
+        ->assertJsonPath('data.status', Order::STATUS_APPROVED)
+        ->assertJsonPath('data.can_send_for_bill', true)
+        ->assertJsonPath('data.can_hold', true);
+
+    $released = $order->fresh();
+    expect($released->status)->toBe(Order::STATUS_APPROVED)
+        ->and($released->hold_released_by)->toBe($production->user->id)
+        ->and($released->approved_by)->toBe($manager->user->id)
+        ->and($released->order_no)->toBe($originalOrderNo);
+
+    $timelineKeys = collect($released->workflowTimeline())->pluck('key')->all();
+    expect($timelineKeys)->toContain('held')
+        ->and($timelineKeys)->toContain('released')
+        ->and($timelineKeys)->toContain('approved');
+});
+
+it('lets production revert an approved order for manager edit and re-approval on the same order number', function () {
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000211');
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000212');
+    $production = orderWorkflowEmployee(UserRole::ProductionSupervisor, '9200000213');
+    $employee->update(['reporting_manager_id' => $manager->id]);
+    $order = orderWorkflowPending($employee->id);
+    $order->approve($manager->user->id);
+    $originalApprovedAt = $order->fresh()->approved_at?->toDateTimeString();
+    $originalOrderNo = $order->order_no;
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/revert-to-manager", [])
+        ->assertUnprocessable();
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/revert-to-manager", [
+            'remark' => 'Please correct product quantity before production.',
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.status', Order::STATUS_REVERTED_TO_MANAGER)
+        ->assertJsonPath('data.status_label', 'Returned by Production')
+        ->assertJsonPath('data.can_send_for_bill', false)
+        ->assertJsonPath('data.revert_remark', 'Please correct product quantity before production.');
+
+    expect($order->fresh()->status)->toBe(Order::STATUS_REVERTED_TO_MANAGER)
+        ->and($order->fresh()->reverted_by)->toBe($production->user->id)
+        ->and($order->fresh()->approved_by)->toBe($manager->user->id)
+        ->and($order->fresh()->approved_at?->toDateTimeString())->toBe($originalApprovedAt)
+        ->and($order->fresh()->order_no)->toBe($originalOrderNo);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson('/api/production/orders?status=approved')
+        ->assertOk();
+
+    $approvedList = $this->actingAs($production->user, 'sanctum')
+        ->getJson('/api/production/orders?status=approved')
+        ->json('data');
+    expect(collect($approvedList)->pluck('id'))->not->toContain($order->id);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson('/api/production/orders?status=reverted_to_manager')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $order->id);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/send-for-bill", [
+            'vehicle_number' => 'MH12REV001',
+            'transport_charge_type' => 'transport_extra',
+            'transport_freight' => 10,
+        ])
+        ->assertForbidden();
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->getJson('/api/manager/orders?status=reverted_to_manager')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $order->id)
+        ->assertJsonPath('counts.returned_by_production', 1);
+
+    $detail = $this->actingAs($manager->user, 'sanctum')
+        ->getJson("/api/manager/orders/{$order->id}")
+        ->assertOk()
+        ->json('data');
+
+    expect($detail['can_approve'])->toBeTrue()
+        ->and($detail['can_edit'])->toBeTrue()
+        ->and($detail['can_reject'])->toBeTrue()
+        ->and($detail['revert_remark'])->toBe('Please correct product quantity before production.')
+        ->and($detail['reverted_by_name'])->toBe($production->user->name)
+        ->and($detail['status'])->toBe(Order::STATUS_REVERTED_TO_MANAGER);
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson("/api/manager/orders/{$order->id}/approve", [
+            'remark' => 'Quantity corrected',
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.status', Order::STATUS_APPROVED)
+        ->assertJsonPath('message', 'Order re-approved successfully.');
+
+    $reapproved = $order->fresh();
+    expect($reapproved->status)->toBe(Order::STATUS_APPROVED)
+        ->and($reapproved->order_no)->toBe($originalOrderNo)
+        ->and($reapproved->id)->toBe($order->id)
+        ->and($reapproved->approved_by)->toBe($manager->user->id)
+        ->and($reapproved->approved_at?->toDateTimeString())->toBe($originalApprovedAt)
+        ->and($reapproved->reapproved_by)->toBe($manager->user->id)
+        ->and($reapproved->canBeSentForBilling())->toBeTrue();
+
+    $timelineKeys = collect($reapproved->workflowTimeline())->pluck('key')->all();
+    expect($timelineKeys)->toContain('approved')
+        ->and($timelineKeys)->toContain('reverted')
+        ->and($timelineKeys)->toContain('reapproved');
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson('/api/production/orders?status=approved')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $order->id)
+        ->assertJsonPath('data.0.can_send_for_bill', true);
+});
+
+it('blocks hold and revert after the order is billed or dispatched', function () {
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000221');
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000222');
+    $production = orderWorkflowEmployee(UserRole::ProductionSupervisor, '9200000223');
+    $order = orderWorkflowPending($employee->id);
+    $order->approve($manager->user->id);
+    $order->forceFill(['status' => Order::STATUS_BILLED])->saveQuietly();
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/hold", [
+            'remark' => 'Too late to hold',
+        ])
+        ->assertForbidden();
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/revert-to-manager", [
+            'remark' => 'Too late to revert',
+        ])
+        ->assertForbidden();
+});

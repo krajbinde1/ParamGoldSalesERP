@@ -7,6 +7,7 @@ use App\Actions\Orders\DispatchOrder;
 use App\Actions\Orders\RejectOrderWithRemarks;
 use App\Actions\Orders\SendOrderForBilling;
 use App\Filament\Resources\Orders\OrderResource;
+use App\Filament\Support\OrderHoldRevertActions;
 use App\Filament\Support\SendForBillForm;
 use App\Models\Order;
 use Filament\Actions\Action;
@@ -95,6 +96,22 @@ class ViewOrder extends ViewRecord
                         'rejection_remark',
                     ]);
                 }),
+            ...OrderHoldRevertActions::make(function (Order $record): void {
+                $this->refreshFormData([
+                    'status',
+                    'held_by',
+                    'held_at',
+                    'hold_remark',
+                    'hold_return_status',
+                    'hold_released_by',
+                    'hold_released_at',
+                    'reverted_by',
+                    'reverted_at',
+                    'revert_remark',
+                    'reapproved_by',
+                    'reapproved_at',
+                ]);
+            }, $this->getRecord()),
             Action::make('sendForBill')
                 ->label('Send for Bill')
                 ->color('warning')

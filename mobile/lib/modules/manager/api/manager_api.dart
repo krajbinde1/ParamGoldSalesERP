@@ -6,6 +6,7 @@ class ManagerDashboardData {
     required this.period,
     required this.pendingOrders,
     required this.approvedOrders,
+    this.returnedByProduction = 0,
     required this.dispatchedOrders,
     required this.pendingClaims,
     required this.approvedClaims,
@@ -28,6 +29,7 @@ class ManagerDashboardData {
   final String period;
   final int pendingOrders;
   final int approvedOrders;
+  final int returnedByProduction;
   final int dispatchedOrders;
   final int pendingClaims;
   final int approvedClaims;
@@ -61,6 +63,8 @@ class ManagerDashboardData {
       period: json['period']?.toString() ?? 'This Month',
       pendingOrders: pendingFromRoot,
       approvedOrders: int.tryParse('${orders['approved_orders'] ?? 0}') ?? 0,
+      returnedByProduction:
+          int.tryParse('${orders['returned_by_production'] ?? 0}') ?? 0,
       dispatchedOrders:
           int.tryParse('${orders['dispatched_orders'] ?? 0}') ?? 0,
       pendingClaims: int.tryParse('${taDa['pending_claims'] ?? 0}') ?? 0,
@@ -124,6 +128,7 @@ class ManagerOrderCounts {
     required this.dispatched,
     required this.billed,
     required this.all,
+    this.returnedByProduction = 0,
   });
 
   final int pendingApproval;
@@ -132,6 +137,7 @@ class ManagerOrderCounts {
   final int dispatched;
   final int billed;
   final int all;
+  final int returnedByProduction;
 
   int get placed => pendingApproval;
 
@@ -147,6 +153,11 @@ class ManagerOrderCounts {
       dispatched: int.tryParse('${counts['dispatched'] ?? 0}') ?? 0,
       billed: int.tryParse('${counts['billed'] ?? 0}') ?? 0,
       all: int.tryParse('${counts['all'] ?? 0}') ?? 0,
+      returnedByProduction:
+          int.tryParse(
+                '${counts['returned_by_production'] ?? counts['reverted_to_manager'] ?? 0}',
+              ) ??
+              0,
     );
   }
 }

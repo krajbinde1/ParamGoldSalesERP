@@ -25,6 +25,12 @@ final class OrderPushNotifier
 
     public const TYPE_DISPATCHED = 'order_dispatched';
 
+    public const TYPE_ON_HOLD = 'order_on_hold';
+
+    public const TYPE_REVERTED = 'order_reverted_to_manager';
+
+    public const TYPE_REAPPROVED = 'order_reapproved';
+
     public function __construct(
         private readonly FcmHttpClient $fcm = new FcmHttpClient,
     ) {}
@@ -116,6 +122,134 @@ final class OrderPushNotifier
                 body: $body,
                 data: $this->baseData($order, self::TYPE_APPROVED, [
                     'sales_person_name' => $order->salesEmployee?->full_name ?? '',
+                    'route' => "/production/orders/{$order->id}",
+                    'action' => 'view_order',
+                    'channel_id' => 'paramgold_critical_alerts_v5',
+                    'fullscreen' => '1',
+                ]),
+            );
+        }
+    }
+
+    public function notifyOnHold(Order $order): void
+    {
+        $order->loadMissing([
+            'dealer:id,firm_name,village',
+            'salesEmployee:id,full_name,reporting_manager_id',
+            'heldByUser:id,name',
+        ]);
+
+        $shortNo = $order->shortOrderNo();
+        $supervisor = $order->heldByUser?->name ?: 'Production Supervisor';
+        $remark = filled($order->hold_remark) ? ' Remark: '.$order->hold_remark : '';
+        $body = "Order {$shortNo} has been put on hold by Production Supervisor.{$remark}";
+        $statusKey = 'on_hold:'.($order->held_at?->toJSON() ?? (string) $order->id);
+
+        $manager = $this->reportingManagerUser($order);
+        if ($manager) {
+            $this->dispatchToUser(
+                user: $manager,
+                order: $order,
+                type: self::TYPE_ON_HOLD,
+                statusKey: $statusKey,
+                title: 'Order On Hold',
+                body: $body,
+                data: $this->baseData($order, self::TYPE_ON_HOLD, [
+                    'route' => "/manager/orders/{$order->id}",
+                    'action' => 'view_order',
+                    'hold_remark' => (string) ($order->hold_remark ?? ''),
+                    'channel_id' => 'paramgold_critical_alerts_v5',
+                ]),
+            );
+        }
+
+        foreach ($this->adminUsers() as $user) {
+            $this->dispatchToUser(
+                user: $user,
+                order: $order,
+                type: self::TYPE_ON_HOLD.'_admin',
+                statusKey: $statusKey,
+                title: 'Order On Hold',
+                body: $body,
+                data: $this->baseData($order, self::TYPE_ON_HOLD, [
+                    'route' => "/admin/orders/{$order->id}",
+                    'action' => 'view_order',
+                    'hold_remark' => (string) ($order->hold_remark ?? ''),
+                    'channel_id' => 'paramgold_critical_alerts_v5',
+                ]),
+            );
+        }
+    }
+
+    public function notifyReverted(Order $order): void
+    {
+        $order->loadMissing([
+            'dealer:id,firm_name,village',
+            'salesEmployee:id,full_name,reporting_manager_id',
+            'revertedByUser:id,name',
+        ]);
+
+        $shortNo = $order->shortOrderNo();
+        $remark = filled($order->revert_remark) ? ' Remark: '.$order->revert_remark : '';
+        $body = "Order {$shortNo} has been returned by Production Supervisor for review.{$remark}";
+        $statusKey = 'reverted:'.($order->reverted_at?->toJSON() ?? (string) $order->id);
+
+        $manager = $this->reportingManagerUser($order);
+        if ($manager === null) {
+            return;
+        }
+
+        $this->dispatchToUser(
+            user: $manager,
+            order: $order,
+            type: self::TYPE_REVERTED,
+            statusKey: $statusKey,
+            title: 'Order Returned by Production',
+            body: $body,
+            data: $this->baseData($order, self::TYPE_REVERTED, [
+                'route' => "/manager/orders/{$order->id}",
+                'action' => 'review',
+                'revert_remark' => (string) ($order->revert_remark ?? ''),
+                'channel_id' => 'paramgold_critical_alerts_v5',
+                'fullscreen' => '1',
+            ]),
+            android: [
+                'notification' => [
+                    'channel_id' => 'paramgold_critical_alerts_v5',
+                    'notification_priority' => 'PRIORITY_MAX',
+                    'default_vibrate_timings' => true,
+                    'sound' => 'default',
+                ],
+            ],
+        );
+    }
+
+    public function notifyReapproved(Order $order): void
+    {
+        $order->loadMissing([
+            'dealer:id,firm_name,village',
+            'salesEmployee:id,full_name',
+            'reapprovedByUser:id,name',
+            'approvedByUser:id,name',
+        ]);
+
+        $shortNo = $order->shortOrderNo();
+        $managerName = $order->reapprovedByUser?->name
+            ?: ($order->approvedByUser?->name ?: 'Sales Manager');
+        $body = "Order {$shortNo} has been re-approved by Manager and is ready for processing.";
+        $statusKey = 'reapproved:'.($order->reapproved_at?->toJSON() ?? (string) $order->id);
+
+        foreach ($this->productionSupervisorUsers() as $user) {
+            $this->dispatchToUser(
+                user: $user,
+                order: $order,
+                type: self::TYPE_REAPPROVED.'_production',
+                statusKey: $statusKey,
+                title: 'Order Re-Approved',
+                body: $body,
+                data: $this->baseData($order, self::TYPE_REAPPROVED, [
+                    'sales_person_name' => $order->salesEmployee?->full_name ?? '',
+                    'manager_name' => $managerName,
                     'route' => "/production/orders/{$order->id}",
                     'action' => 'view_order',
                     'channel_id' => 'paramgold_critical_alerts_v5',

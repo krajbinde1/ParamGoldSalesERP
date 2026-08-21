@@ -44,6 +44,18 @@ class AdminDirectorOrderOverviewWidget extends Widget
                     'url' => OrderResource::getUrl('index', ['tab' => Order::STATUS_APPROVED]),
                 ],
                 [
+                    'label' => 'On Hold',
+                    'value' => (int) ($pipeline['on_hold'] ?? 0),
+                    'stuck' => false,
+                    'url' => OrderResource::getUrl('index', ['tab' => Order::STATUS_ON_HOLD]),
+                ],
+                [
+                    'label' => 'Returned',
+                    'value' => (int) ($pipeline['reverted_to_manager'] ?? 0),
+                    'stuck' => false,
+                    'url' => OrderResource::getUrl('index', ['tab' => Order::STATUS_REVERTED_TO_MANAGER]),
+                ],
+                [
                     'label' => 'Sent for Bill',
                     'value' => (int) $pipeline['sent_for_bill'],
                     'stuck' => (int) $delays['billing_12h'] > 0,

@@ -69,6 +69,8 @@ class DirectorDashboardDataService
         $billed = (int) ($orderStatusCounts[Order::STATUS_BILLED] ?? 0);
         $dispatched = (int) ($orderStatusCounts[Order::STATUS_DISPATCHED] ?? 0);
         $rejected = (int) ($orderStatusCounts[Order::STATUS_REJECTED] ?? 0);
+        $onHold = (int) ($orderStatusCounts[Order::STATUS_ON_HOLD] ?? 0);
+        $reverted = (int) ($orderStatusCounts[Order::STATUS_REVERTED_TO_MANAGER] ?? 0);
         $pendingOrders = $pendingApproval + $sentForBill + $billed;
 
         $delayPending24 = Order::query()
@@ -133,6 +135,8 @@ class DirectorDashboardDataService
                 'billed' => $billed,
                 'dispatched' => $dispatched,
                 'rejected' => $rejected,
+                'on_hold' => $onHold,
+                'reverted_to_manager' => $reverted,
             ],
             'delays' => [
                 'pending_24h' => $delayPending24,

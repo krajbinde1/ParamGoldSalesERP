@@ -20,7 +20,7 @@ import '../../orders/widgets/order_invoice_products_table.dart';
 import '../../orders/widgets/order_widgets.dart';
 import '../api/manager_api.dart';
 
-enum _ManagerOrderTabKey { pending, approved, dispatched, rejected }
+enum _ManagerOrderTabKey { pending, returned, approved, dispatched, rejected }
 
 class ManagerOrdersScreen extends StatefulWidget {
   const ManagerOrdersScreen({
@@ -50,6 +50,7 @@ class _ManagerOrdersScreenState extends State<ManagerOrdersScreen>
   DateTime? _dateTo;
 
   Future<ManagerOrderListResult>? _pendingFuture;
+  Future<ManagerOrderListResult>? _returnedFuture;
   Future<ManagerOrderListResult>? _approvedFuture;
   Future<ManagerOrderListResult>? _dispatchedFuture;
   Future<ManagerOrderListResult>? _rejectedFuture;
@@ -65,6 +66,7 @@ class _ManagerOrdersScreenState extends State<ManagerOrdersScreen>
 
   static const _tabs = [
     _ManagerOrderTabKey.pending,
+    _ManagerOrderTabKey.returned,
     _ManagerOrderTabKey.approved,
     _ManagerOrderTabKey.dispatched,
     _ManagerOrderTabKey.rejected,
@@ -74,9 +76,12 @@ class _ManagerOrdersScreenState extends State<ManagerOrdersScreen>
   void initState() {
     super.initState();
     final initialIndex = switch (widget.initialTab) {
-      'approved' => 1,
-      'dispatched' => 2,
-      'rejected' => 3,
+      'returned' ||
+      'returned_by_production' ||
+      'reverted_to_manager' => 1,
+      'approved' => 2,
+      'dispatched' => 3,
+      'rejected' => 4,
       'pending' || 'placed' || 'pending_approval' => 0,
       _ => 0,
     };
@@ -119,6 +124,7 @@ class _ManagerOrdersScreenState extends State<ManagerOrdersScreen>
     return _api.listOrders(
       status: switch (tab) {
         _ManagerOrderTabKey.pending => 'pending_approval',
+        _ManagerOrderTabKey.returned => 'reverted_to_manager',
         _ManagerOrderTabKey.approved => 'approved',
         _ManagerOrderTabKey.dispatched => 'dispatched',
         _ManagerOrderTabKey.rejected => 'rejected',
@@ -135,6 +141,7 @@ class _ManagerOrdersScreenState extends State<ManagerOrdersScreen>
   void _reloadAll() {
     setState(() {
       _pendingFuture = _loadTab(_ManagerOrderTabKey.pending);
+      _returnedFuture = _loadTab(_ManagerOrderTabKey.returned);
       _approvedFuture = _loadTab(_ManagerOrderTabKey.approved);
       _dispatchedFuture = _loadTab(_ManagerOrderTabKey.dispatched);
       _rejectedFuture = _loadTab(_ManagerOrderTabKey.rejected);
@@ -145,6 +152,7 @@ class _ManagerOrdersScreenState extends State<ManagerOrdersScreen>
     _reloadAll();
     await Future.wait([
       _pendingFuture!,
+      _returnedFuture!,
       _approvedFuture!,
       _dispatchedFuture!,
       _rejectedFuture!,
@@ -153,6 +161,7 @@ class _ManagerOrdersScreenState extends State<ManagerOrdersScreen>
 
   void _updateCounts(ManagerOrderCounts counts) {
     if (_counts.pendingApproval == counts.pendingApproval &&
+        _counts.returnedByProduction == counts.returnedByProduction &&
         _counts.approved == counts.approved &&
         _counts.dispatched == counts.dispatched &&
         _counts.rejected == counts.rejected) {
@@ -169,9 +178,9 @@ class _ManagerOrdersScreenState extends State<ManagerOrdersScreen>
     if (!mounted) return;
 
     if (result == 'approved' || (result == true && tabIndex == 0)) {
-      _tabController.animateTo(1);
+      _tabController.animateTo(_ManagerOrderTabKey.approved.index);
     } else if (result == 'rejected') {
-      _tabController.animateTo(3);
+      _tabController.animateTo(_ManagerOrderTabKey.rejected.index);
     }
   }
 
@@ -341,6 +350,10 @@ class _ManagerOrdersScreenState extends State<ManagerOrdersScreen>
             tabAlignment: TabAlignment.start,
             tabs: [
               Tab(text: 'Pending (${_counts.pendingApproval})'),
+              Tab(
+                text:
+                    'Returned (${_counts.returnedByProduction})',
+              ),
               Tab(text: 'Approved (${_counts.approved})'),
               Tab(text: 'Dispatched (${_counts.dispatched})'),
               Tab(text: 'Rejected (${_counts.rejected})'),
@@ -358,25 +371,32 @@ class _ManagerOrdersScreenState extends State<ManagerOrdersScreen>
               onTap: (id) => _openOrderDetail(id, tabIndex: 0),
             ),
             _ManagerOrderTab(
+              future: _returnedFuture,
+              emptyMessage: 'No orders returned by Production.',
+              onCounts: _updateCounts,
+              onRefresh: _refreshAll,
+              onTap: (id) => _openOrderDetail(id, tabIndex: 1),
+            ),
+            _ManagerOrderTab(
               future: _approvedFuture,
               emptyMessage: 'No approved orders.',
               onCounts: _updateCounts,
               onRefresh: _refreshAll,
-              onTap: (id) => _openOrderDetail(id, tabIndex: 1),
+              onTap: (id) => _openOrderDetail(id, tabIndex: 2),
             ),
             _ManagerOrderTab(
               future: _dispatchedFuture,
               emptyMessage: 'No dispatched orders.',
               onCounts: _updateCounts,
               onRefresh: _refreshAll,
-              onTap: (id) => _openOrderDetail(id, tabIndex: 2),
+              onTap: (id) => _openOrderDetail(id, tabIndex: 3),
             ),
             _ManagerOrderTab(
               future: _rejectedFuture,
               emptyMessage: 'No rejected orders.',
               onCounts: _updateCounts,
               onRefresh: _refreshAll,
-              onTap: (id) => _openOrderDetail(id, tabIndex: 3),
+              onTap: (id) => _openOrderDetail(id, tabIndex: 4),
             ),
           ],
         ),
@@ -739,7 +759,9 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
                 .map((item) => Map<String, dynamic>.from(item as Map))
                 .toList();
             final isPending = status == 'pending_approval';
-            final canEdit = order['can_edit'] == true && isPending;
+            final isReverted = status == 'reverted_to_manager';
+            final canAct = isPending || isReverted;
+            final canEdit = order['can_edit'] == true && canAct;
             final dealer = order['dealer'] is Map
                 ? Map<String, dynamic>.from(order['dealer'] as Map)
                 : <String, dynamic>{};
@@ -768,6 +790,38 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
                 Map<String, dynamic>.from(order),
                 dealer: dealer,
               ),
+              if (isReverted) ...[
+                const SizedBox(height: AppSpacing.md),
+                PgCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Returned by Production',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        'Production Supervisor: ${order['reverted_by_name'] ?? '—'}',
+                      ),
+                      if ((order['reverted_at_label'] ?? order['reverted_at']) !=
+                          null)
+                        Text(
+                          'Reverted: ${order['reverted_at_label'] ?? order['reverted_at']}',
+                        ),
+                      if ((order['revert_remark']?.toString().trim().isNotEmpty ??
+                          false))
+                        Text('Remark: ${order['revert_remark']}'),
+                      if ((order['approved_by_name']?.toString().trim().isNotEmpty ??
+                          false))
+                        Text(
+                          'Previous approval: ${order['approved_by_name']}'
+                          '${order['approved_at_label'] != null ? ' • ${order['approved_at_label']}' : ''}',
+                        ),
+                    ],
+                  ),
+                ),
+              ],
 
               if (billUrl.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.md),
@@ -818,7 +872,7 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
                 ),
               ),
               if (!widget.viewOnly &&
-                  isPending &&
+                  canAct &&
                   (widget.auth.permissions.canApproveOrders ||
                       widget.auth.permissions.canRejectOrders)) ...[
                 const SizedBox(height: AppSpacing.md),
@@ -826,13 +880,15 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
                   OutlinedButton.icon(
                     onPressed: _submitting ? null : () => _editOrder(order),
                     icon: const Icon(Icons.edit_outlined),
-                    label: const Text('Edit Order'),
+                    label: Text(isReverted ? 'Edit & Re-Approve' : 'Edit Order'),
                   ),
                 if (widget.auth.permissions.canApproveOrders) ...[
                   const SizedBox(height: AppSpacing.sm),
                   FilledButton(
                     onPressed: _submitting ? null : _approve,
-                    child: const Text('Approve Order'),
+                    child: Text(
+                      isReverted ? 'Re-Approve Order' : 'Approve Order',
+                    ),
                   ),
                 ],
                 if (widget.auth.permissions.canRejectOrders) ...[
