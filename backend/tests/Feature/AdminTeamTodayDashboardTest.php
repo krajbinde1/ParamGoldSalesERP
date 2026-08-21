@@ -297,3 +297,25 @@ it('filters dealer visits and field activities to today from dashboard cards', f
         ->assertCanNotSeeTableRecords([$yesterdayActivity])
         ->assertCountTableRecords(1);
 });
+
+it('still finds today dealer visits when the date filter contains a datetime', function (): void {
+    $admin = teamTodayAdmin();
+    $today = AttendanceCalendar::today()->toDateString();
+    $yesterday = AttendanceCalendar::today()->copy()->subDay()->toDateString();
+    $employee = teamTodayEmployee('Datetime Filter Employee', '9840000001');
+    $todayDealer = teamTodayDealer('Datetime Today Dealer');
+    $yesterdayDealer = teamTodayDealer('Datetime Yesterday Dealer');
+
+    $todayVisit = teamTodayDealerVisit($employee->id, $todayDealer->id, $today, 'dealer-visits/datetime-today.jpg');
+    $yesterdayVisit = teamTodayDealerVisit($employee->id, $yesterdayDealer->id, $yesterday, 'dealer-visits/datetime-yesterday.jpg');
+
+    expect(\App\Filament\Support\TodayDateFilter::normalizeDate('2026-08-21 16:06:57'))->toBe('2026-08-21')
+        ->and(app(AdminDashboardDataService::class)->teamTodayCounts()['dealer_visits'])->toBe(1);
+
+    Livewire::actingAs($admin)
+        ->test(ListDealerVisits::class)
+        ->filterTable('visit_date', ['date' => '2026-08-21 16:06:57'])
+        ->assertCanSeeTableRecords([$todayVisit])
+        ->assertCanNotSeeTableRecords([$yesterdayVisit])
+        ->assertCountTableRecords(1);
+});
