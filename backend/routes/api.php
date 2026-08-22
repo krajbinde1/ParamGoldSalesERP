@@ -7,6 +7,7 @@ use App\Http\Controllers\Api\AttendanceController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\Director\DirectorCollectionController;
 use App\Http\Controllers\Api\Director\DirectorDashboardController;
+use App\Http\Controllers\Api\Director\DirectorDealerVisitController;
 use App\Http\Controllers\Api\Director\DirectorOrderController;
 use App\Http\Controllers\Api\Director\DirectorPaymentRequestController;
 use App\Http\Controllers\Api\Director\DirectorProductionBatchController;
@@ -250,6 +251,8 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::get('ta-da-claims/{taDaClaim}', [DirectorTaDaClaimController::class, 'show']);
         Route::get('route-tracking', [DirectorRouteTrackingController::class, 'index']);
         Route::get('route-tracking/{attendance}', [DirectorRouteTrackingController::class, 'show']);
+        Route::get('dealer-visits', [DirectorDealerVisitController::class, 'index']);
+        Route::get('dealer-visits/{dealerVisit}', [DirectorDealerVisitController::class, 'show']);
         Route::get('production-batches/pending-approvals', [DirectorProductionBatchController::class, 'pendingApprovals']);
         Route::post('production-batches/{batch}/approve-deviation', [DirectorProductionBatchController::class, 'approveDeviation']);
         Route::post('production-batches/{batch}/reject-deviation', [DirectorProductionBatchController::class, 'rejectDeviation']);

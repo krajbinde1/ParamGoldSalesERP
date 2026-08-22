@@ -10,6 +10,7 @@ use App\Filament\Widgets\AdminDirectorWelcomeWidget;
 use App\Models\Attendance;
 use App\Models\Collection;
 use App\Models\Dealer;
+use App\Models\DealerVisit;
 use App\Models\Employee;
 use App\Models\Order;
 use App\Models\PaymentRequest;
@@ -416,4 +417,121 @@ it('exposes a monitoring snapshot on the director mobile dashboard api', functio
                 'team_performance',
             ],
         ]);
+});
+
+it('lists director pending orders as all active non-dispatched statuses', function (): void {
+    $director = directorDashDirector('Pending Orders Director');
+    $employee = directorDashEmployee('Pending List Sales', '9910000088');
+    $dealer = directorDashDealer();
+
+    $included = [
+        directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_PENDING_APPROVAL]),
+        directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_APPROVED]),
+        directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_ON_HOLD]),
+        directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_REVERTED_TO_MANAGER]),
+        directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_PENDING_FOR_BILLING]),
+        directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_BILLED]),
+    ];
+    $dispatched = directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_DISPATCHED]);
+    $rejected = directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_REJECTED]);
+
+    $this->actingAs($director, 'sanctum');
+
+    $response = $this->getJson('/api/director/orders?status=pending&per_page=100')
+        ->assertOk()
+        ->assertJsonPath('counts.pending', 6)
+        ->assertJsonPath('meta.total', 6);
+
+    $ids = collect($response->json('data'))->pluck('id')->all();
+    expect($ids)->toEqualCanonicalizing(collect($included)->pluck('id')->all())
+        ->and($ids)->not->toContain($dispatched->id)
+        ->and($ids)->not->toContain($rejected->id);
+
+    $statuses = collect($response->json('data'))->pluck('status')->unique()->sort()->values()->all();
+    expect($statuses)->toEqualCanonicalizing(Order::activeNonDispatchedStatuses());
+
+    $included[5]->update(['status' => Order::STATUS_DISPATCHED]);
+
+    $afterDispatch = $this->getJson('/api/director/orders?status=pending&per_page=100')
+        ->assertOk();
+
+    $afterIds = collect($afterDispatch->json('data'))->pluck('id')->all();
+    expect($afterDispatch->json('meta.total'))->toBe(5)
+        ->and($afterIds)->not->toContain($included[5]->id);
+});
+
+it('lists director today sales orders by order date', function (): void {
+    $director = directorDashDirector('Today Sales Director');
+    $employee = directorDashEmployee('Today Sales Exec', '9910000077');
+    $dealer = directorDashDealer();
+    $today = AttendanceCalendar::today()->toDateString();
+    $yesterday = AttendanceCalendar::today()->copy()->subDay()->toDateString();
+
+    $todayOrder = directorDashOrder($employee->id, $dealer->id, [
+        'order_date' => $today,
+        'status' => Order::STATUS_PENDING_APPROVAL,
+    ]);
+    $yesterdayOrder = directorDashOrder($employee->id, $dealer->id, [
+        'order_date' => $yesterday,
+        'status' => Order::STATUS_APPROVED,
+    ]);
+
+    $this->actingAs($director, 'sanctum');
+
+    $response = $this->getJson("/api/director/orders?date_from={$today}&date_to={$today}&per_page=100")
+        ->assertOk();
+
+    $ids = collect($response->json('data'))->pluck('id')->all();
+    expect($ids)->toContain($todayOrder->id)
+        ->and($ids)->not->toContain($yesterdayOrder->id);
+});
+
+it('lists director dealer visits for today', function (): void {
+    $director = directorDashDirector('Visit Director');
+    $employee = directorDashEmployee('Visit Sales', '9910000066');
+    $dealer = directorDashDealer(['firm_name' => 'Visited Agro', 'village' => 'Tirthpuri']);
+    $today = AttendanceCalendar::today()->toDateString();
+    $yesterday = AttendanceCalendar::today()->copy()->subDay()->toDateString();
+
+    $todayVisit = DealerVisit::query()->create([
+        'employee_id' => $employee->id,
+        'dealer_id' => $dealer->id,
+        'visit_date' => $today,
+        'visit_time' => '10:15:00',
+        'photo_path' => 'dealer-visits/today.jpg',
+        'latitude' => 19.8765432,
+        'longitude' => 75.3432109,
+        'accuracy' => 8.5,
+        'location_captured_at' => $today.' 10:15:00',
+        'status' => DealerVisit::STATUS_COMPLETED,
+    ]);
+    DealerVisit::query()->create([
+        'employee_id' => $employee->id,
+        'dealer_id' => $dealer->id,
+        'visit_date' => $yesterday,
+        'visit_time' => '11:00:00',
+        'photo_path' => 'dealer-visits/yesterday.jpg',
+        'latitude' => 19.8765432,
+        'longitude' => 75.3432109,
+        'accuracy' => 8.5,
+        'location_captured_at' => $yesterday.' 11:00:00',
+        'status' => DealerVisit::STATUS_COMPLETED,
+    ]);
+
+    $this->actingAs($director, 'sanctum');
+
+    $list = $this->getJson('/api/director/dealer-visits')
+        ->assertOk()
+        ->assertJsonPath('meta.total', 1);
+
+    expect($list->json('data.0.id'))->toBe($todayVisit->id)
+        ->and($list->json('data.0.dealer_name'))->toBe('Visited Agro')
+        ->and($list->json('data.0.village'))->toBe('Tirthpuri')
+        ->and($list->json('data.0.employee_name'))->toBe('Visit Sales');
+
+    $this->getJson('/api/director/dealer-visits/'.$todayVisit->id)
+        ->assertOk()
+        ->assertJsonPath('data.id', $todayVisit->id)
+        ->assertJsonPath('data.dealer_name', 'Visited Agro')
+        ->assertJsonPath('data.maps_url', $todayVisit->mapsUrl());
 });

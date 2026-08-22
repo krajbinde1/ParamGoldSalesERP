@@ -340,6 +340,14 @@ class _DirectorOrderTab extends StatelessWidget {
               final createdAt =
                   DateTime.tryParse(order['created_at']?.toString() ?? '');
               final dealerLocation = order['dealer_location']?.toString() ?? '';
+              final village = order['dealer_village']?.toString().trim() ?? '';
+              final taluka = order['dealer_taluka']?.toString().trim() ?? '';
+              final district =
+                  order['dealer_district']?.toString().trim() ?? '';
+              final locationExtra = [
+                if (taluka.isNotEmpty) taluka,
+                if (district.isNotEmpty) district,
+              ].join(', ');
 
               return PgCard(
                 onTap: () => onTap(int.tryParse('${order['id'] ?? 0}') ?? 0),
@@ -380,7 +388,17 @@ class _DirectorOrderTab extends StatelessWidget {
                             fontWeight: FontWeight.w600,
                           ),
                     ),
-                    if (dealerLocation.isNotEmpty)
+                    if (village.isNotEmpty)
+                      Text(
+                        village,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      ),
+                    if (locationExtra.isNotEmpty)
+                      Text(
+                        locationExtra,
+                        style: Theme.of(context).textTheme.bodySmall,
+                      )
+                    else if (village.isEmpty && dealerLocation.isNotEmpty)
                       Text(
                         dealerLocation,
                         style: Theme.of(context).textTheme.bodySmall,
@@ -429,6 +447,121 @@ class DirectorOrderDetailScreen extends StatelessWidget {
       viewOnly: true,
       title: 'Order Details',
       loadOrder: api.getOrder,
+    );
+  }
+}
+
+/// Single-list Director order view used by Today Sales and Pending Orders cards.
+class DirectorFilteredOrdersScreen extends StatefulWidget {
+  const DirectorFilteredOrdersScreen({
+    super.key,
+    required this.auth,
+    required this.title,
+    required this.emptyMessage,
+    this.status,
+    this.todayOnly = false,
+  });
+
+  final AuthController auth;
+  final String title;
+  final String emptyMessage;
+  final String? status;
+  final bool todayOnly;
+
+  @override
+  State<DirectorFilteredOrdersScreen> createState() =>
+      _DirectorFilteredOrdersScreenState();
+}
+
+class _DirectorFilteredOrdersScreenState
+    extends State<DirectorFilteredOrdersScreen> {
+  late Future<DirectorOrderListResult> _future;
+  late final DirectorApi _api;
+
+  @override
+  void initState() {
+    super.initState();
+    _api = DirectorApi(
+      ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
+    );
+    _future = _load();
+  }
+
+  Future<DirectorOrderListResult> _load() async {
+    final today = DateFormat('yyyy-MM-dd').format(DateTime.now());
+    const perPage = 100;
+    var page = 1;
+    final orders = <Map<String, dynamic>>[];
+    ManagerOrderCounts counts = const ManagerOrderCounts(
+      pendingApproval: 0,
+      approved: 0,
+      rejected: 0,
+      dispatched: 0,
+      billed: 0,
+      all: 0,
+    );
+    var lastPage = 1;
+    var total = 0;
+
+    do {
+      final result = await _api.listOrders(
+        status: widget.status,
+        dateFrom: widget.todayOnly ? today : null,
+        dateTo: widget.todayOnly ? today : null,
+        page: page,
+        perPage: perPage,
+      );
+      orders.addAll(result.orders);
+      counts = result.counts;
+      lastPage = result.lastPage;
+      total = result.total;
+      page++;
+    } while (page <= lastPage && page <= 20);
+
+    return DirectorOrderListResult(
+      orders: orders,
+      total: total,
+      lastPage: lastPage,
+      counts: counts,
+    );
+  }
+
+  Future<void> _reload() async {
+    setState(() => _future = _load());
+    await _future;
+  }
+
+  Future<void> _openOrder(int orderId) async {
+    if (orderId <= 0) return;
+    await context.push('/director/orders/$orderId');
+    if (!mounted) return;
+    await _reload();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canPop = context.canPop();
+    return PopScope(
+      canPop: canPop,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        smartBack(context);
+      },
+      child: Scaffold(
+        appBar: RoleAppBar(
+          title: widget.title,
+          auth: widget.auth,
+          showBack: true,
+          onBack: () => smartBack(context),
+        ),
+        body: _DirectorOrderTab(
+          future: _future,
+          emptyMessage: widget.emptyMessage,
+          onCounts: (_) {},
+          onRefresh: _reload,
+          onTap: _openOrder,
+        ),
+      ),
     );
   }
 }

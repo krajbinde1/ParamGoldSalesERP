@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Director;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Support\Orders\OrderDetailPresenter;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -23,16 +24,18 @@ class DirectorOrderController extends Controller
         $this->authorize('viewAny', Order::class);
 
         $validated = $request->validate([
-            'status' => ['nullable', 'string', 'in:pending_approval,placed,approved,on_hold,reverted_to_manager,returned_to_manager,returned_by_production,pending_for_billing,billed,dispatched,rejected'],
+            'status' => ['nullable', 'string', 'in:pending,active_non_dispatched,pending_approval,placed,approved,on_hold,reverted_to_manager,returned_to_manager,returned_by_production,pending_for_billing,billed,dispatched,rejected'],
             'sales_person' => ['nullable', 'string', 'max:100'],
             'dealer' => ['nullable', 'string', 'max:100'],
             'order_no' => ['nullable', 'string', 'max:50'],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
             'search' => ['nullable', 'string', 'max:100'],
+            'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
         ]);
 
         $status = $validated['status'] ?? null;
+        $perPage = (int) ($validated['per_page'] ?? 20);
 
         $orders = Order::query()
             ->with([
@@ -41,37 +44,7 @@ class DirectorOrderController extends Controller
                 'rejectedByUser:id,name',
             ])
             ->when(filled($status), function ($q) use ($status): void {
-                if (in_array($status, ['pending_approval', 'placed'], true)) {
-                    $q->where('status', Order::STATUS_PENDING_APPROVAL);
-
-                    return;
-                }
-
-                if ($status === 'approved') {
-                    $q->where('status', Order::STATUS_APPROVED);
-
-                    return;
-                }
-
-                if ($status === 'pending_for_billing') {
-                    $q->where('status', Order::STATUS_PENDING_FOR_BILLING);
-
-                    return;
-                }
-
-                if (in_array($status, ['reverted_to_manager', 'returned_to_manager', 'returned_by_production'], true)) {
-                    $q->where('status', Order::STATUS_REVERTED_TO_MANAGER);
-
-                    return;
-                }
-
-                if ($status === 'on_hold') {
-                    $q->where('status', Order::STATUS_ON_HOLD);
-
-                    return;
-                }
-
-                $q->where('status', $status);
+                $this->applyStatusFilter($q, $status);
             })
             ->when(filled($validated['sales_person'] ?? null), function ($q) use ($validated): void {
                 $term = '%'.$validated['sales_person'].'%';
@@ -115,7 +88,7 @@ class DirectorOrderController extends Controller
             })
             ->orderByDesc('created_at')
             ->orderByDesc('id')
-            ->paginate(20);
+            ->paginate($perPage);
 
         return response()->json([
             'data' => collect($orders->items())->map(fn (Order $order): array => [
@@ -125,6 +98,9 @@ class DirectorOrderController extends Controller
                 'created_at' => $order->created_at?->toDateTimeString(),
                 'dealer_name' => $order->dealer?->firm_name,
                 'dealer_code' => $order->dealer?->dealer_code,
+                'dealer_village' => $order->dealer?->village,
+                'dealer_taluka' => $order->dealer?->taluka,
+                'dealer_district' => $order->dealer?->district,
                 'dealer_location' => collect([
                     $order->dealer?->village,
                     $order->dealer?->taluka,
@@ -169,7 +145,11 @@ class DirectorOrderController extends Controller
     {
         $base = Order::query();
 
+        $pendingActive = (clone $base)->activeNonDispatched()->count();
+
         return [
+            'pending' => $pendingActive,
+            'active_non_dispatched' => $pendingActive,
             'pending_approval' => (clone $base)->where('status', Order::STATUS_PENDING_APPROVAL)->count(),
             'placed' => (clone $base)->where('status', Order::STATUS_PENDING_APPROVAL)->count(),
             'approved' => (clone $base)->where('status', Order::STATUS_APPROVED)->count(),
@@ -183,5 +163,46 @@ class DirectorOrderController extends Controller
             'returned_by_production' => (clone $base)->where('status', Order::STATUS_REVERTED_TO_MANAGER)->count(),
             'all' => (clone $base)->count(),
         ];
+    }
+
+    private function applyStatusFilter(Builder $query, string $status): void
+    {
+        if (in_array($status, ['pending', 'active_non_dispatched'], true)) {
+            $query->activeNonDispatched();
+
+            return;
+        }
+
+        if (in_array($status, ['pending_approval', 'placed'], true)) {
+            $query->where('status', Order::STATUS_PENDING_APPROVAL);
+
+            return;
+        }
+
+        if ($status === 'approved') {
+            $query->where('status', Order::STATUS_APPROVED);
+
+            return;
+        }
+
+        if ($status === 'pending_for_billing') {
+            $query->where('status', Order::STATUS_PENDING_FOR_BILLING);
+
+            return;
+        }
+
+        if (in_array($status, ['reverted_to_manager', 'returned_to_manager', 'returned_by_production'], true)) {
+            $query->where('status', Order::STATUS_REVERTED_TO_MANAGER);
+
+            return;
+        }
+
+        if ($status === 'on_hold') {
+            $query->where('status', Order::STATUS_ON_HOLD);
+
+            return;
+        }
+
+        $query->where('status', $status);
     }
 }

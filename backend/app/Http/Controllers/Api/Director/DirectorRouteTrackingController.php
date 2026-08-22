@@ -80,7 +80,10 @@ class DirectorRouteTrackingController extends Controller
                         'role_label' => $roleLabel,
                         'attendance_date' => $date,
                         'attendance_status' => 'Not Punched In',
+                        'attendance_status_label' => 'Not Punched In',
                         'display_status' => 'Not Punched In',
+                        'punch_in_status' => 'Not Punched In',
+                        'route_status' => 'No Route',
                         'punch_in_time' => null,
                         'punch_out_time' => null,
                         'working_hours' => null,
@@ -187,7 +190,10 @@ class DirectorRouteTrackingController extends Controller
             'role_label' => $roleLabel,
             'attendance_date' => $attendance->attendance_date->toDateString(),
             'attendance_status' => $attendance->attendance_status,
+            'attendance_status_label' => $this->attendanceStatusLabel($attendance),
             'display_status' => $this->displayStatus($attendance),
+            'punch_in_status' => $this->punchInStatus($attendance),
+            'route_status' => $this->routeStatus($attendance),
             'punch_in_time' => $this->formatIstDateTime($attendance->punchInAt()),
             'punch_out_time' => $this->formatIstDateTime($attendance->punchOutAt()),
             'working_hours' => $attendance->working_hours,
@@ -222,6 +228,35 @@ class DirectorRouteTrackingController extends Controller
         }
 
         return 'Completed';
+    }
+
+    private function punchInStatus(Attendance $attendance): string
+    {
+        return $attendance->punchInAt() === null ? 'Not Punched In' : 'Punched In';
+    }
+
+    private function routeStatus(Attendance $attendance): string
+    {
+        if ($attendance->punchInAt() === null) {
+            return 'No Route';
+        }
+
+        if ($attendance->punchOutAt() === null) {
+            return 'Route Active';
+        }
+
+        return 'Completed';
+    }
+
+    private function attendanceStatusLabel(Attendance $attendance): string
+    {
+        if ($attendance->punchInAt() === null) {
+            return 'Not Punched In';
+        }
+
+        $status = (string) $attendance->attendance_status;
+
+        return Attendance::ATTENDANCE_STATUS_LABELS[$status] ?? $status;
     }
 
     private function formatIstDateTime(?\Illuminate\Support\Carbon $value): ?string

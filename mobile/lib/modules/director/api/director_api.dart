@@ -9,11 +9,13 @@ class DirectorOrderListResult {
     required this.orders,
     required this.total,
     required this.counts,
+    this.lastPage = 1,
   });
 
   final List<Map<String, dynamic>> orders;
   final int total;
   final ManagerOrderCounts counts;
+  final int lastPage;
 }
 
 class DirectorRouteTrackingListResult {
@@ -321,6 +323,8 @@ class DirectorApi {
     String? orderNo,
     String? dateFrom,
     String? dateTo,
+    int page = 1,
+    int perPage = 20,
   }) async {
     try {
       final response = await _dio.get(
@@ -334,6 +338,8 @@ class DirectorApi {
           if (orderNo != null && orderNo.isNotEmpty) 'order_no': orderNo,
           if (dateFrom != null && dateFrom.isNotEmpty) 'date_from': dateFrom,
           if (dateTo != null && dateTo.isNotEmpty) 'date_to': dateTo,
+          'page': page,
+          'per_page': perPage,
         },
       );
       final body = response.data as Map;
@@ -345,6 +351,7 @@ class DirectorApi {
       return DirectorOrderListResult(
         orders: orders,
         total: int.tryParse('${meta['total'] ?? orders.length}') ?? orders.length,
+        lastPage: int.tryParse('${meta['last_page'] ?? 1}') ?? 1,
         counts: ManagerOrderCounts.fromJson(
           body['counts'] is Map
               ? Map<String, dynamic>.from(body['counts'] as Map)
@@ -565,6 +572,35 @@ class DirectorApi {
   Future<Map<String, dynamic>> getCollection(int collectionId) async {
     try {
       final response = await _dio.get('/director/collections/$collectionId');
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<List<Map<String, dynamic>>> listDealerVisits({String? date}) async {
+    try {
+      final response = await _dio.get(
+        '/director/dealer-visits',
+        queryParameters: {
+          if (date != null && date.isNotEmpty) 'date': date,
+        },
+      );
+      final body = response.data as Map;
+      return (body['data'] as List?)
+              ?.map((item) => Map<String, dynamic>.from(item as Map))
+              .toList() ??
+          const [];
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> getDealerVisit(int visitId) async {
+    try {
+      final response = await _dio.get('/director/dealer-visits/$visitId');
       return Map<String, dynamic>.from(
         (response.data as Map)['data'] as Map,
       );

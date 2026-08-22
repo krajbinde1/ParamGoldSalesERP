@@ -20,10 +20,12 @@ class DealerVisitDetailScreen extends StatefulWidget {
     super.key,
     required this.visitId,
     required this.auth,
+    this.loadVisit,
   });
 
   final int visitId;
   final AuthController auth;
+  final Future<DealerVisitDetail> Function()? loadVisit;
 
   @override
   State<DealerVisitDetailScreen> createState() =>
@@ -39,9 +41,13 @@ class _DealerVisitDetailScreenState extends State<DealerVisitDetailScreen> {
     _future = _load();
   }
 
-  Future<DealerVisitDetail> _load() => DealerVisitApi(
-    ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
-  ).getVisit(widget.visitId);
+  Future<DealerVisitDetail> _load() {
+    final loader = widget.loadVisit;
+    if (loader != null) return loader();
+    return DealerVisitApi(
+      ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
+    ).getVisit(widget.visitId);
+  }
 
   Future<void> _reload() async {
     setState(() => _future = _load());

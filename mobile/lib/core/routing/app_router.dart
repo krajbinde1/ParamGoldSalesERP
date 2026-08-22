@@ -44,9 +44,11 @@ import '../../modules/orders/screens/order_detail_screen.dart';
 import '../../modules/orders/screens/order_list_screen.dart';
 import '../../modules/orders/screens/review_order_screen.dart';
 import '../../modules/director/screens/director_dashboard_screen.dart';
+import '../../modules/director/screens/director_dealer_visits_screen.dart';
 import '../../modules/director/screens/director_orders_screen.dart';
 import '../../modules/director/screens/director_payment_requests_screen.dart';
 import '../../modules/director/screens/director_route_tracking_screen.dart';
+import '../../modules/director/screens/director_team_attendance_screen.dart';
 import '../../modules/manager/screens/manager_dashboard_screen.dart';
 import '../../modules/manager/screens/manager_collection_detail_screen.dart';
 import '../../modules/manager/screens/manager_collections_screen.dart';
@@ -759,6 +761,41 @@ GoRouter createRouter(
           builder: (_, state) => DirectorRouteMapScreen(
             auth: auth,
             attendanceId: int.parse(state.pathParameters['attendanceId']!),
+          ),
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/director/today-sales',
+      builder: (_, _) => DirectorFilteredOrdersScreen(
+        auth: auth,
+        title: "Today's Sales Orders",
+        emptyMessage: 'No sales orders placed today.',
+        todayOnly: true,
+      ),
+    ),
+    GoRoute(
+      path: '/director/pending-orders',
+      builder: (_, _) => DirectorFilteredOrdersScreen(
+        auth: auth,
+        title: 'Pending Orders',
+        emptyMessage: 'No pending orders.',
+        status: 'pending',
+      ),
+    ),
+    GoRoute(
+      path: '/director/attendance',
+      builder: (_, _) => DirectorTeamAttendanceScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/director/dealer-visits',
+      builder: (_, _) => DirectorDealerVisitsScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':visitId',
+          builder: (_, state) => DirectorDealerVisitDetailScreen(
+            auth: auth,
+            visitId: int.parse(state.pathParameters['visitId']!),
           ),
         ),
       ],

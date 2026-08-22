@@ -5,6 +5,7 @@ import '../../../core/api/api_client.dart';
 import '../../../core/api/api_errors.dart';
 import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
+import '../../../core/navigation/navigation_guard.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
@@ -114,10 +115,19 @@ class _DirectorRouteTrackingScreenState
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+    final canPop = context.canPop();
+    return PopScope(
+      canPop: canPop,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop) return;
+        smartBack(context);
+      },
+      child: Scaffold(
       appBar: RoleAppBar(
         title: widget.title,
         auth: widget.auth,
+        showBack: true,
+        onBack: () => smartBack(context),
         actions: [
           TextButton(
             onPressed: _setToday,
@@ -192,11 +202,15 @@ class _DirectorRouteTrackingScreenState
                 }
                 final row = rows[index - 1];
                 final attendanceId = int.tryParse('${row['id'] ?? ''}') ?? 0;
+                final hasAttendance = attendanceId > 0;
                 final hasRoute = row['has_route'] == true && attendanceId > 0;
-                final status = row['display_status']?.toString() ?? '—';
+                final status = row['route_status']?.toString() ??
+                    row['display_status']?.toString() ??
+                    '—';
 
                 return PgCard(
                   margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  onTap: hasAttendance ? () => _openRoute(attendanceId) : null,
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -257,9 +271,11 @@ class _DirectorRouteTrackingScreenState
                         alignment: Alignment.centerRight,
                         child: FilledButton.tonalIcon(
                           onPressed:
-                              hasRoute ? () => _openRoute(attendanceId) : null,
+                              hasAttendance ? () => _openRoute(attendanceId) : null,
                           icon: const Icon(Icons.route_outlined, size: 18),
-                          label: Text(hasRoute ? 'View Route' : 'No Route'),
+                          label: Text(hasRoute
+                              ? 'View Route'
+                              : (hasAttendance ? 'View Details' : 'No Route')),
                         ),
                       ),
                     ],
@@ -269,6 +285,7 @@ class _DirectorRouteTrackingScreenState
             );
           },
         ),
+      ),
       ),
     );
   }
