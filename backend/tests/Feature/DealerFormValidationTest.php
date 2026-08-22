@@ -152,3 +152,86 @@ it('edits an existing dealer without nullable regex validation errors', function
         ->and($dealer->mobile)->toBe('9988776655')
         ->and($dealer->pincode)->toBe('411001');
 });
+
+it('defaults dealer create state to Maharashtra and saves Jalna taluka selections', function (): void {
+    $admin = dealerFormAdmin();
+    $employee = dealerFormEmployee();
+
+    Livewire::actingAs($admin)
+        ->test(CreateDealer::class)
+        ->assertFormSet(['state' => 'Maharashtra'])
+        ->fillForm([
+            'firm_name' => 'Jalna Village Dealer',
+            'owner_name' => 'Owner',
+            'dealer_type' => 'Retailer',
+            'status' => true,
+            'assigned_employee_id' => $employee->id,
+            'mobile' => '9876501234',
+            'address' => 'Shop 1',
+            'state' => 'Maharashtra',
+            'district' => 'Jalna',
+            'taluka' => 'Ghansawangi',
+            'village' => 'Tirthpuri',
+            'credit_limit' => 0,
+            'opening_balance' => 0,
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $dealer = Dealer::query()->where('firm_name', 'Jalna Village Dealer')->first();
+
+    expect($dealer)->not->toBeNull()
+        ->and($dealer->state)->toBe('Maharashtra')
+        ->and($dealer->district)->toBe('Jalna')
+        ->and($dealer->taluka)->toBe('Ghansawangi')
+        ->and($dealer->village)->toBe('Tirthpuri');
+});
+
+it('rejects a taluka that does not belong to the selected district', function (): void {
+    $admin = dealerFormAdmin();
+    $employee = dealerFormEmployee();
+
+    Livewire::actingAs($admin)
+        ->test(CreateDealer::class)
+        ->fillForm([
+            'firm_name' => 'Mismatched Location Dealer',
+            'assigned_employee_id' => $employee->id,
+            'mobile' => '9876501235',
+            'state' => 'Maharashtra',
+            'district' => 'Jalna',
+            'taluka' => 'Haveli',
+            'village' => 'Tirthpuri',
+        ])
+        ->call('create')
+        ->assertHasFormErrors(['taluka']);
+
+    expect(Dealer::query()->where('firm_name', 'Mismatched Location Dealer')->exists())->toBeFalse();
+});
+
+it('loads old district names onto official values when editing a dealer', function (): void {
+    $admin = dealerFormAdmin();
+    $employee = dealerFormEmployee();
+    $dealer = Dealer::query()->create([
+        'firm_name' => 'Aurangabad Legacy Dealer',
+        'owner_name' => 'Owner',
+        'mobile' => '9988776611',
+        'address' => '123 Test Street',
+        'state' => 'Maharashtra',
+        'district' => 'Aurangabad',
+        'taluka' => 'Paithan',
+        'village' => 'Paithan Gaon',
+        'status' => true,
+        'assigned_employee_id' => $employee->id,
+    ]);
+
+    Livewire::actingAs($admin)
+        ->test(EditDealer::class, ['record' => $dealer->getKey()])
+        ->assertFormSet([
+            'state' => 'Maharashtra',
+            'district' => 'Chhatrapati Sambhajinagar',
+            'taluka' => 'Paithan',
+            'village' => 'Paithan Gaon',
+        ]);
+
+    expect($dealer->refresh()->district)->toBe('Aurangabad');
+});

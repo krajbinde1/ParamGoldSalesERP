@@ -11,6 +11,7 @@ use App\Models\Dealer;
 use App\Models\DealerApplication;
 use App\Models\DealerApplicationDocument;
 use App\Services\Dealers\DealerApplicationDuplicateChecker;
+use App\Support\MaharashtraGeography;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\Rule;
@@ -229,9 +230,9 @@ class EmployeeDealerApplicationController extends Controller
             'owner_name' => ['required', 'string', 'max:255'],
             'mobile' => ['required', 'string', 'regex:'.DealerApplication::MOBILE_REGEX],
             'gst_no' => ['nullable', 'string', 'max:15', 'regex:'.DealerApplication::GST_REGEX],
-            'state' => ['required', 'string', 'max:255'],
-            'district' => ['required', 'string', 'max:255'],
-            'taluka' => ['required', 'string', 'max:255'],
+            'state' => MaharashtraGeography::stateRules(),
+            'district' => MaharashtraGeography::districtRules(),
+            'taluka' => MaharashtraGeography::talukaRules(),
             'village' => ['required', 'string', 'max:255'],
             'address' => ['nullable', 'string', 'max:2000'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],

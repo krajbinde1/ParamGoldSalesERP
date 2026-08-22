@@ -25,6 +25,7 @@ use App\Http\Controllers\Api\EmployeeDealerVisitController;
 use App\Http\Controllers\Api\EmployeeFarmerLookupController;
 use App\Http\Controllers\Api\EmployeeFieldActivityController;
 use App\Http\Controllers\Api\FieldActivityMasterController;
+use App\Http\Controllers\Api\LocationController;
 use App\Http\Controllers\Api\DealerAccountController;
 use App\Http\Controllers\Api\EmployeeDealerController;
 use App\Http\Controllers\Api\EmployeeOrderController;
@@ -71,6 +72,7 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
     Route::get('notifications', [AppNotificationController::class, 'index']);
 
     Route::middleware('role:employee,manager,director')->group(function () {
+        Route::get('locations/maharashtra', [LocationController::class, 'maharashtra']);
         Route::get('dealers', [DealerAccountController::class, 'index']);
         Route::get('dealers/{dealer}/account-summary', [DealerAccountController::class, 'accountSummary']);
         Route::get('dealers/{dealer}/ledger', [DealerAccountController::class, 'ledger']);

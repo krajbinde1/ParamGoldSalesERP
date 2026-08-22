@@ -11,12 +11,12 @@ import '../../../core/api/api_client.dart';
 import '../../../core/api/api_errors.dart';
 import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
+import '../../../core/locations/location_api.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/utils/secure_document.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_scaffold.dart';
 import '../../auth/providers/auth_controller.dart';
-import '../../field_activities/api/field_activity_api.dart';
 import '../../field_activities/widgets/searchable_picker.dart';
 import '../../manager/widgets/view_captured_location_button.dart';
 import '../api/dealer_application_api.dart';
@@ -62,7 +62,7 @@ class _DealerApplicationFormScreenState
   final Map<String, String> _localPreviews = {};
 
   late final DealerApplicationApi _api;
-  late final FieldActivityApi _masters;
+  late final LocationApi _locations;
   late final Dio _dio;
 
   int? _id;
@@ -78,7 +78,7 @@ class _DealerApplicationFormScreenState
 
   List<SearchablePickerOption> _districts = [];
   List<SearchablePickerOption> _talukas = [];
-  final Map<int, String> _districtNameById = {};
+  final Map<int, MaharashtraDistrictNode> _districtById = {};
   int? _districtId;
   String _districtLabel = '';
   int? _talukaId;
@@ -87,7 +87,6 @@ class _DealerApplicationFormScreenState
   bool _districtsError = false;
   bool _loadingTalukas = false;
   bool _talukasError = false;
-  int _talukaLoadToken = 0;
 
   @override
   void initState() {
@@ -98,7 +97,7 @@ class _DealerApplicationFormScreenState
     );
     _dio = client.dio;
     _api = DealerApplicationApi(client.dio);
-    _masters = FieldActivityApi(client.dio);
+    _locations = LocationApi(client.dio);
     _id = widget.applicationId;
     _loadDistricts();
     if (_id != null) {
@@ -174,7 +173,7 @@ class _DealerApplicationFormScreenState
   String _savedDistrictName() {
     final id = _districtId;
     if (id != null) {
-      final name = _districtNameById[id]?.trim() ?? '';
+      final name = _districtById[id]?.name.trim() ?? '';
       if (name.isNotEmpty) return name;
     }
     return _districtLabel.trim();
@@ -204,29 +203,19 @@ class _DealerApplicationFormScreenState
       _districtsError = false;
     });
     try {
-      final rows = await _masters.districts();
+      final master = await _locations.maharashtra();
       if (!mounted) return;
+      final options = <SearchablePickerOption>[];
+      _districtById.clear();
+      for (var i = 0; i < master.districts.length; i++) {
+        final district = master.districts[i];
+        if (district.name.trim().isEmpty) continue;
+        final id = i + 1;
+        _districtById[id] = district;
+        options.add(SearchablePickerOption(id: id, label: district.label));
+      }
       setState(() {
-        _districtNameById
-          ..clear()
-          ..addEntries(
-            rows
-                .map((row) {
-                  final id = int.tryParse('${row['id']}') ?? 0;
-                  final name = row['name']?.toString().trim() ?? '';
-                  return MapEntry(id, name);
-                })
-                .where((entry) => entry.key > 0 && entry.value.isNotEmpty),
-          );
-        _districts = rows
-            .map(
-              (row) => SearchablePickerOption(
-                id: int.tryParse('${row['id']}') ?? 0,
-                label: row['label']?.toString() ?? row['name']?.toString() ?? '',
-              ),
-            )
-            .where((option) => option.id > 0 && option.label.isNotEmpty)
-            .toList();
+        _districts = options;
         _loadingDistricts = false;
       });
       await _syncLocationFromSavedNames();
@@ -239,55 +228,44 @@ class _DealerApplicationFormScreenState
     }
   }
 
+  void _applyTalukasForDistrict(
+    int districtId, {
+    bool preserveTaluka = false,
+  }) {
+    final district = _districtById[districtId];
+    final options = (district?.talukas ?? const [])
+        .asMap()
+        .entries
+        .map(
+          (entry) => SearchablePickerOption(
+            id: entry.key + 1,
+            label: entry.value,
+          ),
+        )
+        .toList();
+    SearchablePickerOption? saved;
+    if (preserveTaluka) {
+      saved = _matchOption(options, _talukaLabel);
+    }
+    setState(() {
+      _talukas = options;
+      _loadingTalukas = false;
+      _talukasError = false;
+      if (!preserveTaluka) {
+        _talukaId = null;
+        _talukaLabel = '';
+      } else if (saved != null) {
+        _talukaId = saved.id;
+        _talukaLabel = saved.label;
+      }
+    });
+  }
+
   Future<void> _loadTalukas(
     int districtId, {
     bool preserveTaluka = false,
   }) async {
-    final token = ++_talukaLoadToken;
-    setState(() {
-      _loadingTalukas = true;
-      _talukasError = false;
-      _talukas = [];
-      if (!preserveTaluka) {
-        _talukaId = null;
-        _talukaLabel = '';
-      }
-    });
-    try {
-      final rows = await _masters.talukas(districtId);
-      if (!mounted || token != _talukaLoadToken) return;
-      final options = rows
-          .map(
-            (row) => SearchablePickerOption(
-              id: int.tryParse('${row['id']}') ?? 0,
-              label: row['name']?.toString() ?? '',
-            ),
-          )
-          .where((option) => option.id > 0 && option.label.isNotEmpty)
-          .toList();
-      SearchablePickerOption? saved;
-      if (preserveTaluka) {
-        saved = _matchOption(options, _talukaLabel);
-      }
-      setState(() {
-        _talukas = options;
-        _loadingTalukas = false;
-        if (preserveTaluka) {
-          _talukaId = saved?.id;
-          if (saved != null) _talukaLabel = saved.label;
-        }
-      });
-    } catch (_) {
-      if (!mounted || token != _talukaLoadToken) return;
-      setState(() {
-        _loadingTalukas = false;
-        _talukasError = true;
-        if (!preserveTaluka) {
-          _talukaId = null;
-          _talukaLabel = '';
-        }
-      });
-    }
+    _applyTalukasForDistrict(districtId, preserveTaluka: preserveTaluka);
   }
 
   Future<void> _syncLocationFromSavedNames() async {
@@ -307,9 +285,11 @@ class _DealerApplicationFormScreenState
     final needle = name.trim().toLowerCase();
     if (needle.isEmpty) return null;
     for (final option in _districts) {
-      if (_districtNameById[option.id]?.toLowerCase() == needle) {
-        return option;
-      }
+      final district = _districtById[option.id];
+      if (district == null) continue;
+      if (district.name.toLowerCase() == needle) return option;
+      final former = district.formerName?.toLowerCase().trim() ?? '';
+      if (former.isNotEmpty && former == needle) return option;
     }
     return null;
   }
@@ -334,7 +314,7 @@ class _DealerApplicationFormScreenState
       _talukaLabel = '';
       _talukas = [];
     });
-    await _loadTalukas(selected.id);
+    _applyTalukasForDistrict(selected.id);
   }
 
   Future<void> _pickTaluka() async {

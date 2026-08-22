@@ -6,6 +6,7 @@ use App\Models\DealerApplication;
 use App\Models\DealerApplicationEvent;
 use App\Models\User;
 use App\Services\Dealers\DealerApplicationDuplicateChecker;
+use App\Support\MaharashtraGeography;
 use Illuminate\Validation\ValidationException;
 
 class SaveDealerApplication
@@ -51,6 +52,7 @@ class SaveDealerApplication
             'latitude' => $data['latitude'] ?? null,
             'longitude' => $data['longitude'] ?? null,
         ];
+        $payload = MaharashtraGeography::canonicalizeLocationFields($payload);
 
         if ($application === null) {
             $application = DealerApplication::query()->create([

@@ -157,6 +157,174 @@ final class MaharashtraGeography
     }
 
     /**
+     * @return array<string, string> official name => dropdown label
+     */
+    public static function districtSelectOptions(?string $current = null): array
+    {
+        $options = [];
+        foreach (self::districts() as $district) {
+            $options[$district['name']] = self::districtLabel($district['name'], $district['former_name']);
+        }
+
+        if (filled($current) && self::canonicalDistrictName($current) === null) {
+            $options[$current] = $current;
+        }
+
+        return $options;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function talukaSelectOptions(?string $districtName, ?string $current = null): array
+    {
+        $talukas = self::talukasForDistrict($districtName);
+        $options = $talukas === [] ? [] : array_combine($talukas, $talukas);
+
+        if (filled($current) && self::canonicalTalukaName($districtName, $current) === null) {
+            $options[$current] = $current;
+        }
+
+        return $options;
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function talukasForDistrict(?string $districtName): array
+    {
+        $canonical = self::canonicalDistrictName($districtName);
+        if ($canonical === null) {
+            return [];
+        }
+
+        foreach (self::districts() as $district) {
+            if ($district['name'] === $canonical) {
+                return $district['talukas'];
+            }
+        }
+
+        return [];
+    }
+
+    public static function canonicalDistrictName(?string $name): ?string
+    {
+        $needle = self::normalize($name);
+        if ($needle === '') {
+            return null;
+        }
+
+        foreach (self::districts() as $district) {
+            if (self::normalize($district['name']) === $needle) {
+                return $district['name'];
+            }
+
+            if (filled($district['former_name']) && self::normalize($district['former_name']) === $needle) {
+                return $district['name'];
+            }
+        }
+
+        return null;
+    }
+
+    public static function canonicalTalukaName(?string $districtName, ?string $talukaName): ?string
+    {
+        $needle = self::normalize($talukaName);
+        if ($needle === '') {
+            return null;
+        }
+
+        $talukas = self::talukasForDistrict($districtName);
+        foreach ($talukas as $taluka) {
+            if (self::normalize($taluka) === $needle) {
+                return $taluka;
+            }
+        }
+
+        $alias = self::talukaAliases()[$needle] ?? null;
+        if ($alias !== null && in_array($alias, $talukas, true)) {
+            return $alias;
+        }
+
+        return null;
+    }
+
+    public static function isValidState(?string $state): bool
+    {
+        return self::normalize($state) === self::normalize(self::STATE_NAME);
+    }
+
+    /**
+     * @return array<int, mixed>
+     */
+    public static function stateRules(): array
+    {
+        return ['required', 'string', 'max:255', new \App\Rules\MaharashtraStateRule];
+    }
+
+    /**
+     * @return array<int, mixed>
+     */
+    public static function districtRules(): array
+    {
+        return ['required', 'string', 'max:255', new \App\Rules\MaharashtraDistrictRule];
+    }
+
+    /**
+     * @return array<int, mixed>
+     */
+    public static function talukaRules(): array
+    {
+        return ['required', 'string', 'max:255', new \App\Rules\MaharashtraTalukaRule];
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    public static function canonicalizeLocationFields(array $data): array
+    {
+        $data['state'] = self::STATE_NAME;
+        $district = self::canonicalDistrictName(isset($data['district']) && is_string($data['district']) ? $data['district'] : null);
+        if ($district !== null) {
+            $data['district'] = $district;
+        }
+
+        $taluka = self::canonicalTalukaName(
+            isset($data['district']) && is_string($data['district']) ? $data['district'] : null,
+            isset($data['taluka']) && is_string($data['taluka']) ? $data['taluka'] : null,
+        );
+        if ($taluka !== null) {
+            $data['taluka'] = $taluka;
+        }
+
+        return $data;
+    }
+
+    public static function districtLabel(string $name, ?string $formerName): string
+    {
+        return filled($formerName) ? $name.' ('.$formerName.')' : $name;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function talukaAliases(): array
+    {
+        return [
+            'jafrabad' => 'Jafferabad',
+            'aurangabad' => 'Chhatrapati Sambhajinagar',
+            'osmanabad' => 'Dharashiv',
+            'ahmednagar' => 'Nagar',
+        ];
+    }
+
+    private static function normalize(?string $value): string
+    {
+        return strtolower(trim((string) $value));
+    }
+
+    /**
      * @return list<string>
      */
     public static function defaultCrops(): array

@@ -313,3 +313,14 @@ it('requires a remark when manager rejects or sends back', function () {
     $this->postJson('/api/manager/dealer-applications/'.$id.'/reject')->assertUnprocessable();
     $this->postJson('/api/manager/dealer-applications/'.$id.'/send-back')->assertUnprocessable();
 });
+
+it('rejects a dealer application taluka that does not belong to the selected district', function (): void {
+    $employee = dealerAppEmployee();
+    $this->actingAs($employee->user, 'sanctum');
+
+    $this->postJson('/api/employee/dealer-applications', dealerAppPayload([
+        'district' => 'Jalna',
+        'taluka' => 'Haveli',
+    ]))->assertUnprocessable()
+        ->assertJsonValidationErrors(['taluka']);
+});

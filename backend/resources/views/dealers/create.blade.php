@@ -43,17 +43,28 @@
 
                     <div class="col-md-3">
                         <label class="form-label">State <span class="text-danger">*</span></label>
-                        <input type="text" name="state" class="form-control" required>
+                        <select name="state" class="form-select" required>
+                            <option value="{{ $state }}" selected>{{ $state }}</option>
+                        </select>
                     </div>
 
                     <div class="col-md-3">
                         <label class="form-label">District <span class="text-danger">*</span></label>
-                        <input type="text" name="district" class="form-control" required>
+                        <select name="district" id="dealer-district" class="form-select" required>
+                            <option value="">Select District</option>
+                            @foreach ($districts as $district)
+                                <option value="{{ $district['name'] }}">
+                                    {{ $district['former_name'] ? $district['name'].' ('.$district['former_name'].')' : $district['name'] }}
+                                </option>
+                            @endforeach
+                        </select>
                     </div>
 
                     <div class="col-md-3">
                         <label class="form-label">Taluka <span class="text-danger">*</span></label>
-                        <input type="text" name="taluka" class="form-control" required>
+                        <select name="taluka" id="dealer-taluka" class="form-select" required disabled>
+                            <option value="">Select Taluka</option>
+                        </select>
                     </div>
 
                     <div class="col-md-3">
@@ -83,5 +94,28 @@
     </div>
 
 </div>
+
+<script>
+    const dealerDistricts = @json(collect($districts)->mapWithKeys(fn ($district) => [$district['name'] => $district['talukas']]));
+    const districtSelect = document.getElementById('dealer-district');
+    const talukaSelect = document.getElementById('dealer-taluka');
+
+    function fillTalukas(district, selected) {
+        talukaSelect.innerHTML = '<option value="">Select Taluka</option>';
+        const talukas = dealerDistricts[district] || [];
+        talukaSelect.disabled = talukas.length === 0;
+        talukas.forEach((taluka) => {
+            const option = document.createElement('option');
+            option.value = taluka;
+            option.textContent = taluka;
+            if (selected === taluka) option.selected = true;
+            talukaSelect.appendChild(option);
+        });
+    }
+
+    districtSelect.addEventListener('change', function () {
+        fillTalukas(this.value, null);
+    });
+</script>
 
 </x-app-layout>

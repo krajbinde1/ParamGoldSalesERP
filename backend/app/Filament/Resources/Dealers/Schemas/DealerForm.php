@@ -4,6 +4,8 @@ namespace App\Filament\Resources\Dealers\Schemas;
 
 use App\Models\Employee;
 use App\Support\EmployeeCodeResolver;
+use App\Support\MaharashtraGeography;
+use App\Rules\MaharashtraTalukaRule;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -11,6 +13,7 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -104,9 +107,62 @@ class DealerForm
                         Textarea::make('address')
                             ->rows(3)
                             ->columnSpanFull(),
-                        TextInput::make('state')->required()->maxLength(255),
-                        TextInput::make('district')->required()->maxLength(255),
-                        TextInput::make('taluka')->required()->maxLength(255),
+                        Select::make('state')
+                            ->options([
+                                MaharashtraGeography::STATE_NAME => MaharashtraGeography::STATE_NAME,
+                            ])
+                            ->default(MaharashtraGeography::STATE_NAME)
+                            ->required()
+                            ->disabled()
+                            ->dehydrated()
+                            ->rules(MaharashtraGeography::stateRules()),
+                        Select::make('district')
+                            ->placeholder('Select District')
+                            ->options(fn (Get $get): array => MaharashtraGeography::districtSelectOptions(
+                                is_string($get('district')) ? $get('district') : null,
+                            ))
+                            ->searchable()
+                            ->preload()
+                            ->live()
+                            ->required()
+                            ->rules(MaharashtraGeography::districtRules())
+                            ->dehydrateStateUsing(
+                                fn (?string $state): ?string => MaharashtraGeography::canonicalDistrictName($state) ?? $state,
+                            )
+                            ->afterStateUpdated(function (?string $state, Set $set, mixed $old): void {
+                                if (filled($old) && $old !== $state) {
+                                    $set('taluka', null);
+                                }
+                            }),
+                        Select::make('taluka')
+                            ->placeholder('Select Taluka')
+                            ->options(fn (Get $get): array => MaharashtraGeography::talukaSelectOptions(
+                                is_string($get('district')) ? $get('district') : null,
+                                is_string($get('taluka')) ? $get('taluka') : null,
+                            ))
+                            ->searchable()
+                            ->preload()
+                            ->required()
+                            ->disabled(fn (Get $get): bool => blank($get('district')))
+                            ->dehydrated()
+                            ->rules(fn (Get $get): array => [
+                                'required',
+                                'string',
+                                'max:255',
+                                new MaharashtraTalukaRule(is_string($get('district')) ? $get('district') : null),
+                            ])
+                            ->dehydrateStateUsing(function (?string $state, Get $get): ?string {
+                                $district = is_string($get('district')) ? $get('district') : null;
+
+                                return MaharashtraGeography::canonicalTalukaName($district, $state) ?? $state;
+                            })
+                            ->afterStateHydrated(function (Select $component, mixed $state, Get $get): void {
+                                $district = is_string($get('district')) ? $get('district') : null;
+                                $canonical = MaharashtraGeography::canonicalTalukaName($district, is_string($state) ? $state : null);
+                                if ($canonical !== null && $canonical !== $state) {
+                                    $component->state($canonical);
+                                }
+                            }),
                         TextInput::make('village')->required()->maxLength(255),
                         TextInput::make('pincode')
                             ->rules([

@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Dealers\Pages;
 
 use App\Filament\Actions\SafeDeleteActions;
 use App\Filament\Resources\Dealers\DealerResource;
+use App\Support\MaharashtraGeography;
 use Filament\Actions\Action;
 use Filament\Actions\ForceDeleteAction;
 use Filament\Actions\RestoreAction;
@@ -13,6 +14,24 @@ use Filament\Resources\Pages\EditRecord;
 class EditDealer extends EditRecord
 {
     protected static string $resource = DealerResource::class;
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    protected function mutateFormDataBeforeFill(array $data): array
+    {
+        return MaharashtraGeography::canonicalizeLocationFields($data);
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    protected function mutateFormDataBeforeSave(array $data): array
+    {
+        return MaharashtraGeography::canonicalizeLocationFields($data);
+    }
 
     protected function getHeaderActions(): array
     {
