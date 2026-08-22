@@ -823,6 +823,7 @@ GoRouter createRouter(
         title: 'Pending Orders',
         emptyMessage: 'No pending orders.',
         status: 'pending',
+        showOrderPipeline: true,
       ),
     ),
     GoRoute(

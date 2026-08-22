@@ -14,6 +14,7 @@ import '../../auth/providers/auth_controller.dart';
 import '../../manager/api/manager_api.dart';
 import '../../manager/screens/manager_orders_screen.dart';
 import '../api/director_api.dart';
+import 'director_order_pipeline_section.dart';
 
 enum _DirectorOrderTabKey {
   pending,
@@ -460,6 +461,7 @@ class DirectorFilteredOrdersScreen extends StatefulWidget {
     required this.emptyMessage,
     this.status,
     this.todayOnly = false,
+    this.showOrderPipeline = false,
   });
 
   final AuthController auth;
@@ -467,6 +469,7 @@ class DirectorFilteredOrdersScreen extends StatefulWidget {
   final String emptyMessage;
   final String? status;
   final bool todayOnly;
+  final bool showOrderPipeline;
 
   @override
   State<DirectorFilteredOrdersScreen> createState() =>
@@ -476,6 +479,7 @@ class DirectorFilteredOrdersScreen extends StatefulWidget {
 class _DirectorFilteredOrdersScreenState
     extends State<DirectorFilteredOrdersScreen> {
   late Future<DirectorOrderListResult> _future;
+  Future<DirectorDashboardData>? _dashboardFuture;
   late final DirectorApi _api;
 
   @override
@@ -485,6 +489,9 @@ class _DirectorFilteredOrdersScreenState
       ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
     );
     _future = _load();
+    if (widget.showOrderPipeline) {
+      _dashboardFuture = _api.loadDashboard(period: 'month');
+    }
   }
 
   Future<DirectorOrderListResult> _load() async {
@@ -527,13 +534,24 @@ class _DirectorFilteredOrdersScreenState
   }
 
   Future<void> _reload() async {
-    setState(() => _future = _load());
+    setState(() {
+      _future = _load();
+      if (widget.showOrderPipeline) {
+        _dashboardFuture = _api.loadDashboard(period: 'month');
+      }
+    });
     await _future;
   }
 
   Future<void> _openOrder(int orderId) async {
     if (orderId <= 0) return;
     await context.push('/director/orders/$orderId');
+    if (!mounted) return;
+    await _reload();
+  }
+
+  Future<void> _openPipeline(String path) async {
+    await context.push(path);
     if (!mounted) return;
     await _reload();
   }
@@ -554,13 +572,48 @@ class _DirectorFilteredOrdersScreenState
           showBack: true,
           onBack: () => smartBack(context),
         ),
-        body: _DirectorOrderTab(
-          future: _future,
-          emptyMessage: widget.emptyMessage,
-          onCounts: (_) {},
-          onRefresh: _reload,
-          onTap: _openOrder,
-        ),
+        body: widget.showOrderPipeline
+            ? Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  FutureBuilder<DirectorDashboardData>(
+                    future: _dashboardFuture,
+                    builder: (context, snapshot) {
+                      if (!snapshot.hasData) {
+                        return const SizedBox.shrink();
+                      }
+                      return Padding(
+                        padding: const EdgeInsets.fromLTRB(
+                          AppSpacing.screenPadding,
+                          AppSpacing.screenPadding,
+                          AppSpacing.screenPadding,
+                          0,
+                        ),
+                        child: DirectorOrderPipelineSection(
+                          data: snapshot.data!,
+                          onOpen: _openPipeline,
+                        ),
+                      );
+                    },
+                  ),
+                  Expanded(
+                    child: _DirectorOrderTab(
+                      future: _future,
+                      emptyMessage: widget.emptyMessage,
+                      onCounts: (_) {},
+                      onRefresh: _reload,
+                      onTap: _openOrder,
+                    ),
+                  ),
+                ],
+              )
+            : _DirectorOrderTab(
+                future: _future,
+                emptyMessage: widget.emptyMessage,
+                onCounts: (_) {},
+                onRefresh: _reload,
+                onTap: _openOrder,
+              ),
       ),
     );
   }
