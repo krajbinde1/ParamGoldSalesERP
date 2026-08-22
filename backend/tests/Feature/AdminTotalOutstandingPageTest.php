@@ -130,10 +130,6 @@ it('shows employee-wise outstanding by default and dealer-wise outstanding for a
         ->assertSuccessful()
         ->assertSee('All Employees')
         ->assertSee('Outstanding by Employee')
-        ->assertSee('Highest Outstanding Dealers')
-        ->assertSee('Outstanding Dealers')
-        ->assertSee('High Outstanding')
-        ->assertSee('Dealer Outstanding')
         ->assertSee('Export PDF')
         ->assertSee('Export Excel')
         ->assertSee('Akash Outstanding')
@@ -141,22 +137,16 @@ it('shows employee-wise outstanding by default and dealer-wise outstanding for a
         ->assertSee(IndianCurrency::format($companyTotal))
         ->assertSee(IndianCurrency::format(225000))
         ->assertSee(IndianCurrency::format(80000))
-        ->assertSee('High Balance Dealer')
         ->assertCanSeeTableRecords([$high, $mid, $low])
         ->assertCanNotSeeTableRecords([$zero]);
 
     $page->call('selectEmployee', $akash->id)
         ->assertSee(IndianCurrency::format(225000))
-        ->assertSee('Outstanding by Employee')
-        ->assertSee('View All Employees')
+        ->assertDontSee('Outstanding by Employee')
         ->assertSee('Export PDF')
         ->assertSee('Export Excel')
         ->assertCanSeeTableRecords([$high, $low, $zero])
         ->assertCanNotSeeTableRecords([$mid]);
-
-    $page->call('resetFilter')
-        ->assertSee('All Employees')
-        ->assertCanSeeTableRecords([$high, $mid, $low]);
 });
 
 it('exports selected employee outstanding to excel with all assigned dealers and a total', function (): void {
@@ -412,8 +402,8 @@ it('keeps credit opening balances out of total outstanding and lists them separa
         ->test(TotalOutstanding::class)
         ->assertSuccessful()
         ->assertSee('Total Outstanding')
-        ->assertSee('Credit Balance')
-        ->assertSee('Outstanding Dealers')
+        ->assertSee('Total Credit Balance')
+        ->assertSee('Net Balance')
         ->assertSee(IndianCurrency::format(200000))
         ->assertSee(IndianCurrency::format(40000))
         ->assertSee(IndianCurrency::format(160000))

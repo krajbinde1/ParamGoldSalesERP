@@ -15,8 +15,8 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
 use Filament\Pages\Page;
+use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
-use Filament\Support\Enums\FontWeight;
 use Filament\Support\Enums\Width;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Columns\TextColumn;
@@ -56,11 +56,6 @@ class TotalOutstanding extends Page implements HasForms, HasTable
     #[Url(as: 'employee_id', history: true, keep: true, except: null)]
     public ?int $employeeId = null;
 
-    /** @var array<string, mixed>|null */
-    private ?array $dashboardCache = null;
-
-    private ?int $dashboardCacheEmployeeId = -1;
-
     public static function canAccess(): bool
     {
         $user = auth()->user();
@@ -89,20 +84,28 @@ class TotalOutstanding extends Page implements HasForms, HasTable
     {
         return $schema
             ->components([
-                Select::make('employee_id')
-                    ->label('Employee')
-                    ->placeholder('All Employees')
-                    ->options(fn (): array => app(DealerOutstandingService::class)->salesEmployeeOptions())
-                    ->searchable()
-                    ->preload()
-                    ->native(false)
-                    ->nullable()
-                    ->live()
-                    ->afterStateUpdated(function (mixed $state): void {
-                        $this->employeeId = filled($state) ? (int) $state : null;
-                        $this->forgetDashboardCache();
-                        $this->resetTable();
-                    }),
+                Section::make('Filters')
+                    ->compact()
+                    ->columns([
+                        'default' => 1,
+                        'md' => 2,
+                        'xl' => 3,
+                    ])
+                    ->schema([
+                        Select::make('employee_id')
+                            ->label('Employee')
+                            ->placeholder('All Employees')
+                            ->options(fn (): array => app(DealerOutstandingService::class)->salesEmployeeOptions())
+                            ->searchable()
+                            ->preload()
+                            ->native(false)
+                            ->nullable()
+                            ->live()
+                            ->afterStateUpdated(function (mixed $state): void {
+                                $this->employeeId = filled($state) ? (int) $state : null;
+                                $this->resetTable();
+                            }),
+                    ]),
             ])
             ->statePath('data');
     }
@@ -127,28 +130,29 @@ class TotalOutstanding extends Page implements HasForms, HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->heading('Dealer Outstanding')
+            ->heading(fn (): string => $this->selectedEmployeeId() !== null
+                ? 'Assigned Dealers'
+                : 'Dealer-wise Outstanding')
             ->description(fn (): string => $this->selectedEmployeeId() !== null
-                ? 'Assigned dealers for the selected employee.'
+                ? 'All parties assigned to the selected employee, with current outstanding.'
                 : 'Dealers with a debit outstanding or credit balance.')
             ->query(fn (): Builder => $this->dealersQuery())
             ->columns([
                 TextColumn::make('dealer_code')
                     ->label('Dealer Code')
                     ->searchable()
-                    ->sortable()
-                    ->toggleable(),
+                    ->sortable(),
                 TextColumn::make('firm_name')
                     ->label('Dealer Name')
                     ->searchable()
-                    ->sortable()
-                    ->weight(FontWeight::SemiBold),
+                    ->sortable(),
                 TextColumn::make('village')
                     ->placeholder('-')
                     ->toggleable(),
                 TextColumn::make('assignedEmployee.full_name')
                     ->label('Employee')
                     ->placeholder('Unassigned')
+                    ->visible(fn (): bool => $this->selectedEmployeeId() === null)
                     ->sortable(),
                 TextColumn::make('current_outstanding')
                     ->label('Outstanding')
@@ -157,8 +161,6 @@ class TotalOutstanding extends Page implements HasForms, HasTable
                     })
                     ->formatStateUsing(fn ($state): string => IndianCurrency::format((float) $state))
                     ->alignEnd()
-                    ->weight(FontWeight::Bold)
-                    ->extraCellAttributes(['class' => 'to-amt to-amt--out'])
                     ->sortable(query: function (Builder $query, string $direction): Builder {
                         $sql = DealerLedgerService::currentOutstandingSql($query->getModel()->getTable());
 
@@ -175,7 +177,6 @@ class TotalOutstanding extends Page implements HasForms, HasTable
                         ? IndianCurrency::format((float) $state)
                         : '-')
                     ->alignEnd()
-                    ->extraCellAttributes(['class' => 'to-amt to-amt--credit'])
                     ->sortable(query: function (Builder $query, string $direction): Builder {
                         $sql = DealerLedgerService::currentOutstandingSql($query->getModel()->getTable());
 
@@ -187,8 +188,6 @@ class TotalOutstanding extends Page implements HasForms, HasTable
             ->recordActions([
                 Action::make('ledger')
                     ->label('Ledger')
-                    ->icon(Heroicon::OutlinedBookOpen)
-                    ->color('gray')
                     ->url(fn (Dealer $record): string => DealerResource::getUrl('ledger', ['record' => $record]))
                     ->visible(fn (Dealer $record): bool => auth()->user()?->can('viewLedger', $record) ?? false),
             ])
@@ -212,7 +211,7 @@ class TotalOutstanding extends Page implements HasForms, HasTable
                     'credit' => $this->formatMoney($summary['credit']),
                     'net' => $this->formatMoney($summary['net']),
                     'showCredit' => $summary['credit'] > 0,
-                    'columnCount' => 7,
+                    'columnCount' => $this->selectedEmployeeId() === null ? 7 : 6,
                 ]);
             });
     }
@@ -225,13 +224,7 @@ class TotalOutstanding extends Page implements HasForms, HasTable
             'employee_id' => $this->employeeId,
         ]);
 
-        $this->forgetDashboardCache();
         $this->resetTable();
-    }
-
-    public function resetFilter(): void
-    {
-        $this->selectEmployee(null);
     }
 
     public function selectedEmployeeId(): ?int
@@ -256,82 +249,46 @@ class TotalOutstanding extends Page implements HasForms, HasTable
         return $this->formatMoney($this->balanceSummary()['credit']);
     }
 
-    public function outstandingDealerCount(): int
+    public function formattedNetBalance(): string
     {
-        return (int) ($this->balanceSummary()['outstanding_dealers'] ?? 0);
+        return $this->formatMoney($this->balanceSummary()['net']);
     }
 
-    public function highOutstandingDealerCount(): int
+    public function hasCreditBalance(): bool
     {
-        return (int) $this->dashboard()['highOutstanding'];
+        return $this->balanceSummary()['credit'] > 0;
     }
 
     /**
-     * @return array{outstanding: float, credit: float, net: float, outstanding_dealers: int}
+     * @return array{outstanding: float, credit: float, net: float}
      */
     public function balanceSummary(): array
     {
-        /** @var array{outstanding: float, credit: float, net: float, outstanding_dealers: int} $summary */
-        $summary = $this->dashboard()['summary'];
+        return app(DealerOutstandingService::class)->summary($this->selectedEmployeeId());
+    }
 
-        return $summary;
+    public function assignedDealerCount(): int
+    {
+        $employeeId = $this->selectedEmployeeId();
+
+        if ($employeeId === null) {
+            return 0;
+        }
+
+        return app(DealerOutstandingService::class)->assignedDealersQuery($employeeId)->count();
     }
 
     /**
-     * @return list<array{employee_id: int, employee_name: string, employee_code: string|null, dealer_count: int, outstanding_dealer_count: int, total_outstanding: float, total_credit: float, net_balance: float}>
+     * @return list<array{employee_id: int, employee_name: string, employee_code: string|null, dealer_count: int, total_outstanding: float, total_credit: float, net_balance: float}>
      */
     public function employeeOutstandingRows(): array
     {
-        /** @var list<array{employee_id: int, employee_name: string, employee_code: string|null, dealer_count: int, outstanding_dealer_count: int, total_outstanding: float, total_credit: float, net_balance: float}> $rows */
-        $rows = $this->dashboard()['employees'];
-
-        return $rows;
-    }
-
-    /**
-     * @return list<array{dealer_name: string, employee_name: string, outstanding: float}>
-     */
-    public function topOutstandingDealers(): array
-    {
-        /** @var list<array{dealer_name: string, employee_name: string, outstanding: float}> $rows */
-        $rows = $this->dashboard()['topDealers'];
-
-        return $rows;
+        return app(DealerOutstandingService::class)->totalsByAssignedEmployee();
     }
 
     public function formatMoney(float $amount): string
     {
         return IndianCurrency::format($amount);
-    }
-
-    /**
-     * @return array{summary: array<string, mixed>, employees: list<array<string, mixed>>, topDealers: list<array<string, mixed>>, highOutstanding: int}
-     */
-    private function dashboard(): array
-    {
-        $employeeId = $this->selectedEmployeeId();
-
-        if ($this->dashboardCache !== null && $this->dashboardCacheEmployeeId === $employeeId) {
-            return $this->dashboardCache;
-        }
-
-        $service = app(DealerOutstandingService::class);
-
-        $this->dashboardCacheEmployeeId = $employeeId;
-        $this->dashboardCache = [
-            'summary' => $service->summary($employeeId),
-            'employees' => $service->totalsByAssignedEmployee(),
-            'topDealers' => $service->topOutstandingDealers($employeeId, 5),
-            'highOutstanding' => $service->highOutstandingDealerCount($employeeId),
-        ];
-
-        return $this->dashboardCache;
-    }
-
-    private function forgetDashboardCache(): void
-    {
-        $this->dashboardCache = null;
-        $this->dashboardCacheEmployeeId = -1;
     }
 
     /**

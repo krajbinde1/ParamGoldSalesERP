@@ -39,7 +39,7 @@ final class DealerOutstandingService
      * Debit outstanding, credit balance, and net for the Total Outstanding page.
      * Ledger outstanding is unchanged: credit remaining is not subtracted from debit.
      *
-     * @return array{outstanding: float, credit: float, net: float, outstanding_dealers: int}
+     * @return array{outstanding: float, credit: float, net: float}
      */
     public function summary(?int $assignedEmployeeId = null): array
     {
@@ -58,7 +58,6 @@ final class DealerOutstandingService
             ->fromSub($inner, 'outstanding_dealers')
             ->selectRaw('COALESCE(SUM(CASE WHEN current_outstanding > 0 THEN current_outstanding ELSE 0 END), 0) as debit_outstanding')
             ->selectRaw('COALESCE(SUM(CASE WHEN current_outstanding < 0 THEN -current_outstanding ELSE 0 END), 0) as credit_balance')
-            ->selectRaw('COALESCE(SUM(CASE WHEN current_outstanding > 0 THEN 1 ELSE 0 END), 0) as outstanding_dealers')
             ->first();
 
         $outstanding = $this->money($row->debit_outstanding ?? 0);
@@ -68,7 +67,6 @@ final class DealerOutstandingService
             'outstanding' => $outstanding,
             'credit' => $credit,
             'net' => $this->money($outstanding - $credit),
-            'outstanding_dealers' => (int) ($row->outstanding_dealers ?? 0),
         ];
     }
 
@@ -193,7 +191,7 @@ final class DealerOutstandingService
     }
 
     /**
-     * @return list<array{employee_id: int, employee_name: string, employee_code: string|null, dealer_count: int, outstanding_dealer_count: int, total_outstanding: float, total_credit: float, net_balance: float}>
+     * @return list<array{employee_id: int, employee_name: string, employee_code: string|null, dealer_count: int, total_outstanding: float, total_credit: float, net_balance: float}>
      */
     public function totalsByAssignedEmployee(): array
     {
@@ -211,7 +209,6 @@ final class DealerOutstandingService
             ->select('assigned_employee_id')
             ->selectRaw('COALESCE(SUM(CASE WHEN current_outstanding > 0 THEN current_outstanding ELSE 0 END), 0) as total_outstanding')
             ->selectRaw('COALESCE(SUM(CASE WHEN current_outstanding < 0 THEN -current_outstanding ELSE 0 END), 0) as total_credit')
-            ->selectRaw('SUM(CASE WHEN current_outstanding > 0 THEN 1 ELSE 0 END) as outstanding_dealer_count')
             ->selectRaw('SUM(CASE WHEN current_outstanding != 0 THEN 1 ELSE 0 END) as dealer_count')
             ->groupBy('assigned_employee_id')
             ->havingRaw('COALESCE(SUM(CASE WHEN current_outstanding > 0 THEN current_outstanding ELSE 0 END), 0) != 0 OR COALESCE(SUM(CASE WHEN current_outstanding < 0 THEN -current_outstanding ELSE 0 END), 0) != 0')
@@ -234,7 +231,6 @@ final class DealerOutstandingService
                     'employee_name' => $employee?->full_name ?? 'Unknown',
                     'employee_code' => $employee?->employee_code,
                     'dealer_count' => (int) $row->dealer_count,
-                    'outstanding_dealer_count' => (int) ($row->outstanding_dealer_count ?? $row->dealer_count),
                     'total_outstanding' => $outstanding,
                     'total_credit' => $credit,
                     'net_balance' => $this->money($outstanding - $credit),
@@ -267,65 +263,6 @@ final class DealerOutstandingService
                 'employee_name' => $employee->full_name,
                 'employee_code' => $employee->employee_code,
             ])
-            ->values()
-            ->all();
-    }
-
-    /**
-     * Existing high-outstanding rule: active dealers at or above 90% of credit limit.
-     */
-    public function highOutstandingDealerCount(?int $assignedEmployeeId = null): int
-    {
-        $sql = DealerLedgerService::currentOutstandingSql();
-
-        return (int) Dealer::query()
-            ->where('status', true)
-            ->where('credit_limit', '>', 0)
-            ->when(
-                $assignedEmployeeId !== null,
-                fn (Builder $query) => $query->where('assigned_employee_id', $assignedEmployeeId),
-            )
-            ->whereRaw($sql.' >= credit_limit * 0.9')
-            ->count();
-    }
-
-    /**
-     * @return list<array{dealer_name: string, employee_name: string, outstanding: float}>
-     */
-    public function topOutstandingDealers(?int $assignedEmployeeId = null, int $limit = 5): array
-    {
-        $sql = DealerLedgerService::currentOutstandingSql();
-
-        $query = Dealer::query()
-            ->where('status', true)
-            ->with(['assignedEmployee:id,full_name'])
-            ->when(
-                $assignedEmployeeId !== null,
-                fn (Builder $dealerQuery) => $dealerQuery->where('assigned_employee_id', $assignedEmployeeId),
-            );
-
-        $this->ledger->scopeWithCurrentOutstanding($query);
-
-        return $query
-            ->whereRaw($sql.' > 0')
-            ->orderByRaw($sql.' DESC')
-            ->orderBy('firm_name')
-            ->limit($limit)
-            ->get()
-            ->map(function (Dealer $dealer): array {
-                $outstanding = $dealer->getAttribute('current_outstanding');
-                $split = $this->splitBalances(
-                    $outstanding !== null
-                        ? $this->money($outstanding)
-                        : $this->ledger->getOutstanding($dealer)
-                );
-
-                return [
-                    'dealer_name' => (string) $dealer->firm_name,
-                    'employee_name' => $dealer->assignedEmployee?->full_name ?? 'Unassigned',
-                    'outstanding' => $split['outstanding'],
-                ];
-            })
             ->values()
             ->all();
     }
