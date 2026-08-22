@@ -573,39 +573,33 @@ class _DirectorFilteredOrdersScreenState
           onBack: () => smartBack(context),
         ),
         body: widget.showOrderPipeline
-            ? Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  FutureBuilder<DirectorDashboardData>(
-                    future: _dashboardFuture,
-                    builder: (context, snapshot) {
-                      if (!snapshot.hasData) {
-                        return const SizedBox.shrink();
-                      }
-                      return Padding(
-                        padding: const EdgeInsets.fromLTRB(
-                          AppSpacing.screenPadding,
-                          AppSpacing.screenPadding,
-                          AppSpacing.screenPadding,
-                          0,
-                        ),
-                        child: DirectorOrderPipelineSection(
-                          data: snapshot.data!,
-                          onOpen: _openPipeline,
-                        ),
-                      );
-                    },
-                  ),
-                  Expanded(
-                    child: _DirectorOrderTab(
-                      future: _future,
-                      emptyMessage: widget.emptyMessage,
-                      onCounts: (_) {},
-                      onRefresh: _reload,
-                      onTap: _openOrder,
+            ? RefreshIndicator(
+                onRefresh: _reload,
+                child: ListView(
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  children: [
+                    FutureBuilder<DirectorDashboardData>(
+                      future: _dashboardFuture,
+                      builder: (context, snapshot) {
+                        if (!snapshot.hasData) {
+                          return const SizedBox(height: 120);
+                        }
+                        return Padding(
+                          padding: const EdgeInsets.fromLTRB(
+                            AppSpacing.screenPadding,
+                            AppSpacing.screenPadding,
+                            AppSpacing.screenPadding,
+                            0,
+                          ),
+                          child: DirectorOrderPipelineSection(
+                            data: snapshot.data!,
+                            onOpen: _openPipeline,
+                          ),
+                        );
+                      },
                     ),
-                  ),
-                ],
+                  ],
+                ),
               )
             : _DirectorOrderTab(
                 future: _future,
