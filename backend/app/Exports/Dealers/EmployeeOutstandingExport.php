@@ -17,7 +17,9 @@ final class EmployeeOutstandingExport implements FromArray, ShouldAutoSize, With
      *     employee_name: string,
      *     employee_code: string|null,
      *     total: float,
-     *     rows: list<array{employee_name: string, dealer_code: string, dealer_name: string, village: string, outstanding: float}>
+     *     credit_total?: float,
+     *     net_total?: float,
+     *     rows: list<array{employee_name: string, dealer_code: string, dealer_name: string, village: string, outstanding: float, credit_balance?: float}>
      * }  $payload
      */
     public function __construct(
@@ -36,6 +38,7 @@ final class EmployeeOutstandingExport implements FromArray, ShouldAutoSize, With
             'Dealer Name',
             'Village',
             'Outstanding Amount',
+            'Credit Balance',
         ];
     }
 
@@ -53,6 +56,7 @@ final class EmployeeOutstandingExport implements FromArray, ShouldAutoSize, With
                 $row['dealer_name'],
                 $row['village'],
                 $row['outstanding'],
+                $row['credit_balance'] ?? 0,
             ];
         }
 
@@ -62,7 +66,28 @@ final class EmployeeOutstandingExport implements FromArray, ShouldAutoSize, With
             '',
             'Total Outstanding',
             $this->payload['total'],
+            '',
         ];
+
+        $creditTotal = (float) ($this->payload['credit_total'] ?? 0);
+        if ($creditTotal > 0) {
+            $rows[] = [
+                '',
+                '',
+                '',
+                'Total Credit Balance',
+                '',
+                $creditTotal,
+            ];
+            $rows[] = [
+                '',
+                '',
+                '',
+                'Net Balance',
+                $this->payload['net_total'] ?? ($this->payload['total'] - $creditTotal),
+                '',
+            ];
+        }
 
         return $rows;
     }
@@ -89,22 +114,26 @@ final class EmployeeOutstandingExport implements FromArray, ShouldAutoSize, With
                 $sheet->setCellValue('A1', 'Total Outstanding');
                 $sheet->setCellValue('A2', 'Employee: '.$employeeLabel);
                 $sheet->setCellValue('A3', 'Generated on: '.$this->generatedAt);
-                $sheet->mergeCells('A1:E1');
-                $sheet->mergeCells('A2:E2');
-                $sheet->mergeCells('A3:E3');
+                $sheet->mergeCells('A1:F1');
+                $sheet->mergeCells('A2:F2');
+                $sheet->mergeCells('A3:F3');
                 $sheet->getStyle('A1')->getFont()->setBold(true)->setSize(14);
                 $sheet->getStyle('A2:A3')->getFont()->setItalic(true)->setSize(10);
-                $sheet->getStyle('A4:E4')->getFont()->setBold(true);
+                $sheet->getStyle('A4:F4')->getFont()->setBold(true);
 
                 $highestRow = $sheet->getHighestRow();
-                $sheet->getStyle('E5:E'.$highestRow)
+                $sheet->getStyle('E5:F'.$highestRow)
                     ->getNumberFormat()
                     ->setFormatCode('"₹"#,##0.00');
-                $sheet->getStyle('E5:E'.$highestRow)
+                $sheet->getStyle('E5:F'.$highestRow)
                     ->getAlignment()
                     ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
 
-                $sheet->getStyle('A'.$highestRow.':E'.$highestRow)->getFont()->setBold(true);
+                $sheet->getStyle('A'.$highestRow.':F'.$highestRow)->getFont()->setBold(true);
+                $creditTotal = (float) ($this->payload['credit_total'] ?? 0);
+                if ($creditTotal > 0) {
+                    $sheet->getStyle('A'.($highestRow - 2).':F'.$highestRow)->getFont()->setBold(true);
+                }
             },
         ];
     }

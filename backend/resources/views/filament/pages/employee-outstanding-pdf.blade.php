@@ -96,6 +96,7 @@
                 <th>Dealer Name</th>
                 <th>Village</th>
                 <th class="num">Outstanding Amount</th>
+                <th class="num">Credit Balance</th>
             </tr>
         </thead>
         <tbody>
@@ -106,16 +107,36 @@
                     <td>{{ $safe($row['dealer_name']) }}</td>
                     <td>{{ $safe($row['village']) }}</td>
                     <td class="num">{{ $fmtMoney($row['outstanding']) }}</td>
+                    <td class="num">
+                        @if ((float) ($row['credit_balance'] ?? 0) > 0)
+                            {{ $fmtMoney($row['credit_balance']) }}
+                        @else
+                            -
+                        @endif
+                    </td>
                 </tr>
             @empty
                 <tr>
-                    <td class="empty" colspan="5">No outstanding records for this filter.</td>
+                    <td class="empty" colspan="6">No outstanding records for this filter.</td>
                 </tr>
             @endforelse
             <tr class="total">
                 <td colspan="4" class="num">Total Outstanding</td>
                 <td class="num">{{ $fmtMoney($payload['total']) }}</td>
+                <td class="num">
+                    @if ((float) ($payload['credit_total'] ?? 0) > 0)
+                        {{ $fmtMoney($payload['credit_total']) }}
+                    @else
+                        -
+                    @endif
+                </td>
             </tr>
+            @if ((float) ($payload['credit_total'] ?? 0) > 0)
+                <tr class="total">
+                    <td colspan="5" class="num">Net Balance</td>
+                    <td class="num">{{ $fmtMoney($payload['net_total'] ?? ($payload['total'] - $payload['credit_total'])) }}</td>
+                </tr>
+            @endif
         </tbody>
     </table>
 </body>

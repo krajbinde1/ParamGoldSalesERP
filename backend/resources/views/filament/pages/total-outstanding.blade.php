@@ -2,13 +2,27 @@
     <div class="total-outstanding-page space-y-4">
         <div class="paramgold-summary-grid">
             <div class="paramgold-summary-card paramgold-summary-card--danger">
-                <p class="paramgold-summary-card__label">
-                    {{ $this->selectedEmployeeId() === null ? 'Total Outstanding' : 'Employee Outstanding' }}
-                </p>
+                <p class="paramgold-summary-card__label">Total Outstanding</p>
                 <p class="paramgold-summary-card__value">
                     {{ $this->formattedTotalOutstanding() }}
                 </p>
             </div>
+
+            <div class="paramgold-summary-card paramgold-summary-card--success">
+                <p class="paramgold-summary-card__label">Total Credit Balance</p>
+                <p class="paramgold-summary-card__value">
+                    {{ $this->formattedCreditBalance() }}
+                </p>
+            </div>
+
+            @if ($this->hasCreditBalance())
+                <div class="paramgold-summary-card paramgold-summary-card--info">
+                    <p class="paramgold-summary-card__label">Net Balance</p>
+                    <p class="paramgold-summary-card__value">
+                        {{ $this->formattedNetBalance() }}
+                    </p>
+                </div>
+            @endif
 
             @if ($this->selectedEmployeeId() !== null)
                 <div class="paramgold-summary-card paramgold-summary-card--primary">
@@ -37,11 +51,17 @@
                                     <th class="fi-ta-header-cell px-4 py-3 text-start text-sm font-semibold text-gray-950 dark:text-white">
                                         Employee
                                     </th>
-                                    <th class="fi-ta-header-cell w-28 px-4 py-3 text-end text-sm font-semibold text-gray-950 dark:text-white">
+                                    <th class="fi-ta-header-cell w-24 px-4 py-3 text-end text-sm font-semibold text-gray-950 dark:text-white">
                                         Dealers
                                     </th>
-                                    <th class="fi-ta-header-cell w-44 px-4 py-3 text-end text-sm font-semibold text-gray-950 dark:text-white">
+                                    <th class="fi-ta-header-cell w-40 px-4 py-3 text-end text-sm font-semibold text-gray-950 dark:text-white">
                                         Outstanding
+                                    </th>
+                                    <th class="fi-ta-header-cell w-40 px-4 py-3 text-end text-sm font-semibold text-gray-950 dark:text-white">
+                                        Credit Balance
+                                    </th>
+                                    <th class="fi-ta-header-cell w-40 px-4 py-3 text-end text-sm font-semibold text-gray-950 dark:text-white">
+                                        Net Balance
                                     </th>
                                 </tr>
                             </thead>
@@ -68,10 +88,20 @@
                                         <td class="fi-ta-cell px-4 py-3 text-end text-sm font-semibold tabular-nums text-gray-950 dark:text-white">
                                             {{ $this->formatMoney((float) $row['total_outstanding']) }}
                                         </td>
+                                        <td class="fi-ta-cell px-4 py-3 text-end text-sm tabular-nums text-gray-700 dark:text-gray-300">
+                                            @if ((float) $row['total_credit'] > 0)
+                                                {{ $this->formatMoney((float) $row['total_credit']) }}
+                                            @else
+                                                -
+                                            @endif
+                                        </td>
+                                        <td class="fi-ta-cell px-4 py-3 text-end text-sm font-semibold tabular-nums text-gray-950 dark:text-white">
+                                            {{ $this->formatMoney((float) $row['net_balance']) }}
+                                        </td>
                                     </tr>
                                 @empty
                                     <tr>
-                                        <td colspan="3" class="fi-ta-cell px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
+                                        <td colspan="5" class="fi-ta-cell px-4 py-8 text-center text-sm text-gray-500 dark:text-gray-400">
                                             No employee outstanding to show.
                                         </td>
                                     </tr>

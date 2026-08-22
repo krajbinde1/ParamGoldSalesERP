@@ -135,7 +135,7 @@ class TotalOutstanding extends Page implements HasForms, HasTable
                 : 'Dealer-wise Outstanding')
             ->description(fn (): string => $this->selectedEmployeeId() !== null
                 ? 'All parties assigned to the selected employee, with current outstanding.'
-                : 'Dealers with a positive outstanding balance.')
+                : 'Dealers with a debit outstanding or credit balance.')
             ->query(fn (): Builder => $this->dealersQuery())
             ->columns([
                 TextColumn::make('dealer_code')
@@ -157,17 +157,31 @@ class TotalOutstanding extends Page implements HasForms, HasTable
                 TextColumn::make('current_outstanding')
                     ->label('Outstanding')
                     ->state(function (Dealer $record): float {
-                        $value = $record->getAttribute('current_outstanding');
-
-                        return $value !== null
-                            ? round((float) $value, 2)
-                            : app(DealerLedgerService::class)->getOutstanding($record);
+                        return $this->dealerBalances($record)['outstanding'];
                     })
                     ->formatStateUsing(fn ($state): string => IndianCurrency::format((float) $state))
                     ->alignEnd()
                     ->sortable(query: function (Builder $query, string $direction): Builder {
+                        $sql = DealerLedgerService::currentOutstandingSql($query->getModel()->getTable());
+
                         return $query->orderByRaw(
-                            DealerLedgerService::currentOutstandingSql($query->getModel()->getTable()).' '.$direction
+                            '(CASE WHEN '.$sql.' > 0 THEN '.$sql.' ELSE 0 END) '.$direction
+                        );
+                    }),
+                TextColumn::make('credit_balance')
+                    ->label('Credit Balance')
+                    ->state(function (Dealer $record): float {
+                        return $this->dealerBalances($record)['credit'];
+                    })
+                    ->formatStateUsing(fn ($state): string => (float) $state > 0
+                        ? IndianCurrency::format((float) $state)
+                        : '-')
+                    ->alignEnd()
+                    ->sortable(query: function (Builder $query, string $direction): Builder {
+                        $sql = DealerLedgerService::currentOutstandingSql($query->getModel()->getTable());
+
+                        return $query->orderByRaw(
+                            '(CASE WHEN '.$sql.' < 0 THEN -('.$sql.') ELSE 0 END) '.$direction
                         );
                     }),
             ])
@@ -188,11 +202,16 @@ class TotalOutstanding extends Page implements HasForms, HasTable
                 : 'No dealers with outstanding')
             ->emptyStateDescription(fn (): string => $this->selectedEmployeeId() !== null
                 ? 'This employee has no active assigned dealers.'
-                : 'No dealer has a positive outstanding balance for this filter.')
+                : 'No dealer has a debit outstanding or credit balance for this filter.')
             ->contentFooter(function () {
+                $summary = $this->balanceSummary();
+
                 return view('filament.pages.partials.total-outstanding-table-footer', [
-                    'total' => $this->formattedTotalOutstanding(),
-                    'columnCount' => $this->selectedEmployeeId() === null ? 6 : 5,
+                    'total' => $this->formatMoney($summary['outstanding']),
+                    'credit' => $this->formatMoney($summary['credit']),
+                    'net' => $this->formatMoney($summary['net']),
+                    'showCredit' => $summary['credit'] > 0,
+                    'columnCount' => $this->selectedEmployeeId() === null ? 7 : 6,
                 ]);
             });
     }
@@ -217,12 +236,35 @@ class TotalOutstanding extends Page implements HasForms, HasTable
 
     public function totalOutstanding(): float
     {
-        return app(DealerOutstandingService::class)->total($this->selectedEmployeeId());
+        return $this->balanceSummary()['outstanding'];
     }
 
     public function formattedTotalOutstanding(): string
     {
-        return IndianCurrency::format($this->totalOutstanding());
+        return $this->formatMoney($this->totalOutstanding());
+    }
+
+    public function formattedCreditBalance(): string
+    {
+        return $this->formatMoney($this->balanceSummary()['credit']);
+    }
+
+    public function formattedNetBalance(): string
+    {
+        return $this->formatMoney($this->balanceSummary()['net']);
+    }
+
+    public function hasCreditBalance(): bool
+    {
+        return $this->balanceSummary()['credit'] > 0;
+    }
+
+    /**
+     * @return array{outstanding: float, credit: float, net: float}
+     */
+    public function balanceSummary(): array
+    {
+        return app(DealerOutstandingService::class)->summary($this->selectedEmployeeId());
     }
 
     public function assignedDealerCount(): int
@@ -237,7 +279,7 @@ class TotalOutstanding extends Page implements HasForms, HasTable
     }
 
     /**
-     * @return list<array{employee_id: int, employee_name: string, employee_code: string|null, dealer_count: int, total_outstanding: float}>
+     * @return list<array{employee_id: int, employee_name: string, employee_code: string|null, dealer_count: int, total_outstanding: float, total_credit: float, net_balance: float}>
      */
     public function employeeOutstandingRows(): array
     {
@@ -247,6 +289,19 @@ class TotalOutstanding extends Page implements HasForms, HasTable
     public function formatMoney(float $amount): string
     {
         return IndianCurrency::format($amount);
+    }
+
+    /**
+     * @return array{outstanding: float, credit: float}
+     */
+    private function dealerBalances(Dealer $record): array
+    {
+        $value = $record->getAttribute('current_outstanding');
+        $net = $value !== null
+            ? round((float) $value, 2)
+            : app(DealerLedgerService::class)->getOutstanding($record);
+
+        return app(DealerOutstandingService::class)->splitBalances($net);
     }
 
     public static function pdfUrl(?int $employeeId = null): string

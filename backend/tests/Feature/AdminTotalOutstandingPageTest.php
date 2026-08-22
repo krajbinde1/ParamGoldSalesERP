@@ -182,6 +182,7 @@ it('exports selected employee outstanding to excel with all assigned dealers and
             'dealer_name' => 'High Balance Dealer',
             'village' => 'Wagholi',
             'outstanding' => 200000.0,
+            'credit_balance' => 0.0,
         ]);
 
     $export = new EmployeeOutstandingExport(
@@ -197,6 +198,7 @@ it('exports selected employee outstanding to excel with all assigned dealers and
         'Dealer Name',
         'Village',
         'Outstanding Amount',
+        'Credit Balance',
     ])
         ->and($last[3])->toBe('Total Outstanding')
         ->and($last[4])->toBe(200000.0);
@@ -357,4 +359,83 @@ it('builds a pdf export for all employees outstanding', function (): void {
         ->assertHeader('content-type', 'application/pdf');
 
     expect($response->getContent())->toStartWith('%PDF');
+});
+
+it('keeps credit opening balances out of total outstanding and lists them separately', function (): void {
+    $director = outstandingPageDirector();
+    $akash = outstandingPageEmployee('Akash Credit Split', '9940000009');
+
+    $debitDealer = outstandingPageDealer([
+        'firm_name' => 'Debit Opening Dealer',
+        'village' => 'Wagholi',
+        'assigned_employee_id' => $akash->id,
+        'opening_balance' => 200000,
+        'opening_balance_type' => 'debit',
+        'opening_balance_date' => '2026-04-01',
+    ]);
+    $creditDealer = outstandingPageDealer([
+        'firm_name' => 'Credit Opening Dealer',
+        'village' => 'Kharadi',
+        'assigned_employee_id' => $akash->id,
+        'opening_balance' => 40000,
+        'opening_balance_type' => 'credit',
+        'opening_balance_date' => '2026-04-01',
+    ]);
+
+    $summary = app(DealerOutstandingService::class)->summary($akash->id);
+    expect($summary)->toMatchArray([
+        'outstanding' => 200000.0,
+        'credit' => 40000.0,
+        'net' => 160000.0,
+    ]);
+
+    $employeeRow = collect(app(DealerOutstandingService::class)->totalsByAssignedEmployee())
+        ->firstWhere('employee_id', $akash->id);
+
+    expect($employeeRow)->toMatchArray([
+        'total_outstanding' => 200000.0,
+        'total_credit' => 40000.0,
+        'net_balance' => 160000.0,
+    ]);
+
+    $page = Livewire::actingAs($director)
+        ->test(TotalOutstanding::class)
+        ->assertSuccessful()
+        ->assertSee('Total Outstanding')
+        ->assertSee('Total Credit Balance')
+        ->assertSee('Net Balance')
+        ->assertSee(IndianCurrency::format(200000))
+        ->assertSee(IndianCurrency::format(40000))
+        ->assertSee(IndianCurrency::format(160000))
+        ->assertSee('Credit Opening Dealer')
+        ->assertDontSee(IndianCurrency::format(-40000))
+        ->assertCanSeeTableRecords([$debitDealer, $creditDealer]);
+
+    $page->call('selectEmployee', $akash->id)
+        ->assertSee(IndianCurrency::format(200000))
+        ->assertSee(IndianCurrency::format(40000))
+        ->assertSee(IndianCurrency::format(160000))
+        ->assertCanSeeTableRecords([$debitDealer, $creditDealer]);
+
+    $payload = app(DealerOutstandingService::class)->employeeExportPayload($akash->id);
+    $creditRow = collect($payload['rows'])->firstWhere('dealer_name', 'Credit Opening Dealer');
+
+    expect($payload['total'])->toBe(200000.0)
+        ->and($payload['credit_total'])->toBe(40000.0)
+        ->and($payload['net_total'])->toBe(160000.0)
+        ->and($creditRow)->toMatchArray([
+            'outstanding' => 0.0,
+            'credit_balance' => 40000.0,
+        ]);
+
+    $html = view('filament.pages.employee-outstanding-pdf', [
+        'companyName' => 'ParamGold ERP',
+        'payload' => $payload,
+        'generatedAt' => '22 Aug 2026, 08:00 PM',
+    ])->render();
+
+    expect($html)->toContain('Credit Balance')
+        ->toContain('Credit Opening Dealer')
+        ->toContain('Net Balance')
+        ->not->toContain('-40,000');
 });

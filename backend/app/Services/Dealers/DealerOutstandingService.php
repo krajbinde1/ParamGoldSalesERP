@@ -27,23 +27,47 @@ final class DealerOutstandingService
 
     public function total(?int $assignedEmployeeId = null): float
     {
-        if ($assignedEmployeeId === null) {
-            return $this->ledger->companyTotalOutstanding();
-        }
+        return $this->summary($assignedEmployeeId)['outstanding'];
+    }
 
+    public function creditTotal(?int $assignedEmployeeId = null): float
+    {
+        return $this->summary($assignedEmployeeId)['credit'];
+    }
+
+    /**
+     * Debit outstanding, credit balance, and net for the Total Outstanding page.
+     * Ledger outstanding is unchanged: credit remaining is not subtracted from debit.
+     *
+     * @return array{outstanding: float, credit: float, net: float}
+     */
+    public function summary(?int $assignedEmployeeId = null): array
+    {
         $sql = DealerLedgerService::currentOutstandingSql();
 
         $inner = Dealer::query()
             ->where('status', true)
-            ->where('assigned_employee_id', $assignedEmployeeId)
+            ->when(
+                $assignedEmployeeId !== null,
+                fn (Builder $query) => $query->where('assigned_employee_id', $assignedEmployeeId),
+            )
             ->selectRaw($sql.' as current_outstanding')
             ->toBase();
 
-        return $this->money(
-            DB::query()
-                ->fromSub($inner, 'outstanding_dealers')
-                ->sum('current_outstanding')
-        );
+        $row = DB::query()
+            ->fromSub($inner, 'outstanding_dealers')
+            ->selectRaw('COALESCE(SUM(CASE WHEN current_outstanding > 0 THEN current_outstanding ELSE 0 END), 0) as debit_outstanding')
+            ->selectRaw('COALESCE(SUM(CASE WHEN current_outstanding < 0 THEN -current_outstanding ELSE 0 END), 0) as credit_balance')
+            ->first();
+
+        $outstanding = $this->money($row->debit_outstanding ?? 0);
+        $credit = $this->money($row->credit_balance ?? 0);
+
+        return [
+            'outstanding' => $outstanding,
+            'credit' => $credit,
+            'net' => $this->money($outstanding - $credit),
+        ];
     }
 
     /**
@@ -64,7 +88,7 @@ final class DealerOutstandingService
         $this->ledger->scopeWithCurrentOutstanding($query);
 
         return $query
-            ->whereRaw($sql.' > 0')
+            ->whereRaw($sql.' != 0')
             ->orderByRaw($sql.' DESC')
             ->orderBy('firm_name');
     }
@@ -94,30 +118,22 @@ final class DealerOutstandingService
      * @return array{
      *     employee_name: string,
      *     employee_code: string|null,
+     *     scope_label: string,
      *     total: float,
-     *     rows: list<array{employee_name: string, dealer_code: string, dealer_name: string, village: string, outstanding: float}>
+     *     credit_total: float,
+     *     net_total: float,
+     *     rows: list<array{employee_name: string, dealer_code: string, dealer_name: string, village: string, outstanding: float, credit_balance: float}>
      * }
      */
     public function employeeExportPayload(int $assignedEmployeeId): array
     {
         $employee = Employee::query()->findOrFail($assignedEmployeeId);
         $employeeName = $employee->full_name;
+        $summary = $this->summary($assignedEmployeeId);
 
         $rows = $this->assignedDealersQuery($assignedEmployeeId)
             ->get()
-            ->map(function (Dealer $dealer) use ($employeeName): array {
-                $outstanding = $dealer->getAttribute('current_outstanding');
-
-                return [
-                    'employee_name' => $employeeName,
-                    'dealer_code' => (string) $dealer->dealer_code,
-                    'dealer_name' => (string) $dealer->firm_name,
-                    'village' => filled($dealer->village) ? (string) $dealer->village : '-',
-                    'outstanding' => $outstanding !== null
-                        ? $this->money($outstanding)
-                        : $this->ledger->getOutstanding($dealer),
-                ];
-            })
+            ->map(fn (Dealer $dealer): array => $this->exportRow($dealer, $employeeName))
             ->values()
             ->all();
 
@@ -125,7 +141,9 @@ final class DealerOutstandingService
             'employee_name' => $employeeName,
             'employee_code' => $employee->employee_code,
             'scope_label' => $employeeName,
-            'total' => $this->total($assignedEmployeeId),
+            'total' => $summary['outstanding'],
+            'credit_total' => $summary['credit'],
+            'net_total' => $summary['net'],
             'rows' => $rows,
         ];
     }
@@ -138,7 +156,9 @@ final class DealerOutstandingService
      *     employee_code: string|null,
      *     scope_label: string,
      *     total: float,
-     *     rows: list<array{employee_name: string, dealer_code: string, dealer_name: string, village: string, outstanding: float}>
+     *     credit_total: float,
+     *     net_total: float,
+     *     rows: list<array{employee_name: string, dealer_code: string, dealer_name: string, village: string, outstanding: float, credit_balance: float}>
      * }
      */
     public function exportPayload(?int $assignedEmployeeId = null): array
@@ -147,21 +167,14 @@ final class DealerOutstandingService
             return $this->employeeExportPayload($assignedEmployeeId);
         }
 
+        $summary = $this->summary(null);
+
         $rows = $this->dealersQuery(null)
             ->get()
             ->map(function (Dealer $dealer): array {
                 $employee = $dealer->assignedEmployee;
-                $outstanding = $dealer->getAttribute('current_outstanding');
 
-                return [
-                    'employee_name' => $employee?->full_name ?? 'Unassigned',
-                    'dealer_code' => (string) $dealer->dealer_code,
-                    'dealer_name' => (string) $dealer->firm_name,
-                    'village' => filled($dealer->village) ? (string) $dealer->village : '-',
-                    'outstanding' => $outstanding !== null
-                        ? $this->money($outstanding)
-                        : $this->ledger->getOutstanding($dealer),
-                ];
+                return $this->exportRow($dealer, $employee?->full_name ?? 'Unassigned');
             })
             ->values()
             ->all();
@@ -170,13 +183,15 @@ final class DealerOutstandingService
             'employee_name' => 'All Employees',
             'employee_code' => null,
             'scope_label' => 'All Employees',
-            'total' => $this->total(null),
+            'total' => $summary['outstanding'],
+            'credit_total' => $summary['credit'],
+            'net_total' => $summary['net'],
             'rows' => $rows,
         ];
     }
 
     /**
-     * @return list<array{employee_id: int, employee_name: string, employee_code: string|null, dealer_count: int, total_outstanding: float}>
+     * @return list<array{employee_id: int, employee_name: string, employee_code: string|null, dealer_count: int, total_outstanding: float, total_credit: float, net_balance: float}>
      */
     public function totalsByAssignedEmployee(): array
     {
@@ -192,10 +207,11 @@ final class DealerOutstandingService
         $rows = DB::query()
             ->fromSub($inner, 'outstanding_dealers')
             ->select('assigned_employee_id')
-            ->selectRaw('COALESCE(SUM(current_outstanding), 0) as total_outstanding')
-            ->selectRaw('SUM(CASE WHEN current_outstanding > 0 THEN 1 ELSE 0 END) as dealer_count')
+            ->selectRaw('COALESCE(SUM(CASE WHEN current_outstanding > 0 THEN current_outstanding ELSE 0 END), 0) as total_outstanding')
+            ->selectRaw('COALESCE(SUM(CASE WHEN current_outstanding < 0 THEN -current_outstanding ELSE 0 END), 0) as total_credit')
+            ->selectRaw('SUM(CASE WHEN current_outstanding != 0 THEN 1 ELSE 0 END) as dealer_count')
             ->groupBy('assigned_employee_id')
-            ->havingRaw('COALESCE(SUM(current_outstanding), 0) != 0')
+            ->havingRaw('COALESCE(SUM(CASE WHEN current_outstanding > 0 THEN current_outstanding ELSE 0 END), 0) != 0 OR COALESCE(SUM(CASE WHEN current_outstanding < 0 THEN -current_outstanding ELSE 0 END), 0) != 0')
             ->orderByDesc('total_outstanding')
             ->get();
 
@@ -207,13 +223,17 @@ final class DealerOutstandingService
         return $rows
             ->map(function (object $row) use ($employees): array {
                 $employee = $employees->get((int) $row->assigned_employee_id);
+                $outstanding = $this->money($row->total_outstanding);
+                $credit = $this->money($row->total_credit);
 
                 return [
                     'employee_id' => (int) $row->assigned_employee_id,
                     'employee_name' => $employee?->full_name ?? 'Unknown',
                     'employee_code' => $employee?->employee_code,
                     'dealer_count' => (int) $row->dealer_count,
-                    'total_outstanding' => $this->money($row->total_outstanding),
+                    'total_outstanding' => $outstanding,
+                    'total_credit' => $credit,
+                    'net_balance' => $this->money($outstanding - $credit),
                 ];
             })
             ->values()
@@ -245,6 +265,40 @@ final class DealerOutstandingService
             ])
             ->values()
             ->all();
+    }
+
+    /**
+     * @return array{employee_name: string, dealer_code: string, dealer_name: string, village: string, outstanding: float, credit_balance: float}
+     */
+    private function exportRow(Dealer $dealer, string $employeeName): array
+    {
+        $net = $dealer->getAttribute('current_outstanding');
+        $net = $net !== null
+            ? $this->money($net)
+            : $this->ledger->getOutstanding($dealer);
+        $split = $this->splitBalances($net);
+
+        return [
+            'employee_name' => $employeeName,
+            'dealer_code' => (string) $dealer->dealer_code,
+            'dealer_name' => (string) $dealer->firm_name,
+            'village' => filled($dealer->village) ? (string) $dealer->village : '-',
+            'outstanding' => $split['outstanding'],
+            'credit_balance' => $split['credit'],
+        ];
+    }
+
+    /**
+     * @return array{outstanding: float, credit: float}
+     */
+    public function splitBalances(float $netOutstanding): array
+    {
+        $net = $this->money($netOutstanding);
+
+        return [
+            'outstanding' => $net > 0 ? $net : 0.0,
+            'credit' => $net < 0 ? $this->money(-$net) : 0.0,
+        ];
     }
 
     /**
