@@ -574,16 +574,14 @@ class _OverviewGrid extends StatelessWidget {
         label: 'Pending Orders',
         value: '${data.pendingOrders}',
         icon: Icons.pending_actions_rounded,
-        accent: data.pendingOrders > 0 ? AppColors.warning : AppColors.success,
+        alert: data.pendingOrders > 0,
         onTap: () => onOpen('/director/pending-orders'),
       ),
       _DashTile(
         label: 'Payment Approval',
         value: '${data.myPendingPayments}',
         icon: Icons.payments_outlined,
-        accent: data.myPendingPayments > 0
-            ? AppColors.warning
-            : AppColors.textSecondary,
+        alert: data.myPendingPayments > 0,
         onTap: () => onOpen('/director/payment-requests?filter=pending'),
       ),
     ];
@@ -608,38 +606,31 @@ class _DashTile extends StatelessWidget {
     required this.label,
     required this.value,
     required this.icon,
-    required this.accent,
     required this.onTap,
     this.subtitle,
+    this.alert = false,
   });
 
   final String label;
   final String value;
   final String? subtitle;
   final IconData icon;
-  final Color accent;
+  final bool alert;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final emphasis = alert ? AppColors.warning : AppColors.textPrimary;
     return PgCard(
       onTap: onTap,
       padding: const EdgeInsets.fromLTRB(12, 11, 10, 10),
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          accent.withValues(alpha: 0.08),
-          Colors.white,
-        ],
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              _DashIconWell(icon: icon, color: accent),
+              _DashIconWell(icon: icon, color: AppColors.primary),
               const Spacer(),
               Icon(
                 Icons.chevron_right_rounded,
@@ -660,7 +651,7 @@ class _DashTile extends StatelessWidget {
                 letterSpacing: -0.6,
                 height: 1.05,
                 fontSize: 22,
-                color: AppColors.textPrimary,
+                color: emphasis,
               ),
             ),
           ),
@@ -683,7 +674,7 @@ class _DashTile extends StatelessWidget {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.labelSmall?.copyWith(
-                color: accent,
+                color: alert ? AppColors.warning : AppColors.textMuted,
                 fontWeight: FontWeight.w700,
                 fontSize: 10.5,
                 height: 1.1,
@@ -726,7 +717,7 @@ class _MonthPerformanceSection extends StatelessWidget {
           achieved: data.collectionAchieved,
           remaining: data.collectionRemaining,
           percentage: data.collectionPercentage,
-          color: AppColors.accent,
+          color: AppColors.primary,
           onTap: () => onOpen('/director/collections'),
         ),
       ],
@@ -762,14 +753,6 @@ class _TargetCard extends StatelessWidget {
     return PgCard(
       onTap: onTap,
       padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
-      gradient: LinearGradient(
-        begin: Alignment.topLeft,
-        end: Alignment.bottomRight,
-        colors: [
-          color.withValues(alpha: 0.05),
-          Colors.white,
-        ],
-      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -877,21 +860,18 @@ class _TeamActivitySection extends StatelessWidget {
         label: 'Active Employees',
         value: '${data.activeEmployees}',
         icon: Icons.badge_outlined,
-        accent: AppColors.primary,
         onTap: () => onOpen('/director/employees'),
       ),
       _DashTile(
         label: data.hasMonitoring ? 'Today Sales' : 'Sales MTD',
         value: salesValue,
         icon: Icons.trending_up_outlined,
-        accent: AppColors.primary,
         onTap: () => onOpen('/director/today-sales'),
       ),
       _DashTile(
         label: data.hasMonitoring ? 'Today Collection' : 'Collection MTD',
         value: collectionValue,
         icon: Icons.account_balance_wallet_outlined,
-        accent: AppColors.accent,
         onTap: () => onOpen('/director/today-collections'),
       ),
       _DashTile(
@@ -901,28 +881,25 @@ class _TeamActivitySection extends StatelessWidget {
             : '${data.punchedIn}',
         subtitle: '${data.notPunchedIn} Not Punched In',
         icon: Icons.fingerprint_outlined,
-        accent: data.notPunchedIn > 0 ? AppColors.warning : AppColors.success,
+        alert: data.notPunchedIn > 0,
         onTap: () => onOpen('/director/attendance'),
       ),
       _DashTile(
         label: 'Dealer Visits Today',
         value: '${data.dealerVisits}',
         icon: Icons.storefront_outlined,
-        accent: AppColors.primary,
         onTap: () => onOpen('/director/dealer-visits'),
       ),
       _DashTile(
         label: 'Field Visits',
         value: '${data.fieldActivities}',
         icon: Icons.travel_explore_outlined,
-        accent: AppColors.primary,
         onTap: () => onOpen('/director/today-field-visits'),
       ),
       _DashTile(
         label: 'Active Routes',
         value: '${data.activeRoutes}',
         icon: Icons.route_outlined,
-        accent: AppColors.primary,
         onTap: () => onOpen('/director/route-tracking'),
       ),
     ];
@@ -1030,7 +1007,7 @@ class _PeopleListCard extends StatelessWidget {
             width: 22,
             height: 2.5,
             decoration: BoxDecoration(
-              color: positive ? AppColors.success : AppColors.warning,
+              color: positive ? AppColors.primary : AppColors.warning,
               borderRadius: BorderRadius.circular(99),
             ),
           ),
@@ -1075,7 +1052,7 @@ class _PeopleListCard extends StatelessWidget {
                         fontWeight: FontWeight.w800,
                         fontSize: 11.5,
                         letterSpacing: -0.2,
-                        color: positive ? AppColors.success : AppColors.warning,
+                        color: positive ? AppColors.primary : AppColors.warning,
                       ),
                     ),
                   ],
@@ -1099,21 +1076,16 @@ class _TotalOutstandingCard extends StatelessWidget {
     final theme = Theme.of(context);
     return Container(
       decoration: BoxDecoration(
-        gradient: const LinearGradient(
-          begin: Alignment.topLeft,
-          end: Alignment.bottomRight,
-          colors: [
-            Color(0xFF0B4F4A),
-            Color(0xFF0F766E),
-            Color(0xFF156F68),
-          ],
-        ),
+        color: AppColors.primary.withValues(alpha: 0.045),
         borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
-        boxShadow: [
+        border: Border.all(
+          color: AppColors.primary.withValues(alpha: 0.18),
+        ),
+        boxShadow: const [
           BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.22),
-            blurRadius: 18,
-            offset: const Offset(0, 6),
+            color: AppColors.shadow,
+            blurRadius: 16,
+            offset: Offset(0, 4),
           ),
         ],
       ),
@@ -1122,63 +1094,65 @@ class _TotalOutstandingCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: () => onOpen('/director/outstanding-dealers'),
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 12, 16),
+          child: IntrinsicHeight(
             child: Row(
               children: [
-                Container(
-                  width: 44,
-                  height: 44,
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.14),
-                    borderRadius: BorderRadius.circular(13),
-                  ),
-                  child: const Icon(
-                    Icons.account_balance_outlined,
-                    color: Colors.white,
-                    size: 22,
-                  ),
-                ),
-                const SizedBox(width: 14),
+                Container(width: 3.5, color: AppColors.primary),
                 Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Total Outstanding',
-                        style: theme.textTheme.labelMedium?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.78),
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.2,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(14, 15, 12, 15),
+                    child: Row(
+                      children: [
+                        const _DashIconWell(
+                          icon: Icons.account_balance_outlined,
+                          color: AppColors.primary,
+                          size: 44,
+                          iconSize: 22,
                         ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        _compactInr(data.totalOutstanding),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.headlineSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                          letterSpacing: -0.6,
-                          height: 1.1,
-                          color: Colors.white,
+                        const SizedBox(width: 14),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Total Outstanding',
+                                style: theme.textTheme.labelMedium?.copyWith(
+                                  color: AppColors.textSecondary,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 0.2,
+                                ),
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                _compactInr(data.totalOutstanding),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.headlineSmall?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.6,
+                                  height: 1.1,
+                                  color: AppColors.primary,
+                                ),
+                              ),
+                              const SizedBox(height: 3),
+                              Text(
+                                'Receivable position',
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: AppColors.textMuted,
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 11,
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 3),
-                      Text(
-                        'Receivable position',
-                        style: theme.textTheme.labelSmall?.copyWith(
-                          color: Colors.white.withValues(alpha: 0.62),
-                          fontWeight: FontWeight.w600,
-                          fontSize: 11,
+                        const Icon(
+                          Icons.chevron_right_rounded,
+                          color: AppColors.textMuted,
                         ),
-                      ),
-                    ],
+                      ],
+                    ),
                   ),
-                ),
-                Icon(
-                  Icons.chevron_right_rounded,
-                  color: Colors.white.withValues(alpha: 0.72),
                 ),
               ],
             ),
