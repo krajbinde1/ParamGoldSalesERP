@@ -5,6 +5,8 @@ use App\Filament\Widgets\AdminDirectorPaymentOverviewWidget;
 use App\Models\PaymentRequest;
 use App\Models\User;
 use App\Enums\UserRole;
+use App\Services\Dashboard\DirectorDashboardDataService;
+use Illuminate\Support\Facades\Cache;
 use Livewire\Livewire;
 
 function paymentListAdmin(): User
@@ -18,13 +20,13 @@ function paymentListAdmin(): User
     ]);
 }
 
-function paymentListRequest(User $admin, string $status, string $vendor): PaymentRequest
+function paymentListRequest(User $admin, string $status, string $vendor, ?string $requestNo = null, float $amount = 10000): PaymentRequest
 {
     return PaymentRequest::query()->create([
-        'request_no' => 'PR-'.uniqid(),
+        'request_no' => $requestNo ?? 'PR-'.uniqid(),
         'vendor_name' => $vendor,
         'vendor_mobile' => '98765'.random_int(10000, 99999),
-        'amount' => 10000,
+        'amount' => $amount,
         'remark' => 'Test',
         'status' => $status,
         'created_by' => $admin->id,
@@ -56,4 +58,60 @@ it('shows payment approval summary cards and lists pending requests first', func
     expect($ids[0])->toBe($pending->id)
         ->and($ids)->toContain($done->id)
         ->and($ids)->toContain($rejected->id);
+});
+
+it('counts pending my approval only when the logged-in user is the current approver', function (): void {
+    Cache::flush();
+    app()->forgetInstance(DirectorDashboardDataService::class);
+
+    User::query()->create([
+        'name' => 'Krishna Rajbinde',
+        'email' => 'krishna.director.'.uniqid().'@example.com',
+        'password' => 'password',
+        'role' => UserRole::Director->value,
+    ]);
+    $krishna = User::query()->create([
+        'name' => 'Krishna Rajbinde',
+        'email' => 'krishna.admin.'.uniqid().'@example.com',
+        'password' => 'password',
+        'role' => UserRole::Employee->value,
+        'job_role' => 'Admin',
+    ]);
+    User::query()->create([
+        'name' => 'Bhagwan Kakde',
+        'email' => 'bhagwan.pay.'.uniqid().'@example.com',
+        'password' => 'password',
+        'role' => UserRole::Director->value,
+    ]);
+
+    $mine = paymentListRequest(
+        $krishna,
+        PaymentRequest::STATUS_PENDING_FIRST,
+        'Krishna Vendor',
+        'PR-0003',
+        15000,
+    );
+    $notMine = paymentListRequest(
+        $krishna,
+        PaymentRequest::STATUS_PENDING_SECOND,
+        'Bhagwan Vendor',
+        'PR-0005',
+        25000,
+    );
+
+    $payments = app(DirectorDashboardDataService::class)->snapshot($krishna)['payments'];
+
+    expect($payments['my_pending_count'])->toBe(1)
+        ->and((float) $payments['my_pending_amount'])->toBe(15000.0)
+        ->and($payments['my_filter'])->toBe('pending_my_approval');
+
+    $page = Livewire::actingAs($krishna)
+        ->test(ListPaymentRequests::class)
+        ->filterTable('workflow_status', $payments['my_filter'])
+        ->assertCanSeeTableRecords([$mine])
+        ->assertCanNotSeeTableRecords([$notMine]);
+
+    $ids = $page->instance()->getFilteredTableQuery()->pluck('id')->all();
+
+    expect($ids)->toBe([$mine->id]);
 });

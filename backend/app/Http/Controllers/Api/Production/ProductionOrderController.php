@@ -8,6 +8,7 @@ use App\Actions\Orders\HoldOrder;
 use App\Actions\Orders\ReleaseOrderHold;
 use App\Actions\Orders\RevertOrderToManager;
 use App\Actions\Orders\SendOrderForBilling;
+use App\Actions\Orders\UploadOrderReceivedCopy;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
 use App\Services\Orders\OrderDispatchCalculationService;
@@ -158,6 +159,8 @@ class ProductionOrderController extends Controller
                 'can_release_hold' => $order->canBeReleasedFromHold(),
                 'can_revert_to_manager' => $order->canBeRevertedToManager(),
                 'can_dispatch' => $order->canBeDispatched(),
+                'can_upload_received_copy' => $order->canUploadReceivedCopy(),
+                'received_copy_url' => $order->receivedCopyUrl(),
                 'held_at' => $order->held_at?->toDateTimeString(),
                 'hold_remark' => $order->hold_remark,
                 'reverted_at' => $order->reverted_at?->toDateTimeString(),
@@ -342,6 +345,26 @@ class ProductionOrderController extends Controller
             'meta' => [
                 'counts' => $this->statusCounts(),
             ],
+        ]);
+    }
+
+    public function uploadReceivedCopy(Request $request, Order $order): JsonResponse
+    {
+        $this->authorize('uploadReceivedCopy', $order);
+
+        $validated = $request->validate([
+            'received_copy' => ['required', 'file', 'mimes:jpg,jpeg,png,pdf,webp', 'max:10240'],
+        ]);
+
+        $result = app(UploadOrderReceivedCopy::class)->execute(
+            order: $order,
+            actor: $request->user(),
+            file: $validated['received_copy'],
+        );
+
+        return response()->json([
+            'message' => 'Received copy uploaded successfully.',
+            'data' => $this->presenter->present($result['order']),
         ]);
     }
 

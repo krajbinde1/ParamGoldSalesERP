@@ -16,6 +16,11 @@ class CreateDealer extends CreateRecord
      */
     protected function mutateFormDataBeforeCreate(array $data): array
     {
-        return MaharashtraGeography::canonicalizeLocationFields($data);
+        $data = MaharashtraGeography::canonicalizeLocationFields($data);
+        $data['opening_balance_type'] = in_array($data['opening_balance_type'] ?? null, ['debit', 'credit'], true)
+            ? $data['opening_balance_type']
+            : 'debit';
+
+        return $data;
     }
 }

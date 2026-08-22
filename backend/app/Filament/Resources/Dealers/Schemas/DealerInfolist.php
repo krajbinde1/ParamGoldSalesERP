@@ -88,6 +88,12 @@ class DealerInfolist
                         TextEntry::make('opening_balance')
                             ->label('Opening Balance')
                             ->formatStateUsing(fn ($state): string => IndianCurrency::format((float) $state)),
+                        TextEntry::make('opening_balance_type')
+                            ->label('Opening Balance Type')
+                            ->formatStateUsing(fn (?string $state): string => match (strtolower((string) $state)) {
+                                'credit' => 'Credit',
+                                default => 'Debit',
+                            }),
                         TextEntry::make('opening_balance_date')
                             ->label('As On Date')
                             ->date('d M Y')

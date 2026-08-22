@@ -51,6 +51,7 @@ class DealerController extends Controller
             'pincode' => ['nullable', 'regex:/^[1-9][0-9]{5}$/'],
             'credit_limit' => 'nullable|numeric|min:0',
             'opening_balance' => 'nullable|numeric|min:0',
+            'opening_balance_type' => 'nullable|in:debit,credit',
             'opening_balance_date' => 'nullable|date',
             'outstanding' => 'nullable|numeric|min:0',
             'latitude' => 'nullable|numeric|between:-90,90',
@@ -62,6 +63,7 @@ class DealerController extends Controller
         $validated['outstanding'] = $validated['outstanding'] ?? 0;
         $validated['credit_limit'] = $validated['credit_limit'] ?? 0;
         $validated['opening_balance'] = $validated['opening_balance'] ?? 0;
+        $validated['opening_balance_type'] = $validated['opening_balance_type'] ?? 'debit';
         $validated['status'] = $validated['status'] ?? true;
         $validated['dealer_type'] = $validated['dealer_type'] ?? 'Retailer';
         $validated = MaharashtraGeography::canonicalizeLocationFields($validated);
@@ -111,6 +113,7 @@ class DealerController extends Controller
             'pincode' => ['nullable', 'regex:/^[1-9][0-9]{5}$/'],
             'credit_limit' => 'nullable|numeric|min:0',
             'opening_balance' => 'nullable|numeric|min:0',
+            'opening_balance_type' => 'nullable|in:debit,credit',
             'opening_balance_date' => 'nullable|date',
             'outstanding' => 'nullable|numeric|min:0',
             'latitude' => 'nullable|numeric|between:-90,90',

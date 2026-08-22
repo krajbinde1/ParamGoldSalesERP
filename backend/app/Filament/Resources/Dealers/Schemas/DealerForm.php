@@ -191,6 +191,16 @@ class DealerForm
                             ->disabled(fn (): bool => ! self::canEditOpeningBalance())
                             ->dehydrated()
                             ->helperText('Changing Opening Balance will change the dealer\'s complete ledger and current outstanding.'),
+                        Select::make('opening_balance_type')
+                            ->label('Opening Balance Type')
+                            ->options([
+                                'debit' => 'Debit',
+                                'credit' => 'Credit',
+                            ])
+                            ->default('debit')
+                            ->required()
+                            ->disabled(fn (): bool => ! self::canEditOpeningBalance())
+                            ->dehydrated(),
                         DatePicker::make('opening_balance_date')
                             ->label('Opening Balance As On Date')
                             ->native(false)

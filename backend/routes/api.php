@@ -184,6 +184,7 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::post('orders/{order}/revert-to-manager', [ProductionOrderController::class, 'revertToManager']);
         Route::post('orders/{order}/dispatch-calculation', [ProductionOrderController::class, 'calculateDispatch']);
         Route::post('orders/{order}/dispatch', [ProductionOrderController::class, 'dispatch']);
+        Route::post('orders/{order}/received-copy', [ProductionOrderController::class, 'uploadReceivedCopy']);
 
         Route::get('vehicles', [VehicleApiController::class, 'index']);
         Route::post('vehicles', [VehicleApiController::class, 'store']);

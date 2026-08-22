@@ -83,7 +83,8 @@ it('creates a dealer with optional gst pan and pincode left blank', function ():
         ->and($dealer->mobile)->toBe('9876543210')
         ->and($dealer->gst_no)->toBeNull()
         ->and($dealer->pan_no)->toBeNull()
-        ->and($dealer->pincode)->toBeNull();
+        ->and($dealer->pincode)->toBeNull()
+        ->and($dealer->opening_balance_type)->toBe('debit');
 });
 
 it('creates a dealer with valid mobile gst and pan values', function (): void {
@@ -234,4 +235,38 @@ it('loads old district names onto official values when editing a dealer', functi
         ]);
 
     expect($dealer->refresh()->district)->toBe('Aurangabad');
+});
+
+it('saves opening balance type from dealer create and edit', function (): void {
+    $admin = dealerFormAdmin();
+    $employee = dealerFormEmployee();
+
+    Livewire::actingAs($admin)
+        ->test(CreateDealer::class)
+        ->assertFormSet(['opening_balance_type' => 'debit'])
+        ->fillForm([
+            'firm_name' => 'Credit Opening Dealer',
+            'owner_name' => 'Owner',
+            'dealer_type' => 'Retailer',
+            'status' => true,
+            'assigned_employee_id' => $employee->id,
+            'mobile' => '9876501999',
+            'address' => '123 Test Street',
+            'state' => 'Maharashtra',
+            'district' => 'Pune',
+            'taluka' => 'Haveli',
+            'village' => 'Wagholi',
+            'credit_limit' => 0,
+            'opening_balance' => 25000,
+            'opening_balance_type' => 'credit',
+            'opening_balance_date' => '2026-04-01',
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $dealer = Dealer::query()->where('firm_name', 'Credit Opening Dealer')->first();
+
+    expect($dealer)->not->toBeNull()
+        ->and((float) $dealer->opening_balance)->toBe(25000.0)
+        ->and($dealer->opening_balance_type)->toBe('credit');
 });

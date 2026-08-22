@@ -41,6 +41,7 @@ final class OrderDetailPresenter
             'billedByUser.employee:id,full_name,designation',
             'dispatchedByUser:id,name,role,job_role,employee_id',
             'dispatchedByUser.employee:id,full_name,designation',
+            'receivedCopyUploadedByUser:id,name',
         ]);
 
         $calculation = $previewCalculation
@@ -173,6 +174,10 @@ final class OrderDetailPresenter
             'vehicle_number' => $order->vehicle_number,
             'lr_number' => $order->lr_number,
             'lr_document_path' => $order->lr_document_path,
+            'received_copy_path' => $order->received_copy_path,
+            'received_copy_url' => $order->receivedCopyUrl(),
+            'received_copy_uploaded_at' => $order->received_copy_uploaded_at?->toDateTimeString(),
+            'received_copy_uploaded_by_name' => $order->receivedCopyUploadedByUser?->name,
             'gross_amount' => (float) $order->subtotal,
             'total_discount' => (float) $order->discount_amount,
             'subtotal' => (float) $order->subtotal,
@@ -200,6 +205,7 @@ final class OrderDetailPresenter
             'line_items' => $storedItems,
             'timeline' => $order->workflowTimeline(),
             'can_dispatch' => $order->canBeDispatched(),
+            'can_upload_received_copy' => $order->canUploadReceivedCopy(),
             'can_send_for_bill' => $order->canBeSentForBilling(),
             'can_hold' => $order->canBeHeld(),
             'can_release_hold' => $order->canBeReleasedFromHold(),

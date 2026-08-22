@@ -247,3 +247,32 @@ it('enforces dealer ledger permissions for employee manager and production super
         ->getJson('/api/dealers/'.$otherDealer->id.'/account-summary')
         ->assertOk();
 });
+
+it('treats a credit opening balance as a credit in outstanding and ledger', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100007');
+    $dealer = ledgerDealer($employee, [
+        'opening_balance' => 40000,
+        'opening_balance_type' => 'credit',
+        'opening_balance_date' => '2026-04-01',
+    ]);
+    $service = app(DealerLedgerService::class);
+
+    expect($service->getOutstanding($dealer))->toBe(-40000.0);
+
+    ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_BILLED,
+        'grand_total' => 50000,
+        'bill_date' => '2026-04-15',
+        'billed_at' => '2026-04-15 11:00:00',
+    ]);
+    expect($service->getOutstanding($dealer->fresh()))->toBe(10000.0);
+
+    $ledger = $service->getLedger($dealer->fresh());
+    expect($ledger['summary']['opening_balance'])->toBe(40000.0)
+        ->and($ledger['summary']['opening_balance_type'])->toBe('credit')
+        ->and($ledger['summary']['current_outstanding'])->toBe(10000.0)
+        ->and($ledger['ledger'][0]['debit'])->toBe(0.0)
+        ->and($ledger['ledger'][0]['credit'])->toBe(40000.0)
+        ->and($ledger['ledger'][0]['balance'])->toBe(-40000.0)
+        ->and($ledger['ledger'][array_key_last($ledger['ledger'])]['balance'])->toBe(10000.0);
+});

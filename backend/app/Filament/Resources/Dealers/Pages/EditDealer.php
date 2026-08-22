@@ -30,7 +30,12 @@ class EditDealer extends EditRecord
      */
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        return MaharashtraGeography::canonicalizeLocationFields($data);
+        $data = MaharashtraGeography::canonicalizeLocationFields($data);
+        $data['opening_balance_type'] = in_array($data['opening_balance_type'] ?? null, ['debit', 'credit'], true)
+            ? $data['opening_balance_type']
+            : 'debit';
+
+        return $data;
     }
 
     protected function getHeaderActions(): array
@@ -74,7 +79,11 @@ class EditDealer extends EditRecord
         $newAmount = round((float) ($data['opening_balance'] ?? 0), 2);
         $oldAmount = round((float) $record->opening_balance, 2);
 
+        $newType = strtolower((string) ($data['opening_balance_type'] ?? 'debit'));
+        $oldType = strtolower((string) ($record->opening_balance_type ?? 'debit'));
+
         return $newAmount !== $oldAmount
+            || $newType !== $oldType
             || $this->normalizeDate($data['opening_balance_date'] ?? null) !== $this->normalizeDate($record->opening_balance_date);
     }
 

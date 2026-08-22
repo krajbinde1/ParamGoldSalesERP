@@ -21,6 +21,18 @@ final class DealerLedgerService
         return $this->money($dealer->opening_balance);
     }
 
+    public function getOpeningBalanceType(Dealer $dealer): string
+    {
+        return $dealer->openingBalanceIsCredit()
+            ? Dealer::OPENING_BALANCE_CREDIT
+            : Dealer::OPENING_BALANCE_DEBIT;
+    }
+
+    public function getSignedOpeningBalance(Dealer $dealer): float
+    {
+        return $this->money($dealer->signedOpeningBalance());
+    }
+
     public function getOpeningBalanceDate(Dealer $dealer): ?string
     {
         return $dealer->opening_balance_date?->toDateString();
@@ -61,7 +73,7 @@ final class DealerLedgerService
     public function getOutstanding(Dealer $dealer): float
     {
         return $this->money(
-            $this->getOpeningBalance($dealer)
+            $this->getSignedOpeningBalance($dealer)
             + $this->getTotalBilledSales($dealer)
             - $this->getTotalCollections($dealer)
             - $this->getTotalCreditNotes($dealer)
@@ -79,6 +91,7 @@ final class DealerLedgerService
      *     dealer_code: string,
      *     dealer_name: string,
      *     opening_balance: float,
+     *     opening_balance_type: string,
      *     opening_balance_date: ?string,
      *     billed_sales: float,
      *     collections_received: float,
@@ -94,7 +107,7 @@ final class DealerLedgerService
         $collections = $this->getTotalCollections($dealer);
         $unbilled = $this->getUnbilledOrders($dealer);
         $outstanding = $this->money(
-            $openingBalance + $billedSales - $collections - $this->getTotalCreditNotes($dealer)
+            $this->getSignedOpeningBalance($dealer) + $billedSales - $collections - $this->getTotalCreditNotes($dealer)
         );
 
         return [
@@ -102,6 +115,7 @@ final class DealerLedgerService
             'dealer_code' => (string) $dealer->dealer_code,
             'dealer_name' => (string) $dealer->firm_name,
             'opening_balance' => $openingBalance,
+            'opening_balance_type' => $this->getOpeningBalanceType($dealer),
             'opening_balance_date' => $this->getOpeningBalanceDate($dealer),
             'billed_sales' => $billedSales,
             'collections_received' => $collections,
@@ -124,18 +138,21 @@ final class DealerLedgerService
         $running = 0.0;
 
         $openingAmount = $summary['opening_balance'];
+        $openingIsCredit = $summary['opening_balance_type'] === Dealer::OPENING_BALANCE_CREDIT;
+        $openingDebit = $openingIsCredit ? 0.0 : $openingAmount;
+        $openingCredit = $openingIsCredit ? $openingAmount : 0.0;
         $openingDate = $summary['opening_balance_date']
             ?? $dealer->created_at?->timezone('Asia/Kolkata')?->toDateString()
             ?? Carbon::now('Asia/Kolkata')->toDateString();
 
-        $running = $this->money($openingAmount);
+        $running = $this->money($openingDebit - $openingCredit);
         $entries[] = $this->ledgerRow(
             date: $openingDate,
             type: self::TYPE_OPENING_BALANCE,
             particulars: 'Opening Balance',
             reference: null,
-            debit: $openingAmount,
-            credit: 0,
+            debit: $openingDebit,
+            credit: $openingCredit,
             balance: $running,
             statusRemark: $openingAmount == 0.0 ? 'No opening balance' : 'Opening Balance',
             sourceId: 0,
@@ -250,6 +267,17 @@ final class DealerLedgerService
         return $query;
     }
 
+    public static function signedOpeningBalanceSql(string $dealersTable = 'dealers'): string
+    {
+        $credit = str_replace("'", "''", Dealer::OPENING_BALANCE_CREDIT);
+
+        return "(CASE
+            WHEN LOWER(COALESCE({$dealersTable}.opening_balance_type, 'debit')) = '{$credit}'
+            THEN -COALESCE({$dealersTable}.opening_balance, 0)
+            ELSE COALESCE({$dealersTable}.opening_balance, 0)
+        END)";
+    }
+
     public static function currentOutstandingSql(string $dealersTable = 'dealers'): string
     {
         $billed = collect(Order::billedReceivableStatuses())
@@ -258,7 +286,7 @@ final class DealerLedgerService
         $received = str_replace("'", "''", Collection::STATUS_RECEIVED);
 
         return "(
-            COALESCE({$dealersTable}.opening_balance, 0)
+            ".self::signedOpeningBalanceSql($dealersTable)."
             + COALESCE((
                 SELECT SUM(orders.grand_total)
                 FROM orders
@@ -278,7 +306,12 @@ final class DealerLedgerService
 
     public function companyTotalOutstanding(): float
     {
-        $opening = $this->money(Dealer::query()->sum('opening_balance'));
+        $opening = $this->money(
+            (float) (Dealer::query()
+                ->toBase()
+                ->selectRaw('COALESCE(SUM('.self::signedOpeningBalanceSql().'), 0) as total')
+                ->value('total') ?? 0)
+        );
         $billed = $this->money(
             Order::query()
                 ->whereIn('status', Order::billedReceivableStatuses())

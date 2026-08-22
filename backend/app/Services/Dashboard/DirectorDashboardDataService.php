@@ -185,32 +185,29 @@ class DirectorDashboardDataService
             ->get()
             ->keyBy('status');
 
-        $pendingFirst = (int) ($counts[PaymentRequest::STATUS_PENDING_FIRST]->aggregate ?? 0);
         $pendingSecond = (int) ($counts[PaymentRequest::STATUS_PENDING_SECOND]->aggregate ?? 0);
-        $pendingFirstAmount = (float) ($counts[PaymentRequest::STATUS_PENDING_FIRST]->total_amount ?? 0);
         $pendingSecondAmount = (float) ($counts[PaymentRequest::STATUS_PENDING_SECOND]->total_amount ?? 0);
 
         $isFirst = $user !== null && $resolver->isFirstApprover($user);
         $isSecond = $user !== null && $resolver->isSecondApprover($user);
 
+        $mine = $resolver->constrainPendingMyApproval(PaymentRequest::query(), $user)
+            ->toBase()
+            ->selectRaw('COUNT(*) as aggregate, COALESCE(SUM(amount), 0) as total_amount')
+            ->first();
+        $myCount = (int) ($mine->aggregate ?? 0);
+        $myAmount = (float) ($mine->total_amount ?? 0);
+        $myFilter = 'pending_my_approval';
+
         if ($isFirst) {
-            $myCount = $pendingFirst;
-            $myAmount = $pendingFirstAmount;
-            $myFilter = 'pending_krishna';
             $nextCount = $pendingSecond;
             $nextAmount = $pendingSecondAmount;
             $nextFilter = 'pending_bhagwan';
         } elseif ($isSecond) {
-            $myCount = $pendingSecond;
-            $myAmount = $pendingSecondAmount;
-            $myFilter = 'pending_bhagwan';
             $nextCount = (int) ($counts[PaymentRequest::STATUS_APPROVED_FOR_PAYMENT]->aggregate ?? 0);
             $nextAmount = (float) ($counts[PaymentRequest::STATUS_APPROVED_FOR_PAYMENT]->total_amount ?? 0);
             $nextFilter = 'approved_for_payment';
         } else {
-            $myCount = $pendingFirst + $pendingSecond;
-            $myAmount = $pendingFirstAmount + $pendingSecondAmount;
-            $myFilter = 'pending_krishna';
             $nextCount = $pendingSecond;
             $nextAmount = $pendingSecondAmount;
             $nextFilter = 'pending_bhagwan';

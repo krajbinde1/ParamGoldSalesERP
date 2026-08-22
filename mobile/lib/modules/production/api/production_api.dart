@@ -499,4 +499,23 @@ class ProductionApi {
       throw mapApiError(error);
     }
   }
+
+  Future<Map<String, dynamic>> uploadReceivedCopy(
+    int orderId, {
+    required String filePath,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/production/orders/$orderId/received-copy',
+        data: FormData.fromMap({
+          'received_copy': await MultipartFile.fromFile(filePath),
+        }),
+      );
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
 }

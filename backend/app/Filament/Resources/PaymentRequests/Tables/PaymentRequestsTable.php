@@ -5,6 +5,7 @@ namespace App\Filament\Resources\PaymentRequests\Tables;
 use App\Actions\PaymentRequests\SendPaymentRequestReminder;
 use App\Filament\Support\TodayDateFilter;
 use App\Models\PaymentRequest;
+use App\Services\PaymentRequests\PaymentRequestApproverResolver;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
@@ -124,6 +125,8 @@ class PaymentRequestsTable
                         return match ($value) {
                             'pending_krishna' => $query->where('status', PaymentRequest::STATUS_PENDING_FIRST),
                             'pending_bhagwan' => $query->where('status', PaymentRequest::STATUS_PENDING_SECOND),
+                            'pending_my_approval' => app(PaymentRequestApproverResolver::class)
+                                ->constrainPendingMyApproval($query, auth()->user()),
                             'approved_for_payment' => $query->where('status', PaymentRequest::STATUS_APPROVED_FOR_PAYMENT),
                             'rejected' => $query->whereIn('status', [
                                 PaymentRequest::STATUS_REJECTED_FIRST,

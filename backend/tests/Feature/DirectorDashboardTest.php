@@ -235,14 +235,14 @@ it('counts payment approvals for the logged-in director', function (): void {
 
     $forKrishna = app(DirectorDashboardDataService::class)->snapshot($krishna);
     expect($forKrishna['payments']['my_pending_count'])->toBe(1)
-        ->and($forKrishna['payments']['my_filter'])->toBe('pending_krishna')
+        ->and($forKrishna['payments']['my_filter'])->toBe('pending_my_approval')
         ->and($forKrishna['payments']['next_count'])->toBe(1)
         ->and($forKrishna['payments']['paid_today_count'])->toBe(1);
 
     app()->forgetInstance(DirectorDashboardDataService::class);
     $forBhagwan = app(DirectorDashboardDataService::class)->snapshot($bhagwan);
     expect($forBhagwan['payments']['my_pending_count'])->toBe(1)
-        ->and($forBhagwan['payments']['my_filter'])->toBe('pending_bhagwan');
+        ->and($forBhagwan['payments']['my_filter'])->toBe('pending_my_approval');
 });
 
 it('opens matching filtered lists for sales, collections, pending orders, and high outstanding', function (): void {

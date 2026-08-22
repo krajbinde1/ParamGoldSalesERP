@@ -4,7 +4,9 @@ namespace App\Services\PaymentRequests;
 
 use App\Enums\UserRole;
 use App\Models\Employee;
+use App\Models\PaymentRequest;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Cache;
 
 final class PaymentRequestApproverResolver
@@ -60,6 +62,37 @@ final class PaymentRequestApproverResolver
         return $this->isFirstApprover($user) || $this->isSecondApprover($user);
     }
 
+    /**
+     * Statuses where this user is the Current Approver and approval is still pending.
+     *
+     * @return list<string>
+     */
+    public function pendingApprovalStatusesFor(User $user): array
+    {
+        $statuses = [];
+
+        if ($this->isFirstApprover($user) || $this->userNameMatches($user, $this->firstApproverDisplayName())) {
+            $statuses[] = PaymentRequest::STATUS_PENDING_FIRST;
+        }
+
+        if ($this->isSecondApprover($user) || $this->userNameMatches($user, $this->secondApproverDisplayName())) {
+            $statuses[] = PaymentRequest::STATUS_PENDING_SECOND;
+        }
+
+        return $statuses;
+    }
+
+    public function constrainPendingMyApproval(Builder $query, ?User $user): Builder
+    {
+        $statuses = $user ? $this->pendingApprovalStatusesFor($user) : [];
+
+        if ($statuses === []) {
+            return $query->whereRaw('0 = 1');
+        }
+
+        return $query->whereIn('status', $statuses);
+    }
+
     public function firstApproverDisplayName(): string
     {
         return $this->firstApprover()?->name
@@ -70,6 +103,14 @@ final class PaymentRequestApproverResolver
     {
         return $this->secondApprover()?->name
             ?: (string) config('payment_requests.second_approver_name', 'Bhagwan Kakde');
+    }
+
+    private function userNameMatches(User $user, string $approverName): bool
+    {
+        $left = mb_strtolower(trim((string) $user->name));
+        $right = mb_strtolower(trim($approverName));
+
+        return $left !== '' && $left === $right;
     }
 
     private function resolveUserId(mixed $configuredId, string $name, string $cacheKey): ?int

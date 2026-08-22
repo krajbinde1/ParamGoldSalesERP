@@ -1,6 +1,8 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
+import 'package:image_picker/image_picker.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/api/api_errors.dart';
@@ -92,6 +94,13 @@ class _ProductionOrderDetailScreenState
         status: _status,
         canDispatch: _order?['can_dispatch'],
       );
+
+  bool get _isDispatched => ProductionApi.isDispatchedStatus(_status);
+
+  bool get _canUploadReceivedCopy => _isDispatched;
+
+  String get _receivedCopyUrl =>
+      (_order?['received_copy_url']?.toString() ?? '').trim();
 
   Future<void> _showSendForBillModal() async {
     var vehicles = <Map<String, dynamic>>[];
@@ -522,6 +531,81 @@ class _ProductionOrderDetailScreenState
     }
   }
 
+  Future<void> _uploadReceivedCopy() async {
+    if (!_canUploadReceivedCopy || _submitting) return;
+
+    final source = await showModalBottomSheet<String>(
+      context: context,
+      builder: (context) => SafeArea(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            ListTile(
+              leading: const Icon(Icons.photo_camera_outlined),
+              title: const Text('Take Photo'),
+              onTap: () => Navigator.pop(context, 'camera'),
+            ),
+            ListTile(
+              leading: const Icon(Icons.upload_file_outlined),
+              title: const Text('Upload File'),
+              onTap: () => Navigator.pop(context, 'file'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (source == null || !mounted) return;
+
+    String? path;
+    try {
+      if (source == 'camera') {
+        final image = await ImagePicker().pickImage(
+          source: ImageSource.camera,
+          preferredCameraDevice: CameraDevice.rear,
+          imageQuality: 85,
+        );
+        path = image?.path;
+      } else {
+        final picked = await FilePicker.pickFile(
+          type: FileType.custom,
+          allowedExtensions: const ['pdf', 'jpg', 'jpeg', 'png', 'webp'],
+        );
+        path = picked?.path;
+      }
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage(error))),
+      );
+      return;
+    }
+
+    if (path == null || path.isEmpty || !mounted) return;
+
+    setState(() => _submitting = true);
+    try {
+      final updated = await _api.uploadReceivedCopy(
+        widget.orderId,
+        filePath: path,
+      );
+      if (!mounted) return;
+      setState(() {
+        _order = updated;
+        _future = Future.value(updated);
+      });
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Received copy uploaded.')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(errorMessage(error))));
+    } finally {
+      if (mounted) setState(() => _submitting = false);
+    }
+  }
+
   Future<void> _holdOrder() async {
     if (!_canHold || _submitting) return;
     final remark = await promptRemarkDialog(
@@ -730,6 +814,34 @@ class _ProductionOrderDetailScreenState
                   ),
                   icon: const Icon(Icons.picture_as_pdf_outlined),
                   label: const Text('View Bill'),
+                ),
+              ],
+              if (_canUploadReceivedCopy) ...[
+                const SizedBox(height: AppSpacing.md),
+                FilledButton.icon(
+                  onPressed: _submitting ? null : _uploadReceivedCopy,
+                  icon: _submitting
+                      ? const SizedBox(
+                          width: 18,
+                          height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.upload_file_outlined),
+                  label: Text(
+                    _submitting ? 'Uploading...' : 'Upload Received Copy',
+                  ),
+                ),
+              ],
+              if (_receivedCopyUrl.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.sm),
+                OutlinedButton.icon(
+                  onPressed: () => openBillDocument(
+                    context,
+                    url: _receivedCopyUrl,
+                    title: 'Received Copy',
+                  ),
+                  icon: const Icon(Icons.receipt_long_outlined),
+                  label: const Text('View Received Copy'),
                 ),
               ],
               if (_canSendForBill) ...[

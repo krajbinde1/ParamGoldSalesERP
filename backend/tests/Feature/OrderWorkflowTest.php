@@ -677,6 +677,91 @@ it('allows production supervisor to mark billed orders as dispatched with option
         ->assertForbidden();
 });
 
+it('lets production supervisor upload a received copy only after dispatch', function () {
+    Storage::fake('public');
+
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000201');
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000202');
+    $production = orderWorkflowEmployee(UserRole::ProductionSupervisor, '9200000203');
+    $admin = orderWorkflowAdmin();
+    $order = orderWorkflowPending($employee->id);
+    $order->approve($manager->user->id);
+
+    $file = UploadedFile::fake()->image('received-copy.jpg');
+
+    $this->actingAs($production->user, 'sanctum')
+        ->post("/api/production/orders/{$order->id}/received-copy", [
+            'received_copy' => $file,
+        ], ['Accept' => 'application/json'])
+        ->assertForbidden();
+
+    app(SendOrderForBilling::class)->execute(
+        order: $order->fresh(),
+        actor: $production->user,
+        vehicleNumber: 'MH14RC1111',
+        transportFreight: 80,
+        transportChargeType: 'transport_extra',
+    );
+
+    app(BillOrderWithDocument::class)->execute(
+        order: $order->fresh(),
+        actor: $admin,
+        bill: UploadedFile::fake()->create('bill.pdf', 100, 'application/pdf'),
+        billNumber: 'BILL-RC-1',
+    );
+
+    $this->actingAs($production->user, 'sanctum')
+        ->post("/api/production/orders/{$order->id}/received-copy", [
+            'received_copy' => $file,
+        ], ['Accept' => 'application/json'])
+        ->assertForbidden();
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/dispatch", [
+            'remark' => 'Dispatched for delivery',
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.status', Order::STATUS_DISPATCHED)
+        ->assertJsonPath('data.received_copy_url', null)
+        ->assertJsonPath('data.can_upload_received_copy', true);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->post("/api/production/orders/{$order->id}/received-copy", [
+            'received_copy' => UploadedFile::fake()->image('other.jpg'),
+        ], ['Accept' => 'application/json'])
+        ->assertForbidden();
+
+    $this->actingAs($admin, 'sanctum')
+        ->post("/api/production/orders/{$order->id}/received-copy", [
+            'received_copy' => UploadedFile::fake()->image('admin.jpg'),
+        ], ['Accept' => 'application/json'])
+        ->assertForbidden();
+
+    $this->actingAs($production->user, 'sanctum')
+        ->post("/api/production/orders/{$order->id}/received-copy", [
+            'received_copy' => UploadedFile::fake()->image('pod.jpg'),
+        ], ['Accept' => 'application/json'])
+        ->assertOk()
+        ->assertJsonPath('data.status', Order::STATUS_DISPATCHED)
+        ->assertJsonPath('data.can_upload_received_copy', true)
+        ->assertJsonPath('data.received_copy_uploaded_by_name', $production->user->name);
+
+    $fresh = $order->fresh();
+    expect($fresh->received_copy_path)->not->toBeNull()
+        ->and($fresh->received_copy_uploaded_by)->toBe($production->user->id)
+        ->and($fresh->received_copy_uploaded_at)->not->toBeNull()
+        ->and($fresh->status)->toBe(Order::STATUS_DISPATCHED)
+        ->and($fresh->dispatch_remark)->toBe('Dispatched for delivery');
+
+    Storage::disk('public')->assertExists($fresh->received_copy_path);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson("/api/production/orders/{$order->id}")
+        ->assertOk()
+        ->assertJsonPath('data.received_copy_path', $fresh->received_copy_path)
+        ->assertJsonFragment(['received_copy_url' => $fresh->receivedCopyUrl()]);
+});
+
 it('lets production supervisor list rejected orders without dispatching them', function () {
     $employee = orderWorkflowEmployee(UserRole::Employee, '9200000111');
     $manager = orderWorkflowEmployee(UserRole::Manager, '9200000112');

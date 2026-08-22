@@ -79,6 +79,7 @@ class Dealer extends Model
         'credit_limit',
         'outstanding',
         'opening_balance',
+        'opening_balance_type',
         'opening_balance_date',
         'dealer_type',
         'status',
@@ -92,6 +93,23 @@ class Dealer extends Model
         'opening_balance' => 'decimal:2',
         'opening_balance_date' => 'date',
     ];
+
+    public const OPENING_BALANCE_DEBIT = 'debit';
+
+    public const OPENING_BALANCE_CREDIT = 'credit';
+
+    public function openingBalanceIsCredit(): bool
+    {
+        return strtolower(trim((string) ($this->opening_balance_type ?: self::OPENING_BALANCE_DEBIT)))
+            === self::OPENING_BALANCE_CREDIT;
+    }
+
+    public function signedOpeningBalance(): float
+    {
+        $amount = round((float) ($this->opening_balance ?? 0), 2);
+
+        return $this->openingBalanceIsCredit() ? -$amount : $amount;
+    }
 
     public function assignedEmployee(): BelongsTo
     {

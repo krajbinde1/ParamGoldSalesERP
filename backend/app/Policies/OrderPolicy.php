@@ -205,6 +205,23 @@ class OrderPolicy
         return $user->hasRole(UserRole::ProductionSupervisor);
     }
 
+    public function uploadReceivedCopy(User $user, Order $order): bool
+    {
+        if (! $order->canUploadReceivedCopy()) {
+            return false;
+        }
+
+        if ($user->isAdminUser() || $user->isDirectorUser()) {
+            return false;
+        }
+
+        if ($user->canActAsProductionSupervisor()) {
+            return true;
+        }
+
+        return $user->hasRole(UserRole::ProductionSupervisor);
+    }
+
     private function managerOwnsOrder(User $user, Order $order): bool
     {
         return app(ManagerOrderAccessService::class)->managerCanAccessOrder($user, $order);

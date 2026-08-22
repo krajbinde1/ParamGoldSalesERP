@@ -154,6 +154,7 @@ class Order extends Model
         'dispatched_by', 'dispatched_at', 'dispatch_date', 'dispatch_remark',
         'transport_type', 'transport_amount', 'transport_charge_type', 'original_grand_total', 'transport_adjustment',
         'transporter_name', 'vehicle_id', 'vehicle_number', 'lr_number', 'lr_document_path',
+        'received_copy_path', 'received_copy_uploaded_by', 'received_copy_uploaded_at',
         'subtotal_before_transport', 'taxable_amount_after_transport',
     ];
 
@@ -182,6 +183,7 @@ class Order extends Model
             'sent_for_bill_at' => 'datetime',
             'billed_at' => 'datetime',
             'dispatched_at' => 'datetime',
+            'received_copy_uploaded_at' => 'datetime',
         ];
     }
 
@@ -258,6 +260,11 @@ class Order extends Model
     public function dispatchedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'dispatched_by');
+    }
+
+    public function receivedCopyUploadedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'received_copy_uploaded_by');
     }
 
     /**
@@ -397,6 +404,11 @@ class Order extends Model
         // dispatch action when billed_at/approved_at were missing on otherwise
         // billed orders.
         return $this->status === self::STATUS_BILLED;
+    }
+
+    public function canUploadReceivedCopy(): bool
+    {
+        return $this->status === self::STATUS_DISPATCHED;
     }
 
     /**
@@ -641,6 +653,20 @@ class Order extends Model
         }
 
         return url('storage/'.ltrim(str_replace('\\', '/', $this->bill_path), '/'));
+    }
+
+    public function receivedCopyUrl(): ?string
+    {
+        return \App\Support\PublicMediaUrl::fromPublicPath($this->received_copy_path);
+    }
+
+    public function storeReceivedCopy(string $path, int $userId): void
+    {
+        $this->update([
+            'received_copy_path' => $path,
+            'received_copy_uploaded_by' => $userId,
+            'received_copy_uploaded_at' => Carbon::now(self::BUSINESS_TIMEZONE),
+        ]);
     }
 
     public function approve(?int $userId = null, ?string $remark = null): void
