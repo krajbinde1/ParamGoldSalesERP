@@ -7,7 +7,6 @@ import '../../../core/design/app_spacing.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
-import '../../../core/widgets/design/pg_quick_action.dart';
 import '../../../core/widgets/role_shell_widgets.dart';
 import '../../auth/providers/auth_controller.dart';
 import '../api/director_api.dart';
@@ -41,6 +40,79 @@ String _directorGreeting() {
   if (hour < 12) return 'Good Morning';
   if (hour < 17) return 'Good Afternoon';
   return 'Good Evening';
+}
+
+const _dashSectionGap = 14.0;
+const _dashTileExtent = 112.0;
+const _dashIconSize = 32.0;
+const _dashGlyphSize = 16.0;
+
+class _DashHeading extends StatelessWidget {
+  const _DashHeading(this.title);
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 10),
+      child: Row(
+        children: [
+          Container(
+            width: 3,
+            height: 14,
+            decoration: BoxDecoration(
+              color: AppColors.primary,
+              borderRadius: BorderRadius.circular(99),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              title,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.2,
+                    color: AppColors.textPrimary,
+                  ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _DashIconWell extends StatelessWidget {
+  const _DashIconWell({
+    required this.icon,
+    required this.color,
+    this.size = _dashIconSize,
+    this.iconSize = _dashGlyphSize,
+  });
+
+  final IconData icon;
+  final Color color;
+  final double size;
+  final double iconSize;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: color.withValues(alpha: 0.18)),
+      ),
+      child: Icon(
+        icon,
+        size: iconSize,
+        color: color,
+      ),
+    );
+  }
 }
 
 class DirectorDashboardScreen extends StatefulWidget {
@@ -127,23 +199,23 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.screenPadding,
-                    AppSpacing.md,
+                    12,
                     AppSpacing.screenPadding,
-                    AppSpacing.xxl,
+                    AppSpacing.xl,
                   ),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
                       _OverviewGrid(data: data, onOpen: _open),
-                      const SizedBox(height: AppSpacing.md),
+                      const SizedBox(height: _dashSectionGap),
                       _TotalOutstandingCard(data: data, onOpen: _open),
-                      const SizedBox(height: AppSpacing.md),
+                      const SizedBox(height: _dashSectionGap),
                       _TeamActivitySection(data: data, onOpen: _open),
-                      const SizedBox(height: AppSpacing.md),
+                      const SizedBox(height: _dashSectionGap),
                       _MonthPerformanceSection(data: data, onOpen: _open),
-                      const SizedBox(height: AppSpacing.md),
+                      const SizedBox(height: _dashSectionGap),
                       _TeamPerformanceSection(data: data, onOpen: _open),
-                      const SizedBox(height: AppSpacing.lg),
-                      const PgSectionHeader(title: 'Modules'),
+                      const SizedBox(height: 18),
+                      const _DashHeading('Modules'),
                       _ModuleList(
                         items: [
                           _ModuleItem(
@@ -165,7 +237,7 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                             title: 'Sales Performance',
                             subtitle:
                                 '${data.salesPercentage.round()}% of ${_compactInr(data.salesTarget)} target',
-                            icon: Icons.insights_rounded,
+                            icon: Icons.insights_outlined,
                             onTap: () => _open('/director/sales-performance'),
                           ),
                           _ModuleItem(
@@ -188,7 +260,7 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                             title: 'Team Activity',
                             subtitle:
                                 '${data.punchedIn} punched in · ${data.dealerVisits} dealer visits',
-                            icon: Icons.groups_rounded,
+                            icon: Icons.groups_outlined,
                             onTap: () => _open('/director/team-activity'),
                           ),
                           _ModuleItem(
@@ -204,7 +276,7 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                             subtitle: data.pendingClaims > 0
                                 ? '${data.pendingClaims} pending'
                                 : 'View claims',
-                            icon: Icons.receipt_long_rounded,
+                            icon: Icons.receipt_long_outlined,
                             onTap: () => _open('/director/ta-da-claims'),
                           ),
                           _ModuleItem(
@@ -248,21 +320,21 @@ class _DirectorHeader extends StatelessWidget {
       width: double.infinity,
       padding: EdgeInsets.fromLTRB(
         AppSpacing.screenPadding,
-        top + AppSpacing.sm,
+        top + 10,
         AppSpacing.screenPadding,
-        AppSpacing.md,
+        16,
       ),
       decoration: const BoxDecoration(
         gradient: LinearGradient(
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Color(0xFF0B4F4A),
+            Color(0xFF0A3F3B),
             Color(0xFF0F766E),
-            Color(0xFF14B8A6),
+            Color(0xFF0D9488),
           ],
         ),
-        borderRadius: BorderRadius.vertical(bottom: Radius.circular(20)),
+        borderRadius: BorderRadius.vertical(bottom: Radius.circular(22)),
       ),
       child: Row(
         children: [
@@ -272,12 +344,13 @@ class _DirectorHeader extends StatelessWidget {
               children: [
                 Text(
                   _directorGreeting(),
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.82),
+                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: Colors.white.withValues(alpha: 0.78),
                         fontWeight: FontWeight.w500,
+                        letterSpacing: 0.2,
                       ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Text(
                   name,
                   maxLines: 1,
@@ -285,14 +358,15 @@ class _DirectorHeader extends StatelessWidget {
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
                         color: Colors.white,
                         fontWeight: FontWeight.w800,
-                        height: 1.2,
+                        letterSpacing: -0.3,
+                        height: 1.15,
                       ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Text(
                   'Company monitoring',
                   style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                        color: Colors.white.withValues(alpha: 0.78),
+                        color: Colors.white.withValues(alpha: 0.72),
                         fontWeight: FontWeight.w600,
                       ),
                 ),
@@ -302,11 +376,17 @@ class _DirectorHeader extends StatelessWidget {
           IconButton(
             tooltip: 'Notifications',
             onPressed: () => context.push('/notifications'),
-            icon: const Icon(
-              Icons.notifications_none_rounded,
-              color: Colors.white,
+            style: IconButton.styleFrom(
+              backgroundColor: Colors.white.withValues(alpha: 0.14),
+              foregroundColor: Colors.white,
+              minimumSize: const Size(40, 40),
+              maximumSize: const Size(40, 40),
+              padding: EdgeInsets.zero,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
             ),
+            icon: const Icon(Icons.notifications_none_outlined, size: 22),
           ),
+          const SizedBox(width: 8),
           _DirectorProfileMenu(
             auth: auth,
             initial: initial,
@@ -370,20 +450,30 @@ class _DirectorProfileMenu extends StatelessWidget {
           ),
         ),
       ],
-      child: CircleAvatar(
-        radius: 18,
-        backgroundColor: Colors.white.withValues(alpha: 0.2),
-        backgroundImage: photoUrl != null ? NetworkImage(photoUrl!) : null,
-        child: photoUrl == null
-            ? Text(
-                initial,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.w800,
-                  fontSize: 14,
-                ),
-              )
-            : null,
+      child: Container(
+        padding: const EdgeInsets.all(1.5),
+        decoration: BoxDecoration(
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: Colors.white.withValues(alpha: 0.85),
+            width: 1.5,
+          ),
+        ),
+        child: CircleAvatar(
+          radius: 16,
+          backgroundColor: Colors.white.withValues(alpha: 0.18),
+          backgroundImage: photoUrl != null ? NetworkImage(photoUrl!) : null,
+          child: photoUrl == null
+              ? Text(
+                  initial,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w800,
+                    fontSize: 13,
+                  ),
+                )
+              : null,
+        ),
       ),
     );
   }
@@ -416,22 +506,17 @@ class _OverviewGrid extends StatelessWidget {
       ),
     ];
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final aspect = constraints.maxWidth >= 400 ? 1.7 : 1.38;
-        return GridView.builder(
-          itemCount: items.length,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisSpacing: AppSpacing.sm,
-            crossAxisSpacing: AppSpacing.sm,
-            childAspectRatio: aspect,
-          ),
-          itemBuilder: (context, index) => items[index],
-        );
-      },
+    return GridView.builder(
+      itemCount: items.length,
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+        crossAxisCount: 2,
+        mainAxisSpacing: 10,
+        crossAxisSpacing: 10,
+        mainAxisExtent: _dashTileExtent,
+      ),
+      itemBuilder: (context, index) => items[index],
     );
   }
 }
@@ -458,44 +543,49 @@ class _DashTile extends StatelessWidget {
     final theme = Theme.of(context);
     return PgCard(
       onTap: onTap,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(12, 11, 10, 11),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Container(
-                width: 28,
-                height: 28,
-                decoration: BoxDecoration(
-                  color: accent.withValues(alpha: 0.12),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Icon(icon, size: 15, color: accent),
-              ),
+              _DashIconWell(icon: icon, color: accent),
               const Spacer(),
-              Icon(Icons.chevron_right_rounded, size: 16, color: accent),
+              Icon(
+                Icons.chevron_right_rounded,
+                size: 18,
+                color: AppColors.textMuted.withValues(alpha: 0.9),
+              ),
             ],
           ),
-          const Spacer(),
-          Text(
-            value,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
+          const SizedBox(height: 10),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                letterSpacing: -0.4,
+                height: 1.1,
+                color: AppColors.textPrimary,
+              ),
             ),
           ),
+          const SizedBox(height: 2),
           Text(
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: theme.textTheme.labelSmall?.copyWith(
-              color: theme.colorScheme.onSurfaceVariant,
+              color: AppColors.textSecondary,
               fontWeight: FontWeight.w600,
+              letterSpacing: 0.05,
             ),
           ),
-          if (subtitle != null)
+          if (subtitle != null) ...[
+            const SizedBox(height: 2),
             Text(
               subtitle!,
               maxLines: 1,
@@ -503,8 +593,10 @@ class _DashTile extends StatelessWidget {
               style: theme.textTheme.labelSmall?.copyWith(
                 color: accent,
                 fontWeight: FontWeight.w700,
+                fontSize: 10.5,
               ),
             ),
+          ],
         ],
       ),
     );
@@ -522,9 +614,10 @@ class _MonthPerformanceSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const PgSectionHeader(title: 'This Month Performance'),
+        const _DashHeading('This Month Performance'),
         _TargetCard(
           title: 'Sales',
+          icon: Icons.trending_up_outlined,
           target: data.salesTarget,
           achieved: data.salesAchieved,
           remaining: data.salesRemaining,
@@ -535,6 +628,7 @@ class _MonthPerformanceSection extends StatelessWidget {
         const SizedBox(height: AppSpacing.sm),
         _TargetCard(
           title: 'Collection',
+          icon: Icons.account_balance_wallet_outlined,
           target: data.collectionTarget,
           achieved: data.collectionAchieved,
           remaining: data.collectionRemaining,
@@ -550,6 +644,7 @@ class _MonthPerformanceSection extends StatelessWidget {
 class _TargetCard extends StatelessWidget {
   const _TargetCard({
     required this.title,
+    required this.icon,
     required this.target,
     required this.achieved,
     required this.remaining,
@@ -559,6 +654,7 @@ class _TargetCard extends StatelessWidget {
   });
 
   final String title;
+  final IconData icon;
   final double target;
   final double achieved;
   final double remaining;
@@ -572,39 +668,49 @@ class _TargetCard extends StatelessWidget {
     final progress = (percentage / 100).clamp(0.0, 1.0);
     return PgCard(
       onTap: onTap,
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              Text(
-                title,
-                style: theme.textTheme.titleSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
+              _DashIconWell(
+                icon: icon,
+                color: color,
+                size: 28,
+                iconSize: 15,
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  title,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: -0.2,
+                  ),
                 ),
               ),
-              const Spacer(),
               Text(
                 '${percentage.round()}%',
                 style: theme.textTheme.titleSmall?.copyWith(
                   color: color,
                   fontWeight: FontWeight.w800,
+                  letterSpacing: -0.2,
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           ClipRRect(
             borderRadius: BorderRadius.circular(99),
             child: LinearProgressIndicator(
               value: progress,
-              minHeight: 7,
+              minHeight: 5,
               color: color,
-              backgroundColor: color.withValues(alpha: 0.14),
+              backgroundColor: color.withValues(alpha: 0.12),
             ),
           ),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
           Row(
             children: [
               Expanded(child: _kv('Target', _compactInr(target))),
@@ -621,12 +727,25 @@ class _TargetCard extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(label, style: const TextStyle(fontSize: 11, color: AppColors.textMuted)),
+        Text(
+          label,
+          style: const TextStyle(
+            fontSize: 10.5,
+            color: AppColors.textMuted,
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 2),
         Text(
           value,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
-          style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+          style: const TextStyle(
+            fontWeight: FontWeight.w800,
+            fontSize: 12.5,
+            letterSpacing: -0.2,
+            color: AppColors.textPrimary,
+          ),
         ),
       ],
     );
@@ -663,7 +782,7 @@ class _TeamActivitySection extends StatelessWidget {
       _DashTile(
         label: data.hasMonitoring ? 'Today Sales' : 'Sales MTD',
         value: salesValue,
-        icon: Icons.trending_up_rounded,
+        icon: Icons.trending_up_outlined,
         accent: AppColors.primary,
         onTap: () => onOpen('/director/today-sales'),
       ),
@@ -680,7 +799,7 @@ class _TeamActivitySection extends StatelessWidget {
             ? '${data.punchedIn} / ${data.activeEmployees}'
             : '${data.punchedIn}',
         subtitle: '${data.notPunchedIn} Not Punched In',
-        icon: Icons.fingerprint_rounded,
+        icon: Icons.fingerprint_outlined,
         accent: data.notPunchedIn > 0 ? AppColors.warning : AppColors.success,
         onTap: () => onOpen('/director/attendance'),
       ),
@@ -694,7 +813,7 @@ class _TeamActivitySection extends StatelessWidget {
       _DashTile(
         label: 'Field Visits',
         value: '${data.fieldActivities}',
-        icon: Icons.travel_explore_rounded,
+        icon: Icons.travel_explore_outlined,
         accent: AppColors.primary,
         onTap: () => onOpen('/director/today-field-visits'),
       ),
@@ -710,22 +829,19 @@ class _TeamActivitySection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const PgSectionHeader(title: 'Team Activity Today'),
+        const _DashHeading('Team Activity Today'),
         LayoutBuilder(
           builder: (context, constraints) {
             final crossAxisCount = constraints.maxWidth >= 520 ? 3 : 2;
-            final aspect = crossAxisCount == 3
-                ? 1.22
-                : (constraints.maxWidth >= 400 ? 1.7 : 1.38);
             return GridView.builder(
               itemCount: items.length,
               shrinkWrap: true,
               physics: const NeverScrollableScrollPhysics(),
               gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: crossAxisCount,
-                mainAxisSpacing: AppSpacing.sm,
-                crossAxisSpacing: AppSpacing.sm,
-                childAspectRatio: aspect,
+                mainAxisSpacing: 10,
+                crossAxisSpacing: 10,
+                mainAxisExtent: 118,
               ),
               itemBuilder: (context, index) => items[index],
             );
@@ -747,7 +863,7 @@ class _TeamPerformanceSection extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const PgSectionHeader(title: 'Team Performance'),
+        const _DashHeading('Team Performance'),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -760,7 +876,7 @@ class _TeamPerformanceSection extends StatelessWidget {
                 onOpen: onOpen,
               ),
             ),
-            const SizedBox(width: 8),
+            const SizedBox(width: 10),
             Expanded(
               child: _PeopleListCard(
                 title: 'Needs Attention',
@@ -796,7 +912,7 @@ class _PeopleListCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return PgCard(
       onTap: () => onOpen('/director/employees'),
-      padding: const EdgeInsets.all(10),
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -804,11 +920,30 @@ class _PeopleListCard extends StatelessWidget {
             title,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   fontWeight: FontWeight.w800,
+                  letterSpacing: -0.1,
+                  color: AppColors.textPrimary,
                 ),
           ),
-          const SizedBox(height: 6),
+          const SizedBox(height: 2),
+          Container(
+            width: 22,
+            height: 2.5,
+            decoration: BoxDecoration(
+              color: positive ? AppColors.success : AppColors.warning,
+              borderRadius: BorderRadius.circular(99),
+            ),
+          ),
+          const SizedBox(height: 10),
           if (rows.isEmpty)
-            Text(empty, style: Theme.of(context).textTheme.labelSmall)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                empty,
+                style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                      color: AppColors.textMuted,
+                    ),
+              ),
+            )
           else
             ...rows.map((row) {
               final name = (row['employee_name'] ?? row['name'] ?? '—')
@@ -818,7 +953,7 @@ class _PeopleListCard extends StatelessWidget {
                   ) ??
                   0;
               return Padding(
-                padding: const EdgeInsets.only(bottom: 4),
+                padding: const EdgeInsets.only(bottom: 8),
                 child: Row(
                   children: [
                     Expanded(
@@ -826,14 +961,19 @@ class _PeopleListCard extends StatelessWidget {
                         name,
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.labelSmall,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: AppColors.textPrimary,
+                            ),
                       ),
                     ),
+                    const SizedBox(width: 6),
                     Text(
                       '${pct.round()}%',
                       style: TextStyle(
-                        fontWeight: FontWeight.w700,
-                        fontSize: 11,
+                        fontWeight: FontWeight.w800,
+                        fontSize: 11.5,
+                        letterSpacing: -0.2,
                         color: positive ? AppColors.success : AppColors.warning,
                       ),
                     ),
@@ -858,21 +998,14 @@ class _TotalOutstandingCard extends StatelessWidget {
     final theme = Theme.of(context);
     return PgCard(
       onTap: () => onOpen('/director/outstanding-dealers'),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(14, 13, 10, 13),
       child: Row(
         children: [
-          Container(
-            width: 40,
-            height: 40,
-            decoration: BoxDecoration(
-              color: AppColors.error.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: const Icon(
-              Icons.account_balance_wallet_outlined,
-              size: 22,
-              color: AppColors.error,
-            ),
+          const _DashIconWell(
+            icon: Icons.account_balance_outlined,
+            color: AppColors.error,
+            size: 40,
+            iconSize: 20,
           ),
           const SizedBox(width: 12),
           Expanded(
@@ -881,25 +1014,30 @@ class _TotalOutstandingCard extends StatelessWidget {
               children: [
                 Text(
                   'Total Outstanding',
-                  style: theme.textTheme.labelLarge?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: AppColors.textSecondary,
                     fontWeight: FontWeight.w700,
+                    letterSpacing: 0.1,
                   ),
                 ),
-                const SizedBox(height: 2),
+                const SizedBox(height: 3),
                 Text(
                   _compactInr(data.totalOutstanding),
-                  style: theme.textTheme.headlineSmall?.copyWith(
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleLarge?.copyWith(
                     fontWeight: FontWeight.w800,
+                    letterSpacing: -0.5,
+                    height: 1.1,
                     color: AppColors.error,
                   ),
                 ),
               ],
             ),
           ),
-          Icon(
+          const Icon(
             Icons.chevron_right_rounded,
-            color: theme.colorScheme.onSurfaceVariant,
+            color: AppColors.textMuted,
           ),
         ],
       ),
@@ -1014,63 +1152,84 @@ class _ModuleList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        for (var i = 0; i < items.length; i++) ...[
-          if (i > 0) const SizedBox(height: AppSpacing.sm),
-          PgCard(
-            onTap: items[i].onTap,
-            padding: const EdgeInsets.symmetric(
-              horizontal: AppSpacing.md,
-              vertical: 12,
-            ),
-            child: Row(
-              children: [
-                Container(
-                  width: 40,
-                  height: 40,
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: AppColors.tealGradient,
-                    ),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: Icon(items[i].icon, color: Colors.white, size: 20),
+    return PgCard(
+      padding: EdgeInsets.zero,
+      child: Column(
+        children: [
+          for (var i = 0; i < items.length; i++) ...[
+            Material(
+              color: Colors.transparent,
+              child: InkWell(
+                onTap: items[i].onTap,
+                borderRadius: BorderRadius.vertical(
+                  top: i == 0
+                      ? const Radius.circular(AppSpacing.radiusLg)
+                      : Radius.zero,
+                  bottom: i == items.length - 1
+                      ? const Radius.circular(AppSpacing.radiusLg)
+                      : Radius.zero,
                 ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 11, 10, 11),
+                  child: Row(
                     children: [
-                      Text(
-                        items[i].title,
-                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                              fontWeight: FontWeight.w800,
-                            ),
+                      _DashIconWell(
+                        icon: items[i].icon,
+                        color: AppColors.primary,
+                        size: 36,
+                        iconSize: 18,
                       ),
-                      const SizedBox(height: 2),
-                      Text(
-                        items[i].subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                              color: AppColors.textSecondary,
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              items[i].title,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleSmall
+                                  ?.copyWith(
+                                    fontWeight: FontWeight.w800,
+                                    letterSpacing: -0.15,
+                                  ),
                             ),
+                            const SizedBox(height: 2),
+                            Text(
+                              items[i].subtitle,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .bodySmall
+                                  ?.copyWith(
+                                    color: AppColors.textSecondary,
+                                    height: 1.2,
+                                  ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const Icon(
+                        Icons.chevron_right_rounded,
+                        color: AppColors.textMuted,
+                        size: 20,
                       ),
                     ],
                   ),
                 ),
-                const Icon(
-                  Icons.chevron_right_rounded,
-                  color: AppColors.textMuted,
-                ),
-              ],
+              ),
             ),
-          ),
+            if (i < items.length - 1)
+              const Divider(
+                height: 1,
+                indent: 62,
+                endIndent: 14,
+                color: AppColors.border,
+              ),
+          ],
         ],
-      ],
+      ),
     );
   }
 }

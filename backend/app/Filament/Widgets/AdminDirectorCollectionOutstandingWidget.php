@@ -2,6 +2,7 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Pages\TotalOutstanding;
 use App\Filament\Resources\Collections\CollectionResource;
 use App\Filament\Resources\Dealers\DealerResource;
 use App\Services\Dashboard\DirectorDashboardDataService;
@@ -48,7 +49,7 @@ class AdminDirectorCollectionOutstandingWidget extends Widget
                 [
                     'label' => 'Total Outstanding',
                     'value' => $format((float) $data['total_outstanding']),
-                    'url' => DealerResource::getUrl('index'),
+                    'url' => TotalOutstanding::getUrl(),
                 ],
                 [
                     'label' => 'High Outstanding Dealers',
