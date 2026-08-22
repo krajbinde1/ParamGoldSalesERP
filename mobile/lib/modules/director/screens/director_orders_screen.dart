@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/api/api_errors.dart';
+import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/navigation/navigation_guard.dart';
 import '../../../core/storage/session_store.dart';
@@ -582,14 +583,34 @@ class _DirectorFilteredOrdersScreenState
                       future: _dashboardFuture,
                       builder: (context, snapshot) {
                         if (!snapshot.hasData) {
-                          return const SizedBox(height: 120);
+                          return const Padding(
+                            padding: EdgeInsets.fromLTRB(
+                              AppSpacing.screenPadding,
+                              16,
+                              AppSpacing.screenPadding,
+                              0,
+                            ),
+                            child: SizedBox(
+                              height: 48,
+                              child: Center(
+                                child: SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2.4,
+                                    color: AppColors.primary,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          );
                         }
                         return Padding(
                           padding: const EdgeInsets.fromLTRB(
                             AppSpacing.screenPadding,
+                            12,
                             AppSpacing.screenPadding,
-                            AppSpacing.screenPadding,
-                            0,
+                            12,
                           ),
                           child: DirectorOrderPipelineSection(
                             data: snapshot.data!,

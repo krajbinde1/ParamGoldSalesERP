@@ -120,6 +120,9 @@ const List<Widget> kRetainedMaterialIconWidgets = [
   Icon(Icons.stop_circle_outlined),
   Icon(Icons.chevron_left),
   Icon(Icons.chevron_right),
+  Icon(Icons.arrow_forward_rounded),
+  Icon(Icons.pause_circle_outline),
+  Icon(Icons.undo_rounded),
 ];
 
 /// Ensures retained icon constants stay live in release AOT builds.
