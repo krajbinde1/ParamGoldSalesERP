@@ -86,7 +86,7 @@ final class EmployeeOutstandingExport implements FromArray, ShouldAutoSize, With
                 }
 
                 $sheet->insertNewRowBefore(1, 3);
-                $sheet->setCellValue('A1', 'Employee Outstanding');
+                $sheet->setCellValue('A1', 'Total Outstanding');
                 $sheet->setCellValue('A2', 'Employee: '.$employeeLabel);
                 $sheet->setCellValue('A3', 'Generated on: '.$this->generatedAt);
                 $sheet->mergeCells('A1:E1');

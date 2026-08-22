@@ -258,4 +258,14 @@
         text-decoration: none;
         white-space: nowrap;
     }
+
+    .total-outstanding-page .paramgold-summary-grid {
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+    }
+
+    @media (min-width: 1024px) {
+        .total-outstanding-page .paramgold-summary-grid {
+            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        }
+    }
 </style>

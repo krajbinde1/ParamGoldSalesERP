@@ -124,7 +124,53 @@ final class DealerOutstandingService
         return [
             'employee_name' => $employeeName,
             'employee_code' => $employee->employee_code,
+            'scope_label' => $employeeName,
             'total' => $this->total($assignedEmployeeId),
+            'rows' => $rows,
+        ];
+    }
+
+    /**
+     * PDF / Excel rows for All Employees or one assigned employee.
+     *
+     * @return array{
+     *     employee_name: string,
+     *     employee_code: string|null,
+     *     scope_label: string,
+     *     total: float,
+     *     rows: list<array{employee_name: string, dealer_code: string, dealer_name: string, village: string, outstanding: float}>
+     * }
+     */
+    public function exportPayload(?int $assignedEmployeeId = null): array
+    {
+        if ($assignedEmployeeId !== null) {
+            return $this->employeeExportPayload($assignedEmployeeId);
+        }
+
+        $rows = $this->dealersQuery(null)
+            ->get()
+            ->map(function (Dealer $dealer): array {
+                $employee = $dealer->assignedEmployee;
+                $outstanding = $dealer->getAttribute('current_outstanding');
+
+                return [
+                    'employee_name' => $employee?->full_name ?? 'Unassigned',
+                    'dealer_code' => (string) $dealer->dealer_code,
+                    'dealer_name' => (string) $dealer->firm_name,
+                    'village' => filled($dealer->village) ? (string) $dealer->village : '-',
+                    'outstanding' => $outstanding !== null
+                        ? $this->money($outstanding)
+                        : $this->ledger->getOutstanding($dealer),
+                ];
+            })
+            ->values()
+            ->all();
+
+        return [
+            'employee_name' => 'All Employees',
+            'employee_code' => null,
+            'scope_label' => 'All Employees',
+            'total' => $this->total(null),
             'rows' => $rows,
         ];
     }

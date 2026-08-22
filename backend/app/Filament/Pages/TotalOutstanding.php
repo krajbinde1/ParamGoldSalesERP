@@ -10,12 +10,10 @@ use App\Services\Dealers\DealerLedgerService;
 use App\Services\Dealers\DealerOutstandingService;
 use App\Support\IndianCurrency;
 use BackedEnum;
-use Barryvdh\DomPDF\Facade\Pdf;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Concerns\InteractsWithForms;
 use Filament\Forms\Contracts\HasForms;
-use Filament\Notifications\Notification;
 use Filament\Pages\Page;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
@@ -26,7 +24,6 @@ use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Http\Response;
 use Illuminate\Support\Str;
 use Livewire\Attributes\Url;
 use Maatwebsite\Excel\Facades\Excel;
@@ -89,6 +86,11 @@ class TotalOutstanding extends Page implements HasForms, HasTable
             ->components([
                 Section::make('Filters')
                     ->compact()
+                    ->columns([
+                        'default' => 1,
+                        'md' => 2,
+                        'xl' => 3,
+                    ])
                     ->schema([
                         Select::make('employee_id')
                             ->label('Employee')
@@ -115,13 +117,12 @@ class TotalOutstanding extends Page implements HasForms, HasTable
                 ->label('Export PDF')
                 ->icon(Heroicon::OutlinedDocumentChartBar)
                 ->color('gray')
-                ->visible(fn (): bool => $this->selectedEmployeeId() !== null)
-                ->action(fn () => $this->exportPdf()),
+                ->url(fn (): string => static::pdfUrl($this->selectedEmployeeId()))
+                ->openUrlInNewTab(),
             Action::make('exportExcel')
                 ->label('Export Excel')
                 ->icon(Heroicon::OutlinedArrowDownTray)
                 ->color('success')
-                ->visible(fn (): bool => $this->selectedEmployeeId() !== null)
                 ->action(fn () => $this->exportExcel()),
         ];
     }
@@ -189,13 +190,9 @@ class TotalOutstanding extends Page implements HasForms, HasTable
                 ? 'This employee has no active assigned dealers.'
                 : 'No dealer has a positive outstanding balance for this filter.')
             ->contentFooter(function () {
-                if ($this->selectedEmployeeId() === null) {
-                    return null;
-                }
-
                 return view('filament.pages.partials.total-outstanding-table-footer', [
                     'total' => $this->formattedTotalOutstanding(),
-                    'columnCount' => 5,
+                    'columnCount' => $this->selectedEmployeeId() === null ? 6 : 5,
                 ]);
             });
     }
@@ -252,13 +249,17 @@ class TotalOutstanding extends Page implements HasForms, HasTable
         return IndianCurrency::format($amount);
     }
 
-    public function exportExcel(): ?BinaryFileResponse
+    public static function pdfUrl(?int $employeeId = null): string
     {
-        $payload = $this->exportPayloadOrNotify();
+        return route('filament.admin.total-outstanding.pdf', array_filter(
+            ['employee_id' => $employeeId],
+            fn (mixed $value): bool => $value !== null,
+        ));
+    }
 
-        if ($payload === null) {
-            return null;
-        }
+    public function exportExcel(): BinaryFileResponse
+    {
+        $payload = app(DealerOutstandingService::class)->exportPayload($this->selectedEmployeeId());
 
         return Excel::download(
             new EmployeeOutstandingExport(
@@ -269,48 +270,16 @@ class TotalOutstanding extends Page implements HasForms, HasTable
         );
     }
 
-    public function exportPdf(): ?Response
-    {
-        $payload = $this->exportPayloadOrNotify();
-
-        if ($payload === null) {
-            return null;
-        }
-
-        return Pdf::loadView('filament.pages.employee-outstanding-pdf', [
-            'companyName' => (string) config('app.name', 'ParamGold ERP'),
-            'payload' => $payload,
-            'generatedAt' => now('Asia/Kolkata')->format('d M Y, h:i A'),
-        ])->download($this->exportFilename($payload, 'pdf'));
-    }
-
-    /**
-     * @return array{employee_name: string, employee_code: string|null, total: float, rows: list<array<string, mixed>>}|null
-     */
-    private function exportPayloadOrNotify(): ?array
-    {
-        $employeeId = $this->selectedEmployeeId();
-
-        if ($employeeId === null) {
-            Notification::make()
-                ->title('Select an employee to export.')
-                ->warning()
-                ->send();
-
-            return null;
-        }
-
-        return app(DealerOutstandingService::class)->employeeExportPayload($employeeId);
-    }
-
     /**
      * @param  array{employee_name: string, employee_code: string|null}  $payload
      */
     private function exportFilename(array $payload, string $extension): string
     {
+        $scope = Str::slug($payload['employee_name'] ?? 'all-employees') ?: 'all-employees';
+
         return sprintf(
-            'Employee_Outstanding_%s_%s.%s',
-            Str::slug($payload['employee_name']) ?: 'employee',
+            'Total_Outstanding_%s_%s.%s',
+            $scope,
             now('Asia/Kolkata')->format('Y-m-d'),
             $extension,
         );

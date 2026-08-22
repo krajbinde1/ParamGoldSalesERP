@@ -9,6 +9,7 @@ use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Widgets\AccountWidget;
 use App\Filament\Widgets\FilamentInfoWidget;
 use App\Filament\Widgets\ProductionOrderStatsWidget;
+use App\Http\Controllers\Admin\TotalOutstandingPdfController;
 use App\Http\Controllers\Api\DealerApplicationDocumentController;
 use App\Http\Controllers\Api\Director\PaymentRequestSupportingDocumentController;
 use App\Http\Middleware\RestrictOrdersOnlyFilamentAccess;
@@ -81,6 +82,9 @@ class AdminPanelProvider extends PanelProvider
                     ->whereNumber('itemId')
                     ->whereIn('itemType', ['raw-material', 'packaging-material', 'finished-product'])
                     ->name('inventory-reports.ledger');
+
+                Route::get('/total-outstanding/pdf', TotalOutstandingPdfController::class)
+                    ->name('total-outstanding.pdf');
 
                 // Admin Filament View links must stay inside /admin so panel auth applies.
                 Route::get(

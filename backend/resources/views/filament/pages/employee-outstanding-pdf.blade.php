@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta http-equiv="Content-Type" content="text/html; charset=utf-8"/>
-    <title>Employee Outstanding — {{ $payload['employee_name'] }}</title>
+    <title>Total Outstanding</title>
     <style>
         body {
             font-family: DejaVu Sans, sans-serif;
@@ -57,23 +57,41 @@
     </style>
 </head>
 <body>
-    <p class="company">{{ $companyName }}</p>
+    @php
+        $safe = static function (mixed $value): string {
+            $text = (string) $value;
+
+            return function_exists('mb_scrub') ? mb_scrub($text, 'UTF-8') : $text;
+        };
+        $fmtMoney = static function (mixed $amount) use ($safe): string {
+            $formatted = str_replace(
+                ["\u{20B9}", '₹'],
+                'Rs.',
+                \App\Support\IndianCurrency::format((float) $amount),
+            );
+
+            return $safe($formatted);
+        };
+        $scope = $safe($payload['scope_label'] ?? $payload['employee_name'] ?? 'All Employees');
+    @endphp
+
+    <p class="company">{{ $safe($companyName) }}</p>
     <div class="heading">
-        <p class="title">Employee Outstanding</p>
+        <p class="title">Total Outstanding</p>
         <p class="meta">
             Employee:
-            {{ $payload['employee_name'] }}
-            @if (filled($payload['employee_code']))
-                ({{ $payload['employee_code'] }})
+            {{ $scope }}
+            @if (filled($payload['employee_code'] ?? null))
+                ({{ $safe($payload['employee_code']) }})
             @endif
         </p>
-        <p class="meta">Generated on: {{ $generatedAt }}</p>
+        <p class="meta">Generated on: {{ $safe($generatedAt) }}</p>
     </div>
 
     <table>
         <thead>
             <tr>
-                <th>Employee Name</th>
+                <th>Employee</th>
                 <th>Dealer Code</th>
                 <th>Dealer Name</th>
                 <th>Village</th>
@@ -83,20 +101,20 @@
         <tbody>
             @forelse ($payload['rows'] as $row)
                 <tr>
-                    <td>{{ $row['employee_name'] }}</td>
-                    <td>{{ $row['dealer_code'] }}</td>
-                    <td>{{ $row['dealer_name'] }}</td>
-                    <td>{{ $row['village'] }}</td>
-                    <td class="num">{{ \App\Support\IndianCurrency::format((float) $row['outstanding']) }}</td>
+                    <td>{{ $safe($row['employee_name']) }}</td>
+                    <td>{{ $safe($row['dealer_code']) }}</td>
+                    <td>{{ $safe($row['dealer_name']) }}</td>
+                    <td>{{ $safe($row['village']) }}</td>
+                    <td class="num">{{ $fmtMoney($row['outstanding']) }}</td>
                 </tr>
             @empty
                 <tr>
-                    <td class="empty" colspan="5">No dealers assigned to this employee.</td>
+                    <td class="empty" colspan="5">No outstanding records for this filter.</td>
                 </tr>
             @endforelse
             <tr class="total">
                 <td colspan="4" class="num">Total Outstanding</td>
-                <td class="num">{{ \App\Support\IndianCurrency::format((float) $payload['total']) }}</td>
+                <td class="num">{{ $fmtMoney($payload['total']) }}</td>
             </tr>
         </tbody>
     </table>
