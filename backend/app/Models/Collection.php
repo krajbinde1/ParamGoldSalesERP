@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\PublicMediaUrl;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -153,13 +154,7 @@ class Collection extends Model
 
     public function photoUrl(): ?string
     {
-        if (blank($this->photo_path)) {
-            return null;
-        }
-
-        $path = str_replace('\\', '/', $this->photo_path);
-
-        return url('storage/'.$path);
+        return PublicMediaUrl::fromPublicPath($this->photo_path);
     }
 
     private static function adjustOutstanding(?int $dealerId, float $amount): void

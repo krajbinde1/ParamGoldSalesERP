@@ -783,13 +783,21 @@ GoRouter createRouter(
         GoRoute(
           path: ':dealerId',
           builder: (_, state) {
-            final extra = state.extra;
+            final extra = state.extra is Map
+                ? Map<String, dynamic>.from(state.extra! as Map)
+                : <String, dynamic>{};
+            final dealerRaw = extra['dealer'];
+            final dealer = dealerRaw is Map
+                ? Map<String, dynamic>.from(dealerRaw)
+                : (extra.containsKey('dealer_id') ? extra : null);
             return DirectorTodayCollectionDetailsScreen(
               auth: auth,
               dealerId: int.parse(state.pathParameters['dealerId']!),
-              dealer: extra is Map
-                  ? Map<String, dynamic>.from(extra)
-                  : null,
+              dealer: dealer,
+              period: extra['period']?.toString() ?? 'today',
+              dateFrom: extra['date_from']?.toString(),
+              dateTo: extra['date_to']?.toString(),
+              employeeId: int.tryParse('${extra['employee_id'] ?? ''}'),
             );
           },
         ),

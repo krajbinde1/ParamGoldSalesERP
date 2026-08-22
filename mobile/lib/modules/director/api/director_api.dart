@@ -580,9 +580,22 @@ class DirectorApi {
     }
   }
 
-  Future<Map<String, dynamic>> loadTodayCollectionDealers() async {
+  Future<Map<String, dynamic>> loadTodayCollectionDealers({
+    String period = 'today',
+    String? dateFrom,
+    String? dateTo,
+    int? employeeId,
+  }) async {
     try {
-      final response = await _dio.get('/director/collections/today/dealers');
+      final response = await _dio.get(
+        '/director/collections/today/dealers',
+        queryParameters: {
+          'period': period,
+          if (dateFrom != null && dateFrom.isNotEmpty) 'date_from': dateFrom,
+          if (dateTo != null && dateTo.isNotEmpty) 'date_to': dateTo,
+          if (employeeId != null && employeeId > 0) 'employee_id': employeeId,
+        },
+      );
       return Map<String, dynamic>.from(response.data as Map);
     } on DioException catch (error) {
       throw mapApiError(error);
@@ -591,14 +604,22 @@ class DirectorApi {
 
   Future<Map<String, dynamic>> listTodayDealerCollections({
     required int dealerId,
+    String period = 'today',
     String? date,
+    String? dateFrom,
+    String? dateTo,
+    int? employeeId,
   }) async {
     try {
       final response = await _dio.get(
         '/director/collections',
         queryParameters: {
           'dealer_id': dealerId,
+          'period': period,
           if (date != null && date.isNotEmpty) 'date': date,
+          if (dateFrom != null && dateFrom.isNotEmpty) 'date_from': dateFrom,
+          if (dateTo != null && dateTo.isNotEmpty) 'date_to': dateTo,
+          if (employeeId != null && employeeId > 0) 'employee_id': employeeId,
         },
       );
       return Map<String, dynamic>.from(response.data as Map);

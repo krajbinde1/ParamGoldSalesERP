@@ -21,6 +21,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Services\Dashboard\DirectorDashboardDataService;
 use App\Support\AttendanceCalendar;
+use App\Support\PublicMediaUrl;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Livewire\Livewire;
@@ -639,14 +640,136 @@ it('groups director today collections dealer-wise using dashboard amount rules',
         ->and($details->json('data.0.employee_name'))->toBe('Akash Mundhe')
         ->and((float) $details->json('data.1.amount'))->toBe(15000.0)
         ->and($details->json('data.1.status'))->toBe(Collection::STATUS_RECEIVED)
-        ->and($details->json('data.1.photo_url'))->toContain('collections/today-1.jpg');
+        ->and($details->json('data.1.photo_url'))->toContain('/storage/collections/today-1.jpg')
+        ->and($details->json('data.1.supporting_image_url'))->toBe($details->json('data.1.photo_url'))
+        ->and($details->json('data.1.photo_url'))->toStartWith('http')
+        ->and($details->json('data.1.photo_url'))->not->toContain('storage/app/public');
 
     $this->getJson('/api/director/collections/'.$first->id)
         ->assertOk()
         ->assertJsonPath('data.id', $first->id)
         ->assertJsonPath('data.amount', 15000)
-        ->assertJsonPath('data.status', Collection::STATUS_RECEIVED);
+        ->assertJsonPath('data.status', Collection::STATUS_RECEIVED)
+        ->assertJsonPath('data.supporting_image_url', $first->photoUrl());
 });
+
+it('filters director collections by week, month, employee, and date range', function (): void {
+    $director = directorDashDirector('Collection Filter Director');
+    $akash = directorDashEmployee('Akash Mundhe', '9910000033');
+    $ganesh = directorDashEmployee('Ganesh Dere', '9910000034');
+    $today = AttendanceCalendar::today()->toDateString();
+    $yesterday = AttendanceCalendar::today()->copy()->subDay()->toDateString();
+    $lastMonth = AttendanceCalendar::today()->copy()->startOfMonth()->subDay()->toDateString();
+
+    $dealer = directorDashDealer([
+        'firm_name' => 'Filter Agro',
+        'village' => 'Tirthpuri',
+        'assigned_employee_id' => $akash->id,
+    ]);
+    $otherDealer = directorDashDealer([
+        'firm_name' => 'Other Agro',
+        'village' => 'Partur',
+        'assigned_employee_id' => $ganesh->id,
+    ]);
+
+    $todayAkash = Collection::query()->create([
+        'receipt_no' => 'RCP-FIL-1',
+        'collection_date' => $today,
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $akash->id,
+        'amount' => 10000,
+        'status' => Collection::STATUS_PENDING,
+        'payment_mode' => 'Cash',
+        'transaction_number' => 'TXN-FIL-1',
+        'photo_path' => 'collections/filter-today.jpg',
+    ]);
+    $yesterdayAkash = Collection::query()->create([
+        'receipt_no' => 'RCP-FIL-2',
+        'collection_date' => $yesterday,
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $akash->id,
+        'amount' => 4000,
+        'status' => Collection::STATUS_RECEIVED,
+        'payment_mode' => 'UPI',
+        'transaction_number' => 'TXN-FIL-2',
+    ]);
+    $todayGanesh = Collection::query()->create([
+        'receipt_no' => 'RCP-FIL-3',
+        'collection_date' => $today,
+        'dealer_id' => $otherDealer->id,
+        'sales_employee_id' => $ganesh->id,
+        'amount' => 7000,
+        'status' => Collection::STATUS_PENDING,
+        'payment_mode' => 'Cash',
+        'transaction_number' => 'TXN-FIL-3',
+    ]);
+    $oldAkash = Collection::query()->create([
+        'receipt_no' => 'RCP-FIL-4',
+        'collection_date' => $lastMonth,
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $akash->id,
+        'amount' => 50000,
+        'status' => Collection::STATUS_RECEIVED,
+        'payment_mode' => 'Cash',
+        'transaction_number' => 'TXN-FIL-4',
+    ]);
+
+    $this->actingAs($director, 'sanctum');
+
+    $todayList = $this->getJson('/api/director/collections/today/dealers')
+        ->assertOk()
+        ->assertJsonPath('period', 'today')
+        ->assertJsonPath('date', $today)
+        ->assertJsonPath('total_collection', 17000);
+
+    expect($todayList->json('dealers'))->toHaveCount(2)
+        ->and($todayList->json('entries_count'))->toBe(2)
+        ->and($todayList->json('employees'))->toHaveCount(2);
+
+    $weekList = $this->getJson('/api/director/collections/today/dealers?period=week')
+        ->assertOk()
+        ->assertJsonPath('period', 'week');
+
+    expect((float) $weekList->json('total_collection'))->toBe(21000.0)
+        ->and($weekList->json('entries_count'))->toBe(3);
+
+    $monthList = $this->getJson('/api/director/collections/today/dealers?period=month')
+        ->assertOk()
+        ->assertJsonPath('period', 'month');
+
+    expect((float) $monthList->json('total_collection'))->toBe(21000.0)
+        ->and($monthList->json('date_from'))->toBe(AttendanceCalendar::today()->copy()->startOfMonth()->toDateString())
+        ->and($monthList->json('date_to'))->toBe($today);
+
+    $employeeList = $this->getJson('/api/director/collections/today/dealers?period=today&employee_id='.$ganesh->id)
+        ->assertOk()
+        ->assertJsonPath('employee_id', $ganesh->id)
+        ->assertJsonPath('total_collection', 7000);
+
+    expect($employeeList->json('dealers'))->toHaveCount(1)
+        ->and($employeeList->json('dealers.0.dealer_name'))->toBe('Other Agro')
+        ->and($employeeList->json('employees'))->toHaveCount(2);
+
+    $combined = $this->getJson(
+        '/api/director/collections?dealer_id='.$dealer->id.'&period=month&employee_id='.$akash->id
+    )
+        ->assertOk()
+        ->assertJsonPath('entries_count', 2)
+        ->assertJsonPath('total_amount', 14000);
+
+    $ids = collect($combined->json('data'))->pluck('id')->all();
+    expect($ids)->toEqualCanonicalizing([$todayAkash->id, $yesterdayAkash->id])
+        ->and($ids)->not->toContain($todayGanesh->id)
+        ->and($ids)->not->toContain($oldAkash->id);
+
+    $custom = $this->getJson(
+        '/api/director/collections/today/dealers?date_from='.$yesterday.'&date_to='.$yesterday
+    )
+        ->assertOk()
+        ->assertJsonPath('total_collection', 4000)
+        ->assertJsonPath('dealers_count', 1);
+});
+
 
 it('lists director today field visits grouped by employee matching dashboard count', function (): void {
     $director = directorDashDirector('Field Visit Director');
@@ -772,4 +895,18 @@ it('lists director today field visits grouped by employee matching dashboard cou
         ->assertJsonPath('data.crop_name', 'Cotton')
         ->assertJsonPath('data.maps_url', $first->mapsUrl())
         ->assertJsonPath('data.photo_url', $first->photoUrl());
+});
+
+it('normalizes collection supporting image paths into public http urls', function (): void {
+    expect(PublicMediaUrl::normalizePublicPath('collections/abc.jpg'))->toBe('collections/abc.jpg')
+        ->and(PublicMediaUrl::normalizePublicPath('storage/collections/abc.jpg'))->toBe('collections/abc.jpg')
+        ->and(PublicMediaUrl::normalizePublicPath('/home/user/project/storage/app/public/collections/abc123.jpg'))
+        ->toBe('collections/abc123.jpg')
+        ->and(PublicMediaUrl::normalizePublicPath('C:\\Projects\\app\\storage\\app\\public\\collections\\x.jpg'))
+        ->toBe('collections/x.jpg');
+
+    $url = PublicMediaUrl::fromPublicPath('collections/abc.jpg');
+    expect($url)->toStartWith('http')
+        ->and($url)->toContain('/storage/collections/abc.jpg')
+        ->and($url)->not->toContain('storage/app/public');
 });
