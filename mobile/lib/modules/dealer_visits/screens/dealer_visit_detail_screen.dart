@@ -109,7 +109,9 @@ class _DealerVisitDetailScreenState extends State<DealerVisitDetailScreen> {
                 PgDetailHeader(
                   title: detail.dealerName,
                   subtitle: DateFormat('d MMM yyyy').format(detail.visitDate),
-                  badgeLabel: detail.statusLabel,
+                  badgeLabel: detail.isProspective
+                      ? 'Prospective Dealer Visit'
+                      : detail.statusLabel,
                   badgeTone: PgStatusTone.approved,
                 ),
                 const SizedBox(height: AppSpacing.md),
@@ -122,13 +124,27 @@ class _DealerVisitDetailScreenState extends State<DealerVisitDetailScreen> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: AppSpacing.sm),
-                      if (detail.ownerName != null)
+                      if (detail.ownerName != null &&
+                          detail.ownerName!.trim().isNotEmpty)
                         PgInvoiceRow(
                           label: 'Owner Name',
                           value: detail.ownerName!,
                         ),
-                      if (detail.village != null)
+                      if (detail.mobile != null &&
+                          detail.mobile!.trim().isNotEmpty)
+                        PgInvoiceRow(label: 'Mobile Number', value: detail.mobile!),
+                      if (detail.village != null &&
+                          detail.village!.trim().isNotEmpty)
                         PgInvoiceRow(label: 'Village', value: detail.village!),
+                      if (detail.taluka != null &&
+                          detail.taluka!.trim().isNotEmpty)
+                        PgInvoiceRow(label: 'Taluka', value: detail.taluka!),
+                      if (detail.district != null &&
+                          detail.district!.trim().isNotEmpty)
+                        PgInvoiceRow(label: 'District', value: detail.district!),
+                      if (detail.remarks != null &&
+                          detail.remarks!.trim().isNotEmpty)
+                        PgInvoiceRow(label: 'Remarks', value: detail.remarks!),
                       PgInvoiceRow(
                         label: 'Visit Time',
                         value: detail.visitTime,

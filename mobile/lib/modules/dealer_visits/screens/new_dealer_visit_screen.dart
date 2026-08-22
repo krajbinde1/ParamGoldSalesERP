@@ -25,14 +25,24 @@ class NewDealerVisitScreen extends StatefulWidget {
 
 class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
   final _locationService = DealerVisitLocationService();
+  final _firm = TextEditingController();
+  final _owner = TextEditingController();
+  final _mobile = TextEditingController();
+  final _village = TextEditingController();
+  final _taluka = TextEditingController();
+  final _district = TextEditingController();
+  final _remarks = TextEditingController();
 
   OrderDealer? _selectedDealer;
+  bool _isProspective = false;
   String? _photoPath;
   DealerVisitLocationCapture? _location;
   bool _submitting = false;
   bool _capturingLocation = false;
   String? _locationError;
   late Future<List<OrderDealer>> _dealersFuture;
+
+  static const Object _prospectiveDealerSentinel = Object();
 
   @override
   void initState() {
@@ -43,12 +53,34 @@ class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
     _captureLocation();
   }
 
+  @override
+  void dispose() {
+    _firm.dispose();
+    _owner.dispose();
+    _mobile.dispose();
+    _village.dispose();
+    _taluka.dispose();
+    _district.dispose();
+    _remarks.dispose();
+    super.dispose();
+  }
+
+  bool get _prospectiveDetailsValid {
+    final mobile = _mobile.text.trim();
+    return _firm.text.trim().isNotEmpty &&
+        _owner.text.trim().isNotEmpty &&
+        RegExp(r'^[6-9][0-9]{9}$').hasMatch(mobile) &&
+        _village.text.trim().isNotEmpty &&
+        _taluka.text.trim().isNotEmpty &&
+        _district.text.trim().isNotEmpty;
+  }
+
   bool get _canSubmit =>
       !_submitting &&
       !_capturingLocation &&
-      _selectedDealer != null &&
       _photoPath != null &&
-      _location != null;
+      _location != null &&
+      (_isProspective ? _prospectiveDetailsValid : _selectedDealer != null);
 
   Future<void> _captureLocation() async {
     setState(() {
@@ -76,7 +108,7 @@ class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
     if (!mounted) return;
 
     final searchController = TextEditingController();
-    final selected = await showModalBottomSheet<OrderDealer>(
+    final selected = await showModalBottomSheet<Object>(
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
@@ -113,10 +145,24 @@ class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
                   Flexible(
                     child: ListView.separated(
                       shrinkWrap: true,
-                      itemCount: filtered.length,
+                      itemCount: filtered.length + 1,
                       separatorBuilder: (_, _) => const Divider(height: 1),
                       itemBuilder: (context, index) {
-                        final dealer = filtered[index];
+                        if (index == 0) {
+                          return ListTile(
+                            leading: const Icon(Icons.add_business_outlined),
+                            title: const Text('Other / New Prospective Dealer'),
+                            subtitle: const Text(
+                              'Save as Prospective Dealer Visit only',
+                            ),
+                            onTap: () => Navigator.pop(
+                              context,
+                              _prospectiveDealerSentinel,
+                            ),
+                          );
+                        }
+
+                        final dealer = filtered[index - 1];
                         return ListTile(
                           title: Text(
                             dealer.name,
@@ -146,7 +192,19 @@ class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
     );
 
     searchController.dispose();
-    if (selected != null) setState(() => _selectedDealer = selected);
+    if (selected == _prospectiveDealerSentinel) {
+      setState(() {
+        _isProspective = true;
+        _selectedDealer = null;
+      });
+      return;
+    }
+    if (selected is OrderDealer) {
+      setState(() {
+        _isProspective = false;
+        _selectedDealer = selected;
+      });
+    }
   }
 
   Future<void> _capturePhoto() async {
@@ -164,6 +222,14 @@ class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
   void _clearForm() {
     setState(() {
       _selectedDealer = null;
+      _isProspective = false;
+      _firm.clear();
+      _owner.clear();
+      _mobile.clear();
+      _village.clear();
+      _taluka.clear();
+      _district.clear();
+      _remarks.clear();
       _photoPath = null;
       _location = null;
       _locationError = null;
@@ -193,7 +259,15 @@ class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
       );
 
       final message = await api.submit(
-        dealerId: _selectedDealer!.id,
+        dealerId: _isProspective ? null : _selectedDealer!.id,
+        isProspective: _isProspective,
+        firmName: _isProspective ? _firm.text.trim() : null,
+        ownerName: _isProspective ? _owner.text.trim() : null,
+        mobile: _isProspective ? _mobile.text.trim() : null,
+        village: _isProspective ? _village.text.trim() : null,
+        taluka: _isProspective ? _taluka.text.trim() : null,
+        district: _isProspective ? _district.text.trim() : null,
+        remarks: _remarks.text.trim().isEmpty ? null : _remarks.text.trim(),
         latitude: location.latitude,
         longitude: location.longitude,
         accuracy: location.accuracy,
@@ -240,7 +314,9 @@ class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
                   child: Align(
                     alignment: Alignment.centerLeft,
                     child: Text(
-                      _selectedDealer?.name ?? 'Choose dealer',
+                      _isProspective
+                          ? 'Other / New Prospective Dealer'
+                          : _selectedDealer?.name ?? 'Choose dealer',
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.bodyLarge,
@@ -250,6 +326,90 @@ class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
               ],
             ),
           ),
+          if (_isProspective) ...[
+            const SizedBox(height: AppSpacing.md),
+            PgCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Prospective Dealer Details',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextField(
+                    controller: _firm,
+                    enabled: !_submitting,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(
+                      labelText: 'Firm / Dealer Name',
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextField(
+                    controller: _owner,
+                    enabled: !_submitting,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(
+                      labelText: 'Owner Name',
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextField(
+                    controller: _mobile,
+                    enabled: !_submitting,
+                    keyboardType: TextInputType.phone,
+                    decoration: const InputDecoration(
+                      labelText: 'Mobile Number',
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextField(
+                    controller: _village,
+                    enabled: !_submitting,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(
+                      labelText: 'Village',
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextField(
+                    controller: _taluka,
+                    enabled: !_submitting,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(
+                      labelText: 'Taluka',
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextField(
+                    controller: _district,
+                    enabled: !_submitting,
+                    textCapitalization: TextCapitalization.words,
+                    decoration: const InputDecoration(
+                      labelText: 'District',
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  TextField(
+                    controller: _remarks,
+                    enabled: !_submitting,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Remarks',
+                    ),
+                    onChanged: (_) => setState(() {}),
+                  ),
+                ],
+              ),
+            ),
+          ],
           const SizedBox(height: AppSpacing.md),
           PgCard(
             child: Column(

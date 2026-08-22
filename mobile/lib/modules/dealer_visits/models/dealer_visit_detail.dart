@@ -7,6 +7,11 @@ class DealerVisitDetail {
     required this.dealerName,
     this.ownerName,
     this.village,
+    this.taluka,
+    this.district,
+    this.mobile,
+    this.remarks,
+    this.isProspective = false,
     required this.visitDate,
     required this.visitTime,
     this.photoUrl,
@@ -25,6 +30,11 @@ class DealerVisitDetail {
   final String dealerName;
   final String? ownerName;
   final String? village;
+  final String? taluka;
+  final String? district;
+  final String? mobile;
+  final String? remarks;
+  final bool isProspective;
   final DateTime visitDate;
   final String visitTime;
   final String? photoUrl;
@@ -44,6 +54,12 @@ class DealerVisitDetail {
         dealerName: json['dealer_name']?.toString() ?? '-',
         ownerName: json['owner_name']?.toString(),
         village: json['village']?.toString(),
+        taluka: json['taluka']?.toString(),
+        district: json['district']?.toString(),
+        mobile: json['mobile']?.toString(),
+        remarks: json['remarks']?.toString(),
+        isProspective: json['is_prospective'] == true ||
+            json['is_prospective']?.toString() == '1',
         visitDate: DateFormat(
           'yyyy-MM-dd',
         ).parse(json['visit_date']?.toString() ?? DateTime.now().toString()),

@@ -22,6 +22,14 @@ class DealerVisit extends Model
     protected $fillable = [
         'employee_id',
         'dealer_id',
+        'is_prospective',
+        'prospective_firm_name',
+        'prospective_owner_name',
+        'prospective_mobile',
+        'prospective_village',
+        'prospective_taluka',
+        'prospective_district',
+        'remarks',
         'visit_date',
         'visit_time',
         'photo_path',
@@ -36,6 +44,7 @@ class DealerVisit extends Model
     {
         return [
             'visit_date' => 'date',
+            'is_prospective' => 'boolean',
             'latitude' => 'decimal:7',
             'longitude' => 'decimal:7',
             'accuracy' => 'decimal:2',
@@ -66,6 +75,45 @@ class DealerVisit extends Model
     public function dealer(): BelongsTo
     {
         return $this->belongsTo(Dealer::class);
+    }
+
+    public function displayDealerName(): string
+    {
+        if ($this->is_prospective) {
+            return filled($this->prospective_firm_name)
+                ? (string) $this->prospective_firm_name
+                : 'Prospective Dealer';
+        }
+
+        return (string) ($this->dealer?->firm_name ?: '-');
+    }
+
+    public function displayOwnerName(): ?string
+    {
+        return $this->is_prospective
+            ? $this->prospective_owner_name
+            : $this->dealer?->owner_name;
+    }
+
+    public function displayVillage(): ?string
+    {
+        return $this->is_prospective
+            ? $this->prospective_village
+            : $this->dealer?->village;
+    }
+
+    public function displayTaluka(): ?string
+    {
+        return $this->is_prospective
+            ? $this->prospective_taluka
+            : $this->dealer?->taluka;
+    }
+
+    public function displayDistrict(): ?string
+    {
+        return $this->is_prospective
+            ? $this->prospective_district
+            : $this->dealer?->district;
     }
 
     public function photoUrl(): ?string

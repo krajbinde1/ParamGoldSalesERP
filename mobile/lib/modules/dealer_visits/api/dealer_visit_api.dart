@@ -39,16 +39,32 @@ class DealerVisitApi {
   }
 
   Future<String> submit({
-    required int dealerId,
     required double latitude,
     required double longitude,
     required double accuracy,
     required DateTime locationCapturedAt,
     required String photoPath,
+    int? dealerId,
+    bool isProspective = false,
+    String? firmName,
+    String? ownerName,
+    String? mobile,
+    String? village,
+    String? taluka,
+    String? district,
+    String? remarks,
   }) async {
     try {
       final formData = FormData.fromMap({
-        'dealer_id': dealerId,
+        if (isProspective) 'is_prospective': 1,
+        if (!isProspective && dealerId != null) 'dealer_id': dealerId,
+        if (isProspective && firmName != null) 'firm_name': firmName,
+        if (isProspective && ownerName != null) 'owner_name': ownerName,
+        if (isProspective && mobile != null) 'mobile': mobile,
+        if (isProspective && village != null) 'village': village,
+        if (isProspective && taluka != null) 'taluka': taluka,
+        if (isProspective && district != null) 'district': district,
+        if (remarks != null && remarks.isNotEmpty) 'remarks': remarks,
         'latitude': latitude,
         'longitude': longitude,
         'accuracy': accuracy,

@@ -52,13 +52,24 @@ class EmployeeDealerVisitController extends Controller
     public function store(Request $request): JsonResponse
     {
         $employee = $request->user()->employee;
+        $isProspective = $request->boolean('is_prospective');
 
         $validated = $request->validate([
+            'is_prospective' => ['sometimes', 'boolean'],
             'dealer_id' => [
-                'required',
+                Rule::requiredIf(! $isProspective),
+                'nullable',
                 'integer',
+                Rule::prohibitedIf($isProspective),
                 Rule::exists('dealers', 'id')->where(fn ($query) => $query->where('status', true)),
             ],
+            'firm_name' => [Rule::requiredIf($isProspective), 'nullable', 'string', 'max:255'],
+            'owner_name' => [Rule::requiredIf($isProspective), 'nullable', 'string', 'max:255'],
+            'mobile' => [Rule::requiredIf($isProspective), 'nullable', 'string', 'regex:/^[6-9][0-9]{9}$/'],
+            'village' => [Rule::requiredIf($isProspective), 'nullable', 'string', 'max:255'],
+            'taluka' => [Rule::requiredIf($isProspective), 'nullable', 'string', 'max:255'],
+            'district' => [Rule::requiredIf($isProspective), 'nullable', 'string', 'max:255'],
+            'remarks' => ['nullable', 'string', 'max:1000'],
             'latitude' => ['required', 'numeric', 'between:-90,90'],
             'longitude' => ['required', 'numeric', 'between:-180,180'],
             'accuracy' => ['required', 'numeric', 'min:0'],
@@ -66,18 +77,21 @@ class EmployeeDealerVisitController extends Controller
             'photo' => ['required', 'image', 'mimes:jpeg,jpg,png,webp', 'max:5120'],
         ]);
 
-        $dealer = Dealer::query()
-            ->whereKey($validated['dealer_id'])
-            ->where('status', true)
-            ->first();
+        $dealer = null;
+        if (! $isProspective) {
+            $dealer = Dealer::query()
+                ->whereKey($validated['dealer_id'])
+                ->where('status', true)
+                ->first();
 
-        if (
-            $dealer === null
-            || ! app(DealerAccessService::class)->employeeCanAccessDealer($employee->id, $dealer)
-        ) {
-            throw ValidationException::withMessages([
-                'dealer_id' => 'Selected dealer is not available.',
-            ]);
+            if (
+                $dealer === null
+                || ! app(DealerAccessService::class)->employeeCanAccessDealer($employee->id, $dealer)
+            ) {
+                throw ValidationException::withMessages([
+                    'dealer_id' => 'Selected dealer is not available.',
+                ]);
+            }
         }
 
         $this->assertValidCoordinates(
@@ -95,7 +109,15 @@ class EmployeeDealerVisitController extends Controller
 
         $visit = DealerVisit::query()->create([
             'employee_id' => $employee->id,
-            'dealer_id' => $validated['dealer_id'],
+            'dealer_id' => $isProspective ? null : $validated['dealer_id'],
+            'is_prospective' => $isProspective,
+            'prospective_firm_name' => $isProspective ? $validated['firm_name'] : null,
+            'prospective_owner_name' => $isProspective ? $validated['owner_name'] : null,
+            'prospective_mobile' => $isProspective ? $validated['mobile'] : null,
+            'prospective_village' => $isProspective ? $validated['village'] : null,
+            'prospective_taluka' => $isProspective ? $validated['taluka'] : null,
+            'prospective_district' => $isProspective ? $validated['district'] : null,
+            'remarks' => $validated['remarks'] ?? null,
             'visit_date' => $now->toDateString(),
             'visit_time' => $now->format('H:i:s'),
             'photo_path' => $photoPath,
@@ -168,7 +190,8 @@ class EmployeeDealerVisitController extends Controller
     {
         return [
             'id' => $visit->id,
-            'dealer_name' => $visit->dealer?->firm_name,
+            'dealer_name' => $visit->displayDealerName(),
+            'is_prospective' => (bool) $visit->is_prospective,
             'visit_date' => $visit->visit_date->toDateString(),
             'visit_time' => $this->formatVisitTime($visit->visit_time),
             'status' => $visit->status,
@@ -183,9 +206,14 @@ class EmployeeDealerVisitController extends Controller
         return [
             'id' => $visit->id,
             'dealer_id' => $visit->dealer_id,
-            'dealer_name' => $visit->dealer?->firm_name,
-            'owner_name' => $visit->dealer?->owner_name,
-            'village' => $visit->dealer?->village,
+            'is_prospective' => (bool) $visit->is_prospective,
+            'dealer_name' => $visit->displayDealerName(),
+            'owner_name' => $visit->displayOwnerName(),
+            'mobile' => $visit->is_prospective ? $visit->prospective_mobile : $visit->dealer?->mobile,
+            'village' => $visit->displayVillage(),
+            'taluka' => $visit->displayTaluka(),
+            'district' => $visit->displayDistrict(),
+            'remarks' => $visit->remarks,
             'visit_date' => $visit->visit_date->toDateString(),
             'visit_time' => $this->formatVisitTime($visit->visit_time),
             'photo_url' => $visit->photoUrl(),

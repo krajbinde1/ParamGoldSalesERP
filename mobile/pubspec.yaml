@@ -18,7 +18,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # of the product and file versions while build-number is used as the build suffix.
 # Every APK release MUST increase the +build number (never reuse or lower it).
 # Example: 1.0.0+2 → 1.0.1+3 → 1.0.2+4
-version: 1.0.3+5
+version: 1.0.4+6
 environment:
   sdk: ^3.12.2
 

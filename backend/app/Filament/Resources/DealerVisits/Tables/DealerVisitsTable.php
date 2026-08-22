@@ -25,6 +25,8 @@ class DealerVisitsTable
                     ->sortable(),
                 TextColumn::make('dealer.firm_name')
                     ->label('Dealer')
+                    ->getStateUsing(fn (DealerVisit $record): string => $record->displayDealerName())
+                    ->description(fn (DealerVisit $record): ?string => $record->is_prospective ? 'Prospective Dealer Visit' : null)
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('visit_date')
