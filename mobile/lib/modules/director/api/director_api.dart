@@ -580,6 +580,33 @@ class DirectorApi {
     }
   }
 
+  Future<Map<String, dynamic>> loadTodayCollectionDealers() async {
+    try {
+      final response = await _dio.get('/director/collections/today/dealers');
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> listTodayDealerCollections({
+    required int dealerId,
+    String? date,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '/director/collections',
+        queryParameters: {
+          'dealer_id': dealerId,
+          if (date != null && date.isNotEmpty) 'date': date,
+        },
+      );
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
   Future<List<Map<String, dynamic>>> listDealerVisits({String? date}) async {
     try {
       final response = await _dio.get(

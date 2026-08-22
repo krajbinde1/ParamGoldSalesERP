@@ -403,49 +403,7 @@ class _OverviewGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final salesValue = data.hasMonitoring
-        ? _compactInr(data.todaySales)
-        : _compactInr(data.salesAchieved);
-    final collectionValue = data.hasMonitoring
-        ? _compactInr(data.todayCollection)
-        : _compactInr(
-            data.collectionAmount > 0
-                ? data.collectionAmount
-                : data.collectionAchieved,
-          );
-
     final items = [
-      _DashTile(
-        label: data.hasMonitoring ? 'Today Sales' : 'Sales MTD',
-        value: salesValue,
-        icon: Icons.trending_up_rounded,
-        accent: AppColors.primary,
-        onTap: () => onOpen('/director/today-sales'),
-      ),
-      _DashTile(
-        label: data.hasMonitoring ? 'Today Collection' : 'Collection MTD',
-        value: collectionValue,
-        icon: Icons.account_balance_wallet_outlined,
-        accent: AppColors.accent,
-        onTap: () => onOpen('/director/collections'),
-      ),
-      _DashTile(
-        label: 'Team Punch In',
-        value: data.activeEmployees > 0
-            ? '${data.punchedIn} / ${data.activeEmployees}'
-            : '${data.punchedIn}',
-        subtitle: '${data.notPunchedIn} Not Punched In',
-        icon: Icons.fingerprint_rounded,
-        accent: data.notPunchedIn > 0 ? AppColors.warning : AppColors.success,
-        onTap: () => onOpen('/director/attendance'),
-      ),
-      _DashTile(
-        label: 'Dealer Visits Today',
-        value: '${data.dealerVisits}',
-        icon: Icons.storefront_outlined,
-        accent: AppColors.primary,
-        onTap: () => onOpen('/director/dealer-visits'),
-      ),
       _DashTile(
         label: 'Pending Orders',
         value: '${data.pendingOrders}',
@@ -809,54 +767,93 @@ class _TeamActivitySection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final chips = [
-      ('Active Employees', '${data.activeEmployees}', Icons.badge_outlined, '/director/employees'),
-      ('Punched In', '${data.punchedIn}', Icons.fingerprint_rounded, '/director/team-activity'),
-      ('Not Punched In', '${data.notPunchedIn}', Icons.person_off_outlined, '/director/team-activity'),
-      ('Dealer Visits', '${data.dealerVisits}', Icons.storefront_outlined, '/director/team-activity'),
-      ('Field Visits', '${data.fieldActivities}', Icons.travel_explore_rounded, '/director/team-activity'),
-      ('Active Routes', '${data.activeRoutes}', Icons.route_outlined, '/director/route-tracking'),
+    final salesValue = data.hasMonitoring
+        ? _compactInr(data.todaySales)
+        : _compactInr(data.salesAchieved);
+    final collectionValue = data.hasMonitoring
+        ? _compactInr(data.todayCollection)
+        : _compactInr(
+            data.collectionAmount > 0
+                ? data.collectionAmount
+                : data.collectionAchieved,
+          );
+
+    final items = [
+      _DashTile(
+        label: 'Active Employees',
+        value: '${data.activeEmployees}',
+        icon: Icons.badge_outlined,
+        accent: AppColors.primary,
+        onTap: () => onOpen('/director/employees'),
+      ),
+      _DashTile(
+        label: data.hasMonitoring ? 'Today Sales' : 'Sales MTD',
+        value: salesValue,
+        icon: Icons.trending_up_rounded,
+        accent: AppColors.primary,
+        onTap: () => onOpen('/director/today-sales'),
+      ),
+      _DashTile(
+        label: data.hasMonitoring ? 'Today Collection' : 'Collection MTD',
+        value: collectionValue,
+        icon: Icons.account_balance_wallet_outlined,
+        accent: AppColors.accent,
+        onTap: () => onOpen('/director/today-collections'),
+      ),
+      _DashTile(
+        label: 'Team Punch In',
+        value: data.activeEmployees > 0
+            ? '${data.punchedIn} / ${data.activeEmployees}'
+            : '${data.punchedIn}',
+        subtitle: '${data.notPunchedIn} Not Punched In',
+        icon: Icons.fingerprint_rounded,
+        accent: data.notPunchedIn > 0 ? AppColors.warning : AppColors.success,
+        onTap: () => onOpen('/director/attendance'),
+      ),
+      _DashTile(
+        label: 'Dealer Visits Today',
+        value: '${data.dealerVisits}',
+        icon: Icons.storefront_outlined,
+        accent: AppColors.primary,
+        onTap: () => onOpen('/director/dealer-visits'),
+      ),
+      _DashTile(
+        label: 'Field Visits',
+        value: '${data.fieldActivities}',
+        icon: Icons.travel_explore_rounded,
+        accent: AppColors.primary,
+        onTap: () => onOpen('/director/team-activity'),
+      ),
+      _DashTile(
+        label: 'Active Routes',
+        value: '${data.activeRoutes}',
+        icon: Icons.route_outlined,
+        accent: AppColors.primary,
+        onTap: () => onOpen('/director/route-tracking'),
+      ),
     ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const PgSectionHeader(title: 'Team Activity Today'),
-        GridView.builder(
-          itemCount: chips.length,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            mainAxisSpacing: 8,
-            crossAxisSpacing: 8,
-            childAspectRatio: 1.15,
-          ),
-          itemBuilder: (context, index) {
-            final chip = chips[index];
-            return PgCard(
-              onTap: () => onOpen(chip.$4),
-              padding: const EdgeInsets.all(8),
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(chip.$3, size: 16, color: AppColors.primary),
-                  const SizedBox(height: 4),
-                  Text(
-                    chip.$2,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
-                  ),
-                  Text(
-                    chip.$1,
-                    textAlign: TextAlign.center,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelSmall,
-                  ),
-                ],
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final crossAxisCount = constraints.maxWidth >= 520 ? 3 : 2;
+            final aspect = crossAxisCount == 3
+                ? 1.22
+                : (constraints.maxWidth >= 400 ? 1.7 : 1.38);
+            return GridView.builder(
+              itemCount: items.length,
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                crossAxisCount: crossAxisCount,
+                mainAxisSpacing: AppSpacing.sm,
+                crossAxisSpacing: AppSpacing.sm,
+                childAspectRatio: aspect,
               ),
+              itemBuilder: (context, index) => items[index],
             );
           },
         ),

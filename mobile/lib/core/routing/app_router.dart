@@ -49,6 +49,7 @@ import '../../modules/director/screens/director_orders_screen.dart';
 import '../../modules/director/screens/director_payment_requests_screen.dart';
 import '../../modules/director/screens/director_route_tracking_screen.dart';
 import '../../modules/director/screens/director_team_attendance_screen.dart';
+import '../../modules/director/screens/director_today_collections_screen.dart';
 import '../../modules/manager/screens/manager_dashboard_screen.dart';
 import '../../modules/manager/screens/manager_collection_detail_screen.dart';
 import '../../modules/manager/screens/manager_collections_screen.dart';
@@ -773,6 +774,25 @@ GoRouter createRouter(
         emptyMessage: 'No sales orders placed today.',
         todayOnly: true,
       ),
+    ),
+    GoRoute(
+      path: '/director/today-collections',
+      builder: (_, _) => DirectorTodayCollectionsScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':dealerId',
+          builder: (_, state) {
+            final extra = state.extra;
+            return DirectorTodayCollectionDetailsScreen(
+              auth: auth,
+              dealerId: int.parse(state.pathParameters['dealerId']!),
+              dealer: extra is Map
+                  ? Map<String, dynamic>.from(extra)
+                  : null,
+            );
+          },
+        ),
+      ],
     ),
     GoRoute(
       path: '/director/pending-orders',

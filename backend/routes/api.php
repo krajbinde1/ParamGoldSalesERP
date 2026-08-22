@@ -248,6 +248,8 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::get('dashboard', DirectorDashboardController::class);
         Route::get('orders', [DirectorOrderController::class, 'index']);
         Route::get('orders/{order}', [DirectorOrderController::class, 'show']);
+        Route::get('collections/today/dealers', [DirectorCollectionController::class, 'todayDealers']);
+        Route::get('collections', [DirectorCollectionController::class, 'index']);
         Route::get('collections/{collection}', [DirectorCollectionController::class, 'show']);
         Route::get('ta-da-claims', [DirectorTaDaClaimController::class, 'index']);
         Route::get('ta-da-claims/{taDaClaim}', [DirectorTaDaClaimController::class, 'show']);

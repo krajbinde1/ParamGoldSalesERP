@@ -535,3 +535,111 @@ it('lists director dealer visits for today', function (): void {
         ->assertJsonPath('data.dealer_name', 'Visited Agro')
         ->assertJsonPath('data.maps_url', $todayVisit->mapsUrl());
 });
+
+it('groups director today collections dealer-wise using dashboard amount rules', function (): void {
+    $director = directorDashDirector('Today Collection Director');
+    $akash = directorDashEmployee('Akash Mundhe', '9910000055');
+    $other = directorDashEmployee('Other Collector', '9910000056');
+    $today = AttendanceCalendar::today()->toDateString();
+    $yesterday = AttendanceCalendar::today()->copy()->subDay()->toDateString();
+
+    $chaitanya = directorDashDealer([
+        'firm_name' => 'Chaitanya Agro Traders',
+        'village' => 'Tirthpuri',
+        'assigned_employee_id' => $akash->id,
+    ]);
+    $secondDealer = directorDashDealer([
+        'firm_name' => 'Second Agro',
+        'village' => 'Jalna',
+        'assigned_employee_id' => $other->id,
+    ]);
+
+    $first = Collection::query()->create([
+        'receipt_no' => 'RCP-TODAY-1',
+        'collection_date' => $today,
+        'dealer_id' => $chaitanya->id,
+        'sales_employee_id' => $akash->id,
+        'amount' => 15000,
+        'status' => Collection::STATUS_RECEIVED,
+        'payment_mode' => 'Cash',
+        'transaction_number' => 'TXN-TODAY-1',
+        'remarks' => 'Morning collection',
+        'photo_path' => 'collections/today-1.jpg',
+    ]);
+    $second = Collection::query()->create([
+        'receipt_no' => 'RCP-TODAY-2',
+        'collection_date' => $today,
+        'dealer_id' => $chaitanya->id,
+        'sales_employee_id' => $akash->id,
+        'amount' => 10000,
+        'status' => Collection::STATUS_PENDING,
+        'payment_mode' => 'UPI',
+        'transaction_number' => 'TXN-TODAY-2',
+        'remarks' => 'Afternoon collection',
+    ]);
+    Collection::query()->create([
+        'receipt_no' => 'RCP-TODAY-3',
+        'collection_date' => $today,
+        'dealer_id' => $secondDealer->id,
+        'sales_employee_id' => $other->id,
+        'amount' => 25000,
+        'status' => Collection::STATUS_PENDING,
+        'payment_mode' => 'Cash',
+        'transaction_number' => 'TXN-TODAY-3',
+    ]);
+    Collection::query()->create([
+        'receipt_no' => 'RCP-YDAY-1',
+        'collection_date' => $yesterday,
+        'dealer_id' => $chaitanya->id,
+        'sales_employee_id' => $akash->id,
+        'amount' => 99999,
+        'status' => Collection::STATUS_RECEIVED,
+        'payment_mode' => 'Cash',
+        'transaction_number' => 'TXN-YDAY-1',
+    ]);
+
+    $first->forceFill(['created_at' => now('Asia/Kolkata')->setTime(12, 15)])->saveQuietly();
+    $second->forceFill(['created_at' => now('Asia/Kolkata')->setTime(15, 30)])->saveQuietly();
+
+    $this->actingAs($director, 'sanctum');
+
+    $dashboardTotal = (float) app(DirectorDashboardDataService::class)->snapshot($director)['today_collection'];
+
+    $list = $this->getJson('/api/director/collections/today/dealers')
+        ->assertOk()
+        ->assertJsonPath('date', $today)
+        ->assertJsonPath('total_collection', 50000);
+
+    expect((float) $list->json('total_collection'))->toBe($dashboardTotal)
+        ->and($list->json('dealers'))->toHaveCount(2);
+
+    $chaitanyaRow = collect($list->json('dealers'))->firstWhere('dealer_id', $chaitanya->id);
+    expect($chaitanyaRow['dealer_name'])->toBe('Chaitanya Agro Traders')
+        ->and($chaitanyaRow['dealer_code'])->toBe($chaitanya->fresh()->dealer_code)
+        ->and($chaitanyaRow['village'])->toBe('Tirthpuri')
+        ->and($chaitanyaRow['employee_name'])->toBe('Akash Mundhe')
+        ->and((float) $chaitanyaRow['total_amount'])->toBe(25000.0)
+        ->and($chaitanyaRow['entries_count'])->toBe(2);
+
+    $details = $this->getJson('/api/director/collections?dealer_id='.$chaitanya->id)
+        ->assertOk()
+        ->assertJsonPath('date', $today)
+        ->assertJsonPath('dealer.dealer_name', 'Chaitanya Agro Traders')
+        ->assertJsonPath('total_amount', 25000)
+        ->assertJsonPath('entries_count', 2);
+
+    $ids = collect($details->json('data'))->pluck('id')->all();
+    expect($ids)->toEqual([$second->id, $first->id])
+        ->and((float) $details->json('data.0.amount'))->toBe(10000.0)
+        ->and($details->json('data.0.status'))->toBe(Collection::STATUS_PENDING)
+        ->and($details->json('data.0.employee_name'))->toBe('Akash Mundhe')
+        ->and((float) $details->json('data.1.amount'))->toBe(15000.0)
+        ->and($details->json('data.1.status'))->toBe(Collection::STATUS_RECEIVED)
+        ->and($details->json('data.1.photo_url'))->toContain('collections/today-1.jpg');
+
+    $this->getJson('/api/director/collections/'.$first->id)
+        ->assertOk()
+        ->assertJsonPath('data.id', $first->id)
+        ->assertJsonPath('data.amount', 15000)
+        ->assertJsonPath('data.status', Collection::STATUS_RECEIVED);
+});
