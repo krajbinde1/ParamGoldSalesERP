@@ -135,15 +135,13 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                     delegate: SliverChildListDelegate([
                       _OverviewGrid(data: data, onOpen: _open),
                       const SizedBox(height: AppSpacing.md),
-                      _AttentionSection(data: data, onOpen: _open),
-                      const SizedBox(height: AppSpacing.md),
-                      _MonthPerformanceSection(data: data, onOpen: _open),
+                      _TotalOutstandingCard(data: data, onOpen: _open),
                       const SizedBox(height: AppSpacing.md),
                       _TeamActivitySection(data: data, onOpen: _open),
                       const SizedBox(height: AppSpacing.md),
-                      _TeamPerformanceSection(data: data, onOpen: _open),
+                      _MonthPerformanceSection(data: data, onOpen: _open),
                       const SizedBox(height: AppSpacing.md),
-                      _TotalOutstandingCard(data: data, onOpen: _open),
+                      _TeamPerformanceSection(data: data, onOpen: _open),
                       const SizedBox(height: AppSpacing.lg),
                       const PgSectionHeader(title: 'Modules'),
                       _ModuleList(
@@ -509,126 +507,6 @@ class _DashTile extends StatelessWidget {
             ),
         ],
       ),
-    );
-  }
-}
-
-class _AttentionItem {
-  const _AttentionItem({
-    required this.label,
-    required this.count,
-    required this.path,
-  });
-
-  final String label;
-  final int count;
-  final String path;
-}
-
-class _AttentionSection extends StatelessWidget {
-  const _AttentionSection({required this.data, required this.onOpen});
-
-  final DirectorDashboardData data;
-  final Future<void> Function(String path) onOpen;
-
-  @override
-  Widget build(BuildContext context) {
-    final items = [
-      _AttentionItem(
-        label: 'Employees Not Punched In',
-        count: data.notPunchedIn,
-        path: '/director/team-activity',
-      ),
-      _AttentionItem(
-        label: 'Payment Requests Pending',
-        count: data.myPendingPayments,
-        path: '/director/payment-requests?filter=pending',
-      ),
-      _AttentionItem(
-        label: 'Orders Pending Approval',
-        count: data.placedOrders,
-        path: '/director/orders?status=pending_approval',
-      ),
-      _AttentionItem(
-        label: 'Orders Pending Billing',
-        count: data.sentForBillOrders,
-        path: '/director/orders?status=pending_for_billing',
-      ),
-      _AttentionItem(
-        label: 'Orders On Hold',
-        count: data.onHoldOrders,
-        path: '/director/orders?status=on_hold',
-      ),
-      _AttentionItem(
-        label: 'Orders Returned to Manager',
-        count: data.revertedOrders,
-        path: '/director/orders?status=reverted_to_manager',
-      ),
-      _AttentionItem(
-        label: 'Billed Orders Waiting for Dispatch',
-        count: data.billedOrders,
-        path: '/director/orders?status=billed',
-      ),
-      _AttentionItem(
-        label: 'Employees With No Field Activity Today',
-        count: data.noFieldActivityToday,
-        path: '/director/team-activity',
-      ),
-    ].where((item) => item.count > 0).toList(growable: false);
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const PgSectionHeader(title: 'Attention Required'),
-        if (items.isEmpty)
-          PgCard(
-            padding: const EdgeInsets.all(12),
-            child: Text(
-              'No urgent issues right now.',
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          )
-        else
-          PgCard(
-            padding: const EdgeInsets.symmetric(vertical: 4),
-            child: Column(
-              children: [
-                for (var i = 0; i < items.length; i++) ...[
-                  if (i > 0) const Divider(height: 1),
-                  ListTile(
-                    dense: true,
-                    visualDensity: VisualDensity.compact,
-                    contentPadding: const EdgeInsets.symmetric(horizontal: 12),
-                    leading: Container(
-                      width: 8,
-                      height: 8,
-                      decoration: BoxDecoration(
-                        color: items[i].count > 5
-                            ? AppColors.error
-                            : AppColors.warning,
-                        shape: BoxShape.circle,
-                      ),
-                    ),
-                    title: Text(
-                      items[i].label,
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            fontWeight: FontWeight.w600,
-                          ),
-                    ),
-                    trailing: Text(
-                      '${items[i].count}',
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
-                            color: AppColors.warning,
-                          ),
-                    ),
-                    onTap: () => onOpen(items[i].path),
-                  ),
-                ],
-              ],
-            ),
-          ),
-      ],
     );
   }
 }
@@ -1320,42 +1198,47 @@ class _DirectorEmployeePerformanceScreenState
                   const PgEmptyState(message: 'No Activity Today')
                 else
                   ...employees.map((employee) {
+                    final salesTarget = double.tryParse(
+                          '${employee['sales_target'] ?? 0}',
+                        ) ??
+                        0;
+                    final salesAchieved = double.tryParse(
+                          '${employee['sales_achieved'] ?? 0}',
+                        ) ??
+                        0;
+                    final salesPercentage = double.tryParse(
+                          '${employee['sales_percentage'] ?? 0}',
+                        ) ??
+                        0;
                     return PgCard(
                       margin: const EdgeInsets.only(bottom: AppSpacing.sm),
                       onTap: () => context.push(
                         '/director/employees/${employee['employee_id']}',
                         extra: employee,
                       ),
-                      child: Row(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  employee['employee_name']?.toString() ?? '-',
-                                  style:
-                                      Theme.of(context).textTheme.titleSmall,
-                                ),
-                                Text(
-                                  '${employee['role_label'] ?? '-'} • '
-                                  'Sales ${employee['sales_percentage'] ?? 0}%',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ],
-                            ),
+                          Text(
+                            employee['employee_name']?.toString() ?? '-',
+                            style: Theme.of(context).textTheme.titleSmall,
                           ),
                           Text(
-                            _inr.format(
-                              double.tryParse(
-                                    '${employee['sales_achieved'] ?? 0}',
-                                  ) ??
-                                  0,
-                            ),
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleSmall
-                                ?.copyWith(fontWeight: FontWeight.w700),
+                            employee['role_label']?.toString() ?? '-',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                          const SizedBox(height: 8),
+                          _MetricRow(
+                            'Sales Target',
+                            _inr.format(salesTarget),
+                          ),
+                          _MetricRow(
+                            'Sales Achieved',
+                            _inr.format(salesAchieved),
+                          ),
+                          _MetricRow(
+                            'Achievement %',
+                            '${salesPercentage.round()}%',
                           ),
                         ],
                       ),
@@ -1625,31 +1508,43 @@ class _DirectorCollectionsScreenState extends State<DirectorCollectionsScreen> {
                 const PgEmptyState(message: 'No Activity Today')
               else
                 ..._salesTeamOnly(data.employeePerformance).map((employee) {
+                  final collectionTarget = double.tryParse(
+                        '${employee['collection_target'] ?? 0}',
+                      ) ??
+                      0;
+                  final collectionAchieved = double.tryParse(
+                        '${employee['collection_achieved'] ?? employee['total_collections'] ?? 0}',
+                      ) ??
+                      0;
+                  final collectionPercentage = double.tryParse(
+                        '${employee['collection_percentage'] ?? 0}',
+                      ) ??
+                      0;
                   return PgCard(
                     margin: const EdgeInsets.only(bottom: AppSpacing.sm),
                     onTap: () => context.push(
                       '/director/employees/${employee['employee_id']}',
                       extra: employee,
                     ),
-                    child: Row(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Expanded(
-                          child: Text(
-                            employee['employee_name']?.toString() ?? '-',
-                            style: Theme.of(context).textTheme.titleSmall,
-                          ),
-                        ),
                         Text(
-                          _inr.format(
-                            double.tryParse(
-                                  '${employee['collection_achieved'] ?? employee['total_collections'] ?? 0}',
-                                ) ??
-                                0,
-                          ),
-                          style: Theme.of(context)
-                              .textTheme
-                              .titleSmall
-                              ?.copyWith(fontWeight: FontWeight.w700),
+                          employee['employee_name']?.toString() ?? '-',
+                          style: Theme.of(context).textTheme.titleSmall,
+                        ),
+                        const SizedBox(height: 8),
+                        _MetricRow(
+                          'Collection Target',
+                          _inr.format(collectionTarget),
+                        ),
+                        _MetricRow(
+                          'Collection Achieved',
+                          _inr.format(collectionAchieved),
+                        ),
+                        _MetricRow(
+                          'Achievement %',
+                          '${collectionPercentage.round()}%',
                         ),
                       ],
                     ),
