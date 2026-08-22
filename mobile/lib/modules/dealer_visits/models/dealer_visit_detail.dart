@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 class DealerVisitDetail {
   const DealerVisitDetail({
     required this.id,
+    this.dealerId,
     required this.dealerName,
     this.ownerName,
     this.village,
@@ -20,6 +21,7 @@ class DealerVisitDetail {
   });
 
   final int id;
+  final int? dealerId;
   final String dealerName;
   final String? ownerName;
   final String? village;
@@ -38,6 +40,7 @@ class DealerVisitDetail {
   factory DealerVisitDetail.fromJson(Map<String, dynamic> json) =>
       DealerVisitDetail(
         id: int.tryParse('${json['id'] ?? ''}') ?? 0,
+        dealerId: int.tryParse('${json['dealer_id'] ?? ''}'),
         dealerName: json['dealer_name']?.toString() ?? '-',
         ownerName: json['owner_name']?.toString(),
         village: json['village']?.toString(),

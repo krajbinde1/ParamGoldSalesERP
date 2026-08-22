@@ -46,6 +46,8 @@ class DealerController extends Controller
             'address' => 'nullable',
             'pincode' => ['nullable', 'regex:/^[1-9][0-9]{5}$/'],
             'credit_limit' => 'nullable|numeric|min:0',
+            'opening_balance' => 'nullable|numeric|min:0',
+            'opening_balance_date' => 'nullable|date',
             'outstanding' => 'nullable|numeric|min:0',
             'latitude' => 'nullable|numeric|between:-90,90',
             'longitude' => 'nullable|numeric|between:-180,180',
@@ -55,6 +57,7 @@ class DealerController extends Controller
 
         $validated['outstanding'] = $validated['outstanding'] ?? 0;
         $validated['credit_limit'] = $validated['credit_limit'] ?? 0;
+        $validated['opening_balance'] = $validated['opening_balance'] ?? 0;
         $validated['status'] = $validated['status'] ?? true;
         $validated['dealer_type'] = $validated['dealer_type'] ?? 'Retailer';
 
@@ -102,6 +105,8 @@ class DealerController extends Controller
             'address' => 'nullable',
             'pincode' => ['nullable', 'regex:/^[1-9][0-9]{5}$/'],
             'credit_limit' => 'nullable|numeric|min:0',
+            'opening_balance' => 'nullable|numeric|min:0',
+            'opening_balance_date' => 'nullable|date',
             'outstanding' => 'nullable|numeric|min:0',
             'latitude' => 'nullable|numeric|between:-90,90',
             'longitude' => 'nullable|numeric|between:-180,180',

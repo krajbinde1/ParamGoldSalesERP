@@ -72,7 +72,7 @@ it('creates a dealer with optional gst pan and pincode left blank', function ():
             'village' => 'Wagholi',
             'pincode' => null,
             'credit_limit' => 0,
-            'outstanding' => 0,
+            'opening_balance' => 0,
         ])
         ->call('create')
         ->assertHasNoFormErrors();
@@ -108,7 +108,7 @@ it('creates a dealer with valid mobile gst and pan values', function (): void {
             'village' => 'Wagholi',
             'pincode' => '411001',
             'credit_limit' => 0,
-            'outstanding' => 0,
+            'opening_balance' => 0,
         ])
         ->call('create')
         ->assertHasNoFormErrors();

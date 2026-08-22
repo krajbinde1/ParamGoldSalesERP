@@ -37,6 +37,10 @@ class RoutePermissions {
       return role.canAccessEmployeeWorkflow();
     }
 
+    if (path.startsWith('/dealers')) {
+      return role.isEmployee || role.isManager || role.isDirector;
+    }
+
     if (path.startsWith('/manager')) {
       return role.isManager;
     }

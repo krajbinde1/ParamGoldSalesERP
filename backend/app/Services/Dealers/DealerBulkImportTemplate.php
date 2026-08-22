@@ -25,6 +25,8 @@ final class DealerBulkImportTemplate
         'address',
         'pincode',
         'credit_limit',
+        'opening_balance',
+        'opening_balance_date',
         'outstanding',
         'latitude',
         'longitude',
@@ -74,6 +76,8 @@ final class DealerBulkImportTemplate
             'Market Road',        // address (optional)
             '412207',             // pincode (optional)
             '0',                  // credit_limit
+            '0',                  // opening_balance
+            '',                   // opening_balance_date
             '0',                  // outstanding
             '',                   // latitude
             '',                   // longitude

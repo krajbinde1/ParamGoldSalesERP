@@ -23,7 +23,8 @@ class PermissionService {
   bool get canViewDirectorDashboard => has('director_dashboard');
   bool get canViewAllOrders =>
       has('orders_view_all') || has('orders_view_production');
-  bool get canViewEmployeePerformance => has('employee_performance_view_all');
+  bool get canViewDealerLedger =>
+      has('dealer_ledger_view') && !role.isProductionSupervisor;
 
   /// Inventory & Manufacturing module (Production Supervisor).
   bool get canViewInventory => has('inventory_view');

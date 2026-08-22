@@ -59,6 +59,35 @@ final class DealerAccessService
             && (int) $dealer->assigned_employee_id === (int) $user->employee_id;
     }
 
+    public function canViewLedger(User $user, Dealer $dealer): bool
+    {
+        if ($this->isFinancialLedgerDenied($user)) {
+            return false;
+        }
+
+        return $this->canAccessDealer($user, $dealer);
+    }
+
+    public function canViewAnyLedger(User $user): bool
+    {
+        if ($this->isFinancialLedgerDenied($user)) {
+            return false;
+        }
+
+        return $this->canViewAll($user)
+            || $user->isManagerUser()
+            || $user->employee_id !== null;
+    }
+
+    public function isFinancialLedgerDenied(User $user): bool
+    {
+        if ($user->usesAdminDirectorDashboard() || $user->isAdminUser()) {
+            return false;
+        }
+
+        return $user->usesProductionSupervisorDashboard();
+    }
+
     public function employeeCanAccessDealer(int $employeeId, Dealer $dealer): bool
     {
         return (int) $dealer->assigned_employee_id === $employeeId;

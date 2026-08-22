@@ -4,11 +4,13 @@ namespace App\Filament\Resources\Dealers\Schemas;
 
 use App\Models\Employee;
 use App\Support\EmployeeCodeResolver;
+use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Illuminate\Database\Eloquent\Builder;
 
@@ -118,18 +120,40 @@ class DealerForm
                     ->columns(2)
                     ->schema([
                         TextInput::make('credit_limit')
+                            ->label('Credit Limit')
                             ->prefix('₹')
                             ->numeric()
                             ->minValue(0)
                             ->default(0),
-                        TextInput::make('outstanding')
+                        TextInput::make('opening_balance')
+                            ->label('Opening Balance')
                             ->prefix('₹')
                             ->numeric()
                             ->minValue(0)
-                            ->default(0),
+                            ->default(0)
+                            ->live()
+                            ->disabled(fn (): bool => ! self::canEditOpeningBalance())
+                            ->dehydrated()
+                            ->helperText('Changing Opening Balance will change the dealer\'s complete ledger and current outstanding.'),
+                        DatePicker::make('opening_balance_date')
+                            ->label('Opening Balance As On Date')
+                            ->native(false)
+                            ->displayFormat('d-m-Y')
+                            ->placeholder('Select as on date')
+                            ->required(fn (Get $get): bool => (float) ($get('opening_balance') ?? 0) > 0)
+                            ->disabled(fn (): bool => ! self::canEditOpeningBalance())
+                            ->dehydrated()
+                            ->helperText('Changing Opening Balance will change the dealer\'s complete ledger and current outstanding.'),
                         TextInput::make('latitude')->numeric()->minValue(-90)->maxValue(90),
                         TextInput::make('longitude')->numeric()->minValue(-180)->maxValue(180),
                     ]),
             ]);
+    }
+
+    private static function canEditOpeningBalance(): bool
+    {
+        $user = auth()->user();
+
+        return $user !== null && ($user->usesAdminDirectorDashboard() || $user->isAdminUser());
     }
 }

@@ -97,13 +97,13 @@ enum UserRole: string
             self::Employee => [
                 'attendance', 'route_tracking', 'orders_create', 'orders_view_own',
                 'dealer_visits', 'field_activities', 'collections', 'ta_da_claims',
-                'dealers_create',
+                'dealers_create', 'dealer_ledger_view',
             ],
             self::Manager => [
                 'manager_dashboard', 'orders_approve', 'orders_reject', 'orders_view_all',
                 'ta_da_approve', 'ta_da_reject', 'ta_da_view_all', 'attendance', 'route_tracking',
                 'attendance_view_all', 'collections_view_all', 'dealer_visits_view_all',
-                'field_activities_view_all', 'dealers_approve',
+                'field_activities_view_all', 'dealers_approve', 'dealer_ledger_view',
             ],
             self::ProductionSupervisor => [
                 'production_dashboard', 'orders_dispatch', 'orders_view_production',
@@ -116,7 +116,7 @@ enum UserRole: string
                 'field_activities_view_all', 'employee_performance_view_all',
                 'inventory_full_access', 'bom_manage', 'inventory_valuation_view',
                 'stock_adjustment', 'production_batch_reverse', 'production_cost_view',
-                'production_deviation_approve',
+                'production_deviation_approve', 'dealer_ledger_view',
             ],
         };
     }

@@ -30,6 +30,11 @@ class DealerPolicy
         return $this->dealerAccess->canAccessDealer($user, $dealer);
     }
 
+    public function viewLedger(User $user, Dealer $dealer): bool
+    {
+        return $this->dealerAccess->canViewLedger($user, $dealer);
+    }
+
     public function create(User $user): bool
     {
         return ! $user->isManagerUser();

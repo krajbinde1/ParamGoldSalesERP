@@ -73,6 +73,36 @@ class Order extends Model
         return $query->whereIn('status', self::activeNonDispatchedStatuses());
     }
 
+    /**
+     * Orders that have entered accounting receivables (billed once; dispatch does not add again).
+     *
+     * @return list<string>
+     */
+    public static function billedReceivableStatuses(): array
+    {
+        return [
+            self::STATUS_BILLED,
+            self::STATUS_DISPATCHED,
+            'delivered',
+        ];
+    }
+
+    /**
+     * Active orders that are not yet billed and must not affect current outstanding.
+     *
+     * @return list<string>
+     */
+    public static function unbilledExposureStatuses(): array
+    {
+        return [
+            self::STATUS_PENDING_APPROVAL,
+            self::STATUS_APPROVED,
+            self::STATUS_ON_HOLD,
+            self::STATUS_REVERTED_TO_MANAGER,
+            self::STATUS_PENDING_FOR_BILLING,
+        ];
+    }
+
     private const STATUS_TRANSITIONS = [
         'draft' => ['pending_approval'],
         'pending_approval' => ['approved', 'rejected', 'cancelled'],

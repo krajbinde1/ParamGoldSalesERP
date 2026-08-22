@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Dealers\Pages;
 
 use App\Filament\Actions\SafeDeleteActions;
 use App\Filament\Resources\Dealers\DealerResource;
+use Filament\Actions\Action;
 use Filament\Actions\ForceDeleteAction;
 use Filament\Actions\RestoreAction;
 use Filament\Actions\ViewAction;
@@ -33,5 +34,41 @@ class EditDealer extends EditRecord
             RestoreAction::make()
                 ->authorize(fn (): bool => auth()->user()?->can('restore', $this->getRecord()) ?? false),
         ];
+    }
+
+    protected function getSaveFormAction(): Action
+    {
+        return parent::getSaveFormAction()
+            ->submit(null)
+            ->action('save')
+            ->requiresConfirmation(fn (): bool => $this->openingBalanceWillChange())
+            ->modalHeading('Change Opening Balance?')
+            ->modalDescription('Changing Opening Balance will change the dealer\'s complete ledger and current outstanding.')
+            ->modalSubmitActionLabel('Save changes');
+    }
+
+    private function openingBalanceWillChange(): bool
+    {
+        $record = $this->getRecord();
+        $data = $this->data ?? [];
+
+        $newAmount = round((float) ($data['opening_balance'] ?? 0), 2);
+        $oldAmount = round((float) $record->opening_balance, 2);
+
+        return $newAmount !== $oldAmount
+            || $this->normalizeDate($data['opening_balance_date'] ?? null) !== $this->normalizeDate($record->opening_balance_date);
+    }
+
+    private function normalizeDate(mixed $value): ?string
+    {
+        if ($value === null || $value === '') {
+            return null;
+        }
+
+        if ($value instanceof \DateTimeInterface) {
+            return $value->format('Y-m-d');
+        }
+
+        return substr((string) $value, 0, 10);
     }
 }

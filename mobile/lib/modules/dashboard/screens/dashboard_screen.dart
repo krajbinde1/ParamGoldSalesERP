@@ -296,6 +296,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   icon: Icons.store_mall_directory_outlined,
                                   onTap: () => _open('/dealer-applications'),
                                 ),
+                                _EmployeeModuleItem(
+                                  title: 'Dealer Accounts',
+                                  subtitle: 'Outstanding & ledger',
+                                  icon: Icons.account_balance_wallet_outlined,
+                                  onTap: () => _open('/dealers'),
+                                ),
                               ],
                             ),
                             const SizedBox(height: AppSpacing.lg),

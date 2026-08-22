@@ -3,6 +3,8 @@
 namespace App\Filament\Resources\Dealers\Tables;
 
 use App\Models\Dealer;
+use App\Services\Dealers\DealerLedgerService;
+use App\Support\IndianCurrency;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\EditAction;
 use Filament\Actions\ForceDeleteBulkAction;
@@ -16,7 +18,6 @@ use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Support\Facades\DB;
 
 class DealersTable
 {
@@ -58,11 +59,26 @@ class DealersTable
                 TextColumn::make('pincode')
                     ->searchable(),
                 TextColumn::make('credit_limit')
-                    ->money('INR')
+                    ->label('Credit Limit')
+                    ->formatStateUsing(fn ($state): string => IndianCurrency::format((float) $state))
                     ->sortable(),
-                TextColumn::make('outstanding')
-                    ->money('INR')
-                    ->sortable(),
+                TextColumn::make('current_outstanding')
+                    ->label('Outstanding')
+                    ->state(function (Dealer $record): float {
+                        $value = $record->getAttribute('current_outstanding');
+
+                        if ($value !== null) {
+                            return round((float) $value, 2);
+                        }
+
+                        return app(DealerLedgerService::class)->getOutstanding($record);
+                    })
+                    ->formatStateUsing(fn ($state): string => IndianCurrency::format((float) $state))
+                    ->sortable(query: function (Builder $query, string $direction): Builder {
+                        return $query->orderByRaw(DealerLedgerService::currentOutstandingSql($query->getModel()->getTable()).' '.$direction);
+                    })
+                    ->visible(fn (): bool => auth()->user() !== null
+                        && app(\App\Services\Dealers\DealerAccessService::class)->canViewAnyLedger(auth()->user())),
                 TextColumn::make('latitude')
                     ->numeric()
                     ->sortable(),
@@ -98,7 +114,7 @@ class DealersTable
                     ->toggle()
                     ->query(fn (Builder $query): Builder => $query
                         ->where('credit_limit', '>', 0)
-                        ->whereColumn('outstanding', '>=', DB::raw('credit_limit * 0.9'))),
+                        ->whereRaw(DealerLedgerService::currentOutstandingSql($query->getModel()->getTable()).' >= credit_limit * 0.9')),
                 SelectFilter::make('state')
                     ->options(fn (): array => Dealer::query()
                         ->whereNotNull('state')

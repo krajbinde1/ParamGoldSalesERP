@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/design/app_spacing.dart';
@@ -163,6 +164,18 @@ class _DealerVisitDetailScreenState extends State<DealerVisitDetailScreen> {
                           ),
                         ),
                       ),
+                      if (detail.dealerId != null && detail.dealerId! > 0) ...[
+                        const SizedBox(height: AppSpacing.sm),
+                        Align(
+                          alignment: Alignment.centerLeft,
+                          child: FilledButton.tonalIcon(
+                            onPressed: () =>
+                                context.push('/dealers/${detail.dealerId}'),
+                            icon: const Icon(Icons.menu_book_outlined),
+                            label: const Text('Account / Ledger'),
+                          ),
+                        ),
+                      ],
                     ],
                   ),
                 ),

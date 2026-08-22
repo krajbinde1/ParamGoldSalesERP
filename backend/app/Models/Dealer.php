@@ -78,6 +78,8 @@ class Dealer extends Model
         'longitude',
         'credit_limit',
         'outstanding',
+        'opening_balance',
+        'opening_balance_date',
         'dealer_type',
         'status',
         'assigned_employee_id',
@@ -87,6 +89,8 @@ class Dealer extends Model
         'status' => 'boolean',
         'credit_limit' => 'decimal:2',
         'outstanding' => 'decimal:2',
+        'opening_balance' => 'decimal:2',
+        'opening_balance_date' => 'date',
     ];
 
     public function assignedEmployee(): BelongsTo

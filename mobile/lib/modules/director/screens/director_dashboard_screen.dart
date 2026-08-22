@@ -185,6 +185,12 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                             onTap: () => _open('/director/collections'),
                           ),
                           _ModuleItem(
+                            title: 'Dealer Accounts',
+                            subtitle: 'Outstanding & dealer ledger',
+                            icon: Icons.storefront_outlined,
+                            onTap: () => _open('/dealers'),
+                          ),
+                          _ModuleItem(
                             title: 'Team Activity',
                             subtitle:
                                 '${data.punchedIn} punched in · ${data.dealerVisits} dealer visits',

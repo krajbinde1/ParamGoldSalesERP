@@ -7,11 +7,13 @@ use App\Filament\Resources\Dealers\Pages\CreateDealer;
 use App\Filament\Resources\Dealers\Pages\EditDealer;
 use App\Filament\Resources\Dealers\Pages\ListDealers;
 use App\Filament\Resources\Dealers\Pages\ViewDealer;
+use App\Filament\Resources\Dealers\Pages\ViewDealerLedger;
 use App\Filament\Resources\Dealers\Schemas\DealerForm;
 use App\Filament\Resources\Dealers\Schemas\DealerInfolist;
 use App\Filament\Resources\Dealers\Tables\DealersTable;
 use App\Models\Dealer;
 use App\Services\Dealers\DealerAccessService;
+use App\Services\Dealers\DealerLedgerService;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
@@ -62,6 +64,7 @@ class DealerResource extends Resource
             'index' => ListDealers::route('/'),
             'create' => CreateDealer::route('/create'),
             'view' => ViewDealer::route('/{record}'),
+            'ledger' => ViewDealerLedger::route('/{record}/ledger'),
             'edit' => EditDealer::route('/{record}/edit'),
         ];
     }
@@ -75,7 +78,7 @@ class DealerResource extends Resource
             app(DealerAccessService::class)->scopeVisibleTo($query, $user);
         }
 
-        return $query;
+        return app(DealerLedgerService::class)->scopeWithCurrentOutstanding($query);
     }
 
     public static function getRecordRouteBindingEloquentQuery(): Builder

@@ -24,6 +24,9 @@ import '../../modules/ta_da_claims/screens/ta_da_claim_detail_screen.dart';
 import '../../modules/dealer_visits/screens/dealer_visit_dashboard_screen.dart';
 import '../../modules/dealer_visits/screens/dealer_visit_detail_screen.dart';
 import '../../modules/dealer_visits/screens/new_dealer_visit_screen.dart';
+import '../../modules/dealers/screens/dealer_detail_screen.dart';
+import '../../modules/dealers/screens/dealer_ledger_screen.dart';
+import '../../modules/dealers/screens/dealer_list_screen.dart';
 import '../../modules/dealer_applications/screens/dealer_application_detail_screen.dart';
 import '../../modules/dealer_applications/screens/dealer_application_form_screen.dart';
 import '../../modules/dealer_applications/screens/dealer_applications_screen.dart';
@@ -251,6 +254,28 @@ GoRouter createRouter(
             activityId: int.parse(state.pathParameters['activityId']!),
             auth: auth,
           ),
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/dealers',
+      builder: (_, _) => DealerListScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':dealerId',
+          builder: (_, state) => DealerDetailScreen(
+            dealerId: int.parse(state.pathParameters['dealerId']!),
+            auth: auth,
+          ),
+          routes: [
+            GoRoute(
+              path: 'ledger',
+              builder: (_, state) => DealerLedgerScreen(
+                dealerId: int.parse(state.pathParameters['dealerId']!),
+                auth: auth,
+              ),
+            ),
+          ],
         ),
       ],
     ),

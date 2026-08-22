@@ -249,12 +249,14 @@ it('opens matching filtered lists for sales, collections, pending orders, and hi
     $highDealer = directorDashDealer([
         'firm_name' => 'High Outstanding Dealer',
         'credit_limit' => 100000,
-        'outstanding' => 95000,
+        'opening_balance' => 95000,
+        'opening_balance_date' => '2026-04-01',
     ]);
     $okDealer = directorDashDealer([
         'firm_name' => 'Healthy Dealer',
         'credit_limit' => 100000,
-        'outstanding' => 10000,
+        'opening_balance' => 10000,
+        'opening_balance_date' => '2026-04-01',
     ]);
 
     $todayOrder = directorDashOrder($employee->id, $todayDealer->id, ['grand_total' => 50000]);

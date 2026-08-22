@@ -202,6 +202,12 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                             onTap: () => _open('/manager/dealer-approvals'),
                           ),
                           _ModuleItem(
+                            title: 'Dealer Accounts',
+                            subtitle: 'Team outstanding & ledger',
+                            icon: Icons.account_balance_wallet_outlined,
+                            onTap: () => _open('/dealers'),
+                          ),
+                          _ModuleItem(
                             title: 'Team Activity',
                             subtitle: "Dealer visits & field activities",
                             icon: Icons.travel_explore_rounded,
