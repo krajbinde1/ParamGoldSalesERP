@@ -25,7 +25,19 @@ class PaymentRequestsTable
         $secondName = (string) config('payment_requests.second_approver_name', 'Bhagwan Kakde');
 
         return $table
-            ->defaultSort('id', 'desc')
+            ->modifyQueryUsing(function (Builder $query): Builder {
+                return $query
+                    ->reorder()
+                    ->orderByRaw(
+                        'CASE WHEN status IN (?, ?, ?) THEN 0 ELSE 1 END',
+                        [
+                            PaymentRequest::STATUS_PENDING_FIRST,
+                            PaymentRequest::STATUS_PENDING_SECOND,
+                            PaymentRequest::STATUS_APPROVED_FOR_PAYMENT,
+                        ],
+                    )
+                    ->orderByDesc('id');
+            })
             ->columns([
                 TextColumn::make('request_no')
                     ->label('Request No')

@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\PaymentRequests\Pages;
 
 use App\Filament\Resources\PaymentRequests\PaymentRequestResource;
+use App\Filament\Widgets\AdminDirectorPaymentOverviewWidget;
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
@@ -21,5 +22,17 @@ class ListPaymentRequests extends ListRecords
             CreateAction::make()
                 ->label('New Payment Request'),
         ];
+    }
+
+    protected function getHeaderWidgets(): array
+    {
+        return [
+            AdminDirectorPaymentOverviewWidget::class,
+        ];
+    }
+
+    public function getHeaderWidgetsColumns(): int|array
+    {
+        return 1;
     }
 }

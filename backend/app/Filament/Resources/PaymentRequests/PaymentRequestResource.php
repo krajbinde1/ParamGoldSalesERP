@@ -87,7 +87,7 @@ class PaymentRequestResource extends Resource
 
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->latest('id');
+        return parent::getEloquentQuery();
     }
 
     public static function getRecordRouteBindingEloquentQuery(): Builder
