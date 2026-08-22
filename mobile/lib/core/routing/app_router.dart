@@ -46,6 +46,7 @@ import '../../modules/orders/screens/review_order_screen.dart';
 import '../../modules/director/screens/director_dashboard_screen.dart';
 import '../../modules/director/screens/director_dealer_visits_screen.dart';
 import '../../modules/director/screens/director_orders_screen.dart';
+import '../../modules/director/screens/director_outstanding_dealers_screen.dart';
 import '../../modules/director/screens/director_payment_requests_screen.dart';
 import '../../modules/director/screens/director_route_tracking_screen.dart';
 import '../../modules/director/screens/director_team_attendance_screen.dart';
@@ -728,6 +729,10 @@ GoRouter createRouter(
     GoRoute(
       path: '/director/sales-performance',
       builder: (_, _) => DirectorEmployeePerformanceScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/director/outstanding-dealers',
+      builder: (_, _) => DirectorOutstandingDealersScreen(auth: auth),
     ),
     GoRoute(
       path: '/director/collections',

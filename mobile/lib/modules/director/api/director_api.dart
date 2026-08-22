@@ -676,4 +676,18 @@ class DirectorApi {
       throw mapApiError(error);
     }
   }
+
+  Future<Map<String, dynamic>> listOutstandingDealers({int? employeeId}) async {
+    try {
+      final response = await _dio.get(
+        '/director/outstanding-dealers',
+        queryParameters: {
+          if (employeeId != null && employeeId > 0) 'employee_id': employeeId,
+        },
+      );
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
 }

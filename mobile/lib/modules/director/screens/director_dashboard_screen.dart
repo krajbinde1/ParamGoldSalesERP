@@ -143,7 +143,7 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                       const SizedBox(height: AppSpacing.md),
                       _TeamPerformanceSection(data: data, onOpen: _open),
                       const SizedBox(height: AppSpacing.md),
-                      _CollectionSection(data: data, onOpen: _open),
+                      _TotalOutstandingCard(data: data, onOpen: _open),
                       const SizedBox(height: AppSpacing.lg),
                       const PgSectionHeader(title: 'Modules'),
                       _ModuleList(
@@ -969,64 +969,62 @@ class _PeopleListCard extends StatelessWidget {
   }
 }
 
-class _CollectionSection extends StatelessWidget {
-  const _CollectionSection({required this.data, required this.onOpen});
+class _TotalOutstandingCard extends StatelessWidget {
+  const _TotalOutstandingCard({required this.data, required this.onOpen});
 
   final DirectorDashboardData data;
   final Future<void> Function(String path) onOpen;
 
   @override
   Widget build(BuildContext context) {
-    final items = [
-      ('Today\'s Collection', _compactInr(data.todayCollection), '/director/collections'),
-      ('This Month Collection', _compactInr(data.monthCollection > 0 ? data.monthCollection : data.collectionAchieved), '/director/collections'),
-      ('Total Outstanding', _compactInr(data.totalOutstanding), '/director/collections'),
-      ('High Outstanding Dealers', '${data.highOutstandingDealers}', '/director/collections'),
-    ];
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const PgSectionHeader(title: 'Collection & Outstanding'),
-        GridView.builder(
-          itemCount: items.length,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisSpacing: 8,
-            crossAxisSpacing: 8,
-            childAspectRatio: 2.1,
+    final theme = Theme.of(context);
+    return PgCard(
+      onTap: () => onOpen('/director/outstanding-dealers'),
+      padding: const EdgeInsets.all(16),
+      child: Row(
+        children: [
+          Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: AppColors.error.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: const Icon(
+              Icons.account_balance_wallet_outlined,
+              size: 22,
+              color: AppColors.error,
+            ),
           ),
-          itemBuilder: (context, index) {
-            final item = items[index];
-            return PgCard(
-              onTap: () => onOpen(item.$3),
-              padding: const EdgeInsets.all(10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Text(
-                    item.$1,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.labelSmall,
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Total Outstanding',
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
                   ),
-                  Text(
-                    item.$2,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  _compactInr(data.totalOutstanding),
+                  style: theme.textTheme.headlineSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.error,
                   ),
-                ],
-              ),
-            );
-          },
-        ),
-      ],
+                ),
+              ],
+            ),
+          ),
+          Icon(
+            Icons.chevron_right_rounded,
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ],
+      ),
     );
   }
 }

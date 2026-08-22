@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\Director\DirectorDashboardController;
 use App\Http\Controllers\Api\Director\DirectorDealerVisitController;
 use App\Http\Controllers\Api\Director\DirectorFieldVisitController;
 use App\Http\Controllers\Api\Director\DirectorOrderController;
+use App\Http\Controllers\Api\Director\DirectorOutstandingDealerController;
 use App\Http\Controllers\Api\Director\DirectorPaymentRequestController;
 use App\Http\Controllers\Api\Director\DirectorProductionBatchController;
 use App\Http\Controllers\Api\Director\DirectorRouteTrackingController;
@@ -260,6 +261,7 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::get('dealer-visits/{dealerVisit}', [DirectorDealerVisitController::class, 'show']);
         Route::get('field-visits/today', [DirectorFieldVisitController::class, 'today']);
         Route::get('field-visits/{fieldActivity}', [DirectorFieldVisitController::class, 'show']);
+        Route::get('outstanding-dealers', [DirectorOutstandingDealerController::class, 'index']);
         Route::get('production-batches/pending-approvals', [DirectorProductionBatchController::class, 'pendingApprovals']);
         Route::post('production-batches/{batch}/approve-deviation', [DirectorProductionBatchController::class, 'approveDeviation']);
         Route::post('production-batches/{batch}/reject-deviation', [DirectorProductionBatchController::class, 'rejectDeviation']);

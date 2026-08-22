@@ -20,6 +20,7 @@ use App\Models\PaymentRequest;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\Dashboard\DirectorDashboardDataService;
+use App\Services\Dealers\DealerLedgerService;
 use App\Support\AttendanceCalendar;
 use App\Support\PublicMediaUrl;
 use Illuminate\Support\Carbon;
@@ -909,4 +910,75 @@ it('normalizes collection supporting image paths into public http urls', functio
     expect($url)->toStartWith('http')
         ->and($url)->toContain('/storage/collections/abc.jpg')
         ->and($url)->not->toContain('storage/app/public');
+});
+
+it('lists dealers with outstanding for director and respects employee filter', function (): void {
+    $director = directorDashDirector();
+    $akash = directorDashEmployee('Akash Outstanding', '9930000001');
+    $ganesh = directorDashEmployee('Ganesh Outstanding', '9930000002');
+
+    $high = directorDashDealer([
+        'firm_name' => 'High Balance Dealer',
+        'village' => 'Wagholi',
+        'assigned_employee_id' => $akash->id,
+        'opening_balance' => 200000,
+        'opening_balance_date' => '2026-04-01',
+    ]);
+    $mid = directorDashDealer([
+        'firm_name' => 'Mid Balance Dealer',
+        'village' => 'Kharadi',
+        'assigned_employee_id' => $ganesh->id,
+        'opening_balance' => 80000,
+        'opening_balance_date' => '2026-04-01',
+    ]);
+    directorDashDealer([
+        'firm_name' => 'Zero Balance Dealer',
+        'village' => 'Hadapsar',
+        'assigned_employee_id' => $akash->id,
+        'opening_balance' => 0,
+        'opening_balance_date' => '2026-04-01',
+    ]);
+    $low = directorDashDealer([
+        'firm_name' => 'Low Balance Dealer',
+        'village' => 'Mundhwa',
+        'assigned_employee_id' => $akash->id,
+        'opening_balance' => 25000,
+        'opening_balance_date' => '2026-04-01',
+    ]);
+
+    $companyTotal = app(DealerLedgerService::class)->companyTotalOutstanding();
+
+    $this->actingAs($director, 'sanctum');
+
+    $list = $this->getJson('/api/director/outstanding-dealers')
+        ->assertOk();
+
+    $names = collect($list->json('data'))->pluck('dealer_name')->all();
+    expect((float) $list->json('total_outstanding'))->toBe($companyTotal)
+        ->and($names)->toBe([
+            'High Balance Dealer',
+            'Mid Balance Dealer',
+            'Low Balance Dealer',
+        ])
+        ->and($list->json('data.0.dealer_code'))->toBe($high->dealer_code)
+        ->and($list->json('data.0.village'))->toBe('Wagholi')
+        ->and($list->json('data.0.employee_name'))->toBe('Akash Outstanding')
+        ->and((float) $list->json('data.0.current_outstanding'))->toBe(200000.0)
+        ->and($list->json('data.0.id'))->toBe($high->id)
+        ->and(collect($list->json('employees'))->pluck('employee_name')->all())
+        ->toContain('Akash Outstanding')
+        ->toContain('Ganesh Outstanding');
+
+    $akashList = $this->getJson('/api/director/outstanding-dealers?employee_id='.$akash->id)
+        ->assertOk();
+
+    expect((float) $akashList->json('total_outstanding'))->toBe(225000.0)
+        ->and(collect($akashList->json('data'))->pluck('dealer_name')->all())->toBe([
+            'High Balance Dealer',
+            'Low Balance Dealer',
+        ])
+        ->and(collect($akashList->json('data'))->pluck('id')->all())
+        ->not->toContain($mid->id)
+        ->and(collect($akashList->json('data'))->pluck('id')->all())
+        ->toContain($low->id);
 });
