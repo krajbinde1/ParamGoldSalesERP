@@ -149,7 +149,6 @@ class TotalOutstanding extends Page implements HasForms, HasTable
             ->recordUrl(fn (Dealer $record): ?string => auth()->user()?->can('viewLedger', $record)
                 ? DealerResource::getUrl('ledger', ['record' => $record])
                 : DealerResource::getUrl('view', ['record' => $record]))
-            ->defaultSort('current_outstanding', 'desc')
             ->paginated([10, 25, 50])
             ->striped()
             ->emptyStateHeading('No dealers with outstanding')

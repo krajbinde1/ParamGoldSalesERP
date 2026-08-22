@@ -7,6 +7,7 @@ use App\Models\Dealer;
 use App\Models\Employee;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Outstanding listings for Admin / Director. Reuses DealerLedgerService SQL
@@ -32,12 +33,16 @@ final class DealerOutstandingService
 
         $sql = DealerLedgerService::currentOutstandingSql();
 
+        $inner = Dealer::query()
+            ->where('status', true)
+            ->where('assigned_employee_id', $assignedEmployeeId)
+            ->selectRaw($sql.' as current_outstanding')
+            ->toBase();
+
         return $this->money(
-            Dealer::query()
-                ->where('status', true)
-                ->where('assigned_employee_id', $assignedEmployeeId)
-                ->selectRaw('COALESCE(SUM('.$sql.'), 0) as total_outstanding')
-                ->value('total_outstanding')
+            DB::query()
+                ->fromSub($inner, 'outstanding_dealers')
+                ->sum('current_outstanding')
         );
     }
 
@@ -58,7 +63,10 @@ final class DealerOutstandingService
 
         $this->ledger->scopeWithCurrentOutstanding($query);
 
-        return $query->whereRaw($sql.' > 0');
+        return $query
+            ->whereRaw($sql.' > 0')
+            ->orderByRaw($sql.' DESC')
+            ->orderBy('firm_name');
     }
 
     /**
@@ -68,16 +76,21 @@ final class DealerOutstandingService
     {
         $sql = DealerLedgerService::currentOutstandingSql();
 
-        $rows = Dealer::query()
+        $inner = Dealer::query()
             ->where('status', true)
             ->whereNotNull('assigned_employee_id')
             ->select('assigned_employee_id')
-            ->selectRaw('COALESCE(SUM('.$sql.'), 0) as total_outstanding')
-            ->selectRaw('SUM(CASE WHEN '.$sql.' > 0 THEN 1 ELSE 0 END) as dealer_count')
+            ->selectRaw($sql.' as current_outstanding')
+            ->toBase();
+
+        $rows = DB::query()
+            ->fromSub($inner, 'outstanding_dealers')
+            ->select('assigned_employee_id')
+            ->selectRaw('COALESCE(SUM(current_outstanding), 0) as total_outstanding')
+            ->selectRaw('SUM(CASE WHEN current_outstanding > 0 THEN 1 ELSE 0 END) as dealer_count')
             ->groupBy('assigned_employee_id')
-            ->havingRaw('COALESCE(SUM('.$sql.'), 0) != 0')
-            ->orderByRaw('total_outstanding DESC')
-            ->toBase()
+            ->havingRaw('COALESCE(SUM(current_outstanding), 0) != 0')
+            ->orderByDesc('total_outstanding')
             ->get();
 
         $employees = Employee::query()
