@@ -9,7 +9,6 @@ use App\Filament\Widgets\AdminDirectorCollectionOutstandingWidget;
 use App\Filament\Widgets\AdminDirectorEmployeePerformanceWidget;
 use App\Filament\Widgets\AdminDirectorOrderOverviewWidget;
 use App\Filament\Widgets\AdminDirectorPaymentOverviewWidget;
-use App\Filament\Widgets\AdminDirectorRecentActivityWidget;
 use App\Filament\Widgets\AdminDirectorTeamActivityWidget;
 use App\Filament\Widgets\AdminDirectorWelcomeWidget;
 use App\Filament\Widgets\ManagerEmployeePerformanceWidget;
@@ -80,7 +79,6 @@ class Dashboard extends BaseDashboard
                 AdminDirectorEmployeePerformanceWidget::class,
                 AdminDirectorCollectionOutstandingWidget::class,
                 AdminDirectorPaymentOverviewWidget::class,
-                AdminDirectorRecentActivityWidget::class,
             ];
         }
 
