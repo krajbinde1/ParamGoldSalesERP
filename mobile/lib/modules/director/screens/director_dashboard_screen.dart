@@ -42,11 +42,11 @@ String _directorGreeting() {
   return 'Good Evening';
 }
 
-const _dashSectionGap = 12.0;
-const _dashTileExtent = 108.0;
-const _activityTileExtent = 122.0;
-const _dashIconSize = 34.0;
-const _dashGlyphSize = 17.0;
+const _dashSectionGap = 16.0;
+const _dashTileExtent = 114.0;
+const _activityTileExtent = 136.0;
+const _dashIconSize = 36.0;
+const _dashGlyphSize = 18.0;
 
 class _DashHeading extends StatelessWidget {
   const _DashHeading(this.title);
@@ -56,12 +56,12 @@ class _DashHeading extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(bottom: 8),
+      padding: const EdgeInsets.only(bottom: 10),
       child: Row(
         children: [
           Container(
             width: 3,
-            height: 14,
+            height: 15,
             decoration: BoxDecoration(
               color: AppColors.primary,
               borderRadius: BorderRadius.circular(99),
@@ -71,9 +71,11 @@ class _DashHeading extends StatelessWidget {
           Expanded(
             child: Text(
               title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w800,
-                    letterSpacing: -0.2,
+                    letterSpacing: -0.25,
                     color: AppColors.textPrimary,
                   ),
             ),
@@ -103,8 +105,8 @@ class _DashIconWell extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
-        borderRadius: BorderRadius.circular(11),
+        color: color.withValues(alpha: 0.10),
+        borderRadius: BorderRadius.circular(10),
       ),
       child: Icon(
         icon,
@@ -185,9 +187,15 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
 
             final data = snapshot.data!;
 
-            return CustomScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              slivers: [
+            return MediaQuery(
+              data: MediaQuery.of(context).copyWith(
+                textScaler: MediaQuery.textScalerOf(context).clamp(
+                  maxScaleFactor: 1.15,
+                ),
+              ),
+              child: CustomScrollView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                slivers: [
                 SliverToBoxAdapter(
                   child: _DirectorHeader(
                     auth: widget.auth,
@@ -199,9 +207,9 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(
                     AppSpacing.screenPadding,
-                    10,
+                    14,
                     AppSpacing.screenPadding,
-                    AppSpacing.lg,
+                    AppSpacing.xl,
                   ),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
@@ -291,6 +299,7 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                   ),
                 ),
               ],
+              ),
             );
           },
         ),
@@ -315,6 +324,7 @@ class _DirectorHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final top = MediaQuery.paddingOf(context).top;
+    final theme = Theme.of(context);
 
     return Container(
       width: double.infinity,
@@ -323,152 +333,141 @@ class _DirectorHeader extends StatelessWidget {
           begin: Alignment.topLeft,
           end: Alignment.bottomRight,
           colors: [
-            Color(0xFF083532),
-            Color(0xFF0F766E),
-            Color(0xFF12857C),
+            Color(0xFF0C5C56),
+            AppColors.primary,
           ],
         ),
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(26)),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24)),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primary.withValues(alpha: 0.28),
-            blurRadius: 22,
-            offset: const Offset(0, 8),
+            color: AppColors.primary.withValues(alpha: 0.20),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
       child: ClipRRect(
-        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(26)),
+        borderRadius: const BorderRadius.vertical(bottom: Radius.circular(24)),
         child: Stack(
           children: [
             Positioned(
-              right: -36,
-              top: -48,
+              right: -40,
+              top: -56,
               child: Container(
-                width: 148,
-                height: 148,
+                width: 160,
+                height: 160,
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: Colors.white.withValues(alpha: 0.06),
                 ),
               ),
             ),
-            Positioned(
-              right: 52,
-              bottom: -34,
-              child: Container(
-                width: 88,
-                height: 88,
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  color: Colors.white.withValues(alpha: 0.04),
-                ),
-              ),
-            ),
             Padding(
               padding: EdgeInsets.fromLTRB(
                 AppSpacing.screenPadding,
-                top + 12,
+                top + 10,
                 AppSpacing.screenPadding,
-                18,
+                20,
               ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          _directorGreeting(),
-                          style:
-                              Theme.of(context).textTheme.labelMedium?.copyWith(
-                                    color: Colors.white.withValues(alpha: 0.78),
-                                    fontWeight: FontWeight.w600,
-                                    letterSpacing: 0.3,
-                                  ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          name,
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          'Director Dashboard',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
-                          style:
-                              Theme.of(context).textTheme.titleLarge?.copyWith(
-                                    color: Colors.white,
-                                    fontWeight: FontWeight.w800,
-                                    letterSpacing: -0.4,
-                                    height: 1.15,
-                                  ),
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w800,
+                            letterSpacing: -0.2,
+                          ),
                         ),
-                        const SizedBox(height: 6),
-                        Container(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
-                          decoration: BoxDecoration(
-                            color: Colors.white.withValues(alpha: 0.12),
-                            borderRadius: BorderRadius.circular(99),
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.14),
+                      ),
+                      IconButton(
+                        tooltip: 'Notifications',
+                        onPressed: () => context.push('/notifications'),
+                        style: IconButton.styleFrom(
+                          backgroundColor: Colors.white.withValues(alpha: 0.14),
+                          foregroundColor: Colors.white,
+                          minimumSize: const Size(40, 40),
+                          maximumSize: const Size(40, 40),
+                          padding: EdgeInsets.zero,
+                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                        ),
+                        icon: const Icon(
+                          Icons.notifications_none_rounded,
+                          size: 22,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      _DirectorProfileMenu(
+                        auth: auth,
+                        initial: initial,
+                        photoUrl: photoUrl,
+                      ),
+                      const SizedBox(width: 14),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              _directorGreeting(),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelMedium?.copyWith(
+                                color: Colors.white.withValues(alpha: 0.78),
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 0.2,
+                              ),
                             ),
-                          ),
-                          child: Text(
-                            'Company monitoring',
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelSmall
-                                ?.copyWith(
-                                  color: Colors.white.withValues(alpha: 0.88),
+                            const SizedBox(height: 2),
+                            Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.titleLarge?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.35,
+                                height: 1.15,
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.white.withValues(alpha: 0.14),
+                                borderRadius: BorderRadius.circular(99),
+                                border: Border.all(
+                                  color: Colors.white.withValues(alpha: 0.16),
+                                ),
+                              ),
+                              child: Text(
+                                'Company monitoring',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: Colors.white.withValues(alpha: 0.92),
                                   fontWeight: FontWeight.w600,
                                   fontSize: 11,
                                 ),
-                          ),
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 6,
-                      vertical: 6,
-                    ),
-                    decoration: BoxDecoration(
-                      color: Colors.white.withValues(alpha: 0.10),
-                      borderRadius: BorderRadius.circular(22),
-                      border: Border.all(
-                        color: Colors.white.withValues(alpha: 0.12),
                       ),
-                    ),
-                    child: Row(
-                      children: [
-                        IconButton(
-                          tooltip: 'Notifications',
-                          onPressed: () => context.push('/notifications'),
-                          style: IconButton.styleFrom(
-                            backgroundColor:
-                                Colors.white.withValues(alpha: 0.10),
-                            foregroundColor: Colors.white,
-                            minimumSize: const Size(38, 38),
-                            maximumSize: const Size(38, 38),
-                            padding: EdgeInsets.zero,
-                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                          ),
-                          icon: const Icon(
-                            Icons.notifications_none_outlined,
-                            size: 20,
-                          ),
-                        ),
-                        const SizedBox(width: 6),
-                        _DirectorProfileMenu(
-                          auth: auth,
-                          initial: initial,
-                          photoUrl: photoUrl,
-                        ),
-                      ],
-                    ),
+                    ],
                   ),
                 ],
               ),
@@ -533,7 +532,7 @@ class _DirectorProfileMenu extends StatelessWidget {
         ),
       ],
       child: Container(
-        padding: const EdgeInsets.all(1.5),
+        padding: const EdgeInsets.all(2),
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           border: Border.all(
@@ -542,7 +541,7 @@ class _DirectorProfileMenu extends StatelessWidget {
           ),
         ),
         child: CircleAvatar(
-          radius: 17,
+          radius: 26,
           backgroundColor: Colors.white.withValues(alpha: 0.18),
           backgroundImage: photoUrl != null ? NetworkImage(photoUrl!) : null,
           child: photoUrl == null
@@ -551,7 +550,7 @@ class _DirectorProfileMenu extends StatelessWidget {
                   style: const TextStyle(
                     color: Colors.white,
                     fontWeight: FontWeight.w800,
-                    fontSize: 13,
+                    fontSize: 20,
                   ),
                 )
               : null,
@@ -574,7 +573,6 @@ class _OverviewGrid extends StatelessWidget {
         label: 'Pending Orders',
         value: '${data.pendingOrders}',
         icon: Icons.pending_actions_rounded,
-        alert: data.pendingOrders > 0,
         onTap: () => onOpen('/director/pending-orders'),
       ),
       _DashTile(
@@ -592,8 +590,8 @@ class _OverviewGrid extends StatelessWidget {
       physics: const NeverScrollableScrollPhysics(),
       gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
         crossAxisCount: 2,
-        mainAxisSpacing: 10,
-        crossAxisSpacing: 10,
+        mainAxisSpacing: 12,
+        crossAxisSpacing: 12,
         mainAxisExtent: _dashTileExtent,
       ),
       itemBuilder: (context, index) => items[index],
@@ -609,6 +607,7 @@ class _DashTile extends StatelessWidget {
     required this.onTap,
     this.subtitle,
     this.alert = false,
+    this.reserveSubtitle = false,
   });
 
   final String label;
@@ -616,15 +615,17 @@ class _DashTile extends StatelessWidget {
   final String? subtitle;
   final IconData icon;
   final bool alert;
+  final bool reserveSubtitle;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final emphasis = alert ? AppColors.warning : AppColors.textPrimary;
+    final valueColor =
+        alert && subtitle == null ? AppColors.warning : AppColors.textPrimary;
     return PgCard(
       onTap: onTap,
-      padding: const EdgeInsets.fromLTRB(12, 11, 10, 10),
+      padding: const EdgeInsets.fromLTRB(14, 13, 12, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -648,14 +649,14 @@ class _DashTile extends StatelessWidget {
               maxLines: 1,
               style: theme.textTheme.headlineSmall?.copyWith(
                 fontWeight: FontWeight.w800,
-                letterSpacing: -0.6,
+                letterSpacing: -0.7,
                 height: 1.05,
-                fontSize: 22,
-                color: emphasis,
+                fontSize: 24,
+                color: valueColor,
               ),
             ),
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 4),
           Text(
             label,
             maxLines: 1,
@@ -663,22 +664,27 @@ class _DashTile extends StatelessWidget {
             style: theme.textTheme.labelSmall?.copyWith(
               color: AppColors.textSecondary,
               fontWeight: FontWeight.w600,
-              fontSize: 11.5,
+              fontSize: 12,
               height: 1.15,
             ),
           ),
-          if (subtitle != null) ...[
+          if (subtitle != null || reserveSubtitle) ...[
             const SizedBox(height: 3),
-            Text(
-              subtitle!,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: alert ? AppColors.warning : AppColors.textMuted,
-                fontWeight: FontWeight.w700,
-                fontSize: 10.5,
-                height: 1.1,
-              ),
+            SizedBox(
+              height: 14,
+              child: subtitle == null
+                  ? const SizedBox.shrink()
+                  : Text(
+                      subtitle!,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall?.copyWith(
+                        color: alert ? AppColors.warning : AppColors.textMuted,
+                        fontWeight: FontWeight.w700,
+                        fontSize: 11,
+                        height: 1.1,
+                      ),
+                    ),
             ),
           ],
         ],
@@ -768,12 +774,15 @@ class _TargetCard extends StatelessWidget {
               Expanded(
                 child: Text(
                   title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleSmall?.copyWith(
                     fontWeight: FontWeight.w800,
                     letterSpacing: -0.2,
                   ),
                 ),
               ),
+              const SizedBox(width: 8),
               Text(
                 '${percentage.round()}%',
                 style: theme.textTheme.titleSmall?.copyWith(
@@ -820,15 +829,18 @@ class _TargetCard extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 2),
-        Text(
-          value,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: const TextStyle(
-            fontWeight: FontWeight.w800,
-            fontSize: 12.5,
-            letterSpacing: -0.2,
-            color: AppColors.textPrimary,
+        FittedBox(
+          fit: BoxFit.scaleDown,
+          alignment: Alignment.centerLeft,
+          child: Text(
+            value,
+            maxLines: 1,
+            style: const TextStyle(
+              fontWeight: FontWeight.w800,
+              fontSize: 12.5,
+              letterSpacing: -0.2,
+              color: AppColors.textPrimary,
+            ),
           ),
         ),
       ],
@@ -860,18 +872,21 @@ class _TeamActivitySection extends StatelessWidget {
         label: 'Active Employees',
         value: '${data.activeEmployees}',
         icon: Icons.badge_outlined,
+        reserveSubtitle: true,
         onTap: () => onOpen('/director/employees'),
       ),
       _DashTile(
         label: data.hasMonitoring ? 'Today Sales' : 'Sales MTD',
         value: salesValue,
         icon: Icons.trending_up_outlined,
+        reserveSubtitle: true,
         onTap: () => onOpen('/director/today-sales'),
       ),
       _DashTile(
         label: data.hasMonitoring ? 'Today Collection' : 'Collection MTD',
         value: collectionValue,
         icon: Icons.account_balance_wallet_outlined,
+        reserveSubtitle: true,
         onTap: () => onOpen('/director/today-collections'),
       ),
       _DashTile(
@@ -882,24 +897,28 @@ class _TeamActivitySection extends StatelessWidget {
         subtitle: '${data.notPunchedIn} Not Punched In',
         icon: Icons.fingerprint_outlined,
         alert: data.notPunchedIn > 0,
+        reserveSubtitle: true,
         onTap: () => onOpen('/director/attendance'),
       ),
       _DashTile(
         label: 'Dealer Visits Today',
         value: '${data.dealerVisits}',
         icon: Icons.storefront_outlined,
+        reserveSubtitle: true,
         onTap: () => onOpen('/director/dealer-visits'),
       ),
       _DashTile(
         label: 'Field Visits',
         value: '${data.fieldActivities}',
         icon: Icons.travel_explore_outlined,
+        reserveSubtitle: true,
         onTap: () => onOpen('/director/today-field-visits'),
       ),
       _DashTile(
         label: 'Active Routes',
         value: '${data.activeRoutes}',
         icon: Icons.route_outlined,
+        reserveSubtitle: true,
         onTap: () => onOpen('/director/route-tracking'),
       ),
     ];
@@ -908,22 +927,17 @@ class _TeamActivitySection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const _DashHeading('Team Activity Today'),
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final crossAxisCount = constraints.maxWidth >= 520 ? 3 : 2;
-            return GridView.builder(
-              itemCount: items.length,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: crossAxisCount,
-                mainAxisSpacing: 10,
-                crossAxisSpacing: 10,
-                mainAxisExtent: _activityTileExtent,
-              ),
-              itemBuilder: (context, index) => items[index],
-            );
-          },
+        GridView.builder(
+          itemCount: items.length,
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 2,
+            mainAxisSpacing: 12,
+            crossAxisSpacing: 12,
+            mainAxisExtent: _activityTileExtent,
+          ),
+          itemBuilder: (context, index) => items[index],
         ),
       ],
     );
@@ -954,7 +968,7 @@ class _TeamPerformanceSection extends StatelessWidget {
                 onOpen: onOpen,
               ),
             ),
-            const SizedBox(width: 10),
+            const SizedBox(width: 12),
             Expanded(
               child: _PeopleListCard(
                 title: 'Needs Attention',
@@ -996,6 +1010,8 @@ class _PeopleListCard extends StatelessWidget {
         children: [
           Text(
             title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
                   fontWeight: FontWeight.w800,
                   letterSpacing: -0.1,
@@ -1017,6 +1033,8 @@ class _PeopleListCard extends StatelessWidget {
               padding: const EdgeInsets.only(bottom: 6),
               child: Text(
                 empty,
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.labelSmall?.copyWith(
                       color: AppColors.textMuted,
                     ),
@@ -1076,16 +1094,13 @@ class _TotalOutstandingCard extends StatelessWidget {
     final theme = Theme.of(context);
     return Container(
       decoration: BoxDecoration(
-        color: AppColors.primary.withValues(alpha: 0.045),
+        color: AppColors.primary,
         borderRadius: BorderRadius.circular(AppSpacing.radiusLg),
-        border: Border.all(
-          color: AppColors.primary.withValues(alpha: 0.18),
-        ),
-        boxShadow: const [
+        boxShadow: [
           BoxShadow(
-            color: AppColors.shadow,
-            blurRadius: 16,
-            offset: Offset(0, 4),
+            color: AppColors.primary.withValues(alpha: 0.26),
+            blurRadius: 18,
+            offset: const Offset(0, 6),
           ),
         ],
       ),
@@ -1094,68 +1109,89 @@ class _TotalOutstandingCard extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: () => onOpen('/director/outstanding-dealers'),
-          child: IntrinsicHeight(
-            child: Row(
-              children: [
-                Container(width: 3.5, color: AppColors.primary),
-                Expanded(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(14, 15, 12, 15),
-                    child: Row(
-                      children: [
-                        const _DashIconWell(
-                          icon: Icons.account_balance_outlined,
-                          color: AppColors.primary,
-                          size: 44,
-                          iconSize: 22,
-                        ),
-                        const SizedBox(width: 14),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Total Outstanding',
-                                style: theme.textTheme.labelMedium?.copyWith(
-                                  color: AppColors.textSecondary,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 0.2,
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                _compactInr(data.totalOutstanding),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: theme.textTheme.headlineSmall?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: -0.6,
-                                  height: 1.1,
-                                  color: AppColors.primary,
-                                ),
-                              ),
-                              const SizedBox(height: 3),
-                              Text(
-                                'Receivable position',
-                                style: theme.textTheme.labelSmall?.copyWith(
-                                  color: AppColors.textMuted,
-                                  fontWeight: FontWeight.w600,
-                                  fontSize: 11,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Icon(
-                          Icons.chevron_right_rounded,
-                          color: AppColors.textMuted,
-                        ),
-                      ],
-                    ),
+          child: Stack(
+            children: [
+              Positioned(
+                right: -18,
+                bottom: -22,
+                child: Container(
+                  width: 92,
+                  height: 92,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: Colors.white.withValues(alpha: 0.08),
                   ),
                 ),
-              ],
-            ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 12, 16),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: Colors.white.withValues(alpha: 0.16),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: const Icon(
+                        Icons.account_balance_outlined,
+                        color: Colors.white,
+                        size: 22,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Total Outstanding',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelMedium?.copyWith(
+                              color: Colors.white.withValues(alpha: 0.80),
+                              fontWeight: FontWeight.w600,
+                              letterSpacing: 0.2,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          FittedBox(
+                            fit: BoxFit.scaleDown,
+                            alignment: Alignment.centerLeft,
+                            child: Text(
+                              _compactInr(data.totalOutstanding),
+                              maxLines: 1,
+                              style: theme.textTheme.headlineSmall?.copyWith(
+                                fontWeight: FontWeight.w800,
+                                letterSpacing: -0.6,
+                                height: 1.1,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            'Receivable position',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: Colors.white.withValues(alpha: 0.68),
+                              fontWeight: FontWeight.w600,
+                              fontSize: 11,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      color: Colors.white.withValues(alpha: 0.78),
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
         ),
       ),
@@ -1304,6 +1340,8 @@ class _ModuleList extends StatelessWidget {
                           children: [
                             Text(
                               items[i].title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: Theme.of(context)
                                   .textTheme
                                   .titleSmall
