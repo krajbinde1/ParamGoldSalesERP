@@ -1,14 +1,18 @@
 <?php
 
 use App\Enums\UserRole;
+use App\Exports\Dealers\EmployeeOutstandingExport;
 use App\Filament\Pages\TotalOutstanding;
 use App\Filament\Widgets\AdminDirectorCollectionOutstandingWidget;
 use App\Models\Dealer;
 use App\Models\Employee;
 use App\Models\User;
 use App\Services\Dealers\DealerLedgerService;
+use App\Services\Dealers\DealerOutstandingService;
 use App\Support\IndianCurrency;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Livewire\Livewire;
+use Maatwebsite\Excel\Facades\Excel;
 
 function outstandingPageDirector(): User
 {
@@ -137,6 +141,109 @@ it('shows employee-wise outstanding by default and dealer-wise outstanding for a
     $page->call('selectEmployee', $akash->id)
         ->assertSee(IndianCurrency::format(225000))
         ->assertDontSee('Outstanding by Employee')
-        ->assertCanSeeTableRecords([$high, $low])
-        ->assertCanNotSeeTableRecords([$mid, $zero]);
+        ->assertSee('Export PDF')
+        ->assertSee('Export Excel')
+        ->assertCanSeeTableRecords([$high, $low, $zero])
+        ->assertCanNotSeeTableRecords([$mid]);
+});
+
+it('exports selected employee outstanding to excel with all assigned dealers and a total', function (): void {
+    Excel::fake();
+
+    $director = outstandingPageDirector();
+    $akash = outstandingPageEmployee('Akash Outstanding', '9940000003');
+
+    outstandingPageDealer([
+        'firm_name' => 'High Balance Dealer',
+        'village' => 'Wagholi',
+        'assigned_employee_id' => $akash->id,
+        'opening_balance' => 200000,
+        'opening_balance_date' => '2026-04-01',
+    ]);
+    outstandingPageDealer([
+        'firm_name' => 'Zero Balance Dealer',
+        'village' => 'Hadapsar',
+        'assigned_employee_id' => $akash->id,
+        'opening_balance' => 0,
+        'opening_balance_date' => '2026-04-01',
+    ]);
+
+    $payload = app(DealerOutstandingService::class)
+        ->employeeExportPayload($akash->id);
+
+    expect($payload['employee_name'])->toBe('Akash Outstanding')
+        ->and($payload['total'])->toBe(200000.0)
+        ->and(collect($payload['rows'])->pluck('dealer_name')->all())
+        ->toEqual(['High Balance Dealer', 'Zero Balance Dealer'])
+        ->and($payload['rows'][0])->toMatchArray([
+            'employee_name' => 'Akash Outstanding',
+            'dealer_name' => 'High Balance Dealer',
+            'village' => 'Wagholi',
+            'outstanding' => 200000.0,
+        ]);
+
+    $export = new EmployeeOutstandingExport(
+        payload: $payload,
+        generatedAt: '22 Aug 2026, 08:00 PM',
+    );
+    $exportRows = $export->array();
+    $last = $exportRows[array_key_last($exportRows)];
+
+    expect($export->headings())->toBe([
+        'Employee Name',
+        'Dealer Code',
+        'Dealer Name',
+        'Village',
+        'Outstanding Amount',
+    ])
+        ->and($last[3])->toBe('Total Outstanding')
+        ->and($last[4])->toBe(200000.0);
+
+    Livewire::actingAs($director)
+        ->test(TotalOutstanding::class)
+        ->call('selectEmployee', $akash->id)
+        ->call('exportExcel')
+        ->assertHasNoErrors();
+
+    Excel::assertDownloaded(
+        'Employee_Outstanding_akash-outstanding_'.now('Asia/Kolkata')->format('Y-m-d').'.xlsx'
+    );
+});
+
+it('builds a pdf export for the selected employee outstanding list', function (): void {
+    $director = outstandingPageDirector();
+    $akash = outstandingPageEmployee('Akash Outstanding', '9940000004');
+
+    outstandingPageDealer([
+        'firm_name' => 'High Balance Dealer',
+        'village' => 'Wagholi',
+        'assigned_employee_id' => $akash->id,
+        'opening_balance' => 125000,
+        'opening_balance_date' => '2026-04-01',
+    ]);
+
+    $this->actingAs($director);
+
+    $payload = app(DealerOutstandingService::class)
+        ->employeeExportPayload($akash->id);
+
+    $html = view('filament.pages.employee-outstanding-pdf', [
+        'companyName' => 'ParamGold ERP',
+        'payload' => $payload,
+        'generatedAt' => '22 Aug 2026, 08:00 PM',
+    ])->render();
+
+    expect($html)->toContain('Akash Outstanding')
+        ->toContain('High Balance Dealer')
+        ->toContain('Wagholi')
+        ->toContain('Total Outstanding')
+        ->toContain(IndianCurrency::format(125000));
+
+    $pdf = Pdf::loadView('filament.pages.employee-outstanding-pdf', [
+        'companyName' => 'ParamGold ERP',
+        'payload' => $payload,
+        'generatedAt' => '22 Aug 2026, 08:00 PM',
+    ]);
+
+    expect($pdf->output())->not->toBeEmpty();
 });

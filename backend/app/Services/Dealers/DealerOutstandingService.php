@@ -70,6 +70,66 @@ final class DealerOutstandingService
     }
 
     /**
+     * All active dealers assigned to an employee, including zero outstanding.
+     *
+     * @return Builder<Dealer>
+     */
+    public function assignedDealersQuery(int $assignedEmployeeId): Builder
+    {
+        $sql = DealerLedgerService::currentOutstandingSql();
+
+        $query = Dealer::query()
+            ->where('status', true)
+            ->where('assigned_employee_id', $assignedEmployeeId)
+            ->with(['assignedEmployee:id,full_name,employee_code']);
+
+        $this->ledger->scopeWithCurrentOutstanding($query);
+
+        return $query
+            ->orderByRaw($sql.' DESC')
+            ->orderBy('firm_name');
+    }
+
+    /**
+     * @return array{
+     *     employee_name: string,
+     *     employee_code: string|null,
+     *     total: float,
+     *     rows: list<array{employee_name: string, dealer_code: string, dealer_name: string, village: string, outstanding: float}>
+     * }
+     */
+    public function employeeExportPayload(int $assignedEmployeeId): array
+    {
+        $employee = Employee::query()->findOrFail($assignedEmployeeId);
+        $employeeName = $employee->full_name;
+
+        $rows = $this->assignedDealersQuery($assignedEmployeeId)
+            ->get()
+            ->map(function (Dealer $dealer) use ($employeeName): array {
+                $outstanding = $dealer->getAttribute('current_outstanding');
+
+                return [
+                    'employee_name' => $employeeName,
+                    'dealer_code' => (string) $dealer->dealer_code,
+                    'dealer_name' => (string) $dealer->firm_name,
+                    'village' => filled($dealer->village) ? (string) $dealer->village : '-',
+                    'outstanding' => $outstanding !== null
+                        ? $this->money($outstanding)
+                        : $this->ledger->getOutstanding($dealer),
+                ];
+            })
+            ->values()
+            ->all();
+
+        return [
+            'employee_name' => $employeeName,
+            'employee_code' => $employee->employee_code,
+            'total' => $this->total($assignedEmployeeId),
+            'rows' => $rows,
+        ];
+    }
+
+    /**
      * @return list<array{employee_id: int, employee_name: string, employee_code: string|null, dealer_count: int, total_outstanding: float}>
      */
     public function totalsByAssignedEmployee(): array
