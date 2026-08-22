@@ -50,6 +50,7 @@ import '../../modules/director/screens/director_payment_requests_screen.dart';
 import '../../modules/director/screens/director_route_tracking_screen.dart';
 import '../../modules/director/screens/director_team_attendance_screen.dart';
 import '../../modules/director/screens/director_today_collections_screen.dart';
+import '../../modules/director/screens/director_today_field_visits_screen.dart';
 import '../../modules/manager/screens/manager_dashboard_screen.dart';
 import '../../modules/manager/screens/manager_collection_detail_screen.dart';
 import '../../modules/manager/screens/manager_collections_screen.dart';
@@ -791,6 +792,19 @@ GoRouter createRouter(
                   : null,
             );
           },
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/director/today-field-visits',
+      builder: (_, _) => DirectorTodayFieldVisitsScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':visitId',
+          builder: (_, state) => DirectorFieldVisitDetailScreen(
+            auth: auth,
+            visitId: int.parse(state.pathParameters['visitId']!),
+          ),
         ),
       ],
     ),

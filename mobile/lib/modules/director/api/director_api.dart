@@ -635,4 +635,24 @@ class DirectorApi {
       throw mapApiError(error);
     }
   }
+
+  Future<Map<String, dynamic>> loadTodayFieldVisits() async {
+    try {
+      final response = await _dio.get('/director/field-visits/today');
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> getFieldVisit(int visitId) async {
+    try {
+      final response = await _dio.get('/director/field-visits/$visitId');
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
 }

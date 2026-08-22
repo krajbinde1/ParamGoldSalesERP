@@ -9,11 +9,15 @@ use App\Filament\Widgets\AdminDirectorPaymentOverviewWidget;
 use App\Filament\Widgets\AdminDirectorWelcomeWidget;
 use App\Models\Attendance;
 use App\Models\Collection;
+use App\Models\Crop;
 use App\Models\Dealer;
 use App\Models\DealerVisit;
 use App\Models\Employee;
+use App\Models\FieldActivity;
+use App\Models\FieldActivityRecommendation;
 use App\Models\Order;
 use App\Models\PaymentRequest;
+use App\Models\Product;
 use App\Models\User;
 use App\Services\Dashboard\DirectorDashboardDataService;
 use App\Support\AttendanceCalendar;
@@ -642,4 +646,130 @@ it('groups director today collections dealer-wise using dashboard amount rules',
         ->assertJsonPath('data.id', $first->id)
         ->assertJsonPath('data.amount', 15000)
         ->assertJsonPath('data.status', Collection::STATUS_RECEIVED);
+});
+
+it('lists director today field visits grouped by employee matching dashboard count', function (): void {
+    $director = directorDashDirector('Field Visit Director');
+    $akash = directorDashEmployee('Akash Mundhe', '9910000044');
+    $ganesh = directorDashEmployee('Ganesh Dere', '9910000045');
+    $today = AttendanceCalendar::today()->toDateString();
+    $yesterday = AttendanceCalendar::today()->copy()->subDay()->toDateString();
+    $cotton = Crop::query()->where('name', 'Cotton')->firstOrFail();
+    $soybean = Crop::query()->where('name', 'Soybean')->firstOrFail();
+    $product = Product::query()->create([
+        'product_name' => 'Param Gold Spray',
+        'category' => 'General',
+        'uom' => 'Kg',
+        'nos_per_case' => 10,
+        'gst_percentage' => 18,
+        'dealer_price' => 250,
+        'status' => true,
+    ]);
+
+    $first = FieldActivity::query()->create([
+        'employee_id' => $akash->id,
+        'farmer_name' => 'Ramesh Patil',
+        'farmer_mobile' => '9876543210',
+        'village' => 'Tirthpuri',
+        'taluka' => 'Partur',
+        'district' => 'Jalna',
+        'crop_id' => $cotton->id,
+        'activity_date' => $today,
+        'activity_time' => '10:15:00',
+        'remark' => 'Morning visit',
+        'photo_path' => 'field-activities/today-1.jpg',
+        'latitude' => 19.8765432,
+        'longitude' => 75.3432109,
+        'status' => FieldActivity::STATUS_COMPLETED,
+    ]);
+    FieldActivityRecommendation::query()->create([
+        'field_activity_id' => $first->id,
+        'crop_id' => $cotton->id,
+        'product_id' => $product->id,
+        'dosage' => '1 kg/acre',
+    ]);
+    FieldActivity::query()->create([
+        'employee_id' => $akash->id,
+        'farmer_name' => 'Suresh Jadhav',
+        'farmer_mobile' => '9765432109',
+        'village' => 'Ghansawangi',
+        'taluka' => 'Ghansawangi',
+        'district' => 'Jalna',
+        'crop_id' => $soybean->id,
+        'activity_date' => $today,
+        'activity_time' => '12:30:00',
+        'photo_path' => 'field-activities/today-2.jpg',
+        'status' => FieldActivity::STATUS_COMPLETED,
+    ]);
+    FieldActivity::query()->create([
+        'employee_id' => $akash->id,
+        'farmer_name' => 'Partur Farmer',
+        'farmer_mobile' => '9654321098',
+        'village' => 'Partur',
+        'taluka' => 'Partur',
+        'district' => 'Jalna',
+        'crop_id' => $cotton->id,
+        'activity_date' => $today,
+        'activity_time' => '15:00:00',
+        'photo_path' => 'field-activities/today-3.jpg',
+        'status' => FieldActivity::STATUS_COMPLETED,
+    ]);
+    FieldActivity::query()->create([
+        'employee_id' => $ganesh->id,
+        'farmer_name' => 'Other Farmer',
+        'farmer_mobile' => '9543210987',
+        'village' => 'Ambad',
+        'taluka' => 'Ambad',
+        'district' => 'Jalna',
+        'crop_id' => $cotton->id,
+        'activity_date' => $today,
+        'activity_time' => '11:00:00',
+        'photo_path' => 'field-activities/today-4.jpg',
+        'status' => FieldActivity::STATUS_COMPLETED,
+    ]);
+    FieldActivity::query()->create([
+        'employee_id' => $akash->id,
+        'farmer_name' => 'Yesterday Farmer',
+        'village' => 'Tirthpuri',
+        'taluka' => 'Partur',
+        'activity_date' => $yesterday,
+        'activity_time' => '09:00:00',
+        'photo_path' => 'field-activities/yesterday.jpg',
+        'status' => FieldActivity::STATUS_COMPLETED,
+    ]);
+
+    $this->actingAs($director, 'sanctum');
+
+    $dashboardCount = (int) app(DirectorDashboardDataService::class)->snapshot($director)['field_visits'];
+
+    $list = $this->getJson('/api/director/field-visits/today')
+        ->assertOk()
+        ->assertJsonPath('date', $today)
+        ->assertJsonPath('total_visits', 4)
+        ->assertJsonPath('employees_visited', 2);
+
+    expect($list->json('total_visits'))->toBe($dashboardCount)
+        ->and($list->json('employees'))->toHaveCount(2);
+
+    $akashGroup = collect($list->json('employees'))->firstWhere('employee_name', 'Akash Mundhe');
+    expect($akashGroup['visits_count'])->toBe(3)
+        ->and($akashGroup['visits'])->toHaveCount(3)
+        ->and(collect($akashGroup['visits'])->pluck('village')->all())
+        ->toEqual(['Partur', 'Ghansawangi', 'Tirthpuri'])
+        ->and($akashGroup['visits'][2]['farmer_name'])->toBe('Ramesh Patil')
+        ->and($akashGroup['visits'][2]['farmer_mobile'])->toBe('9876543210')
+        ->and($akashGroup['visits'][2]['crop_name'])->toBe('Cotton')
+        ->and($akashGroup['visits'][2]['product_recommendation'])->toBe('Param Gold Spray')
+        ->and($akashGroup['visits'][2]['activity_time'])->toBe('10:15');
+
+    $this->getJson('/api/director/field-visits/'.$first->id)
+        ->assertOk()
+        ->assertJsonPath('data.id', $first->id)
+        ->assertJsonPath('data.employee_name', 'Akash Mundhe')
+        ->assertJsonPath('data.employee_code', $akash->fresh()->employee_code)
+        ->assertJsonPath('data.farmer_name', 'Ramesh Patil')
+        ->assertJsonPath('data.village', 'Tirthpuri')
+        ->assertJsonPath('data.crop_name', 'Cotton')
+        ->assertJsonPath('data.maps_url', $first->mapsUrl())
+        ->assertJsonPath('data.photo_url', $first->photoUrl());
 });

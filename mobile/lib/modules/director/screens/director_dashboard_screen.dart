@@ -822,7 +822,7 @@ class _TeamActivitySection extends StatelessWidget {
         value: '${data.fieldActivities}',
         icon: Icons.travel_explore_rounded,
         accent: AppColors.primary,
-        onTap: () => onOpen('/director/team-activity'),
+        onTap: () => onOpen('/director/today-field-visits'),
       ),
       _DashTile(
         label: 'Active Routes',

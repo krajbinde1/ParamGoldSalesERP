@@ -36,6 +36,7 @@ class FieldActivityDetail {
     this.longitude,
     this.mapsUrl,
     this.employeeName,
+    this.employeeCode,
     required this.status,
     required this.statusLabel,
     this.recommendations = const [],
@@ -56,6 +57,7 @@ class FieldActivityDetail {
   final double? longitude;
   final String? mapsUrl;
   final String? employeeName;
+  final String? employeeCode;
   final String status;
   final String statusLabel;
   final List<FieldActivityRecommendationItem> recommendations;
@@ -79,6 +81,7 @@ class FieldActivityDetail {
         longitude: double.tryParse('${json['longitude'] ?? ''}'),
         mapsUrl: json['maps_url']?.toString(),
         employeeName: json['employee_name']?.toString(),
+        employeeCode: json['employee_code']?.toString(),
         status: json['status']?.toString() ?? 'completed',
         statusLabel: json['status_label']?.toString() ?? 'Completed',
         recommendations: (json['recommendations'] as List?)

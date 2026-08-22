@@ -20,11 +20,17 @@ class FieldActivityDetailScreen extends StatefulWidget {
     required this.activityId,
     required this.auth,
     this.loadActivity,
+    this.title = 'Field Activity Details',
+    this.dateLabel = 'Activity Date',
+    this.timeLabel = 'Activity Time',
   });
 
   final int activityId;
   final AuthController auth;
   final Future<FieldActivityDetail> Function()? loadActivity;
+  final String title;
+  final String dateLabel;
+  final String timeLabel;
 
   @override
   State<FieldActivityDetailScreen> createState() =>
@@ -58,7 +64,7 @@ class _FieldActivityDetailScreenState extends State<FieldActivityDetailScreen> {
   @override
   Widget build(BuildContext context) {
     return PgPageScaffold(
-      title: 'Field Activity Details',
+      title: widget.title,
       showBack: true,
       body: RefreshIndicator(
         onRefresh: _reload,
@@ -113,19 +119,24 @@ class _FieldActivityDetailScreenState extends State<FieldActivityDetailScreen> {
                       ),
                       const SizedBox(height: AppSpacing.sm),
                       PgInvoiceRow(
-                        label: 'Activity Date',
+                        label: widget.dateLabel,
                         value: DateFormat('d MMM yyyy').format(
                           detail.activityDate,
                         ),
                       ),
                       PgInvoiceRow(
-                        label: 'Activity Time',
+                        label: widget.timeLabel,
                         value: detail.activityTime,
                       ),
                       if ((detail.employeeName ?? '').isNotEmpty)
                         PgInvoiceRow(
                           label: 'Employee Name',
                           value: detail.employeeName!,
+                        ),
+                      if ((detail.employeeCode ?? '').isNotEmpty)
+                        PgInvoiceRow(
+                          label: 'Employee Code',
+                          value: detail.employeeCode!,
                         ),
                       PgInvoiceRow(
                         label: 'Farmer Mobile',
