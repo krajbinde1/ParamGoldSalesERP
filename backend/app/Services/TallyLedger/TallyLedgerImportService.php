@@ -1,0 +1,245 @@
+<?php
+
+namespace App\Services\TallyLedger;
+
+use App\Models\Dealer;
+use App\Models\DealerTallyEntry;
+use App\Models\DealerTallyImport;
+use App\Models\DealerTallyLedger;
+use App\Models\TallyDealerMapping;
+use App\Models\User;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Validation\ValidationException;
+
+final class TallyLedgerImportService
+{
+    public function __construct(
+        private readonly TallyLedgerExcelParser $parser = new TallyLedgerExcelParser,
+        private readonly TallyDealerLedgerService $ledger = new TallyDealerLedgerService,
+    ) {}
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function preview(string $path, ?Dealer $dealer = null): array
+    {
+        $parsed = $this->parser->parse($path);
+        $erpClosingSigned = $parsed->calculatedClosingSigned();
+
+        $tallyClosingSigned = $parsed->tallyClosingBalance !== null && $parsed->tallyClosingBalanceType !== null
+            ? DealerTallyBalance::signed($parsed->tallyClosingBalance, $parsed->tallyClosingBalanceType)
+            : null;
+
+        $matched = $tallyClosingSigned !== null
+            && DealerTallyBalance::matches(
+                DealerTallyBalance::amountFromSigned($erpClosingSigned),
+                DealerTallyBalance::typeFromSigned($erpClosingSigned),
+                $parsed->tallyClosingBalance,
+                $parsed->tallyClosingBalanceType,
+            );
+
+        $tallyName = $parsed->tallyLedgerName;
+        $namesDiffer = $dealer !== null
+            && $tallyName !== ''
+            && TallyDealerMapping::normalizeName($tallyName) !== TallyDealerMapping::normalizeName((string) $dealer->firm_name);
+
+        Log::debug('tally_ledger_import_preview', [
+            'tally_ledger_name' => $tallyName,
+            'selected_erp_dealer_id' => $dealer?->id,
+            'names_differ' => $namesDiffer,
+            'transaction_count' => count($parsed->transactions),
+            'opening_balance' => $parsed->openingBalance,
+            'opening_balance_type' => $parsed->openingBalanceType,
+            'tally_closing_balance' => $parsed->tallyClosingBalance,
+            'tally_closing_balance_type' => $parsed->tallyClosingBalanceType,
+        ]);
+
+        return [
+            'tally_ledger_name' => $tallyName !== '' ? $tallyName : '—',
+            'names_differ' => $namesDiffer,
+            'opening_balance' => $parsed->openingBalance,
+            'opening_balance_type' => $parsed->openingBalanceType,
+            'opening_balance_explicit' => $parsed->openingBalanceExplicit,
+            'transaction_count' => count($parsed->transactions),
+            'total_debit' => $parsed->totalDebit,
+            'total_credit' => $parsed->totalCredit,
+            'tally_closing_balance' => $parsed->tallyClosingBalance,
+            'tally_closing_balance_type' => $parsed->tallyClosingBalanceType,
+            'erp_closing_balance' => DealerTallyBalance::amountFromSigned($erpClosingSigned),
+            'erp_closing_balance_type' => DealerTallyBalance::typeFromSigned($erpClosingSigned),
+            'erp_closing_signed' => $erpClosingSigned,
+            'balance_matched' => $parsed->tallyClosingBalance === null ? null : $matched,
+            'difference' => $tallyClosingSigned === null
+                ? null
+                : round($erpClosingSigned - $tallyClosingSigned, 2),
+            'failed_count' => count($parsed->failed),
+            'failed_rows' => $parsed->failed,
+            'skipped_before_start_date' => $parsed->skippedBeforeStartDate,
+            'transactions' => $parsed->transactions,
+            'parsed' => $parsed,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function import(string $path, int $dealerId, User $actor, string $originalFilename): array
+    {
+        $dealer = Dealer::query()->find($dealerId);
+        if ($dealer === null) {
+            throw ValidationException::withMessages([
+                'dealer_id' => 'Open an existing ERP dealer before importing a Tally ledger.',
+            ]);
+        }
+
+        $preview = $this->preview($path, $dealer);
+
+        return $this->importPreview($preview, $dealer, $actor, $originalFilename);
+    }
+
+    /**
+     * Remove Tally-imported ledger data for one dealer only.
+     * Does not delete the dealer or any Orders, Collections, Visits, or ERP opening-balance fields.
+     */
+    public function resetForDealer(Dealer $dealer): void
+    {
+        DB::transaction(function () use ($dealer): void {
+            DealerTallyEntry::query()->where('dealer_id', $dealer->id)->delete();
+            DealerTallyImport::query()->where('dealer_id', $dealer->id)->delete();
+            DealerTallyLedger::query()->where('dealer_id', $dealer->id)->delete();
+        });
+
+        Log::debug('tally_ledger_reset', [
+            'dealer_id' => $dealer->id,
+        ]);
+    }
+
+    /**
+     * @param  array<string, mixed>  $preview
+     * @return array<string, mixed>
+     */
+    public function importPreview(array $preview, Dealer $dealer, User $actor, string $originalFilename): array
+    {
+        /** @var TallyLedgerParseResult $parsed */
+        $parsed = $preview['parsed'] ?? null;
+        if (! $parsed instanceof TallyLedgerParseResult) {
+            throw ValidationException::withMessages([
+                'file' => 'Upload the Tally Excel again before importing.',
+            ]);
+        }
+
+        Log::debug('tally_ledger_import_selected_dealer', [
+            'tally_ledger_name' => $parsed->tallyLedgerName,
+            'selected_erp_dealer_id' => $dealer->id,
+            'original_filename' => $originalFilename,
+        ]);
+
+        return DB::transaction(function () use ($preview, $parsed, $dealer, $actor, $originalFilename): array {
+            $import = DealerTallyImport::query()->create([
+                'dealer_id' => $dealer->id,
+                'original_filename' => $originalFilename,
+                'tally_ledger_name' => $parsed->tallyLedgerName !== '' ? $parsed->tallyLedgerName : null,
+                'imported_by' => $actor->id,
+                'imported_at' => Carbon::now('Asia/Kolkata'),
+                'opening_balance' => $parsed->openingBalance,
+                'opening_balance_type' => $parsed->openingBalanceType,
+                'transaction_count' => count($parsed->transactions),
+                'imported_count' => 0,
+                'duplicate_count' => 0,
+                'failed_count' => count($parsed->failed),
+                'tally_closing_balance' => $parsed->tallyClosingBalance,
+                'tally_closing_balance_type' => $parsed->tallyClosingBalanceType,
+                'erp_closing_balance' => $preview['erp_closing_balance'] ?? 0,
+                'erp_closing_balance_type' => $preview['erp_closing_balance_type'] ?? DealerTallyBalance::DEBIT,
+                'balance_matched' => $preview['balance_matched'] ?? null,
+                'difference' => $preview['difference'] ?? null,
+                'status' => DealerTallyImport::STATUS_COMPLETED,
+                'failed_rows' => $parsed->failed === [] ? null : $parsed->failed,
+            ]);
+
+            $imported = 0;
+            $duplicates = 0;
+
+            foreach ($parsed->transactions as $transaction) {
+                $fingerprint = DealerTallyEntry::makeFingerprint(
+                    dealerId: (int) $dealer->id,
+                    date: $transaction['date'],
+                    voucherType: $transaction['voucher_type'],
+                    voucherNo: $transaction['voucher_no'],
+                    debit: (float) $transaction['debit'],
+                    credit: (float) $transaction['credit'],
+                    particulars: $transaction['particulars'],
+                );
+
+                $existing = DealerTallyEntry::query()->where('fingerprint', $fingerprint)->exists();
+                if ($existing) {
+                    $duplicates++;
+
+                    continue;
+                }
+
+                DealerTallyEntry::query()->create([
+                    'dealer_id' => $dealer->id,
+                    'import_id' => $import->id,
+                    'entry_date' => $transaction['date'],
+                    'particulars' => $transaction['particulars'],
+                    'voucher_type' => $transaction['voucher_type'] !== '' ? $transaction['voucher_type'] : null,
+                    'voucher_no' => $transaction['voucher_no'] !== '' ? $transaction['voucher_no'] : null,
+                    'debit' => $transaction['debit'],
+                    'credit' => $transaction['credit'],
+                    'source' => TallyLedgerConfig::SOURCE,
+                    'fingerprint' => $fingerprint,
+                    'source_row' => $transaction['row_number'],
+                ]);
+                $imported++;
+            }
+
+            DealerTallyLedger::query()->updateOrCreate(
+                ['dealer_id' => $dealer->id],
+                [
+                    'opening_balance' => $parsed->openingBalance,
+                    'opening_balance_type' => $parsed->openingBalanceType,
+                    'opening_balance_explicit' => $parsed->openingBalanceExplicit,
+                    'financial_start_date' => TallyLedgerConfig::FINANCIAL_START_DATE,
+                    'tally_closing_balance' => $parsed->tallyClosingBalance,
+                    'tally_closing_balance_type' => $parsed->tallyClosingBalanceType,
+                    'last_imported_at' => Carbon::now('Asia/Kolkata'),
+                ],
+            );
+
+            $statement = $this->ledger->statement($dealer->fresh());
+            $erpSigned = (float) $statement['summary']['current_outstanding_signed'];
+            $tallySigned = $parsed->tallyClosingBalance !== null && $parsed->tallyClosingBalanceType !== null
+                ? DealerTallyBalance::signed($parsed->tallyClosingBalance, $parsed->tallyClosingBalanceType)
+                : null;
+            $matched = $tallySigned !== null
+                && DealerTallyBalance::matches(
+                    DealerTallyBalance::amountFromSigned($erpSigned),
+                    DealerTallyBalance::typeFromSigned($erpSigned),
+                    $parsed->tallyClosingBalance,
+                    $parsed->tallyClosingBalanceType,
+                );
+
+            $import->update([
+                'imported_count' => $imported,
+                'duplicate_count' => $duplicates,
+                'erp_closing_balance' => DealerTallyBalance::amountFromSigned($erpSigned),
+                'erp_closing_balance_type' => DealerTallyBalance::typeFromSigned($erpSigned),
+                'balance_matched' => $tallySigned === null ? null : $matched,
+                'difference' => $tallySigned === null ? null : round($erpSigned - $tallySigned, 2),
+            ]);
+
+            return [
+                'import' => $import->fresh(),
+                'imported_count' => $imported,
+                'duplicate_count' => $duplicates,
+                'failed_count' => count($parsed->failed),
+                'transaction_count' => count($parsed->transactions),
+                'dealer' => $dealer,
+                'summary' => $statement['summary'],
+            ];
+        });
+    }
+}

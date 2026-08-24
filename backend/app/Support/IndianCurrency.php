@@ -22,6 +22,37 @@ final class IndianCurrency
         return ($negative ? '-' : '').'₹'.$formatted;
     }
 
+    /**
+     * Always show two decimal places (ledger statements).
+     */
+    public static function formatExact(float|int|string|null $amount): string
+    {
+        $value = round((float) ($amount ?? 0), 2);
+        $negative = $value < 0;
+        $abs = abs($value);
+        $parts = explode('.', number_format($abs, 2, '.', ''));
+        $formatted = self::groupIndian($parts[0]).'.'.($parts[1] ?? '00');
+
+        return ($negative ? '-' : '').'₹'.$formatted;
+    }
+
+    /**
+     * Format a signed ledger balance as amount + Dr/Cr.
+     * Positive = Debit, negative = Credit.
+     */
+    public static function formatDrCr(float|int|string|null $signedAmount): string
+    {
+        $value = round((float) ($signedAmount ?? 0), 2);
+
+        if ($value == 0.0) {
+            return self::formatExact(0);
+        }
+
+        $side = $value < 0 ? 'Cr' : 'Dr';
+
+        return self::formatExact(abs($value)).' '.$side;
+    }
+
     private static function groupIndian(string $integer): string
     {
         $integer = ltrim($integer, '0');

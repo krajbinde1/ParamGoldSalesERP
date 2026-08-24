@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Dealers\Pages;
 use App\Filament\Resources\Dealers\Actions\DownloadDealerImportTemplateAction;
 use App\Filament\Resources\Dealers\Actions\ImportDealersAction;
 use App\Filament\Resources\Dealers\DealerResource;
+use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
 
@@ -15,6 +16,11 @@ class ListDealers extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('tallyImportHistory')
+                ->label('Tally Import History')
+                ->url(DealerResource::getUrl('tally-import-history'))
+                ->color('gray')
+                ->visible(fn (): bool => (auth()->user()?->isAdminUser() ?? false) || (auth()->user()?->isDirectorUser() ?? false)),
             DownloadDealerImportTemplateAction::make()
                 ->visible(fn (): bool => DealerResource::canCreate()),
             ImportDealersAction::make()

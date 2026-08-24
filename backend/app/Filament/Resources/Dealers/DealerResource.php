@@ -5,7 +5,9 @@ namespace App\Filament\Resources\Dealers;
 use App\Filament\Concerns\DeniesOrdersOnlyFilamentUsers;
 use App\Filament\Resources\Dealers\Pages\CreateDealer;
 use App\Filament\Resources\Dealers\Pages\EditDealer;
+use App\Filament\Resources\Dealers\Pages\ImportTallyLedger;
 use App\Filament\Resources\Dealers\Pages\ListDealers;
+use App\Filament\Resources\Dealers\Pages\ListTallyLedgerImports;
 use App\Filament\Resources\Dealers\Pages\ViewDealer;
 use App\Filament\Resources\Dealers\Pages\ViewDealerLedger;
 use App\Filament\Resources\Dealers\Schemas\DealerForm;
@@ -63,6 +65,8 @@ class DealerResource extends Resource
         return [
             'index' => ListDealers::route('/'),
             'create' => CreateDealer::route('/create'),
+            'import-tally-ledger' => ImportTallyLedger::route('/{record}/import-tally-ledger'),
+            'tally-import-history' => ListTallyLedgerImports::route('/tally-import-history'),
             'view' => ViewDealer::route('/{record}'),
             'ledger' => ViewDealerLedger::route('/{record}/ledger'),
             'edit' => EditDealer::route('/{record}/edit'),

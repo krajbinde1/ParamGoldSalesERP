@@ -2,9 +2,14 @@
 
 namespace App\Filament\Resources\Dealers\Tables;
 
+use App\Filament\Actions\SafeDeleteActions;
+use App\Filament\Resources\Dealers\DealerResource;
 use App\Models\Dealer;
+use App\Services\Dealers\DealerAccessService;
 use App\Services\Dealers\DealerLedgerService;
+use App\Services\SafeDelete\SafeDeleteGuard;
 use App\Support\IndianCurrency;
+use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\EditAction;
 use Filament\Actions\ForceDeleteBulkAction;
@@ -18,6 +23,7 @@ use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 
 class DealersTable
 {
@@ -78,7 +84,7 @@ class DealersTable
                         return $query->orderByRaw(DealerLedgerService::currentOutstandingSql($query->getModel()->getTable()).' '.$direction);
                     })
                     ->visible(fn (): bool => auth()->user() !== null
-                        && app(\App\Services\Dealers\DealerAccessService::class)->canViewAnyLedger(auth()->user())),
+                        && app(DealerAccessService::class)->canViewAnyLedger(auth()->user())),
                 TextColumn::make('latitude')
                     ->numeric()
                     ->sortable(),
@@ -127,17 +133,22 @@ class DealersTable
             ])
             ->recordActions([
                 ViewAction::make(),
+                Action::make('importTallyLedger')
+                    ->label('Import Tally Ledger')
+                    ->icon('heroicon-o-arrow-up-tray')
+                    ->url(fn (Dealer $record): string => DealerResource::getUrl('import-tally-ledger', ['record' => $record]))
+                    ->visible(fn (): bool => (auth()->user()?->isAdminUser() ?? false) || (auth()->user()?->isDirectorUser() ?? false)),
                 EditAction::make()
                     ->authorize(fn (Dealer $record): bool => auth()->user()?->can('update', $record) ?? false),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    \App\Filament\Actions\SafeDeleteActions::deleteBulkAction()
+                    SafeDeleteActions::deleteBulkAction()
                         ->authorize(fn (): bool => auth()->user()?->can('deleteAny', Dealer::class) ?? false),
                     ForceDeleteBulkAction::make()
                         ->authorize(fn (): bool => auth()->user()?->can('forceDeleteAny', Dealer::class) ?? false)
-                        ->using(function (ForceDeleteBulkAction $action, \Illuminate\Database\Eloquent\Collection $records): void {
-                            $guard = app(\App\Services\SafeDelete\SafeDeleteGuard::class);
+                        ->using(function (ForceDeleteBulkAction $action, Collection $records): void {
+                            $guard = app(SafeDeleteGuard::class);
                             $records->each(function (Dealer $record) use ($action, $guard): void {
                                 try {
                                     $guard->assertCanDelete($record);

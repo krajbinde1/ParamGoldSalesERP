@@ -140,4 +140,19 @@ class Dealer extends Model
     {
         return $this->hasOne(DealerApplication::class);
     }
+
+    public function tallyLedger(): HasOne
+    {
+        return $this->hasOne(DealerTallyLedger::class);
+    }
+
+    public function tallyEntries(): HasMany
+    {
+        return $this->hasMany(DealerTallyEntry::class);
+    }
+
+    public function tallyImports(): HasMany
+    {
+        return $this->hasMany(DealerTallyImport::class);
+    }
 }
