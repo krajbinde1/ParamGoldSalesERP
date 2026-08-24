@@ -2,6 +2,9 @@
 
 namespace App\Models;
 
+use App\Services\Orders\OrderBillingTransportCalculator;
+use App\Services\Orders\OrderLineCalculationService;
+use App\Support\PublicMediaUrl;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -267,6 +270,11 @@ class Order extends Model
         return $this->belongsTo(User::class, 'received_copy_uploaded_by');
     }
 
+    public function editPermissionRequests(): HasMany
+    {
+        return $this->hasMany(OrderEditPermissionRequest::class)->orderByDesc('id');
+    }
+
     /**
      * Display-only short order number for Admin / Production Supervisor lists.
      * Example: PG-20260813-0001 → PG-0001. Does not change stored order_no.
@@ -333,6 +341,81 @@ class Order extends Model
             self::STATUS_PENDING_APPROVAL,
             self::STATUS_REVERTED_TO_MANAGER,
         ], true);
+    }
+
+    public function isDispatchedLocked(): bool
+    {
+        return $this->status === self::STATUS_DISPATCHED;
+    }
+
+    public function openEditPermissionRequest(): ?OrderEditPermissionRequest
+    {
+        $this->loadMissing('editPermissionRequests');
+
+        return $this->editPermissionRequests
+            ->first(fn (OrderEditPermissionRequest $request): bool => in_array($request->status, [
+                OrderEditPermissionRequest::STATUS_PENDING,
+                OrderEditPermissionRequest::STATUS_APPROVED,
+            ], true));
+    }
+
+    public function approvedUnusedEditPermission(): ?OrderEditPermissionRequest
+    {
+        $this->loadMissing('editPermissionRequests');
+
+        return $this->editPermissionRequests
+            ->first(fn (OrderEditPermissionRequest $request): bool => $request->isApprovedUnused());
+    }
+
+    public function canRequestDispatchedEditPermission(): bool
+    {
+        if (! $this->isDispatchedLocked()) {
+            return false;
+        }
+
+        return ! OrderEditPermissionRequest::query()
+            ->where('order_id', $this->id)
+            ->open()
+            ->exists();
+    }
+
+    public function hasApprovedUnusedEditPermission(): bool
+    {
+        if (! $this->isDispatchedLocked()) {
+            return false;
+        }
+
+        return OrderEditPermissionRequest::query()
+            ->where('order_id', $this->id)
+            ->approvedUnused()
+            ->exists();
+    }
+
+    public function hasPendingEditPermission(): bool
+    {
+        return $this->isDispatchedLocked()
+            && OrderEditPermissionRequest::query()
+                ->where('order_id', $this->id)
+                ->pending()
+                ->exists();
+    }
+
+    /**
+     * @return list<OrderEditPermissionRequest>
+     */
+    public function usedEditPermissionAudits(): array
+    {
+        $this->loadMissing([
+            'editPermissionRequests.requestedByUser:id,name',
+            'editPermissionRequests.reviewedByUser:id,name',
+            'editPermissionRequests.editedByUser:id,name',
+        ]);
+
+        return $this->editPermissionRequests
+            ->filter(fn (OrderEditPermissionRequest $request): bool => $request->isUsed())
+            ->sortBy('edited_at')
+            ->values()
+            ->all();
     }
 
     public function canBeApproved(): bool
@@ -535,6 +618,10 @@ class Order extends Model
         );
 
         foreach ($this->workflowEvents as $event) {
+            if ($event->action === OrderWorkflowEvent::ACTION_DETAILS_CORRECTED) {
+                continue;
+            }
+
             $eventIsCurrent = ($isOnHold && $latestHeld !== null && $event->is($latestHeld))
                 || ($isReverted && $latestReverted !== null && $event->is($latestReverted));
 
@@ -600,6 +687,26 @@ class Order extends Model
             'is_rejection' => false,
         ];
 
+        foreach ($this->workflowEvents as $event) {
+            if ($event->action !== OrderWorkflowEvent::ACTION_DETAILS_CORRECTED) {
+                continue;
+            }
+
+            $steps[] = [
+                'key' => $event->action,
+                'label' => $event->timelineLabel(),
+                'actor' => $event->user?->name,
+                'actor_role' => $this->displayActorRole($event->user)
+                    ?? ($event->user_role ?: 'Admin'),
+                'at' => $format($event->created_at),
+                'status_text' => null,
+                'remark' => $event->remark,
+                'completed' => true,
+                'is_current' => false,
+                'is_rejection' => false,
+            ];
+        }
+
         if ($isRejected) {
             $steps[] = [
                 'key' => 'rejected',
@@ -657,7 +764,7 @@ class Order extends Model
 
     public function receivedCopyUrl(): ?string
     {
-        return \App\Support\PublicMediaUrl::fromPublicPath($this->received_copy_path);
+        return PublicMediaUrl::fromPublicPath($this->received_copy_path);
     }
 
     public function storeReceivedCopy(string $path, int $userId): void
@@ -874,8 +981,8 @@ class Order extends Model
             ]);
         }
 
-        $billingTransport = \App\Services\Orders\OrderBillingTransportCalculator::calculate(
-            originalGrandTotal: \App\Services\Orders\OrderBillingTransportCalculator::originalGrandTotal($this),
+        $billingTransport = OrderBillingTransportCalculator::calculate(
+            originalGrandTotal: OrderBillingTransportCalculator::originalGrandTotal($this),
             chargeType: (string) $transportChargeType,
             transportCharges: $transportFreight,
         );
@@ -924,7 +1031,7 @@ class Order extends Model
     public function recalculateTotals(): void
     {
         $totals = $this->items()->get()->reduce(function (array $totals, OrderItem $item): array {
-            $amounts = app(\App\Services\Orders\OrderLineCalculationService::class)->resolveStoredAmounts($item);
+            $amounts = app(OrderLineCalculationService::class)->resolveStoredAmounts($item);
 
             $totals['subtotal'] += $amounts['base_amount'];
             $totals['discount_amount'] += $amounts['discount_amount'];
@@ -961,7 +1068,7 @@ class Order extends Model
     public function sentForBillTimelineRemark(): ?string
     {
         $parts = [];
-        $billing = \App\Services\Orders\OrderBillingTransportCalculator::present($this);
+        $billing = OrderBillingTransportCalculator::present($this);
 
         if (filled($this->vehicle_number)) {
             $parts[] = 'Vehicle No: '.$this->vehicle_number;
@@ -972,13 +1079,13 @@ class Order extends Model
         }
 
         if ($billing['transport_charges'] !== null) {
-            $parts[] = 'Transport Charges: '.\App\Services\Orders\OrderBillingTransportCalculator::formatMoney(
+            $parts[] = 'Transport Charges: '.OrderBillingTransportCalculator::formatMoney(
                 (float) $billing['transport_charges'],
             );
         }
 
-        if (\App\Services\Orders\OrderBillingTransportCalculator::hasSavedAdjustment($this)) {
-            $parts[] = 'Final Grand Total: '.\App\Services\Orders\OrderBillingTransportCalculator::formatMoney(
+        if (OrderBillingTransportCalculator::hasSavedAdjustment($this)) {
+            $parts[] = 'Final Grand Total: '.OrderBillingTransportCalculator::formatMoney(
                 (float) $billing['final_grand_total'],
             );
         }
@@ -1020,6 +1127,18 @@ class Order extends Model
                 );
             }
         }
+    }
+
+    public function recordDetailsCorrected(User $editor, OrderEditPermissionRequest $request): void
+    {
+        $now = Carbon::now(self::BUSINESS_TIMEZONE);
+
+        $this->recordWorkflowEvent(
+            OrderWorkflowEvent::ACTION_DETAILS_CORRECTED,
+            $editor,
+            $request->workflowRemark(),
+            $now,
+        );
     }
 
     private function recordWorkflowEvent(string $action, User $actor, ?string $remark, Carbon $at): void

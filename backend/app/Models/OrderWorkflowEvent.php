@@ -17,6 +17,8 @@ class OrderWorkflowEvent extends Model
 
     public const ACTION_REAPPROVED = 'reapproved';
 
+    public const ACTION_DETAILS_CORRECTED = 'details_corrected';
+
     protected $fillable = [
         'order_id',
         'action',
@@ -50,6 +52,7 @@ class OrderWorkflowEvent extends Model
             self::ACTION_RELEASED => 'Hold Released by Production Supervisor',
             self::ACTION_REVERTED => 'Reverted to Manager',
             self::ACTION_REAPPROVED => 'Re-Approved by Sales Manager',
+            self::ACTION_DETAILS_CORRECTED => 'Order Details Corrected by Admin',
             default => ucfirst(str_replace('_', ' ', $this->action)),
         };
     }

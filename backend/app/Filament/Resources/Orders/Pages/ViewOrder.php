@@ -7,6 +7,7 @@ use App\Actions\Orders\DispatchOrder;
 use App\Actions\Orders\RejectOrderWithRemarks;
 use App\Actions\Orders\SendOrderForBilling;
 use App\Filament\Resources\Orders\OrderResource;
+use App\Filament\Support\OrderDispatchedEditActions;
 use App\Filament\Support\OrderHoldRevertActions;
 use App\Filament\Support\SendForBillForm;
 use App\Models\Order;
@@ -249,6 +250,21 @@ class ViewOrder extends ViewRecord
                         'dispatch_remark',
                     ]);
                 }),
+            ...OrderDispatchedEditActions::make(function (): void {
+                $this->record->refresh();
+                $this->record->unsetRelation('editPermissionRequests');
+                $this->record->unsetRelation('workflowEvents');
+                $this->refreshFormData([
+                    'status',
+                    'vehicle_id',
+                    'vehicle_number',
+                    'transport_amount',
+                    'transport_charge_type',
+                    'transport_adjustment',
+                    'grand_total',
+                    'original_grand_total',
+                ]);
+            }, $this->getRecord()),
             EditAction::make()
                 ->visible(fn (): bool => ! auth()->user()?->hasOrdersOnlyFilamentAccess()
                     && $record->canBeEdited()),

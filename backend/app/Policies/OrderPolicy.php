@@ -205,6 +205,24 @@ class OrderPolicy
         return $user->hasRole(UserRole::ProductionSupervisor);
     }
 
+    public function requestDispatchedEdit(User $user, Order $order): bool
+    {
+        if (! $user->isAdminUser() || $user->isDirectorUser()) {
+            return false;
+        }
+
+        return $order->canRequestDispatchedEditPermission();
+    }
+
+    public function correctDispatchedTransport(User $user, Order $order): bool
+    {
+        if (! $user->isAdminUser() || $user->isDirectorUser()) {
+            return false;
+        }
+
+        return $order->hasApprovedUnusedEditPermission();
+    }
+
     public function uploadReceivedCopy(User $user, Order $order): bool
     {
         if (! $order->canUploadReceivedCopy()) {

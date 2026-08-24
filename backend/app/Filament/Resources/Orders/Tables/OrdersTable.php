@@ -6,6 +6,7 @@ use App\Actions\Orders\BillOrderWithDocument;
 use App\Actions\Orders\DispatchOrder;
 use App\Actions\Orders\RejectOrderWithRemarks;
 use App\Actions\Orders\SendOrderForBilling;
+use App\Filament\Support\OrderDispatchedEditActions;
 use App\Filament\Support\OrderHoldRevertActions;
 use App\Filament\Support\SendForBillForm;
 use App\Filament\Support\TodayDateFilter;
@@ -287,6 +288,7 @@ class OrdersTable
                             ->success()
                             ->send();
                     }),
+                ...OrderDispatchedEditActions::make(),
                 Action::make('cancel')
                     ->label('Cancel')
                     ->color('danger')

@@ -2,7 +2,9 @@
 
 namespace App\Filament\Resources\Orders\Schemas;
 
+use App\Enums\TransportChargeType;
 use App\Models\Order;
+use App\Services\Orders\OrderBillingTransportCalculator;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
@@ -75,7 +77,7 @@ class OrderInfolist
                                 return $record->salesEmployee?->reportingManager?->full_name ?: '—';
                             }),
                         TextEntry::make('grand_total')
-                            ->label(fn (Order $record): string => \App\Services\Orders\OrderBillingTransportCalculator::hasSavedAdjustment($record)
+                            ->label(fn (Order $record): string => OrderBillingTransportCalculator::hasSavedAdjustment($record)
                                 ? 'Final Grand Total'
                                 : 'Grand Total')
                             ->money('INR')
@@ -100,7 +102,7 @@ class OrderInfolist
                             ->label('Transport Charge Type')
                             ->placeholder('—')
                             ->formatStateUsing(function (?string $state): string {
-                                return \App\Enums\TransportChargeType::tryFrom((string) $state)?->label() ?: '—';
+                                return TransportChargeType::tryFrom((string) $state)?->label() ?: '—';
                             }),
                         TextEntry::make('transport_amount')
                             ->label('Transport Charges')
@@ -110,12 +112,12 @@ class OrderInfolist
                                 }
 
                                 if ($record->transport_adjustment !== null) {
-                                    return \App\Services\Orders\OrderBillingTransportCalculator::formatAdjustment(
+                                    return OrderBillingTransportCalculator::formatAdjustment(
                                         (float) $record->transport_adjustment,
                                     );
                                 }
 
-                                return \App\Services\Orders\OrderBillingTransportCalculator::formatMoney(
+                                return OrderBillingTransportCalculator::formatMoney(
                                     (float) $record->transport_amount,
                                 );
                             })
@@ -129,7 +131,23 @@ class OrderInfolist
                             ->label('Final Grand Total')
                             ->money('INR')
                             ->weight(FontWeight::Bold)
-                            ->visible(fn (Order $record): bool => \App\Services\Orders\OrderBillingTransportCalculator::hasSavedAdjustment($record)),
+                            ->visible(fn (Order $record): bool => OrderBillingTransportCalculator::hasSavedAdjustment($record)),
+                    ]),
+
+                Section::make('Transport Correction Audit')
+                    ->columnSpanFull()
+                    ->visible(fn (Order $record): bool => $record->usedEditPermissionAudits() !== [])
+                    ->schema([
+                        TextEntry::make('transport_correction_audit')
+                            ->hiddenLabel()
+                            ->html()
+                            ->state(fn (Order $record): string => 'audit')
+                            ->formatStateUsing(fn ($state, Order $record): HtmlString => new HtmlString(
+                                view('filament.resources.orders.partials.order-edit-audit', [
+                                    'audits' => $record->usedEditPermissionAudits(),
+                                ])->render()
+                            ))
+                            ->columnSpanFull(),
                     ]),
 
                 Section::make('Order Items')
@@ -176,6 +194,25 @@ class OrderInfolist
                                 'lg' => 3,
                             ])
                             ->schema([
+                                TextEntry::make('dispatched_edit_pending_banner')
+                                    ->hiddenLabel()
+                                    ->visible(fn (Order $record): bool => $record->hasPendingEditPermission())
+                                    ->state(function (Order $record): string {
+                                        $request = $record->openEditPermissionRequest();
+
+                                        return 'Edit permission requested. Waiting for Director approval. This order remains locked.'
+                                            .(filled($request?->reason) ? ' Reason: '.$request->reason : '');
+                                    })
+                                    ->color('warning')
+                                    ->weight(FontWeight::SemiBold)
+                                    ->columnSpanFull(),
+                                TextEntry::make('dispatched_edit_approved_banner')
+                                    ->hiddenLabel()
+                                    ->visible(fn (Order $record): bool => $record->hasApprovedUnusedEditPermission())
+                                    ->state('Director approved a one-time correction. You may edit Vehicle No., Transport Type, and Transport Charges. Saving will lock the order again.')
+                                    ->color('info')
+                                    ->weight(FontWeight::SemiBold)
+                                    ->columnSpanFull(),
                                 TextEntry::make('billing_gate')
                                     ->hiddenLabel()
                                     ->visible(fn (Order $record): bool => $record->isAwaitingSendForBill())

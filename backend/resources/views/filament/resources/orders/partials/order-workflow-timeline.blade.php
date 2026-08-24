@@ -198,7 +198,7 @@
 
                         @if ($remark !== '')
                             <div class="pg-order-workflow__remark {{ $rejected ? 'pg-order-workflow__remark--rejected' : '' }}">
-                                {{ $remark }}
+                                {!! nl2br(e($remark)) !!}
                             </div>
                         @endif
                     </div>
