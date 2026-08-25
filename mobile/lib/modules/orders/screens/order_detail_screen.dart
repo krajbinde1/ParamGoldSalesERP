@@ -221,6 +221,7 @@ class _OrderDetailScreenState extends State<OrderDetailScreen> {
                     discount: detail.discountAmount,
                     gst: detail.gstAmount,
                     grandTotal: detail.finalGrandTotal ?? detail.grandTotal,
+                    taxableValue: detail.taxableAmountAfterTransport,
                     transport: detail.transportAmount,
                     vehicleNo: detail.vehicleNumber,
                     transportTypeLabel: detail.transportChargeTypeLabel,

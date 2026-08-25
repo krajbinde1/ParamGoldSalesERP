@@ -88,6 +88,8 @@ final class TallyLedgerExcelParser
         $openingExplicit = false;
         $closingBalance = null;
         $closingType = null;
+        $tallySheetTotalDebit = null;
+        $tallySheetTotalCredit = null;
         $transactions = [];
         $failed = [];
         $skippedBeforeStart = 0;
@@ -113,11 +115,6 @@ final class TallyLedgerExcelParser
             $voucherNo = $this->cellString($row, $this->shiftedIndex($columnMap['voucher_no'] ?? null, $columnShift));
             $debit = $this->parseAmount($this->cellValue($row, $this->shiftedIndex($columnMap['debit'] ?? null, $columnShift)));
             $credit = $this->parseAmount($this->cellValue($row, $this->shiftedIndex($columnMap['credit'] ?? null, $columnShift)));
-            if ($columnShift === 1 && $credit <= 0 && $debit > 0
-                && preg_match('/^by$/iu', $this->cellString($row, $columnMap['particulars'] ?? null)) === 1) {
-                $credit = $debit;
-                $debit = 0.0;
-            }
             $nextRow = $sheetRows[$index + 1] ?? null;
             $particulars = $this->resolveParticulars(
                 $row,
@@ -125,6 +122,12 @@ final class TallyLedgerExcelParser
                 is_array($nextRow) ? $nextRow : null,
                 $columnShift,
             );
+            $isOpeningRow = $this->rowIsOpeningBalance($row, $particulars);
+            if ($columnShift === 1 && ! $isOpeningRow && $credit <= 0 && $debit > 0
+                && preg_match('/^by$/iu', $this->cellString($row, $columnMap['particulars'] ?? null)) === 1) {
+                $credit = $debit;
+                $debit = 0.0;
+            }
             $kind = $this->classifyRow($row, $particulars, $dateRaw, $debit, $credit);
 
             if ($kind === 'skip') {
@@ -153,16 +156,28 @@ final class TallyLedgerExcelParser
             }
 
             if ($kind === 'total') {
+                $captured = $this->captureSheetTotals($dateRaw, $debit, $credit);
+                if ($tallySheetTotalDebit === null && $captured !== null) {
+                    $tallySheetTotalDebit = $captured['debit'];
+                    $tallySheetTotalCredit = $captured['credit'];
+                }
+
+                continue;
+            }
+
+            if ($this->isNumericLabel($particulars) || $this->looksLikeAmountLabel($voucherType)) {
                 continue;
             }
 
             $date = $this->parseDate($dateRaw);
             if ($date === null) {
-                $failed[] = [
-                    'row_number' => $rowNumber,
-                    'reason' => 'Invalid or missing date.',
-                    'particulars' => $particulars,
-                ];
+                if ($this->looksLikeDateAttempt($dateRaw) || ($particulars !== '' && ($debit > 0 || $credit > 0))) {
+                    $failed[] = [
+                        'row_number' => $rowNumber,
+                        'reason' => 'Invalid or missing date.',
+                        'particulars' => $particulars,
+                    ];
+                }
 
                 continue;
             }
@@ -213,6 +228,8 @@ final class TallyLedgerExcelParser
             'closing_balance_type' => $closingType,
             'skipped_before_start_date' => $skippedBeforeStart,
             'failed_rows' => count($failed),
+            'tally_sheet_total_debit' => $tallySheetTotalDebit,
+            'tally_sheet_total_credit' => $tallySheetTotalCredit,
         ]);
 
         return new TallyLedgerParseResult(
@@ -227,6 +244,8 @@ final class TallyLedgerExcelParser
             totalDebit: $totalDebit,
             totalCredit: $totalCredit,
             skippedBeforeStartDate: $skippedBeforeStart,
+            tallySheetTotalDebit: $tallySheetTotalDebit,
+            tallySheetTotalCredit: $tallySheetTotalCredit,
         );
     }
 
@@ -289,11 +308,26 @@ final class TallyLedgerExcelParser
                 continue;
             }
 
-            $value = $this->rawCellValue($sheet->getCell($cells[0]));
+            $origin = $sheet->getCell($cells[0]);
+            $value = $this->rawCellValue($origin);
+            $format = $origin->getStyle()->getNumberFormat()->getFormatCode();
             $sheet->unmergeCells($range);
 
             foreach ($cells as $coordinate) {
-                $sheet->getCell($coordinate)->setValue($value);
+                $target = $sheet->getCell($coordinate);
+                if ($value instanceof \DateTimeInterface) {
+                    $target->setValue(ExcelDate::PHPToExcel($value));
+                    $target->getStyle()->getNumberFormat()->setFormatCode(
+                        is_string($format) && $format !== '' && $format !== 'General' ? $format : 'd-mmm-yy'
+                    );
+
+                    continue;
+                }
+
+                $target->setValue($value);
+                if (is_string($format) && $format !== '' && $format !== 'General' && $format !== '@') {
+                    $target->getStyle()->getNumberFormat()->setFormatCode($format);
+                }
             }
         }
     }
@@ -327,6 +361,34 @@ final class TallyLedgerExcelParser
 
     private function rawCellValue(Cell $cell): mixed
     {
+        if (ExcelDate::isDateTime($cell)) {
+            try {
+                $excelValue = $cell->getValue();
+                if ($excelValue instanceof RichText) {
+                    $excelValue = $excelValue->getPlainText();
+                }
+
+                if ($excelValue instanceof \DateTimeInterface) {
+                    return $this->carbonFromDate($excelValue);
+                }
+
+                if (is_numeric($excelValue) && (float) $excelValue > 0) {
+                    return $this->carbonFromDate(ExcelDate::excelToDateTimeObject((float) $excelValue));
+                }
+
+                $calculated = $cell->getCalculatedValue();
+                if ($calculated instanceof \DateTimeInterface) {
+                    return $this->carbonFromDate($calculated);
+                }
+
+                if (is_numeric($calculated) && (float) $calculated > 0) {
+                    return $this->carbonFromDate(ExcelDate::excelToDateTimeObject((float) $calculated));
+                }
+            } catch (\Throwable) {
+                // Fall through and treat the cell as a non-date value.
+            }
+        }
+
         $value = $cell->getCalculatedValue();
         if ($value instanceof RichText) {
             return trim($value->getPlainText());
@@ -337,6 +399,11 @@ final class TallyLedgerExcelParser
         }
 
         return $value;
+    }
+
+    private function carbonFromDate(\DateTimeInterface $value): Carbon
+    {
+        return Carbon::instance(\DateTimeImmutable::createFromInterface($value))->startOfDay();
     }
 
     /**
@@ -586,6 +653,11 @@ final class TallyLedgerExcelParser
             return true;
         }
 
+        $normalized = Str::lower(trim($text));
+        if (in_array($normalized, ['account', 'ledger', 'ledger account', 'ledger name'], true)) {
+            return true;
+        }
+
         if ($companyName !== null && Str::lower(trim($text)) === Str::lower(trim($companyName))) {
             return true;
         }
@@ -667,23 +739,28 @@ final class TallyLedgerExcelParser
             return 0;
         }
 
-        $nameIndex = $particularsIndex + 1;
-        $name = $this->stripToByPrefix($this->cellString($row, $nameIndex));
-        if ($name === '' || $this->isToByToken($name) || $this->isSpecialLedgerLabel($name) || $this->looksLikeVoucherType($name)) {
-            return 0;
-        }
-
         $nextMapped = $this->nextMappedIndexAfter($columnMap, $particularsIndex);
-        if ($nextMapped === null || $nameIndex < $nextMapped) {
+        $gap = $nextMapped === null ? 0 : $nextMapped - $particularsIndex - 1;
+        if ($gap >= 1) {
             return 0;
         }
 
-        $debitIndex = $this->shiftedIndex($columnMap['debit'] ?? null, 1);
-        $creditIndex = $this->shiftedIndex($columnMap['credit'] ?? null, 1);
-        $shiftedDebit = $this->parseAmount($this->cellValue($row, $debitIndex));
-        $shiftedCredit = $this->parseAmount($this->cellValue($row, $creditIndex));
+        $shiftedDebit = $this->parseAmount($this->cellValue($row, $this->shiftedIndex($columnMap['debit'] ?? null, 1)));
+        $shiftedCredit = $this->parseAmount($this->cellValue($row, $this->shiftedIndex($columnMap['credit'] ?? null, 1)));
+        if ($shiftedDebit > 0 || $shiftedCredit > 0) {
+            return 1;
+        }
 
-        return ($shiftedDebit > 0 || $shiftedCredit > 0) ? 1 : 0;
+        $name = $this->stripToByPrefix($this->cellString($row, $particularsIndex + 1));
+        $unshiftedVtype = $this->cellString($row, $columnMap['voucher_type'] ?? null);
+        $shiftedVtype = $this->cellString($row, $this->shiftedIndex($columnMap['voucher_type'] ?? null, 1));
+        if ($name !== '' && ! $this->isToByToken($name)
+            && ($unshiftedVtype === $name || $unshiftedVtype === '' || ! $this->looksLikeVoucherType($unshiftedVtype))
+            && ($shiftedVtype === '' || $this->looksLikeVoucherType($shiftedVtype))) {
+            return 1;
+        }
+
+        return 0;
     }
 
     private function shiftedIndex(?int $index, int $shift): ?int
@@ -697,18 +774,15 @@ final class TallyLedgerExcelParser
 
     private function looksLikeVoucherType(string $text): bool
     {
-        $normalized = Str::of($text)->lower()->squish()->toString();
+        $normalized = Str::of($text)->lower()->replace('_', ' ')->squish()->toString();
+        if ($normalized === '') {
+            return false;
+        }
 
-        return in_array($normalized, [
-            'sales',
-            'purchase',
-            'receipt',
-            'payment',
-            'journal',
-            'contra',
-            'credit note',
-            'debit note',
-        ], true);
+        return preg_match(
+            '/^(sales|purchase|receipt|payment|journal|contra|credit note|debit note)(\s+\d{2}-\d{2})?$/u',
+            $normalized,
+        ) === 1;
     }
 
     /**
@@ -729,7 +803,7 @@ final class TallyLedgerExcelParser
 
         for ($index = $start; $index < $end; $index++) {
             $text = $this->stripToByPrefix($this->cellString($row, $index));
-            if ($text === '' || $this->isToByToken($text)) {
+            if ($text === '' || $this->isToByToken($text) || $this->isNumericLabel($text)) {
                 continue;
             }
 
@@ -792,15 +866,59 @@ final class TallyLedgerExcelParser
         }
 
         if ($this->isTotalLabel($particulars)
-            || ($this->parseDate($dateRaw) === null && $this->rowHasTotalLabel($row))) {
+            || $this->rowHasTotalLabel($row)
+            || $this->isNumericLabel($particulars)) {
             return 'total';
         }
 
-        if ($this->parseDate($dateRaw) === null && $debit <= 0 && $credit <= 0) {
+        if ($this->parseDate($dateRaw) === null) {
+            if ($this->looksLikeDateAttempt($dateRaw)) {
+                return 'transaction';
+            }
+
+            $hasRealParticulars = $particulars !== ''
+                && ! $this->isNumericLabel($particulars)
+                && ! $this->isSpecialLedgerLabel($particulars)
+                && ! $this->isToByToken($particulars);
+
+            if ($hasRealParticulars && ($debit > 0 || $credit > 0)) {
+                return 'transaction';
+            }
+
+            if ($debit > 0 || $credit > 0 || $this->parseAmount($dateRaw) > 0) {
+                return 'total';
+            }
+
             return 'skip';
         }
 
         return 'transaction';
+    }
+
+    private function rowIsOpeningBalance(array $row, string $particulars): bool
+    {
+        $haystack = Str::of($particulars.' '.$this->rowText($row))->lower()->squish()->toString();
+
+        return preg_match('/opening\s*balance/i', $haystack) === 1;
+    }
+
+    /**
+     * @return array{debit: float, credit: float}|null
+     */
+    private function captureSheetTotals(mixed $dateRaw, float $debit, float $credit): ?array
+    {
+        $dateAmount = $this->parseAmount($dateRaw);
+        $left = $debit > 0 ? $debit : $dateAmount;
+        $right = $credit;
+
+        if ($left <= 0 || $right <= 0) {
+            return null;
+        }
+
+        return [
+            'debit' => round($left, 2),
+            'credit' => round($right, 2),
+        ];
     }
 
     private function isSpecialLedgerLabel(string $text): bool
@@ -938,15 +1056,11 @@ final class TallyLedgerExcelParser
         }
 
         if (is_numeric($value)) {
-            try {
-                return $this->acceptLedgerDate(Carbon::instance(ExcelDate::excelToDateTimeObject((float) $value)));
-            } catch (\Throwable) {
-                return null;
-            }
+            return null;
         }
 
         $raw = $this->cleanText((string) $value);
-        if ($raw === '') {
+        if ($raw === '' || is_numeric(str_replace([',', ' '], '', $raw))) {
             return null;
         }
 
@@ -980,7 +1094,7 @@ final class TallyLedgerExcelParser
                     $year = (int) $date->year;
                 }
 
-                if ($year < 1990 || $year > 2100) {
+                if ($year < 2000 || $year > 2040) {
                     continue;
                 }
 
@@ -991,7 +1105,9 @@ final class TallyLedgerExcelParser
         }
 
         try {
-            return $this->acceptLedgerDate(Carbon::parse($raw));
+            $parsed = Carbon::parse($raw);
+
+            return $this->acceptLedgerDate($parsed);
         } catch (\Throwable) {
             return null;
         }
@@ -1000,16 +1116,44 @@ final class TallyLedgerExcelParser
     private function acceptLedgerDate(Carbon $date): ?string
     {
         $year = (int) $date->year;
-        if ($year < 1990 || $year > 2100) {
+        if ($year < 2000 || $year > 2040) {
             return null;
         }
 
         return $date->toDateString();
     }
 
+    private function looksLikeDateAttempt(mixed $value): bool
+    {
+        if ($value instanceof \DateTimeInterface || is_numeric($value) || $value === null || $value === '') {
+            return false;
+        }
+
+        $text = $this->cellText($value);
+        if ($text === '' || is_numeric(str_replace([',', ' '], '', $text))) {
+            return false;
+        }
+
+        return preg_match('/\d/', $text) === 1 && preg_match('/[A-Za-z]|[-.\/]/', $text) === 1;
+    }
+
+    private function isNumericLabel(string $text): bool
+    {
+        $normalized = str_replace([',', ' '], '', trim($text));
+
+        return $normalized !== '' && is_numeric($normalized);
+    }
+
+    private function looksLikeAmountLabel(string $text): bool
+    {
+        $normalized = str_replace([',', ' '], '', trim($text));
+
+        return $normalized !== '' && is_numeric($normalized) && str_contains($normalized, '.');
+    }
+
     private function parseAmount(mixed $value): float
     {
-        if ($value === null || $value === '') {
+        if ($value === null || $value === '' || $value instanceof \DateTimeInterface) {
             return 0.0;
         }
 
@@ -1077,6 +1221,10 @@ final class TallyLedgerExcelParser
             return '';
         }
 
+        if ($value instanceof \DateTimeInterface) {
+            return Carbon::instance(\DateTimeImmutable::createFromInterface($value))->toDateString();
+        }
+
         return $this->cleanText((string) $value);
     }
 
@@ -1097,7 +1245,7 @@ final class TallyLedgerExcelParser
             return true;
         }
 
-        if (preg_match('/\d{6}/', $text) === 1 && preg_match('/\b(road|street|nagar|pincode|pin)\b/i', $text) === 1) {
+        if (preg_match('/\d{6}/', $text) === 1) {
             return true;
         }
 
@@ -1116,7 +1264,7 @@ final class TallyLedgerExcelParser
     {
         $normalized = Str::lower($text);
 
-        foreach (['gstin', 'gst no', 'cin', 'phone', 'mobile', 'email', 'address', 'pincode', 'pin code', 'www.', 'http', 'tel:', 'fax'] as $needle) {
+        foreach (['gstin', 'gst no', 'cin', 'phone', 'mobile', 'email', 'address', 'pincode', 'pin code', 'www.', 'http', 'tel:', 'fax', 'reg. office', 'registered office', 'midc'] as $needle) {
             if (str_contains($normalized, $needle)) {
                 return true;
             }

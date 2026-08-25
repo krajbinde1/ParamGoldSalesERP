@@ -190,6 +190,16 @@ class ImportTallyLedger extends Page implements HasForms
             return;
         }
 
+        if (is_array($this->preview) && empty($this->preview['can_import'])) {
+            Notification::make()
+                ->danger()
+                ->title('Import blocked')
+                ->body(collect($this->preview['parse_errors'] ?? [])->first() ?: 'Tally ledger parsing is incomplete.')
+                ->send();
+
+            return;
+        }
+
         try {
             $result = app(TallyLedgerImportService::class)->import(
                 path: $this->uploadedFilePath,

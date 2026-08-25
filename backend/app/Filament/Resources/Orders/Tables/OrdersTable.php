@@ -11,6 +11,7 @@ use App\Filament\Support\OrderHoldRevertActions;
 use App\Filament\Support\SendForBillForm;
 use App\Filament\Support\TodayDateFilter;
 use App\Models\Order;
+use App\Services\Orders\OrderBillingTransportCalculator;
 use App\Support\AttendanceCalendar;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
@@ -132,7 +133,8 @@ class OrdersTable
                     ->toggleable()
                     ->visible(fn () => $isProductionSupervisor),
                 TextColumn::make('grand_total')
-                    ->label('Final Grand Total')
+                    ->label('Grand Total')
+                    ->state(fn (Order $record): float => OrderBillingTransportCalculator::finalGrandTotal($record))
                     ->money('INR')
                     ->sortable()
                     ->visible(fn () => ! $isProductionSupervisor),

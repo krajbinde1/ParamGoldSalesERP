@@ -3,6 +3,7 @@
 namespace App\Support\Orders;
 
 use App\Models\Order;
+use App\Services\Orders\OrderBillingTransportCalculator;
 use App\Services\Orders\OrderDispatchCalculationService;
 use App\Services\Orders\OrderLineCalculationService;
 
@@ -66,6 +67,7 @@ final class OrderDetailPresenter
         $dispatchedAtLabel = $order->dispatched_at
             ? $order->dispatched_at->timezone('Asia/Kolkata')->format('d M Y • h:i A')
             : null;
+        $billing = OrderBillingTransportCalculator::present($order);
 
         return [
             'id' => $order->id,
@@ -182,22 +184,28 @@ final class OrderDetailPresenter
             'total_discount' => (float) $order->discount_amount,
             'subtotal' => (float) $order->subtotal,
             'discount_amount' => (float) $order->discount_amount,
-            'gst_amount' => (float) $order->gst_amount,
-            'grand_total' => \App\Services\Orders\OrderBillingTransportCalculator::finalGrandTotal($order),
-            ...\App\Services\Orders\OrderBillingTransportCalculator::present($order),
+            ...$billing,
+            'gst_amount' => (float) $billing['gst_amount'],
+            'grand_total' => (float) $billing['final_grand_total'],
             'transport_type' => $order->transport_type,
             'transport_type_label' => filled($order->transport_type)
                 ? \App\Enums\TransportType::tryFrom((string) $order->transport_type)?->label()
                 : null,
-            'subtotal_before_transport' => $order->subtotal_before_transport !== null
-                ? (float) $order->subtotal_before_transport
-                : $calculation['subtotal_before_transport'],
-            'taxable_amount_after_transport' => $order->taxable_amount_after_transport !== null
-                ? (float) $order->taxable_amount_after_transport
-                : $calculation['taxable_amount_after_transport'],
-            'total_gst' => $order->status === Order::STATUS_DISPATCHED
-                ? (float) $order->gst_amount
-                : $calculation['total_gst'],
+            'subtotal_before_transport' => OrderBillingTransportCalculator::hasSavedAdjustment($order)
+                ? (float) $billing['taxable_before_transport']
+                : ($order->subtotal_before_transport !== null
+                    ? (float) $order->subtotal_before_transport
+                    : $calculation['subtotal_before_transport']),
+            'taxable_amount_after_transport' => OrderBillingTransportCalculator::hasSavedAdjustment($order)
+                ? (float) $billing['taxable_amount_after_transport']
+                : ($order->taxable_amount_after_transport !== null
+                    ? (float) $order->taxable_amount_after_transport
+                    : $calculation['taxable_amount_after_transport']),
+            'total_gst' => OrderBillingTransportCalculator::hasSavedAdjustment($order)
+                ? (float) $billing['gst_amount']
+                : ($order->status === Order::STATUS_DISPATCHED
+                    ? (float) $order->gst_amount
+                    : $calculation['total_gst']),
             'total_cases' => $calculation['total_cases'] ?? 0,
             'total_quantity_nos' => $calculation['total_quantity_nos'] ?? 0,
             'calculation' => $calculation,

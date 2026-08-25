@@ -129,7 +129,7 @@ class ProductionOrderController extends Controller
                 'delivery_address' => $order->dealer?->address,
                 'employee_name' => $order->salesEmployee?->full_name,
                 'payment_type' => $order->payment_type,
-                'grand_total' => (float) $order->grand_total,
+                'grand_total' => \App\Services\Orders\OrderBillingTransportCalculator::finalGrandTotal($order),
                 'vehicle_id' => $order->vehicle_id,
                 'vehicle_number' => $order->vehicle_number,
                 'vehicle_no' => $order->vehicle_number,

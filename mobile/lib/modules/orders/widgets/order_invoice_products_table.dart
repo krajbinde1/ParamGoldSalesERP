@@ -419,8 +419,7 @@ class OrderInvoiceSummaryBlock extends StatelessWidget {
   final List<Widget> extraRows;
 
   bool get _hasBillingTransport {
-    return originalGrandTotal != null &&
-        (transportTypeLabel ?? '').trim().isNotEmpty;
+    return (transportTypeLabel ?? '').trim().isNotEmpty;
   }
 
   factory OrderInvoiceSummaryBlock.fromOrderMap(
@@ -453,6 +452,12 @@ class OrderInvoiceSummaryBlock extends StatelessWidget {
             '${order['final_grand_total'] ?? order['grand_total'] ?? 0}',
           ) ??
           0,
+      taxableValue: order['taxable_amount_after_transport'] == null &&
+              calc['taxable_amount_after_transport'] == null
+          ? null
+          : double.tryParse(
+              '${order['taxable_amount_after_transport'] ?? calc['taxable_amount_after_transport']}',
+            ),
       transport: order['transport_amount'] == null &&
               order['transport_charges'] == null
           ? null
@@ -491,21 +496,7 @@ class OrderInvoiceSummaryBlock extends StatelessWidget {
           label: 'Discount',
           value: OrderInvoiceProductsTable.money(discount),
         ),
-        PgInvoiceRow(
-          label: 'Taxable Value',
-          value: OrderInvoiceProductsTable.money(taxable),
-        ),
-        PgInvoiceRow(
-          label: 'GST',
-          value: OrderInvoiceProductsTable.money(gst),
-        ),
         if (_hasBillingTransport) ...[
-          if (vehicle.isNotEmpty)
-            PgInvoiceRow(label: 'Vehicle No', value: vehicle),
-          PgInvoiceRow(
-            label: 'Original Grand Total',
-            value: OrderInvoiceProductsTable.money(originalGrandTotal!),
-          ),
           PgInvoiceRow(
             label: 'Transport Type',
             value: transportTypeLabel!,
@@ -518,6 +509,18 @@ class OrderInvoiceSummaryBlock extends StatelessWidget {
               transportTypeLabel,
             ),
           ),
+        ],
+        PgInvoiceRow(
+          label: 'Taxable Value',
+          value: OrderInvoiceProductsTable.money(taxable),
+        ),
+        PgInvoiceRow(
+          label: 'GST',
+          value: OrderInvoiceProductsTable.money(gst),
+        ),
+        if (_hasBillingTransport) ...[
+          if (vehicle.isNotEmpty)
+            PgInvoiceRow(label: 'Vehicle No', value: vehicle),
         ] else if (transport != null && transport! > 0) ...[
           if (vehicle.isNotEmpty)
             PgInvoiceRow(label: 'Vehicle No', value: vehicle),
@@ -529,7 +532,7 @@ class OrderInvoiceSummaryBlock extends StatelessWidget {
         ...extraRows,
         const Divider(height: AppSpacing.lg),
         PgInvoiceRow(
-          label: _hasBillingTransport ? 'Final Grand Total' : 'Grand Total',
+          label: 'Grand Total',
           value: OrderInvoiceProductsTable.money(grandTotal),
           isTotal: true,
         ),

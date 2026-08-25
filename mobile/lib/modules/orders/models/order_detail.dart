@@ -151,6 +151,7 @@ class OrderDetail {
     this.transportChargeTypeLabel,
     this.originalGrandTotal,
     this.transportAdjustment,
+    this.taxableAmountAfterTransport,
     this.finalGrandTotal,
     this.timelineSteps = const [],
   });
@@ -195,6 +196,7 @@ class OrderDetail {
   final String? transportChargeTypeLabel;
   final double? originalGrandTotal;
   final double? transportAdjustment;
+  final double? taxableAmountAfterTransport;
   final double? finalGrandTotal;
   final List<OrderTimelineStep> timelineSteps;
 
@@ -264,6 +266,9 @@ class OrderDetail {
       transportAdjustment: json['transport_adjustment'] == null
           ? null
           : double.tryParse('${json['transport_adjustment']}'),
+      taxableAmountAfterTransport: json['taxable_amount_after_transport'] == null
+          ? null
+          : double.tryParse('${json['taxable_amount_after_transport']}'),
       finalGrandTotal: json['final_grand_total'] == null
           ? null
           : double.tryParse('${json['final_grand_total']}'),

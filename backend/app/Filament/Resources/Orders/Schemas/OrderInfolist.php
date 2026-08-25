@@ -77,9 +77,8 @@ class OrderInfolist
                                 return $record->salesEmployee?->reportingManager?->full_name ?: '—';
                             }),
                         TextEntry::make('grand_total')
-                            ->label(fn (Order $record): string => OrderBillingTransportCalculator::hasSavedAdjustment($record)
-                                ? 'Final Grand Total'
-                                : 'Grand Total')
+                            ->label('Grand Total')
+                            ->state(fn (Order $record): float => OrderBillingTransportCalculator::finalGrandTotal($record))
                             ->money('INR')
                             ->weight(FontWeight::Bold),
                     ]),
@@ -122,13 +121,14 @@ class OrderInfolist
                                 );
                             })
                             ->placeholder('—'),
-                        TextEntry::make('original_grand_total')
-                            ->label('Original Order Total')
+                        TextEntry::make('gst_amount')
+                            ->label('GST')
+                            ->state(fn (Order $record): float => (float) OrderBillingTransportCalculator::present($record)['gst_amount'])
                             ->money('INR')
-                            ->placeholder('—')
-                            ->visible(fn (Order $record): bool => $record->original_grand_total !== null),
+                            ->visible(fn (Order $record): bool => OrderBillingTransportCalculator::hasSavedAdjustment($record)),
                         TextEntry::make('grand_total')
-                            ->label('Final Grand Total')
+                            ->label('Grand Total')
+                            ->state(fn (Order $record): float => OrderBillingTransportCalculator::finalGrandTotal($record))
                             ->money('INR')
                             ->weight(FontWeight::Bold)
                             ->visible(fn (Order $record): bool => OrderBillingTransportCalculator::hasSavedAdjustment($record)),

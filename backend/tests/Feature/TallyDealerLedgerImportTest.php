@@ -16,6 +16,7 @@ use App\Services\TallyLedger\TallyLedgerExcelParser;
 use App\Services\TallyLedger\TallyLedgerImportService;
 use App\Support\IndianCurrency;
 use Livewire\Livewire;
+use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
 use PhpOffice\PhpSpreadsheet\Writer\Xlsx;
 
@@ -27,6 +28,122 @@ function tallyLedgerExcel(array $rows): string
     (new Xlsx($spreadsheet))->save($path);
 
     return $path;
+}
+
+function tallyStyleExportExcel(string $ledgerName, array $entries, string $period = '1-Apr-26 to 31-Aug-26'): string
+{
+    $spreadsheet = new Spreadsheet;
+    $sheet = $spreadsheet->getActiveSheet();
+    $sheet->setCellValue('A1', 'PARAMGOLD AGRITECH PRIVATE LIMITED');
+    $sheet->setCellValue('A2', 'Reg. Office: Plot D-69, Five Star MIDC,');
+    $sheet->setCellValue('A3', 'Shendra, Aurangabad 431007');
+    $sheet->setCellValue('A4', 'CIN: U01400MH2019PTC328676');
+    $sheet->setCellValue('A6', $ledgerName);
+    $sheet->setCellValue('A7', 'Ledger Account');
+    $sheet->setCellValue('A11', $period);
+    $sheet->fromArray(['Date', 'Particulars', null, 'Vch Type', 'Vch No.', 'Debit', 'Credit'], null, 'A12');
+
+    $excelRow = 13;
+    foreach ($entries as $entry) {
+        if (isset($entry['total_debit'])) {
+            $sheet->setCellValue('A'.$excelRow, $entry['total_debit']);
+            $sheet->getStyle('A'.$excelRow)->getNumberFormat()->setFormatCode('0.00');
+            if (isset($entry['total_credit'])) {
+                $sheet->setCellValue('G'.$excelRow, $entry['total_credit']);
+                $sheet->getStyle('G'.$excelRow)->getNumberFormat()->setFormatCode('0.00');
+            }
+            $excelRow++;
+
+            continue;
+        }
+
+        if (isset($entry['closing'])) {
+            $sheet->setCellValue('B'.$excelRow, 'By');
+            $sheet->setCellValue('C'.$excelRow, 'Closing Balance');
+            $sheet->setCellValue('G'.$excelRow, $entry['closing']);
+            $sheet->getStyle('G'.$excelRow)->getNumberFormat()->setFormatCode('0.00');
+            $excelRow++;
+
+            continue;
+        }
+
+        if (! empty($entry['date'])) {
+            $sheet->setCellValue('A'.$excelRow, ExcelDate::PHPToExcel(new DateTimeImmutable($entry['date'])));
+            $sheet->getStyle('A'.$excelRow)->getNumberFormat()->setFormatCode('d-mmm-yy');
+        }
+
+        $sheet->setCellValue('B'.$excelRow, $entry['marker'] ?? '');
+        $sheet->setCellValue('C'.$excelRow, $entry['particulars'] ?? '');
+        $sheet->setCellValue('D'.$excelRow, $entry['voucher_type'] ?? '');
+        $voucherNo = $entry['voucher_no'] ?? '';
+        if ($voucherNo !== '' && is_numeric($voucherNo)) {
+            $sheet->setCellValue('E'.$excelRow, $voucherNo + 0);
+        } else {
+            $sheet->setCellValue('E'.$excelRow, $voucherNo);
+        }
+
+        if (($entry['debit'] ?? 0) > 0) {
+            $sheet->setCellValue('F'.$excelRow, $entry['debit']);
+            $sheet->getStyle('F'.$excelRow)->getNumberFormat()->setFormatCode('0.00');
+        }
+
+        if (($entry['credit'] ?? 0) > 0) {
+            $sheet->setCellValue('G'.$excelRow, $entry['credit']);
+            $sheet->getStyle('G'.$excelRow)->getNumberFormat()->setFormatCode('0.00');
+        }
+
+        $excelRow++;
+    }
+
+    $path = sys_get_temp_dir().DIRECTORY_SEPARATOR.'tally-style-'.uniqid('', true).'.xlsx';
+    (new Xlsx($spreadsheet))->save($path);
+
+    return $path;
+}
+
+function bajarangTallyExportPath(): string
+{
+    return tallyStyleExportExcel('New Bajarang Agro Services (Bazar Sawangi )', [
+        ['date' => '2025-05-25', 'marker' => 'To', 'particulars' => 'Sale Gst', 'voucher_type' => 'Sales', 'voucher_no' => 'PG/25-26/216', 'debit' => 49750.26],
+        ['date' => '2025-06-02', 'marker' => 'To', 'particulars' => 'Sale Gst', 'voucher_type' => 'Sales', 'voucher_no' => 'PG/25-26/275', 'debit' => 56000.80],
+        ['date' => '2025-06-08', 'marker' => 'To', 'particulars' => 'Sale Gst', 'voucher_type' => 'Sales', 'voucher_no' => 'PG/25-26/305', 'debit' => 27050.40],
+        ['date' => '2025-08-07', 'marker' => 'To', 'particulars' => 'Sale Gst', 'voucher_type' => 'Sales', 'voucher_no' => 'PG/25-26/676', 'debit' => 56805.00],
+        ['date' => '2025-08-14', 'marker' => 'By', 'particulars' => 'State Bank of India', 'voucher_type' => 'Receipt', 'voucher_no' => 286, 'credit' => 100000.00],
+        ['date' => '2025-08-31', 'marker' => 'To', 'particulars' => 'Sale Gst', 'voucher_type' => 'Sales', 'voucher_no' => 'PG/25-26/832', 'debit' => 15532.00],
+        ['date' => '2025-11-21', 'marker' => 'By', 'particulars' => 'Sales _Return', 'voucher_type' => 'Credit Note', 'voucher_no' => 66, 'credit' => 26166.00],
+        ['date' => '2025-12-06', 'marker' => 'To', 'particulars' => 'Sales @5%', 'voucher_type' => 'Sales', 'voucher_no' => 'PG/25-26/1090', 'debit' => 11000.00],
+        ['date' => '2026-02-28', 'marker' => 'By', 'particulars' => 'State Bank of India', 'voucher_type' => 'Receipt', 'voucher_no' => 59, 'credit' => 50000.00],
+        ['date' => '2026-03-27', 'marker' => 'By', 'particulars' => 'State Bank of India', 'voucher_type' => 'Receipt', 'voucher_no' => 161, 'credit' => 37000.00],
+        ['date' => '2026-03-31', 'marker' => 'By', 'particulars' => 'Input CGST @2.5%', 'voucher_type' => 'Credit Note', 'voucher_no' => 72, 'credit' => 2972.46],
+        ['date' => '2026-05-26', 'marker' => 'To', 'particulars' => 'Sales @5%', 'voucher_type' => 'Sales', 'voucher_no' => 'PG/26-27/064', 'debit' => 17000.00],
+        ['date' => '2026-08-11', 'marker' => 'To', 'particulars' => 'Sales @5%', 'voucher_type' => 'Sales 26-27', 'voucher_no' => 'PG/26-27/0407', 'debit' => 11475.00],
+        ['total_debit' => 244613.46, 'total_credit' => 216138.46],
+        ['closing' => 28475.00],
+        ['total_debit' => 244613.46, 'total_credit' => 244613.46],
+    ], '1-Apr-25 to 31-Aug-26');
+}
+
+function balajiTallyExportPath(): string
+{
+    return tallyStyleExportExcel('Balaji Agro Traders (Bharadi)', [
+        ['date' => '2026-04-01', 'marker' => 'By', 'particulars' => 'Opening Balance', 'debit' => 10481.26],
+        ['date' => '2026-05-19', 'marker' => 'To', 'particulars' => 'Sales @5%', 'voucher_type' => 'Sales', 'voucher_no' => 'PG/26-27/046', 'debit' => 87413.00],
+        ['date' => '2026-05-28', 'marker' => 'To', 'particulars' => 'Sales @5%', 'voucher_type' => 'Sales', 'voucher_no' => 'PG/26-27/083', 'debit' => 103920.00],
+        ['date' => '2026-06-20', 'marker' => 'By', 'particulars' => 'State Bank of India', 'voucher_type' => 'Receipt', 'voucher_no' => 349, 'credit' => 100000.00],
+        ['date' => '2026-06-24', 'marker' => 'To', 'particulars' => 'Sales @5%', 'voucher_type' => 'Sales 26-27', 'voucher_no' => 'PG/26-27/0202', 'debit' => 119770.00],
+        ['date' => '2026-07-04', 'marker' => 'To', 'particulars' => 'Sales @5%', 'voucher_type' => 'Sales 26-27', 'voucher_no' => 'PG/26-27/0234', 'debit' => 22453.00],
+        ['date' => '2026-07-10', 'marker' => 'To', 'particulars' => 'Sales @5%', 'voucher_type' => 'Sales 26-27', 'voucher_no' => 'PG/26-27/0259', 'debit' => 10693.00],
+        ['date' => '2026-07-10', 'marker' => 'To', 'particulars' => 'Sales @5%', 'voucher_type' => 'Sales 26-27', 'voucher_no' => 'PG/26-27/0261', 'debit' => 47474.00],
+        ['date' => '2026-07-20', 'marker' => 'To', 'particulars' => 'Sale Gst', 'voucher_type' => 'Sales 26-27', 'voucher_no' => 'PG/26-27/0294', 'debit' => 87218.00],
+        ['date' => '2026-07-26', 'marker' => 'To', 'particulars' => 'Sales @5%', 'voucher_type' => 'Sales 26-27', 'voucher_no' => 'PG/26-27/0340', 'debit' => 5515.02],
+        ['date' => '2026-07-29', 'marker' => 'By', 'particulars' => 'State Bank of India', 'voucher_type' => 'Receipt', 'voucher_no' => 442, 'credit' => 50000.00],
+        ['date' => '2026-08-14', 'marker' => 'To', 'particulars' => 'Sales @5%', 'voucher_type' => 'Sales 26-27', 'voucher_no' => 'PG/26-27/0429', 'debit' => 63562.00],
+        ['date' => '2026-08-15', 'marker' => 'By', 'particulars' => 'Sales_Return', 'voucher_type' => 'Credit Note', 'voucher_no' => 119, 'credit' => 38724.00],
+        ['total_debit' => 63153.64, 'total_credit' => 188724.00],
+        ['total_debit' => 558499.28, 'total_credit' => 188724.00],
+        ['closing' => 369775.28],
+        ['total_debit' => 558499.28, 'total_credit' => 558499.28],
+    ]);
 }
 
 function typicalTallyRows(string $dealerName = 'Shree Ganesh Traders'): array
@@ -496,4 +613,136 @@ it('resets tally ledger data for the selected dealer only and allows re-import',
     expect($duplicate['imported_count'])->toBe(0)
         ->and($duplicate['duplicate_count'])->toBe(2)
         ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2);
+});
+
+it('parses the New Bajarang Agro Services tally layout without turning totals into dates', function (): void {
+    $parsed = app(TallyLedgerExcelParser::class)->parse(bajarangTallyExportPath());
+
+    expect($parsed->tallyLedgerName)->toBe('New Bajarang Agro Services (Bazar Sawangi )')
+        ->and($parsed->openingBalanceExplicit)->toBeFalse()
+        ->and($parsed->openingBalance)->toBe(0.0)
+        ->and($parsed->failed)->toBe([])
+        ->and($parsed->transactions)->toHaveCount(2)
+        ->and(collect($parsed->transactions)->pluck('date')->all())->toBe(['2026-05-26', '2026-08-11'])
+        ->and(collect($parsed->transactions)->pluck('particulars')->all())->toBe(['Sales @5%', 'Sales @5%'])
+        ->and(collect($parsed->transactions)->pluck('particulars')->all())->not->toContain('To')->not->toContain('By')
+        ->and($parsed->transactions[0]['voucher_type'])->toBe('Sales')
+        ->and($parsed->transactions[0]['voucher_no'])->toBe('PG/26-27/064')
+        ->and($parsed->transactions[0]['debit'])->toBe(17000.0)
+        ->and($parsed->transactions[1]['voucher_type'])->toBe('Sales 26-27')
+        ->and($parsed->transactions[1]['debit'])->toBe(11475.0)
+        ->and($parsed->totalDebit)->toBe(28475.0)
+        ->and($parsed->totalCredit)->toBe(0.0)
+        ->and($parsed->tallyClosingBalance)->toBe(28475.0)
+        ->and($parsed->tallyClosingBalanceType)->toBe('debit')
+        ->and($parsed->calculatedClosingSigned())->toBe(28475.0)
+        ->and($parsed->canImport())->toBeTrue()
+        ->and(collect($parsed->transactions)->pluck('date')->all())->not->toContain('2072-11-25');
+});
+
+it('parses the Balaji Agro Traders tally layout with opening, to/by, and numeric totals', function (): void {
+    $parsed = app(TallyLedgerExcelParser::class)->parse(balajiTallyExportPath());
+
+    expect($parsed->tallyLedgerName)->toBe('Balaji Agro Traders (Bharadi)')
+        ->and($parsed->openingBalanceExplicit)->toBeTrue()
+        ->and($parsed->openingBalance)->toBe(10481.26)
+        ->and($parsed->openingBalanceType)->toBe('debit')
+        ->and($parsed->failed)->toBe([])
+        ->and($parsed->canImport())->toBeTrue()
+        ->and($parsed->transactions)->toHaveCount(12)
+        ->and(collect($parsed->transactions)->pluck('date')->all())->not->toContain('2072-11-25')
+        ->and(collect($parsed->transactions)->pluck('particulars')->all())->toBe([
+            'Sales @5%',
+            'Sales @5%',
+            'State Bank of India',
+            'Sales @5%',
+            'Sales @5%',
+            'Sales @5%',
+            'Sales @5%',
+            'Sale Gst',
+            'Sales @5%',
+            'State Bank of India',
+            'Sales @5%',
+            'Sales_Return',
+        ])
+        ->and(collect($parsed->transactions)->pluck('particulars')->all())
+        ->not->toContain('To')
+        ->not->toContain('By')
+        ->not->toContain('Opening Balance')
+        ->not->toContain('Closing Balance')
+        ->not->toContain('Total')
+        ->and($parsed->transactions[0]['date'])->toBe('2026-05-19')
+        ->and($parsed->transactions[0]['voucher_type'])->toBe('Sales')
+        ->and($parsed->transactions[0]['voucher_no'])->toBe('PG/26-27/046')
+        ->and($parsed->transactions[0]['debit'])->toBe(87413.0)
+        ->and($parsed->transactions[2]['date'])->toBe('2026-06-20')
+        ->and($parsed->transactions[2]['voucher_type'])->toBe('Receipt')
+        ->and($parsed->transactions[2]['voucher_no'])->toBe('349')
+        ->and($parsed->transactions[2]['credit'])->toBe(100000.0)
+        ->and($parsed->transactions[11]['date'])->toBe('2026-08-15')
+        ->and($parsed->transactions[11]['voucher_type'])->toBe('Credit Note')
+        ->and($parsed->transactions[11]['voucher_no'])->toBe('119')
+        ->and($parsed->transactions[11]['credit'])->toBe(38724.0)
+        ->and($parsed->totalDebit)->toBe(548018.02)
+        ->and($parsed->totalCredit)->toBe(188724.0)
+        ->and($parsed->inclusiveTotalDebit())->toBe(558499.28)
+        ->and($parsed->inclusiveTotalCredit())->toBe(188724.0)
+        ->and($parsed->tallyClosingBalance)->toBe(369775.28)
+        ->and($parsed->tallyClosingBalanceType)->toBe('debit')
+        ->and($parsed->calculatedClosingSigned())->toBe(369775.28)
+        ->and($parsed->tallyClosingMatches())->toBeTrue();
+
+    $employee = ledgerEmployee(UserRole::Employee, '9811100201');
+    $dealer = ledgerDealer($employee, [
+        'firm_name' => 'Balaji Agro Traders (Bharadi)',
+        'opening_balance' => 63153.64,
+        'opening_balance_type' => 'debit',
+    ]);
+    $preview = app(TallyLedgerImportService::class)->preview(balajiTallyExportPath(), $dealer);
+
+    expect($preview['can_import'])->toBeTrue()
+        ->and($preview['opening_balance'])->toBe(10481.26)
+        ->and($preview['total_debit'])->toBe(558499.28)
+        ->and($preview['total_credit'])->toBe(188724.0)
+        ->and($preview['erp_closing_signed'])->toBe(369775.28)
+        ->and($preview['tally_closing_balance'])->toBe(369775.28)
+        ->and($preview['difference'])->toBe(0.0)
+        ->and($preview['balance_matched'])->toBeTrue()
+        ->and($preview['parse_errors'])->toBe([]);
+});
+
+it('never treats numeric tally totals as excel dates or transactions', function (): void {
+    $path = tallyStyleExportExcel('Numeric Total Dealer', [
+        ['date' => '2026-05-19', 'marker' => 'To', 'particulars' => 'Sales @5%', 'voucher_type' => 'Sales', 'voucher_no' => 'PG/26-27/046', 'debit' => 1000.00],
+        ['total_debit' => 63153.64, 'total_credit' => 1000.00],
+        ['closing' => 1000.00],
+        ['total_debit' => 1000.00, 'total_credit' => 1000.00],
+    ]);
+    $parsed = app(TallyLedgerExcelParser::class)->parse($path);
+
+    expect($parsed->transactions)->toHaveCount(1)
+        ->and($parsed->transactions[0]['date'])->toBe('2026-05-19')
+        ->and($parsed->transactions[0]['particulars'])->toBe('Sales @5%')
+        ->and(collect($parsed->transactions)->pluck('date')->all())->not->toContain('2072-11-25')
+        ->and(collect($parsed->transactions)->pluck('particulars')->all())->not->toContain('63153.64')
+        ->and($parsed->failed)->toBe([]);
+});
+
+it('blocks confirm and import when parsed closing does not match tally', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100202');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Mismatch Dealer']);
+    $path = tallyLedgerExcel([
+        ['Ledger : Mismatch Dealer'],
+        ['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit'],
+        ['10-04-2026', 'Sales @5%', 'Sales', 'SL-1', '1000', ''],
+        ['', 'Closing Balance', '', '', '', '9999'],
+    ]);
+    $preview = app(TallyLedgerImportService::class)->preview($path, $dealer);
+
+    expect($preview['can_import'])->toBeFalse()
+        ->and($preview['balance_matched'])->toBeFalse()
+        ->and($preview['parse_errors'])->not->toBeEmpty();
+
+    expect(fn () => app(TallyLedgerImportService::class)->import($path, (int) $dealer->id, tallyImportAdmin(), 'mismatch.xlsx'))
+        ->toThrow(\Illuminate\Validation\ValidationException::class);
 });

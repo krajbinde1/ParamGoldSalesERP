@@ -71,12 +71,25 @@
                     </div>
                     <div class="flex flex-wrap gap-3">
                         <x-filament::button color="gray" wire:click="resetUpload">Upload Another File</x-filament::button>
-                        <x-filament::button wire:click="runImport" wire:loading.attr="disabled" wire:target="runImport">
-                            <span wire:loading.remove wire:target="runImport">Confirm &amp; Import</span>
-                            <span wire:loading wire:target="runImport">Importing…</span>
-                        </x-filament::button>
+                        @if (! empty($preview['can_import']))
+                            <x-filament::button wire:click="runImport" wire:loading.attr="disabled" wire:target="runImport">
+                                <span wire:loading.remove wire:target="runImport">Confirm &amp; Import</span>
+                                <span wire:loading wire:target="runImport">Importing…</span>
+                            </x-filament::button>
+                        @endif
                     </div>
                 </div>
+
+                @if (($preview['parse_errors'] ?? []) !== [])
+                    <div class="rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-900">
+                        <div class="font-semibold">Tally ledger could not be imported</div>
+                        <ul class="mt-2 list-disc space-y-1 pl-5">
+                            @foreach ($preview['parse_errors'] as $error)
+                                <li>{{ $error }}</li>
+                            @endforeach
+                        </ul>
+                    </div>
+                @endif
 
                 <div class="grid gap-3 md:grid-cols-2">
                     <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
@@ -112,7 +125,7 @@
                             <div class="mt-1 font-semibold text-slate-900">{{ (int) $preview['transaction_count'] }}</div>
                         </div>
                         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
-                            <div class="text-xs font-semibold uppercase text-slate-500">Total Debit</div>
+                            <div class="text-xs font-semibold uppercase text-slate-500">Total Debit including opening</div>
                             <div class="mt-1 font-semibold text-slate-900">{{ IndianCurrency::formatExact($preview['total_debit'] ?? 0) }}</div>
                         </div>
                         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
@@ -120,24 +133,28 @@
                             <div class="mt-1 font-semibold text-slate-900">{{ IndianCurrency::formatExact($preview['total_credit'] ?? 0) }}</div>
                         </div>
                         <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
+                            <div class="text-xs font-semibold uppercase text-slate-500">Current Outstanding</div>
+                            <div class="mt-1 font-semibold text-slate-900">{{ IndianCurrency::formatDrCr($preview['erp_closing_signed'] ?? 0) }}</div>
+                        </div>
+                        <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
                             <div class="text-xs font-semibold uppercase text-slate-500">Tally Closing Balance</div>
                             <div class="mt-1 font-semibold text-slate-900">
                                 {{ $preview['tally_closing_balance'] !== null ? IndianCurrency::formatDrCr(($preview['tally_closing_balance_type'] ?? 'debit') === 'credit' ? -1 * (float) $preview['tally_closing_balance'] : (float) $preview['tally_closing_balance']) : '—' }}
                             </div>
                         </div>
-                        <div class="rounded-lg border px-4 py-3 {{ ($preview['balance_matched'] ?? null) === true ? 'border-emerald-200 bg-emerald-50' : (($preview['balance_matched'] ?? null) === false ? 'border-amber-200 bg-amber-50' : 'border-slate-200 bg-slate-50') }}">
+                        <div class="rounded-lg border px-4 py-3 {{ ($preview['balance_matched'] ?? null) === true ? 'border-emerald-200 bg-emerald-50' : (($preview['balance_matched'] ?? null) === false ? 'border-rose-200 bg-rose-50' : 'border-slate-200 bg-slate-50') }}">
                             <div class="text-xs font-semibold uppercase text-slate-500">ERP Calculated Closing Balance</div>
                             <div class="mt-1 font-semibold text-slate-900">{{ IndianCurrency::formatDrCr($preview['erp_closing_signed'] ?? 0) }}</div>
                             <div class="mt-1 text-xs text-slate-600">
                                 @if (($preview['balance_matched'] ?? null) === true)
                                     ✓ Tally Balance Matched
                                 @elseif (($preview['balance_matched'] ?? null) === false)
-                                    ⚠ Tally Balance Mismatch
+                                    ⚠ Tally Balance Mismatch — Confirm &amp; Import is blocked
                                 @else
                                     Tally closing not provided
                                 @endif
                                 @if ($preview['difference'] !== null)
-                                    <br>Difference: {{ IndianCurrency::formatDrCr($preview['difference']) }}
+                                    <br>Difference: {{ IndianCurrency::formatExact(abs((float) $preview['difference'])) }}
                                 @endif
                             </div>
                         </div>

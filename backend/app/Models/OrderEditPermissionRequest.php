@@ -187,7 +187,7 @@ class OrderEditPermissionRequest extends Model
             'vehicle_number' => 'Vehicle No.',
             'transport_charge_type' => 'Transport Type',
             'transport_amount' => 'Transport Charges',
-            'grand_total' => 'Final Grand Total',
+            'grand_total' => 'Grand Total',
             default => null,
         };
     }

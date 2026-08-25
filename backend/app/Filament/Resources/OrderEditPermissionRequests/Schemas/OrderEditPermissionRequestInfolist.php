@@ -97,7 +97,10 @@ class OrderEditPermissionRequestInfolist
                                 return OrderBillingTransportCalculator::formatMoney((float) $record->order->transport_amount);
                             }),
                         TextEntry::make('order.grand_total')
-                            ->label('Final Grand Total')
+                            ->label('Grand Total')
+                            ->state(fn (OrderEditPermissionRequest $record): float => $record->order === null
+                                ? 0.0
+                                : OrderBillingTransportCalculator::finalGrandTotal($record->order))
                             ->money('INR'),
                     ]),
 

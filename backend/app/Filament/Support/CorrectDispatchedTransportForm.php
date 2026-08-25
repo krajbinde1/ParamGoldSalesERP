@@ -5,7 +5,6 @@ namespace App\Filament\Support;
 use App\Enums\TransportChargeType;
 use App\Models\Order;
 use App\Models\Vehicle;
-use App\Services\Orders\OrderBillingTransportCalculator;
 use Filament\Forms\Components\Component;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Radio;
@@ -21,8 +20,6 @@ final class CorrectDispatchedTransportForm
      */
     public static function schema(Order $order): array
     {
-        $originalGrandTotal = OrderBillingTransportCalculator::originalGrandTotal($order);
-
         return [
             Select::make('vehicle_id')
                 ->label('Vehicle No.')
@@ -53,7 +50,7 @@ final class CorrectDispatchedTransportForm
                 ->live(debounce: 300),
             Placeholder::make('transport_preview')
                 ->hiddenLabel()
-                ->content(fn (Get $get): HtmlString => SendForBillForm::renderPreview($originalGrandTotal, $get)),
+                ->content(fn (Get $get): HtmlString => SendForBillForm::renderPreview($order, $get)),
         ];
     }
 

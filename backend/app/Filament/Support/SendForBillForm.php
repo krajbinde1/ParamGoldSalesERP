@@ -24,8 +24,6 @@ final class SendForBillForm
      */
     public static function schema(Order $order): array
     {
-        $originalGrandTotal = OrderBillingTransportCalculator::originalGrandTotal($order);
-
         return [
             Select::make('vehicle_id')
                 ->label('Vehicle No')
@@ -76,7 +74,7 @@ final class SendForBillForm
                 ->live(debounce: 300),
             Placeholder::make('transport_preview')
                 ->hiddenLabel()
-                ->content(fn (Get $get): HtmlString => self::renderPreview($originalGrandTotal, $get)),
+                ->content(fn (Get $get): HtmlString => self::renderPreview($order, $get)),
             Textarea::make('transport_remark')
                 ->label('Transport Remark (optional)')
                 ->rows(2)
@@ -185,20 +183,25 @@ final class SendForBillForm
         ];
     }
 
-    public static function renderPreview(float $originalGrandTotal, Get $get): HtmlString
+    public static function renderPreview(Order $order, Get $get): HtmlString
     {
         $type = (string) ($get('transport_charge_type') ?? '');
         $rawFreight = $get('transport_freight');
         $charges = is_numeric($rawFreight) ? (float) $rawFreight : 0.0;
         $typeLabel = TransportChargeType::tryFrom($type)?->label() ?? '—';
         $error = null;
+        $base = OrderBillingTransportCalculator::resolveBaseTotals($order);
         $adjustment = 0.0;
-        $final = $originalGrandTotal;
+        $taxable = $base['taxable_amount'];
+        $gst = $base['gst_amount'];
+        $final = $base['grand_total'];
 
         if ($type !== '' && is_numeric($rawFreight)) {
             try {
-                $calc = OrderBillingTransportCalculator::calculate($originalGrandTotal, $type, $charges);
+                $calc = OrderBillingTransportCalculator::calculateForOrder($order, $type, $charges);
                 $adjustment = $calc['transport_adjustment'];
+                $taxable = $calc['taxable_amount_after_transport'];
+                $gst = $calc['gst_amount'];
                 $final = $calc['final_grand_total'];
             } catch (ValidationException $exception) {
                 $messages = $exception->errors();
@@ -207,11 +210,13 @@ final class SendForBillForm
         }
 
         $rows = [
-            ['Original Grand Total', OrderBillingTransportCalculator::formatMoney($originalGrandTotal)],
-            ['Transport Charges', OrderBillingTransportCalculator::formatMoney($charges)],
+            ['Subtotal', OrderBillingTransportCalculator::formatMoney($base['subtotal'])],
+            ['Discount', OrderBillingTransportCalculator::formatMoney($base['discount_amount'])],
             ['Transport Type', $typeLabel],
-            ['Adjustment', $type === '' ? '—' : OrderBillingTransportCalculator::formatAdjustment($adjustment)],
-            ['Final Grand Total', OrderBillingTransportCalculator::formatMoney($final)],
+            ['Transport Charges', $type === '' ? '—' : OrderBillingTransportCalculator::formatAdjustment($adjustment)],
+            ['Taxable Value', OrderBillingTransportCalculator::formatMoney($taxable)],
+            ['GST', OrderBillingTransportCalculator::formatMoney($gst)],
+            ['Grand Total', OrderBillingTransportCalculator::formatMoney($final)],
         ];
 
         $html = '<div style="margin-top:4px;padding:12px 14px;border:1px solid #E2E8F0;border-radius:10px;background:#F8FAFC;">';

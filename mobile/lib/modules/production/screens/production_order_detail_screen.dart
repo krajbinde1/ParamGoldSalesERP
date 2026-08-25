@@ -109,8 +109,18 @@ class _ProductionOrderDetailScreenState
     int? selectedVehicleId;
     String? selectedChargeType;
 
-    final originalGrandTotal =
-        double.tryParse('${_order?['grand_total'] ?? 0}') ?? 0;
+    final subtotal =
+        double.tryParse('${_order?['subtotal'] ?? _order?['gross_amount'] ?? 0}') ??
+            0;
+    final discount = double.tryParse(
+          '${_order?['discount_amount'] ?? _order?['total_discount'] ?? 0}',
+        ) ??
+        0;
+    final originalGst = double.tryParse(
+          '${_order?['original_gst_amount'] ?? _order?['gst_amount'] ?? 0}',
+        ) ??
+        0;
+    final taxableValue = subtotal - discount;
 
     final freightController = TextEditingController(
       text: (_order?['transport_amount'] != null &&
@@ -384,7 +394,9 @@ class _ProductionOrderDetailScreenState
                     ),
                     const SizedBox(height: 12),
                     _SendForBillTotalPreview(
-                      originalGrandTotal: originalGrandTotal,
+                      subtotal: subtotal,
+                      discount: discount,
+                      originalGst: originalGst,
                       chargeType: selectedChargeType,
                       charges: double.tryParse(
                             freightController.text.trim(),
@@ -446,10 +458,10 @@ class _ProductionOrderDetailScreenState
                             return;
                           }
                           if (selectedChargeType == 'company_transport' &&
-                              freight > originalGrandTotal) {
+                              freight > taxableValue) {
                             setModalState(
                               () => formError =
-                                  'Company Transport charges cannot exceed the original grand total.',
+                                  'Company Transport charges cannot exceed the taxable value (Subtotal − Discount).',
                             );
                             return;
                           }
@@ -972,27 +984,33 @@ class _ProductionOrderDetailScreenState
 
 class _SendForBillTotalPreview extends StatelessWidget {
   const _SendForBillTotalPreview({
-    required this.originalGrandTotal,
+    required this.subtotal,
+    required this.discount,
+    required this.originalGst,
     required this.chargeType,
     required this.charges,
   });
 
-  final double originalGrandTotal;
+  final double subtotal;
+  final double discount;
+  final double originalGst;
   final String? chargeType;
   final double charges;
 
   @override
   Widget build(BuildContext context) {
     final safeCharges = charges < 0 ? 0.0 : charges;
+    final taxableBefore = subtotal - discount;
+    final rate = taxableBefore > 0 ? originalGst / taxableBefore : 0.0;
     var adjustment = 0.0;
     String? error;
     var typeLabel = '—';
 
     if (chargeType == 'company_transport') {
       typeLabel = 'Company Transport';
-      if (safeCharges > originalGrandTotal) {
+      if (safeCharges > taxableBefore) {
         error =
-            'Company Transport charges cannot exceed the original grand total.';
+            'Company Transport charges cannot exceed the taxable value (Subtotal − Discount).';
       } else {
         adjustment = -safeCharges;
       }
@@ -1005,7 +1023,14 @@ class _SendForBillTotalPreview extends StatelessWidget {
       adjustment = 0;
     }
 
-    final finalTotal = originalGrandTotal + adjustment;
+    var taxableAfter = taxableBefore + adjustment;
+    if (taxableAfter < 0) {
+      taxableAfter = 0;
+    }
+    final gst = error != null ? originalGst : _roundMoney(taxableAfter * rate);
+    final finalTotal = error != null
+        ? taxableBefore + originalGst
+        : _roundMoney(taxableAfter + gst);
     final money = OrderInvoiceProductsTable.money;
 
     return Container(
@@ -1018,23 +1043,31 @@ class _SendForBillTotalPreview extends StatelessWidget {
       child: Column(
         children: [
           PgInvoiceRow(
-            label: 'Original Grand Total',
-            value: money(originalGrandTotal),
+            label: 'Subtotal',
+            value: money(subtotal),
           ),
           PgInvoiceRow(
-            label: 'Transport Charges',
-            value: money(safeCharges),
+            label: 'Discount',
+            value: money(discount),
           ),
           PgInvoiceRow(label: 'Transport Type', value: typeLabel),
           PgInvoiceRow(
-            label: 'Adjustment',
+            label: 'Transport Charges',
             value: chargeType == null
                 ? '—'
                 : '${adjustment < 0 ? '- ' : '+ '}${money(adjustment.abs())}',
           ),
+          PgInvoiceRow(
+            label: 'Taxable Value',
+            value: money(error != null ? taxableBefore : taxableAfter),
+          ),
+          PgInvoiceRow(
+            label: 'GST',
+            value: money(gst),
+          ),
           const Divider(height: 16),
           PgInvoiceRow(
-            label: 'Final Grand Total',
+            label: 'Grand Total',
             value: money(finalTotal),
             isTotal: true,
           ),
@@ -1048,6 +1081,10 @@ class _SendForBillTotalPreview extends StatelessWidget {
         ],
       ),
     );
+  }
+
+  static double _roundMoney(double value) {
+    return (value * 100).roundToDouble() / 100;
   }
 }
 

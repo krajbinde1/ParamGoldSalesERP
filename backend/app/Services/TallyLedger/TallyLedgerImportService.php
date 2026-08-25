@@ -26,19 +26,8 @@ final class TallyLedgerImportService
     public function preview(string $path, ?Dealer $dealer = null): array
     {
         $parsed = $this->parser->parse($path);
-        $erpClosingSigned = $parsed->calculatedClosingSigned();
-
-        $tallyClosingSigned = $parsed->tallyClosingBalance !== null && $parsed->tallyClosingBalanceType !== null
-            ? DealerTallyBalance::signed($parsed->tallyClosingBalance, $parsed->tallyClosingBalanceType)
-            : null;
-
-        $matched = $tallyClosingSigned !== null
-            && DealerTallyBalance::matches(
-                DealerTallyBalance::amountFromSigned($erpClosingSigned),
-                DealerTallyBalance::typeFromSigned($erpClosingSigned),
-                $parsed->tallyClosingBalance,
-                $parsed->tallyClosingBalanceType,
-            );
+        $matched = $parsed->tallyClosingMatches();
+        $importErrors = $parsed->importErrors();
 
         $tallyName = $parsed->tallyLedgerName;
         $namesDiffer = $dealer !== null
@@ -54,7 +43,14 @@ final class TallyLedgerImportService
             'opening_balance_type' => $parsed->openingBalanceType,
             'tally_closing_balance' => $parsed->tallyClosingBalance,
             'tally_closing_balance_type' => $parsed->tallyClosingBalanceType,
+            'can_import' => $importErrors === [],
+            'parse_error_count' => count($importErrors),
         ]);
+
+        $erpClosingSigned = $parsed->calculatedClosingSigned();
+        $tallyClosingSigned = $parsed->tallyClosingBalance !== null && $parsed->tallyClosingBalanceType !== null
+            ? DealerTallyBalance::signed($parsed->tallyClosingBalance, $parsed->tallyClosingBalanceType)
+            : null;
 
         return [
             'tally_ledger_name' => $tallyName !== '' ? $tallyName : '—',
@@ -63,19 +59,23 @@ final class TallyLedgerImportService
             'opening_balance_type' => $parsed->openingBalanceType,
             'opening_balance_explicit' => $parsed->openingBalanceExplicit,
             'transaction_count' => count($parsed->transactions),
-            'total_debit' => $parsed->totalDebit,
-            'total_credit' => $parsed->totalCredit,
+            'total_debit' => $parsed->inclusiveTotalDebit(),
+            'total_credit' => $parsed->inclusiveTotalCredit(),
+            'transaction_debit' => $parsed->totalDebit,
+            'transaction_credit' => $parsed->totalCredit,
             'tally_closing_balance' => $parsed->tallyClosingBalance,
             'tally_closing_balance_type' => $parsed->tallyClosingBalanceType,
             'erp_closing_balance' => DealerTallyBalance::amountFromSigned($erpClosingSigned),
             'erp_closing_balance_type' => DealerTallyBalance::typeFromSigned($erpClosingSigned),
             'erp_closing_signed' => $erpClosingSigned,
-            'balance_matched' => $parsed->tallyClosingBalance === null ? null : $matched,
+            'balance_matched' => $matched,
             'difference' => $tallyClosingSigned === null
                 ? null
                 : round($erpClosingSigned - $tallyClosingSigned, 2),
             'failed_count' => count($parsed->failed),
             'failed_rows' => $parsed->failed,
+            'parse_errors' => $importErrors,
+            'can_import' => $importErrors === [],
             'skipped_before_start_date' => $parsed->skippedBeforeStartDate,
             'transactions' => $parsed->transactions,
             'parsed' => $parsed,
@@ -127,6 +127,12 @@ final class TallyLedgerImportService
         if (! $parsed instanceof TallyLedgerParseResult) {
             throw ValidationException::withMessages([
                 'file' => 'Upload the Tally Excel again before importing.',
+            ]);
+        }
+
+        if (! $parsed->canImport()) {
+            throw ValidationException::withMessages([
+                'file' => $parsed->importErrors()[0] ?? 'Tally ledger parsing is incomplete. Import is blocked.',
             ]);
         }
 

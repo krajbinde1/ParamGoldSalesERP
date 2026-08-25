@@ -327,7 +327,7 @@ class EmployeeOrderController extends Controller
             'dealer_name' => $order->dealer?->firm_name,
             'order_date' => $order->order_date->toDateString(),
             'created_at' => $order->created_at?->toDateTimeString(),
-            'grand_total' => (float) $order->grand_total,
+            'grand_total' => \App\Services\Orders\OrderBillingTransportCalculator::finalGrandTotal($order),
             'status' => $order->status,
             'status_label' => $order->displayStatusLabel(),
         ];
@@ -342,6 +342,7 @@ class EmployeeOrderController extends Controller
 
         $totalCases = array_sum(array_column($items, 'case_quantity'));
         $totalQuantityNos = array_sum(array_column($items, 'total_quantity_nos'));
+        $billing = \App\Services\Orders\OrderBillingTransportCalculator::present($order);
 
         return [
             'id' => $order->id,
@@ -382,21 +383,25 @@ class EmployeeOrderController extends Controller
             'dispatch_remark' => $order->dispatch_remark,
             'subtotal' => (float) $order->subtotal,
             'discount_amount' => (float) $order->discount_amount,
-            'gst_amount' => (float) $order->gst_amount,
-            'grand_total' => \App\Services\Orders\OrderBillingTransportCalculator::finalGrandTotal($order),
+            ...$billing,
+            'gst_amount' => (float) $billing['gst_amount'],
+            'grand_total' => (float) $billing['final_grand_total'],
             'total_cases' => $totalCases,
             'total_quantity_nos' => $totalQuantityNos,
-            ...\App\Services\Orders\OrderBillingTransportCalculator::present($order),
             'transport_type' => $order->transport_type,
             'transport_type_label' => filled($order->transport_type)
                 ? \App\Enums\TransportType::tryFrom((string) $order->transport_type)?->label()
                 : null,
-            'subtotal_before_transport' => $order->subtotal_before_transport !== null
-                ? (float) $order->subtotal_before_transport
-                : null,
-            'taxable_amount_after_transport' => $order->taxable_amount_after_transport !== null
-                ? (float) $order->taxable_amount_after_transport
-                : null,
+            'subtotal_before_transport' => \App\Services\Orders\OrderBillingTransportCalculator::hasSavedAdjustment($order)
+                ? (float) $billing['taxable_before_transport']
+                : ($order->subtotal_before_transport !== null
+                    ? (float) $order->subtotal_before_transport
+                    : null),
+            'taxable_amount_after_transport' => \App\Services\Orders\OrderBillingTransportCalculator::hasSavedAdjustment($order)
+                ? (float) $billing['taxable_amount_after_transport']
+                : ($order->taxable_amount_after_transport !== null
+                    ? (float) $order->taxable_amount_after_transport
+                    : null),
             'can_edit' => $order->status === 'pending_approval',
             'timeline' => $order->workflowTimeline(),
             'items' => $items,

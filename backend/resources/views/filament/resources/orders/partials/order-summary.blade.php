@@ -5,31 +5,34 @@
     /** @var Order $record */
     $money = static fn ($value): string => OrderBillingTransportCalculator::formatMoney((float) $value);
 
-    $subtotal = (float) $record->subtotal;
-    $discount = (float) $record->discount_amount;
-    $taxable = $record->taxable_amount_after_transport !== null
-        ? (float) $record->taxable_amount_after_transport
-        : max(0, $subtotal - $discount);
-    $cgst = round(((float) $record->gst_amount) / 2, 2);
-    $sgst = round(((float) $record->gst_amount) / 2, 2);
-    $hasTransportAdjustment = OrderBillingTransportCalculator::hasSavedAdjustment($record);
     $billing = OrderBillingTransportCalculator::present($record);
+    $hasTransportAdjustment = OrderBillingTransportCalculator::hasSavedAdjustment($record);
+    $subtotal = (float) $billing['subtotal'];
+    $discount = (float) $billing['discount_amount'];
+    $taxable = (float) $billing['taxable_amount_after_transport'];
+    $cgst = (float) $billing['cgst_amount'];
+    $sgst = (float) $billing['sgst_amount'];
     $grandTotal = (float) $billing['final_grand_total'];
 
     $rows = [
         ['label' => 'Subtotal', 'value' => $money($subtotal), 'emphasis' => false],
         ['label' => 'Discount', 'value' => $money($discount), 'emphasis' => false],
-        ['label' => 'Taxable Value', 'value' => $money($taxable), 'emphasis' => false],
-        ['label' => 'CGST', 'value' => $money($cgst), 'emphasis' => false],
-        ['label' => 'SGST', 'value' => $money($sgst), 'emphasis' => false],
     ];
 
     if ($hasTransportAdjustment) {
-        $rows[] = ['label' => 'Original Grand Total', 'value' => $money((float) $billing['original_grand_total']), 'emphasis' => false];
-        $rows[] = ['label' => 'Vehicle No', 'value' => $record->vehicle_number ?: '—', 'emphasis' => false];
         $rows[] = ['label' => 'Transport Type', 'value' => $billing['transport_charge_type_label'] ?: '—', 'emphasis' => false];
-        $rows[] = ['label' => 'Transport Charges', 'value' => OrderBillingTransportCalculator::formatAdjustment((float) $billing['transport_adjustment']), 'emphasis' => false];
-        $rows[] = ['label' => 'Final Grand Total', 'value' => $money($grandTotal), 'emphasis' => true];
+        $rows[] = ['label' => 'Transport Charges', 'value' => OrderBillingTransportCalculator::formatAdjustment((float) ($billing['transport_adjustment'] ?? 0)), 'emphasis' => false];
+    }
+
+    $rows[] = ['label' => 'Taxable Value', 'value' => $money($taxable), 'emphasis' => false];
+    $rows[] = ['label' => 'CGST', 'value' => $money($cgst), 'emphasis' => false];
+    $rows[] = ['label' => 'SGST', 'value' => $money($sgst), 'emphasis' => false];
+
+    if ($hasTransportAdjustment) {
+        if (filled($record->vehicle_number)) {
+            $rows[] = ['label' => 'Vehicle No', 'value' => $record->vehicle_number, 'emphasis' => false];
+        }
+        $rows[] = ['label' => 'Grand Total', 'value' => $money($grandTotal), 'emphasis' => true];
     } else {
         if (filled($record->vehicle_number) || $record->transport_amount !== null) {
             $rows[] = ['label' => 'Vehicle No', 'value' => $record->vehicle_number ?: '—', 'emphasis' => false];

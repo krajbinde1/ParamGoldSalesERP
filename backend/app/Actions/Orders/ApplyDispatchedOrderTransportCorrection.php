@@ -89,19 +89,18 @@ final class ApplyDispatchedOrderTransportCorrection
 
             $oldValues = $this->snapshot($locked);
 
-            $billingTransport = OrderBillingTransportCalculator::calculate(
-                originalGrandTotal: OrderBillingTransportCalculator::originalGrandTotal($locked),
-                chargeType: $transportChargeType,
-                transportCharges: $transportFreight,
+            $locked->loadMissing('items');
+
+            $billingTransport = OrderBillingTransportCalculator::calculateForOrder(
+                $locked,
+                $transportChargeType,
+                $transportFreight,
             );
 
             $locked->update([
                 'vehicle_id' => $vehicle->id,
                 'vehicle_number' => $vehicle->vehicle_number,
-                'transport_charge_type' => $billingTransport['transport_charge_type'],
-                'transport_amount' => $billingTransport['transport_amount'],
-                'transport_adjustment' => $billingTransport['transport_adjustment'],
-                'grand_total' => $billingTransport['final_grand_total'],
+                ...OrderBillingTransportCalculator::persistedAttributes($billingTransport),
             ]);
 
             $fresh = $locked->fresh() ?? $locked;
@@ -137,6 +136,7 @@ final class ApplyDispatchedOrderTransportCorrection
             'transport_amount' => $order->transport_amount !== null
                 ? round((float) $order->transport_amount, 2)
                 : null,
+            'gst_amount' => round((float) $order->gst_amount, 2),
             'grand_total' => round((float) $order->grand_total, 2),
         ];
     }

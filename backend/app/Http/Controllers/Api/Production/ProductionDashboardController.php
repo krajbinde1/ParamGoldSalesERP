@@ -81,7 +81,7 @@ class ProductionDashboardController extends Controller
             'dealer_name' => $order->dealer?->firm_name,
             'dealer_village' => $order->dealer?->village,
             'employee_name' => $order->salesEmployee?->full_name,
-            'grand_total' => (float) $order->grand_total,
+            'grand_total' => \App\Services\Orders\OrderBillingTransportCalculator::finalGrandTotal($order),
             'status' => $order->status,
             'status_label' => $order->displayStatusLabel(),
             'can_dispatch' => $order->canBeDispatched(),

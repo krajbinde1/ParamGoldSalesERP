@@ -453,6 +453,8 @@ it('allows production to send approved order for billing then admin bills', func
         ->assertJsonPath('data.transport_charge_type', 'transport_extra')
         ->assertJsonPath('data.original_grand_total', 100)
         ->assertJsonPath('data.transport_adjustment', 250)
+        ->assertJsonPath('data.taxable_amount_after_transport', 350)
+        ->assertJsonPath('data.gst_amount', 0)
         ->assertJsonPath('data.final_grand_total', 350)
         ->assertJsonPath('data.grand_total', 350);
 
@@ -812,6 +814,8 @@ it('deducts company transport from original grand total only once', function () 
         ->assertOk()
         ->assertJsonPath('data.original_grand_total', 100)
         ->assertJsonPath('data.transport_adjustment', -15)
+        ->assertJsonPath('data.taxable_amount_after_transport', 85)
+        ->assertJsonPath('data.gst_amount', 0)
         ->assertJsonPath('data.final_grand_total', 85)
         ->assertJsonPath('data.grand_total', 85);
 
@@ -1018,3 +1022,73 @@ it('blocks hold and revert after the order is billed or dispatched', function ()
         ])
         ->assertForbidden();
 });
+
+it('recalculates gst on subtotal after transport extra is applied', function () {
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000301');
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000302');
+    $production = orderWorkflowEmployee(UserRole::ProductionSupervisor, '9200000303');
+    $order = orderWorkflowPending($employee->id);
+    $order->forceFill([
+        'subtotal' => 100,
+        'discount_amount' => 0,
+        'gst_amount' => 18,
+        'grand_total' => 118,
+    ])->saveQuietly();
+    $order->approve($manager->user->id);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/orders/{$order->id}/send-for-bill", [
+            'vehicle_number' => 'MH12GST001',
+            'transport_charge_type' => 'transport_extra',
+            'transport_freight' => 250,
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.subtotal', 100)
+        ->assertJsonPath('data.transport_adjustment', 250)
+        ->assertJsonPath('data.taxable_amount_after_transport', 350)
+        ->assertJsonPath('data.gst_amount', 63)
+        ->assertJsonPath('data.original_grand_total', 118)
+        ->assertJsonPath('data.final_grand_total', 413)
+        ->assertJsonPath('data.grand_total', 413);
+
+    $fresh = $order->fresh();
+    expect((float) $fresh->subtotal)->toBe(100.0)
+        ->and((float) $fresh->gst_amount)->toBe(63.0)
+        ->and((float) $fresh->grand_total)->toBe(413.0)
+        ->and((float) $fresh->taxable_amount_after_transport)->toBe(350.0);
+});
+
+it('shows corrected gst and grand total for historical orders stored with grand-total transport', function () {
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000304');
+    $order = orderWorkflowPending($employee->id);
+    $order->forceFill([
+        'status' => Order::STATUS_DISPATCHED,
+        'subtotal' => 100,
+        'discount_amount' => 0,
+        'gst_amount' => 18,
+        'grand_total' => 368,
+        'transport_charge_type' => 'transport_extra',
+        'transport_amount' => 250,
+        'original_grand_total' => 118,
+        'transport_adjustment' => 250,
+    ])->saveQuietly();
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson("/api/employee/orders/{$order->id}")
+        ->assertOk()
+        ->assertJsonPath('data.subtotal', 100)
+        ->assertJsonPath('data.transport_adjustment', 250)
+        ->assertJsonPath('data.taxable_amount_after_transport', 350)
+        ->assertJsonPath('data.gst_amount', 63)
+        ->assertJsonPath('data.grand_total', 413)
+        ->assertJsonPath('data.final_grand_total', 413);
+
+    \App\Services\Orders\OrderBillingTransportCalculator::reapplyStoredTransport($order->fresh());
+
+    $persisted = $order->fresh();
+    expect((float) $persisted->gst_amount)->toBe(63.0)
+        ->and((float) $persisted->grand_total)->toBe(413.0)
+        ->and((float) $persisted->taxable_amount_after_transport)->toBe(350.0)
+        ->and((float) $persisted->subtotal)->toBe(100.0);
+});
+
