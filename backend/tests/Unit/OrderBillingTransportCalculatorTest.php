@@ -94,3 +94,12 @@ it('caps historical company transport that exceeds taxable value when not strict
         ->and($calc['gst_amount'])->toBe(0.0)
         ->and($calc['final_grand_total'])->toBe(0.0);
 });
+
+it('normalizes stored transport type aliases', function () {
+    expect(TransportChargeType::tryNormalize('company_transport'))->toBe(TransportChargeType::CompanyTransport)
+        ->and(TransportChargeType::tryNormalize('Company Transport'))->toBe(TransportChargeType::CompanyTransport)
+        ->and(TransportChargeType::tryNormalize('transport_extra'))->toBe(TransportChargeType::TransportExtra)
+        ->and(TransportChargeType::tryNormalize('Transport Charges Extra'))->toBe(TransportChargeType::TransportExtra)
+        ->and(TransportChargeType::tryNormalize('outside_transport'))->toBe(TransportChargeType::TransportExtra)
+        ->and(TransportChargeType::tryNormalize(null))->toBeNull();
+});

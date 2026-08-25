@@ -131,12 +131,114 @@ final class OrderBillingTransportCalculator
         );
     }
 
+    public static function resolveChargeType(Order $order): ?TransportChargeType
+    {
+        $fromChargeType = TransportChargeType::tryNormalize(
+            filled($order->transport_charge_type) ? (string) $order->transport_charge_type : null
+        );
+        if ($fromChargeType !== null) {
+            return $fromChargeType;
+        }
+
+        return TransportChargeType::tryNormalize(
+            filled($order->transport_type) ? (string) $order->transport_type : null
+        );
+    }
+
+    /**
+     * Recalculate and persist header totals from saved items + stored transport.
+     * Does not change status or any workflow fields.
+     *
+     * @return array<string, mixed>
+     */
+    public static function persistCorrectedTotals(Order $order): array
+    {
+        $fill = self::correctedAttributes($order);
+        $order->forceFill($fill)->saveQuietly();
+
+        return $fill;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public static function correctedAttributes(Order $order): array
+    {
+        $order->loadMissing('items');
+        $base = self::resolveBaseTotals($order);
+        $type = self::resolveChargeType($order);
+        $charges = round((float) ($order->transport_amount ?? 0), 2);
+
+        $fill = [
+            'subtotal' => $base['subtotal'],
+            'discount_amount' => $base['discount_amount'],
+            'gst_amount' => $base['gst_amount'],
+            'grand_total' => $base['grand_total'],
+            'subtotal_before_transport' => $base['taxable_amount'],
+            'taxable_amount_after_transport' => $base['taxable_amount'],
+        ];
+
+        if ($type !== null) {
+            $calc = self::calculate(
+                subtotal: $base['subtotal'],
+                discountAmount: $base['discount_amount'],
+                originalGst: $base['gst_amount'],
+                chargeType: $type->value,
+                transportCharges: $charges,
+                strict: false,
+            );
+            $fill = array_merge($fill, self::persistedAttributes($calc));
+            $fill['subtotal'] = $base['subtotal'];
+            $fill['discount_amount'] = $base['discount_amount'];
+        }
+
+        return self::onlyExistingColumns($fill);
+    }
+
+    /**
+     * @return array{updated: int}
+     */
+    public static function persistCorrectedTotalsForAllOrders(): array
+    {
+        $updated = 0;
+
+        Order::query()
+            ->with('items')
+            ->orderBy('id')
+            ->chunkById(50, function ($orders) use (&$updated): void {
+                foreach ($orders as $order) {
+                    self::persistCorrectedTotals($order);
+                    $updated++;
+                }
+            });
+
+        return ['updated' => $updated];
+    }
+
+    /**
+     * @param  array<string, mixed>  $attributes
+     * @return array<string, mixed>
+     */
+    private static function onlyExistingColumns(array $attributes): array
+    {
+        static $columns = null;
+        $columns ??= array_flip(\Illuminate\Support\Facades\Schema::getColumnListing('orders'));
+
+        return array_filter(
+            $attributes,
+            fn (string $key): bool => isset($columns[$key]),
+            ARRAY_FILTER_USE_KEY,
+        );
+    }
+
     /**
      * @return array{subtotal: float, discount_amount: float, gst_amount: float, taxable_amount: float, grand_total: float}
      */
     public static function resolveBaseTotals(Order $order): array
     {
-        if ($order->relationLoaded('items') && $order->items->isNotEmpty()) {
+        $order->loadMissing('items');
+
+        if ($order->items->isNotEmpty()) {
             $subtotal = 0.0;
             $discount = 0.0;
             $gst = 0.0;
@@ -146,7 +248,12 @@ final class OrderBillingTransportCalculator
                 $amounts = $lineCalculator->resolveStoredAmounts($item);
                 $subtotal += $amounts['base_amount'];
                 $discount += $amounts['discount_amount'];
-                $gst += $amounts['gst_amount'];
+                $gstPercentage = (float) ($item->gst_percentage ?? 0);
+                if ($gstPercentage > 0) {
+                    $gst += round($amounts['taxable_amount'] * ($gstPercentage / 100), 2);
+                } else {
+                    $gst += $amounts['gst_amount'];
+                }
             }
 
             $subtotal = round($subtotal, 2);
@@ -204,18 +311,7 @@ final class OrderBillingTransportCalculator
 
     public static function reapplyStoredTransport(Order $order): bool
     {
-        if (! self::hasSavedAdjustment($order)) {
-            return false;
-        }
-
-        $calc = self::calculateForOrder(
-            $order,
-            (string) $order->transport_charge_type,
-            (float) ($order->transport_amount ?? 0),
-            strict: false,
-        );
-
-        $order->forceFill(self::persistedAttributes($calc))->saveQuietly();
+        self::persistCorrectedTotals($order);
 
         return true;
     }
@@ -227,22 +323,12 @@ final class OrderBillingTransportCalculator
 
     public static function finalGrandTotal(Order $order): float
     {
-        if (! self::hasSavedAdjustment($order)) {
-            return round((float) $order->grand_total, 2);
-        }
-
-        return self::calculateForOrder(
-            $order,
-            (string) $order->transport_charge_type,
-            (float) ($order->transport_amount ?? 0),
-            strict: false,
-        )['final_grand_total'];
+        return round((float) $order->grand_total, 2);
     }
 
     public static function hasSavedAdjustment(Order $order): bool
     {
-        return filled($order->transport_charge_type)
-            && TransportChargeType::tryFrom((string) $order->transport_charge_type) !== null;
+        return self::resolveChargeType($order) !== null;
     }
 
     /**
@@ -250,9 +336,7 @@ final class OrderBillingTransportCalculator
      */
     public static function present(Order $order): array
     {
-        $type = filled($order->transport_charge_type)
-            ? TransportChargeType::tryFrom((string) $order->transport_charge_type)
-            : null;
+        $type = self::resolveChargeType($order);
         $charges = $order->transport_amount !== null
             ? round((float) $order->transport_amount, 2)
             : null;

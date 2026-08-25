@@ -3,7 +3,6 @@
 namespace App\Models;
 
 use App\Services\Orders\OrderBillingTransportCalculator;
-use App\Services\Orders\OrderLineCalculationService;
 use App\Support\PublicMediaUrl;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
@@ -1028,63 +1027,7 @@ class Order extends Model
 
     public function recalculateTotals(): void
     {
-        $items = $this->items()->get();
-
-        if ($items->isEmpty()) {
-            if (OrderBillingTransportCalculator::hasSavedAdjustment($this)) {
-                OrderBillingTransportCalculator::reapplyStoredTransport($this);
-            }
-
-            return;
-        }
-
-        $totals = $items->reduce(function (array $totals, OrderItem $item): array {
-            $amounts = app(OrderLineCalculationService::class)->resolveStoredAmounts($item);
-
-            $totals['subtotal'] += $amounts['base_amount'];
-            $totals['discount_amount'] += $amounts['discount_amount'];
-            $totals['gst_amount'] += $amounts['gst_amount'];
-            $totals['grand_total'] += $amounts['final_amount'];
-            $totals['total_cases'] += (int) ($item->case_quantity ?? 1);
-            $totals['total_quantity_nos'] += (int) ($item->total_quantity_nos ?? round((float) $item->quantity));
-
-            return $totals;
-        }, [
-            'subtotal' => 0,
-            'discount_amount' => 0,
-            'gst_amount' => 0,
-            'grand_total' => 0,
-            'total_cases' => 0,
-            'total_quantity_nos' => 0,
-        ]);
-
-        $subtotal = round($totals['subtotal'], 2);
-        $discount = round($totals['discount_amount'], 2);
-        $gstAmount = round($totals['gst_amount'], 2);
-        $grandTotal = round($totals['grand_total'], 2);
-        $transportAttributes = [];
-
-        if (OrderBillingTransportCalculator::hasSavedAdjustment($this)) {
-            $billingTransport = OrderBillingTransportCalculator::calculate(
-                subtotal: $subtotal,
-                discountAmount: $discount,
-                originalGst: $gstAmount,
-                chargeType: (string) $this->transport_charge_type,
-                transportCharges: (float) ($this->transport_amount ?? 0),
-                strict: false,
-            );
-            $gstAmount = $billingTransport['gst_amount'];
-            $grandTotal = $billingTransport['final_grand_total'];
-            $transportAttributes = OrderBillingTransportCalculator::persistedAttributes($billingTransport);
-        }
-
-        $this->forceFill([
-            'subtotal' => $subtotal,
-            'discount_amount' => $discount,
-            'gst_amount' => $gstAmount,
-            'grand_total' => $grandTotal,
-            ...$transportAttributes,
-        ])->saveQuietly();
+        OrderBillingTransportCalculator::persistCorrectedTotals($this);
     }
 
     public function sentForBillTimelineRemark(): ?string
