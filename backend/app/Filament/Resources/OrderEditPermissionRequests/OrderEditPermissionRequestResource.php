@@ -104,6 +104,7 @@ class OrderEditPermissionRequestResource extends Resource
                 'order.dealer:id,firm_name,village',
                 'requestedByUser:id,name',
                 'reviewedByUser:id,name',
+                'adminReviewedByUser:id,name',
                 'editedByUser:id,name',
             ])
             ->latest('id');

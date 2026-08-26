@@ -206,10 +206,22 @@ class OrderInfolist
                                     ->color('warning')
                                     ->weight(FontWeight::SemiBold)
                                     ->columnSpanFull(),
+                                TextEntry::make('dispatched_edit_awaiting_admin_banner')
+                                    ->hiddenLabel()
+                                    ->visible(fn (Order $record): bool => $record->hasDirectorApprovedAwaitingAdmin())
+                                    ->state(function (Order $record): string {
+                                        $request = $record->directorApprovedAwaitingAdminRequest();
+
+                                        return 'Director approved this edit request. Approve or Reject Edit Permission to continue. The order stays locked until Admin approval.'
+                                            .(filled($request?->reason) ? ' Reason: '.$request->reason : '');
+                                    })
+                                    ->color('warning')
+                                    ->weight(FontWeight::SemiBold)
+                                    ->columnSpanFull(),
                                 TextEntry::make('dispatched_edit_approved_banner')
                                     ->hiddenLabel()
                                     ->visible(fn (Order $record): bool => $record->hasApprovedUnusedEditPermission())
-                                    ->state('Director approved a one-time correction. You may edit Vehicle No., Transport Type, and Transport Charges. Saving will lock the order again.')
+                                    ->state('Admin approved a one-time correction. You may edit Vehicle No., Transport Type, and Transport Charges. Saving will lock the order again.')
                                     ->color('info')
                                     ->weight(FontWeight::SemiBold)
                                     ->columnSpanFull(),

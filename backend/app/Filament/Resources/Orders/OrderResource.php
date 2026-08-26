@@ -65,7 +65,9 @@ class OrderResource extends Resource
             ]);
         }
 
-        return $query;
+        return $query->with([
+            'editPermissionRequests' => fn ($requests) => $requests->orderByDesc('id'),
+        ]);
     }
 
     public static function form(Schema $schema): Schema

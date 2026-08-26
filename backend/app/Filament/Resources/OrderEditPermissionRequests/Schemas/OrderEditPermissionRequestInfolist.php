@@ -51,6 +51,14 @@ class OrderEditPermissionRequestInfolist
                             ->label('Decision At')
                             ->dateTime('d M Y • h:i A', 'Asia/Kolkata')
                             ->visible(fn (OrderEditPermissionRequest $record): bool => filled($record->reviewed_at)),
+                        TextEntry::make('adminReviewedByUser.name')
+                            ->label('Admin')
+                            ->placeholder('—')
+                            ->visible(fn (OrderEditPermissionRequest $record): bool => filled($record->admin_reviewed_by)),
+                        TextEntry::make('admin_reviewed_at')
+                            ->label('Admin Decision At')
+                            ->dateTime('d M Y • h:i A', 'Asia/Kolkata')
+                            ->visible(fn (OrderEditPermissionRequest $record): bool => filled($record->admin_reviewed_at)),
                         TextEntry::make('rejection_remark')
                             ->label('Rejection Remark')
                             ->placeholder('—')
@@ -77,7 +85,7 @@ class OrderEditPermissionRequestInfolist
                             ->label('Order Status')
                             ->badge()
                             ->formatStateUsing(fn (?string $state, OrderEditPermissionRequest $record): string => $record->order?->displayStatusLabel() ?: '—')
-                            ->color(fn (?string $state): string => Order::statusColor((string) $state)),
+                            ->color(fn (?string $state): string => Order::statusColor((string) ($state ?: ''))),
                         TextEntry::make('order.dealer.firm_name')
                             ->label('Dealer')
                             ->placeholder('—'),

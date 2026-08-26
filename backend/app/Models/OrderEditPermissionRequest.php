@@ -15,13 +15,16 @@ class OrderEditPermissionRequest extends Model
 
     public const STATUS_APPROVED = 'approved';
 
+    public const STATUS_ADMIN_APPROVED = 'admin_approved';
+
     public const STATUS_REJECTED = 'rejected';
 
     public const STATUS_USED = 'used';
 
     public const STATUS_LABELS = [
         self::STATUS_PENDING => 'Pending Director Approval',
-        self::STATUS_APPROVED => 'Approved — awaiting Admin correction',
+        self::STATUS_APPROVED => 'Director Approved — awaiting Admin',
+        self::STATUS_ADMIN_APPROVED => 'Approved — awaiting Admin correction',
         self::STATUS_REJECTED => 'Rejected',
         self::STATUS_USED => 'Used',
     ];
@@ -35,6 +38,8 @@ class OrderEditPermissionRequest extends Model
         'status',
         'reviewed_by',
         'reviewed_at',
+        'admin_reviewed_by',
+        'admin_reviewed_at',
         'rejection_remark',
         'edited_by',
         'edited_at',
@@ -46,6 +51,7 @@ class OrderEditPermissionRequest extends Model
     {
         return [
             'reviewed_at' => 'datetime',
+            'admin_reviewed_at' => 'datetime',
             'edited_at' => 'datetime',
             'old_values' => 'array',
             'new_values' => 'array',
@@ -67,6 +73,11 @@ class OrderEditPermissionRequest extends Model
         return $this->belongsTo(User::class, 'reviewed_by');
     }
 
+    public function adminReviewedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'admin_reviewed_by');
+    }
+
     public function editedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'edited_by');
@@ -79,6 +90,11 @@ class OrderEditPermissionRequest extends Model
 
     public function scopeApprovedUnused(Builder $query): Builder
     {
+        return $query->where('status', self::STATUS_ADMIN_APPROVED);
+    }
+
+    public function scopeAwaitingAdminConfirmation(Builder $query): Builder
+    {
         return $query->where('status', self::STATUS_APPROVED);
     }
 
@@ -87,6 +103,7 @@ class OrderEditPermissionRequest extends Model
         return $query->whereIn('status', [
             self::STATUS_PENDING,
             self::STATUS_APPROVED,
+            self::STATUS_ADMIN_APPROVED,
         ]);
     }
 
@@ -95,9 +112,16 @@ class OrderEditPermissionRequest extends Model
         return $this->status === self::STATUS_PENDING;
     }
 
+    public function isAwaitingAdminConfirmation(): bool
+    {
+        return $this->status === self::STATUS_APPROVED
+            && $this->admin_reviewed_at === null
+            && $this->edited_at === null;
+    }
+
     public function isApprovedUnused(): bool
     {
-        return $this->status === self::STATUS_APPROVED;
+        return $this->status === self::STATUS_ADMIN_APPROVED;
     }
 
     public function isRejected(): bool
@@ -119,7 +143,8 @@ class OrderEditPermissionRequest extends Model
     {
         return match ($status) {
             self::STATUS_PENDING => 'warning',
-            self::STATUS_APPROVED => 'info',
+            self::STATUS_APPROVED => 'warning',
+            self::STATUS_ADMIN_APPROVED => 'info',
             self::STATUS_USED => 'success',
             self::STATUS_REJECTED => 'danger',
             default => 'gray',
@@ -129,6 +154,11 @@ class OrderEditPermissionRequest extends Model
     public function formattedReviewedAt(): ?string
     {
         return $this->formatBusinessDateTime($this->reviewed_at);
+    }
+
+    public function formattedAdminReviewedAt(): ?string
+    {
+        return $this->formatBusinessDateTime($this->admin_reviewed_at);
     }
 
     public function formattedEditedAt(): ?string

@@ -66,8 +66,12 @@ final class OrderEditPermissionNotifier
         $director = $request->reviewedByUser?->name ?: 'Director';
 
         if ($request->isApprovedUnused()) {
-            $title = 'Order Edit Permission Approved';
-            $body = "{$director} approved a one-time correction of transport details on order {$shortNo}.";
+            $title = 'Order Edit Permission Unlocked';
+            $body = "Admin confirmed the Director-approved correction for order {$shortNo}. You may now edit transport details once.";
+            $type = self::TYPE_APPROVED;
+        } elseif ($request->isAwaitingAdminConfirmation()) {
+            $title = 'Order Edit Permission Approved by Director';
+            $body = "{$director} approved the edit request for order {$shortNo}. Open Orders and use Approve Edit Permission to unlock a one-time correction.";
             $type = self::TYPE_APPROVED;
         } else {
             $title = 'Order Edit Permission Rejected';

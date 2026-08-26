@@ -27,8 +27,10 @@ class ListOrderEditPermissionRequests extends ListRecords
             'pending' => Tab::make('Pending')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', OrderEditPermissionRequest::STATUS_PENDING))
                 ->badge(fn (): int => OrderEditPermissionRequest::query()->pending()->count()),
-            'approved' => Tab::make('Approved')
+            'approved' => Tab::make('Director Approved')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', OrderEditPermissionRequest::STATUS_APPROVED)),
+            'admin_approved' => Tab::make('Admin Approved')
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('status', OrderEditPermissionRequest::STATUS_ADMIN_APPROVED)),
             'used' => Tab::make('Used')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', OrderEditPermissionRequest::STATUS_USED)),
             'rejected' => Tab::make('Rejected')

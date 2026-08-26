@@ -50,7 +50,17 @@ final class CorrectDispatchedTransportForm
                 ->live(debounce: 300),
             Placeholder::make('transport_preview')
                 ->hiddenLabel()
-                ->content(fn (Get $get): HtmlString => SendForBillForm::renderPreview($order, $get)),
+                ->content(function ($get = null) use ($order): HtmlString {
+                    if (! $get instanceof Get) {
+                        return new HtmlString('');
+                    }
+
+                    try {
+                        return SendForBillForm::renderPreview($order, $get);
+                    } catch (\Throwable) {
+                        return new HtmlString('');
+                    }
+                }),
         ];
     }
 
@@ -59,10 +69,16 @@ final class CorrectDispatchedTransportForm
      */
     public static function fillFromOrder(Order $order): array
     {
+        $chargeType = TransportChargeType::tryNormalize(
+            filled($order->transport_charge_type) ? (string) $order->transport_charge_type : null
+        );
+
         return [
             'vehicle_id' => $order->vehicle_id,
-            'transport_charge_type' => $order->transport_charge_type,
-            'transport_freight' => $order->transport_amount,
+            'transport_charge_type' => $chargeType?->value,
+            'transport_freight' => $order->transport_amount !== null
+                ? round((float) $order->transport_amount, 2)
+                : null,
         ];
     }
 

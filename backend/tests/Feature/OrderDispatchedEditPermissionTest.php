@@ -1,8 +1,10 @@
 <?php
 
+use App\Actions\Orders\AdminRejectOrderEditPermission;
 use App\Actions\Orders\ApplyDispatchedOrderTransportCorrection;
 use App\Actions\Orders\ApproveOrderEditPermission;
 use App\Actions\Orders\BillOrderWithDocument;
+use App\Actions\Orders\ConfirmOrderEditPermission;
 use App\Actions\Orders\DispatchOrder;
 use App\Actions\Orders\RejectOrderEditPermission;
 use App\Actions\Orders\RequestOrderEditPermission;
@@ -11,6 +13,7 @@ use App\Enums\UserRole;
 use App\Filament\Resources\OrderEditPermissionRequests\OrderEditPermissionRequestResource;
 use App\Filament\Resources\OrderEditPermissionRequests\Pages\ListOrderEditPermissionRequests;
 use App\Filament\Resources\OrderEditPermissionRequests\Pages\ViewOrderEditPermissionRequest;
+use App\Filament\Resources\Orders\Pages\ListOrders;
 use App\Filament\Resources\Orders\Pages\ViewOrder;
 use App\Models\AppNotification;
 use App\Models\Employee;
@@ -153,6 +156,24 @@ it('locks dispatched orders from admin edits until the director approves a one-t
 
     expect($approved->status)->toBe(OrderEditPermissionRequest::STATUS_APPROVED)
         ->and($approved->reviewed_by)->toBe($director->id)
+        ->and($approved->admin_reviewed_at)->toBeNull()
+        ->and($order->fresh()->status)->toBe(Order::STATUS_DISPATCHED)
+        ->and($order->fresh()->canBeEdited())->toBeFalse()
+        ->and(Gate::forUser($admin)->allows('confirmDispatchedEdit', $order->fresh()))->toBeTrue()
+        ->and(Gate::forUser($admin)->allows('correctDispatchedTransport', $order->fresh()))->toBeFalse();
+
+    expect(fn () => app(ApplyDispatchedOrderTransportCorrection::class)->execute(
+        order: $order->fresh(),
+        actor: $admin,
+        vehicleId: $vehicle->id,
+        transportChargeType: 'company_transport',
+        transportFreight: 40,
+    ))->toThrow(AuthorizationException::class);
+
+    $confirmed = app(ConfirmOrderEditPermission::class)->execute($order->fresh(), $admin)['request'];
+
+    expect($confirmed->status)->toBe(OrderEditPermissionRequest::STATUS_ADMIN_APPROVED)
+        ->and($confirmed->admin_reviewed_by)->toBe($admin->id)
         ->and($order->fresh()->status)->toBe(Order::STATUS_DISPATCHED)
         ->and($order->fresh()->canBeEdited())->toBeFalse()
         ->and(Gate::forUser($admin)->allows('correctDispatchedTransport', $order->fresh()))->toBeTrue();
@@ -287,6 +308,7 @@ it('shows the request button on the admin order view for dispatched orders', fun
         ->test(ViewOrder::class, ['record' => $ctx['order']->getRouteKey()])
         ->assertSuccessful()
         ->assertActionVisible('requestEditPermission')
+        ->assertActionHidden('approveEditPermission')
         ->assertActionHidden('correctDispatchedTransport')
         ->callAction('requestEditPermission', data: [
             'reason' => 'Vehicle number entered incorrectly by Production Manager.',
@@ -321,5 +343,131 @@ it('lets the director open order edit requests and approve from the resource', f
         ->assertHasNoActionErrors();
 
     expect($request->fresh()->status)->toBe(OrderEditPermissionRequest::STATUS_APPROVED)
-        ->and($ctx['order']->fresh()->status)->toBe(Order::STATUS_DISPATCHED);
+        ->and($ctx['order']->fresh()->status)->toBe(Order::STATUS_DISPATCHED)
+        ->and(Gate::forUser($ctx['admin'])->allows('correctDispatchedTransport', $ctx['order']->fresh()))->toBeFalse()
+        ->and(Gate::forUser($ctx['admin'])->allows('confirmDispatchedEdit', $ctx['order']->fresh()))->toBeTrue();
+});
+
+it('loads admin orders pages after director approval and keeps the order locked until admin confirms', function () {
+    $ctx = dispatchedOrderReadyForEdit();
+    $request = app(RequestOrderEditPermission::class)->execute(
+        order: $ctx['order'],
+        actor: $ctx['admin'],
+        reason: 'Vehicle number entered incorrectly by Production Manager.',
+    )['request'];
+
+    app(ApproveOrderEditPermission::class)->execute($request->fresh(), $ctx['director']);
+
+    $order = $ctx['order']->fresh();
+
+    expect($order->status)->toBe(Order::STATUS_DISPATCHED)
+        ->and($request->fresh()->status)->toBe(OrderEditPermissionRequest::STATUS_APPROVED)
+        ->and($order->canBeEdited())->toBeFalse();
+
+    Livewire::actingAs($ctx['admin'])
+        ->test(ListOrders::class)
+        ->assertSuccessful()
+        ->set('activeTab', 'dispatched')
+        ->assertSuccessful()
+        ->assertCanSeeTableRecords([$order])
+        ->assertTableActionVisible('approveEditPermission', $order)
+        ->assertTableActionVisible('rejectEditPermission', $order)
+        ->assertTableActionHidden('correctDispatchedTransport', $order)
+        ->assertTableActionHidden('requestEditPermission', $order);
+
+    foreach ([
+        'all',
+        'pending_approval',
+        'reverted_to_manager',
+        'approved',
+        'on_hold',
+        'pending_for_billing',
+        'billed',
+        'dispatched',
+        'rejected',
+    ] as $tab) {
+        Livewire::actingAs($ctx['admin'])
+            ->test(ListOrders::class)
+            ->set('activeTab', $tab)
+            ->assertSuccessful();
+    }
+
+    Livewire::actingAs($ctx['admin'])
+        ->test(ViewOrder::class, ['record' => $order->getRouteKey()])
+        ->assertSuccessful()
+        ->assertActionVisible('approveEditPermission')
+        ->assertActionVisible('rejectEditPermission')
+        ->assertActionHidden('correctDispatchedTransport')
+        ->callAction('approveEditPermission')
+        ->assertHasNoActionErrors();
+
+    $fresh = $order->fresh();
+    expect($request->fresh()->status)->toBe(OrderEditPermissionRequest::STATUS_ADMIN_APPROVED)
+        ->and($fresh->status)->toBe(Order::STATUS_DISPATCHED)
+        ->and($fresh->canBeEdited())->toBeFalse()
+        ->and(Gate::forUser($ctx['admin'])->allows('correctDispatchedTransport', $fresh))->toBeTrue();
+
+    Livewire::actingAs($ctx['admin'])
+        ->test(ListOrders::class)
+        ->set('activeTab', 'dispatched')
+        ->assertSuccessful()
+        ->assertTableActionVisible('correctDispatchedTransport', $fresh)
+        ->assertTableActionHidden('approveEditPermission', $fresh);
+});
+
+it('treats existing director-approved requests as waiting for admin confirmation', function () {
+    $ctx = dispatchedOrderReadyForEdit();
+    $request = app(RequestOrderEditPermission::class)->execute(
+        order: $ctx['order'],
+        actor: $ctx['admin'],
+        reason: 'Need to correct transport type on an already approved request.',
+    )['request'];
+
+    app(ApproveOrderEditPermission::class)->execute($request->fresh(), $ctx['director']);
+
+    $request->forceFill([
+        'status' => OrderEditPermissionRequest::STATUS_APPROVED,
+        'admin_reviewed_by' => null,
+        'admin_reviewed_at' => null,
+    ])->saveQuietly();
+
+    $order = $ctx['order']->fresh();
+
+    expect($request->fresh()->isAwaitingAdminConfirmation())->toBeTrue()
+        ->and(Gate::forUser($ctx['admin'])->allows('confirmDispatchedEdit', $order))->toBeTrue()
+        ->and(Gate::forUser($ctx['admin'])->allows('correctDispatchedTransport', $order))->toBeFalse();
+
+    Livewire::actingAs($ctx['admin'])
+        ->test(ListOrders::class)
+        ->set('activeTab', 'dispatched')
+        ->assertSuccessful()
+        ->assertTableActionVisible('approveEditPermission', $order)
+        ->callTableAction('approveEditPermission', $order)
+        ->assertHasNoTableActionErrors();
+
+    expect($request->fresh()->status)->toBe(OrderEditPermissionRequest::STATUS_ADMIN_APPROVED)
+        ->and($order->fresh()->status)->toBe(Order::STATUS_DISPATCHED);
+});
+
+it('lets admin reject a director-approved request and request again without changing order status', function () {
+    $ctx = dispatchedOrderReadyForEdit();
+    $request = app(RequestOrderEditPermission::class)->execute(
+        order: $ctx['order'],
+        actor: $ctx['admin'],
+        reason: 'Need to fix vehicle number.',
+    )['request'];
+
+    app(ApproveOrderEditPermission::class)->execute($request->fresh(), $ctx['director']);
+
+    $rejected = app(AdminRejectOrderEditPermission::class)->execute(
+        order: $ctx['order']->fresh(),
+        actor: $ctx['admin'],
+        remark: 'Correction is no longer required.',
+    )['request'];
+
+    expect($rejected->status)->toBe(OrderEditPermissionRequest::STATUS_REJECTED)
+        ->and($rejected->rejection_remark)->toBe('Correction is no longer required.')
+        ->and($ctx['order']->fresh()->status)->toBe(Order::STATUS_DISPATCHED)
+        ->and(Gate::forUser($ctx['admin'])->allows('correctDispatchedTransport', $ctx['order']->fresh()))->toBeFalse()
+        ->and(Gate::forUser($ctx['admin'])->allows('requestDispatchedEdit', $ctx['order']->fresh()))->toBeTrue();
 });

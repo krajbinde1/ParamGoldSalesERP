@@ -207,16 +207,30 @@ class OrderPolicy
 
     public function requestDispatchedEdit(User $user, Order $order): bool
     {
-        if (! $user->isAdminUser() || $user->isDirectorUser()) {
+        if (! $user->isAdminUser()) {
             return false;
         }
 
         return $order->canRequestDispatchedEditPermission();
     }
 
+    public function confirmDispatchedEdit(User $user, Order $order): bool
+    {
+        if (! $user->isAdminUser()) {
+            return false;
+        }
+
+        return $order->hasDirectorApprovedAwaitingAdmin();
+    }
+
+    public function rejectDispatchedEditPermission(User $user, Order $order): bool
+    {
+        return $this->confirmDispatchedEdit($user, $order);
+    }
+
     public function correctDispatchedTransport(User $user, Order $order): bool
     {
-        if (! $user->isAdminUser() || $user->isDirectorUser()) {
+        if (! $user->isAdminUser()) {
             return false;
         }
 

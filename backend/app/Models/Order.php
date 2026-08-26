@@ -355,6 +355,7 @@ class Order extends Model
             ->first(fn (OrderEditPermissionRequest $request): bool => in_array($request->status, [
                 OrderEditPermissionRequest::STATUS_PENDING,
                 OrderEditPermissionRequest::STATUS_APPROVED,
+                OrderEditPermissionRequest::STATUS_ADMIN_APPROVED,
             ], true));
     }
 
@@ -364,6 +365,14 @@ class Order extends Model
 
         return $this->editPermissionRequests
             ->first(fn (OrderEditPermissionRequest $request): bool => $request->isApprovedUnused());
+    }
+
+    public function directorApprovedAwaitingAdminRequest(): ?OrderEditPermissionRequest
+    {
+        $this->loadMissing('editPermissionRequests');
+
+        return $this->editPermissionRequests
+            ->first(fn (OrderEditPermissionRequest $request): bool => $request->isAwaitingAdminConfirmation());
     }
 
     public function canRequestDispatchedEditPermission(): bool
@@ -384,19 +393,49 @@ class Order extends Model
             return false;
         }
 
+        if ($this->relationLoaded('editPermissionRequests')) {
+            return $this->editPermissionRequests
+                ->contains(fn (OrderEditPermissionRequest $request): bool => $request->isApprovedUnused());
+        }
+
         return OrderEditPermissionRequest::query()
             ->where('order_id', $this->id)
             ->approvedUnused()
             ->exists();
     }
 
+    public function hasDirectorApprovedAwaitingAdmin(): bool
+    {
+        if (! $this->isDispatchedLocked()) {
+            return false;
+        }
+
+        if ($this->relationLoaded('editPermissionRequests')) {
+            return $this->editPermissionRequests
+                ->contains(fn (OrderEditPermissionRequest $request): bool => $request->isAwaitingAdminConfirmation());
+        }
+
+        return OrderEditPermissionRequest::query()
+            ->where('order_id', $this->id)
+            ->awaitingAdminConfirmation()
+            ->exists();
+    }
+
     public function hasPendingEditPermission(): bool
     {
-        return $this->isDispatchedLocked()
-            && OrderEditPermissionRequest::query()
-                ->where('order_id', $this->id)
-                ->pending()
-                ->exists();
+        if (! $this->isDispatchedLocked()) {
+            return false;
+        }
+
+        if ($this->relationLoaded('editPermissionRequests')) {
+            return $this->editPermissionRequests
+                ->contains(fn (OrderEditPermissionRequest $request): bool => $request->isPending());
+        }
+
+        return OrderEditPermissionRequest::query()
+            ->where('order_id', $this->id)
+            ->pending()
+            ->exists();
     }
 
     /**
@@ -407,6 +446,7 @@ class Order extends Model
         $this->loadMissing([
             'editPermissionRequests.requestedByUser:id,name',
             'editPermissionRequests.reviewedByUser:id,name',
+            'editPermissionRequests.adminReviewedByUser:id,name',
             'editPermissionRequests.editedByUser:id,name',
         ]);
 
