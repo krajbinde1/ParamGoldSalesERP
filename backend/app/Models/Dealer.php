@@ -155,4 +155,18 @@ class Dealer extends Model
     {
         return $this->hasMany(DealerTallyImport::class);
     }
+
+    public function hasImportedTallyLedger(): bool
+    {
+        if ($this->relationLoaded('tallyLedger')) {
+            return $this->tallyLedger !== null;
+        }
+
+        return $this->tallyLedger()->exists();
+    }
+
+    public function tallyLedgerImportStatusLabel(): string
+    {
+        return $this->hasImportedTallyLedger() ? 'Ledger Imported' : 'Not Imported';
+    }
 }

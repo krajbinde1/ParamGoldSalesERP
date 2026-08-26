@@ -82,7 +82,9 @@ class DealerResource extends Resource
             app(DealerAccessService::class)->scopeVisibleTo($query, $user);
         }
 
-        return app(DealerLedgerService::class)->scopeWithCurrentOutstanding($query);
+        return app(DealerLedgerService::class)
+            ->scopeWithCurrentOutstanding($query)
+            ->with('tallyLedger');
     }
 
     public static function getRecordRouteBindingEloquentQuery(): Builder

@@ -44,7 +44,7 @@ class ViewDealerLedger extends ViewRecord
                 ->label('Import Tally Ledger')
                 ->icon('heroicon-o-arrow-up-tray')
                 ->url(fn (): string => DealerResource::getUrl('import-tally-ledger', ['record' => $this->getRecord()]))
-                ->visible($canImport),
+                ->visible(fn (): bool => $canImport && ! $this->getRecord()->hasImportedTallyLedger()),
             Action::make('resetTallyLedger')
                 ->label('Reset Tally Ledger')
                 ->icon('heroicon-o-arrow-path')

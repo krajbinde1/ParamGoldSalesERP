@@ -68,6 +68,11 @@ class DealersTable
                     ->label('Credit Limit')
                     ->formatStateUsing(fn ($state): string => IndianCurrency::format((float) $state))
                     ->sortable(),
+                TextColumn::make('tally_ledger_status')
+                    ->label('Tally Ledger Status')
+                    ->badge()
+                    ->state(fn (Dealer $record): string => $record->tallyLedgerImportStatusLabel())
+                    ->color(fn (string $state): string => $state === 'Ledger Imported' ? 'success' : 'gray'),
                 TextColumn::make('current_outstanding')
                     ->label('Outstanding')
                     ->state(function (Dealer $record): float {
@@ -137,7 +142,9 @@ class DealersTable
                     ->label('Import Tally Ledger')
                     ->icon('heroicon-o-arrow-up-tray')
                     ->url(fn (Dealer $record): string => DealerResource::getUrl('import-tally-ledger', ['record' => $record]))
-                    ->visible(fn (): bool => (auth()->user()?->isAdminUser() ?? false) || (auth()->user()?->isDirectorUser() ?? false)),
+                    ->visible(fn (Dealer $record): bool => (
+                        (auth()->user()?->isAdminUser() ?? false) || (auth()->user()?->isDirectorUser() ?? false)
+                    ) && ! $record->hasImportedTallyLedger()),
                 EditAction::make()
                     ->authorize(fn (Dealer $record): bool => auth()->user()?->can('update', $record) ?? false),
             ])

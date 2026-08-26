@@ -74,53 +74,25 @@ it('aggregates dealer network counts by district and taluka without using erp op
         ->and($jalnaOnly['talukas_are_top_overall'])->toBeFalse();
 });
 
-it('filters the dealers table from the network overview district and taluka selection', function (): void {
+it('does not show dealer network overview sections on the dealers list', function (): void {
     $employee = ledgerEmployee(UserRole::Employee, '9811100203');
     $admin = tallyImportAdmin();
-    $jalnaPartur = ledgerDealer($employee, [
-        'firm_name' => 'Network Jalna Partur Dealer',
+    $dealer = ledgerDealer($employee, [
+        'firm_name' => 'Plain List Dealer',
         'state' => 'Maharashtra',
         'district' => 'Jalna',
         'taluka' => 'Partur',
         'village' => 'Ashti',
         'dealer_type' => 'Retailer',
     ]);
-    $jalnaAmbad = ledgerDealer($employee, [
-        'firm_name' => 'Network Jalna Ambad Dealer',
-        'state' => 'Maharashtra',
-        'district' => 'Jalna',
-        'taluka' => 'Ambad',
-        'village' => 'Ambad',
-        'dealer_type' => 'Retailer',
-    ]);
-    $beed = ledgerDealer($employee, [
-        'firm_name' => 'Network Beed Dealer',
-        'state' => 'Maharashtra',
-        'district' => 'Beed',
-        'taluka' => 'Georai',
-        'village' => 'Georai',
-        'dealer_type' => 'Retailer',
-    ]);
 
     Livewire::actingAs($admin)
         ->test(ListDealers::class)
         ->assertSuccessful()
-        ->assertSee('Dealer Network Overview')
-        ->assertSee('Total Dealers')
-        ->assertSee('District-wise Dealer Network')
-        ->assertCanSeeTableRecords([$jalnaPartur, $jalnaAmbad, $beed])
-        ->call('selectNetworkDistrict', 'Jalna')
-        ->assertSet('networkDistrict', 'Jalna')
-        ->assertCanSeeTableRecords([$jalnaPartur, $jalnaAmbad])
-        ->assertCanNotSeeTableRecords([$beed])
-        ->call('selectNetworkTaluka', 'Partur', 'Jalna')
-        ->assertSet('networkTaluka', 'Partur')
-        ->assertCanSeeTableRecords([$jalnaPartur])
-        ->assertCanNotSeeTableRecords([$jalnaAmbad, $beed])
-        ->call('resetNetworkFilters')
-        ->assertSet('networkDistrict', null)
-        ->assertSet('networkTaluka', null)
-        ->assertCanSeeTableRecords([$jalnaPartur, $jalnaAmbad, $beed]);
+        ->assertDontSee('Dealer Network Overview')
+        ->assertDontSee('Area Network')
+        ->assertDontSee('District-wise Dealer Network')
+        ->assertCanSeeTableRecords([$dealer]);
 });
 
 it('does not show a map toggle when dealers have no coordinates', function (): void {
@@ -137,7 +109,7 @@ it('does not show a map toggle when dealers have no coordinates', function (): v
     ]);
 
     Livewire::actingAs($admin)
-        ->test(ListDealers::class)
+        ->test(DealerNetwork::class)
         ->assertSuccessful()
         ->assertDontSee('Map View');
 });

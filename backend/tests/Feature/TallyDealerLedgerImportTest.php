@@ -2,6 +2,7 @@
 
 use App\Enums\UserRole;
 use App\Filament\Resources\Dealers\Pages\ImportTallyLedger;
+use App\Filament\Resources\Dealers\Pages\ListDealers;
 use App\Filament\Resources\Dealers\Pages\ListTallyLedgerImports;
 use App\Filament\Resources\Dealers\Pages\ViewDealerLedger;
 use App\Models\Dealer;
@@ -745,4 +746,50 @@ it('blocks confirm and import when parsed closing does not match tally', functio
 
     expect(fn () => app(TallyLedgerImportService::class)->import($path, (int) $dealer->id, tallyImportAdmin(), 'mismatch.xlsx'))
         ->toThrow(\Illuminate\Validation\ValidationException::class);
+});
+
+it('shows tally ledger status on the dealer list and updates it after import and reset', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100301');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Status Column Dealer']);
+    $admin = tallyImportAdmin();
+
+    expect($dealer->tallyLedgerImportStatusLabel())->toBe('Not Imported');
+
+    Livewire::actingAs($admin)
+        ->test(ListDealers::class)
+        ->assertSuccessful()
+        ->assertSee('Tally Ledger Status')
+        ->assertSee('Not Imported')
+        ->assertTableActionVisible('importTallyLedger', $dealer);
+
+    app(TallyLedgerImportService::class)->import(
+        tallyLedgerExcel(typicalTallyRows($dealer->firm_name)),
+        (int) $dealer->id,
+        $admin,
+        'status-column.xlsx',
+    );
+
+    $dealer->refresh()->unsetRelation('tallyLedger');
+
+    expect($dealer->tallyLedgerImportStatusLabel())->toBe('Ledger Imported');
+
+    Livewire::actingAs($admin)
+        ->test(ListDealers::class)
+        ->assertSuccessful()
+        ->assertSee('Ledger Imported')
+        ->assertDontSee('Not Imported')
+        ->assertTableActionHidden('importTallyLedger', $dealer);
+
+    app(TallyLedgerImportService::class)->resetForDealer($dealer);
+
+    $dealer->refresh()->unsetRelation('tallyLedger');
+
+    expect($dealer->tallyLedgerImportStatusLabel())->toBe('Not Imported');
+
+    Livewire::actingAs($admin)
+        ->test(ListDealers::class)
+        ->assertSuccessful()
+        ->assertSee('Not Imported')
+        ->assertDontSee('Ledger Imported')
+        ->assertTableActionVisible('importTallyLedger', $dealer);
 });
