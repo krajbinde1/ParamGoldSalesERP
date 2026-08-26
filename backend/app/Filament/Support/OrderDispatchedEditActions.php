@@ -23,8 +23,16 @@ final class OrderDispatchedEditActions
             return $injected ?? $pageRecord;
         };
 
+        $bindRecord = function (Action $action) use ($pageRecord): Action {
+            if ($pageRecord !== null) {
+                $action->record($pageRecord);
+            }
+
+            return $action;
+        };
+
         return [
-            Action::make('requestEditPermission')
+            $bindRecord(Action::make('requestEditPermission')
                 ->label('Request Edit Permission')
                 ->icon('heroicon-o-lock-open')
                 ->color('warning')
@@ -73,8 +81,8 @@ final class OrderDispatchedEditActions
                     if ($after) {
                         $after($order->fresh() ?? $order);
                     }
-                }),
-            Action::make('correctDispatchedTransport')
+                })),
+            $bindRecord(Action::make('correctDispatchedTransport')
                 ->label('Correct Transport Details')
                 ->icon('heroicon-o-pencil-square')
                 ->color('primary')
@@ -85,21 +93,28 @@ final class OrderDispatchedEditActions
                 ->modalSubmitActionLabel('Save Correction')
                 ->fillForm(function (?Order $record = null) use ($resolve): array {
                     $order = $resolve($record);
-                    if ($order === null) {
-                        return [];
-                    }
 
-                    try {
-                        return CorrectDispatchedTransportForm::fillFromOrder($order);
-                    } catch (\Throwable) {
-                        return [];
-                    }
+                    return $order !== null
+                        ? CorrectDispatchedTransportForm::fillFromOrder($order)
+                        : [];
                 })
-                ->form(fn (?Order $record = null): array => ($order = $resolve($record)) !== null
-                    ? CorrectDispatchedTransportForm::schema($order)
-                    : [])
+                ->form(function (?Order $record = null) use ($resolve): array {
+                    $order = $resolve($record);
+
+                    return $order !== null
+                        ? CorrectDispatchedTransportForm::schema($order)
+                        : [];
+                })
                 ->action(function (?Order $record, array $data) use ($after, $resolve): void {
                     $order = $resolve($record);
+                    if ($order === null) {
+                        Notification::make()
+                            ->title('Unable to load this dispatched order for correction.')
+                            ->danger()
+                            ->send();
+
+                        return;
+                    }
                     try {
                         app(ApplyDispatchedOrderTransportCorrection::class)->execute(
                             order: $order,
@@ -132,7 +147,7 @@ final class OrderDispatchedEditActions
                     if ($after) {
                         $after($order->fresh() ?? $order);
                     }
-                }),
+                })),
         ];
     }
 }

@@ -376,6 +376,98 @@ it('loads admin orders after director approval and shows the one-time correction
         ->assertActionHidden('requestEditPermission');
 });
 
+it('opens the correct transport details form after director approval without crashing', function () {
+    $ctx = dispatchedOrderReadyForEdit();
+    $request = app(RequestOrderEditPermission::class)->execute(
+        order: $ctx['order'],
+        actor: $ctx['admin'],
+        reason: 'Vehicle number entered incorrectly by Production Manager.',
+    )['request'];
+
+    app(ApproveOrderEditPermission::class)->execute($request->fresh(), $ctx['director']);
+
+    $order = $ctx['order']->fresh();
+    $otherVehicle = Vehicle::query()->create([
+        'vehicle_number' => 'MH14CT'.random_int(1000, 9999),
+        'vehicle_name' => 'Eicher',
+        'is_active' => true,
+        'created_by' => $ctx['admin']->id,
+    ]);
+
+    Livewire::actingAs($ctx['admin'])
+        ->test(ListOrders::class)
+        ->set('activeTab', 'dispatched')
+        ->assertSuccessful()
+        ->mountTableAction('correctDispatchedTransport', $order)
+        ->assertSuccessful()
+        ->assertTableActionDataSet([
+            'vehicle_id' => $order->vehicle_id,
+            'transport_charge_type' => $order->transport_charge_type,
+        ])
+        ->setTableActionData([
+            'vehicle_id' => $otherVehicle->id,
+            'transport_charge_type' => 'company_transport',
+            'transport_freight' => 40,
+        ])
+        ->callMountedTableAction()
+        ->assertHasNoActionErrors()
+        ->assertNotified();
+
+    $fresh = $order->fresh();
+    expect($fresh->status)->toBe(Order::STATUS_DISPATCHED)
+        ->and($fresh->vehicle_id)->toBe($otherVehicle->id)
+        ->and($fresh->vehicle_number)->toBe($otherVehicle->vehicle_number)
+        ->and($fresh->transport_charge_type)->toBe('company_transport')
+        ->and((float) $fresh->transport_amount)->toBe(40.0)
+        ->and($request->fresh()->status)->toBe(OrderEditPermissionRequest::STATUS_USED)
+        ->and(Gate::forUser($ctx['admin'])->allows('correctDispatchedTransport', $fresh))->toBeFalse();
+});
+
+it('opens the correction form from the order view and for legacy transport fields', function () {
+    $ctx = dispatchedOrderReadyForEdit();
+    $order = $ctx['order'];
+    $order->forceFill([
+        'vehicle_id' => null,
+        'vehicle_number' => null,
+        'transport_charge_type' => 'outside_transport',
+        'transport_amount' => null,
+    ])->saveQuietly();
+
+    $request = app(RequestOrderEditPermission::class)->execute(
+        order: $order->fresh(),
+        actor: $ctx['admin'],
+        reason: 'Legacy dispatched order is missing vehicle and transport charges.',
+    )['request'];
+
+    app(ApproveOrderEditPermission::class)->execute($request->fresh(), $ctx['director']);
+
+    $freshOrder = $order->fresh();
+
+    Livewire::actingAs($ctx['admin'])
+        ->test(ListOrders::class)
+        ->set('activeTab', 'dispatched')
+        ->assertSuccessful()
+        ->mountTableAction('correctDispatchedTransport', $freshOrder)
+        ->assertSuccessful()
+        ->assertTableActionDataSet([
+            'vehicle_id' => null,
+            'transport_charge_type' => 'transport_extra',
+            'transport_freight' => null,
+        ]);
+
+    Livewire::actingAs($ctx['admin'])
+        ->test(ViewOrder::class, ['record' => $freshOrder->getRouteKey()])
+        ->assertSuccessful()
+        ->assertActionVisible('correctDispatchedTransport')
+        ->mountAction('correctDispatchedTransport')
+        ->assertSuccessful()
+        ->assertActionDataSet([
+            'vehicle_id' => null,
+            'transport_charge_type' => 'transport_extra',
+            'transport_freight' => null,
+        ]);
+});
+
 it('unlocks existing director-approved requests for a one-time correction', function () {
     $ctx = dispatchedOrderReadyForEdit();
     $request = app(RequestOrderEditPermission::class)->execute(

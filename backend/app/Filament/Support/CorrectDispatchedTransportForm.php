@@ -50,16 +50,20 @@ final class CorrectDispatchedTransportForm
                 ->live(debounce: 300),
             Placeholder::make('transport_preview')
                 ->hiddenLabel()
-                ->content(function ($get = null) use ($order): HtmlString {
-                    if (! $get instanceof Get) {
-                        return new HtmlString('');
+                ->content(function (...$args) use ($order): HtmlString {
+                    foreach ($args as $arg) {
+                        if (! $arg instanceof Get) {
+                            continue;
+                        }
+
+                        try {
+                            return SendForBillForm::renderPreview($order, $arg);
+                        } catch (\Throwable) {
+                            return new HtmlString('');
+                        }
                     }
 
-                    try {
-                        return SendForBillForm::renderPreview($order, $get);
-                    } catch (\Throwable) {
-                        return new HtmlString('');
-                    }
+                    return new HtmlString('');
                 }),
         ];
     }
@@ -69,16 +73,19 @@ final class CorrectDispatchedTransportForm
      */
     public static function fillFromOrder(Order $order): array
     {
+        $vehicleId = self::resolveCurrentVehicleId($order);
         $chargeType = TransportChargeType::tryNormalize(
             filled($order->transport_charge_type) ? (string) $order->transport_charge_type : null
+        ) ?? TransportChargeType::tryNormalize(
+            filled($order->transport_type) ? (string) $order->transport_type : null
         );
 
+        $freight = $order->transport_amount;
+
         return [
-            'vehicle_id' => $order->vehicle_id,
+            'vehicle_id' => $vehicleId,
             'transport_charge_type' => $chargeType?->value,
-            'transport_freight' => $order->transport_amount !== null
-                ? round((float) $order->transport_amount, 2)
-                : null,
+            'transport_freight' => is_numeric($freight) ? round((float) $freight, 2) : null,
         ];
     }
 
@@ -87,11 +94,19 @@ final class CorrectDispatchedTransportForm
      */
     private static function vehicleOptions(Order $order, ?string $search = null): array
     {
+        $currentId = self::resolveCurrentVehicleId($order);
+        $currentNumber = filled($order->vehicle_number)
+            ? Vehicle::normalizeVehicleNumber((string) $order->vehicle_number)
+            : null;
+
         return Vehicle::query()
-            ->where(function ($query) use ($order): void {
+            ->where(function ($query) use ($currentId, $currentNumber): void {
                 $query->where('is_active', true);
-                if ($order->vehicle_id) {
-                    $query->orWhereKey($order->vehicle_id);
+                if ($currentId !== null) {
+                    $query->orWhere('vehicles.id', $currentId);
+                }
+                if (filled($currentNumber)) {
+                    $query->orWhere('vehicle_number', $currentNumber);
                 }
             })
             ->when(
@@ -110,5 +125,22 @@ final class CorrectDispatchedTransportForm
                 $vehicle->id => $vehicle->displayLabel(),
             ])
             ->all();
+    }
+
+    private static function resolveCurrentVehicleId(Order $order): ?int
+    {
+        if (filled($order->vehicle_id) && (int) $order->vehicle_id > 0) {
+            return (int) $order->vehicle_id;
+        }
+
+        if (! filled($order->vehicle_number)) {
+            return null;
+        }
+
+        $matchedId = Vehicle::query()
+            ->where('vehicle_number', Vehicle::normalizeVehicleNumber((string) $order->vehicle_number))
+            ->value('id');
+
+        return filled($matchedId) ? (int) $matchedId : null;
     }
 }
