@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\Manager;
 
+use App\Actions\CreditNotes\CreateCreditNote;
 use App\Actions\CreditNotes\RejectCreditNoteWithRemarks;
 use App\Actions\CreditNotes\UpdatePendingCreditNote;
 use App\Http\Controllers\Controller;
@@ -21,6 +22,7 @@ class ManagerCreditNoteController extends Controller
         private readonly DealerAccessService $dealerAccess,
         private readonly CreditNoteDetailPresenter $presenter,
         private readonly CreditNotePayloadValidator $validator,
+        private readonly CreateCreditNote $createCreditNote,
         private readonly UpdatePendingCreditNote $updatePendingCreditNote,
     ) {}
 
@@ -109,11 +111,44 @@ class ManagerCreditNoteController extends Controller
         ]);
     }
 
+    public function store(Request $request): JsonResponse
+    {
+        $this->authorize('create', CreditNote::class);
+
+        $validated = $this->validator->validate($request, [CreditNote::TYPE_RATE_DIFFERENCE]);
+        $dealer = $this->dealerAccess->resolveAccessibleActiveDealer(
+            $request->user(),
+            (int) $validated['dealer_id'],
+        );
+
+        if ($dealer === null) {
+            throw ValidationException::withMessages([
+                'dealer_id' => 'Selected dealer is not available.',
+            ]);
+        }
+
+        $creditNote = $this->createCreditNote->execute(
+            employeeUser: $request->user(),
+            dealer: $dealer,
+            payload: $validated,
+            document: $request->file('supporting_document'),
+        );
+
+        return response()->json([
+            'message' => 'Credit Note submitted successfully.',
+            'credit_note_id' => $creditNote->id,
+            'credit_note_no' => $creditNote->credit_note_no,
+            'status' => $creditNote->status,
+            'amount' => (float) $creditNote->amount,
+            'data' => $this->presenter->present($creditNote),
+        ], 201);
+    }
+
     public function update(Request $request, CreditNote $creditNote): JsonResponse
     {
         $this->authorize('update', $creditNote);
 
-        $validated = $this->validator->validate($request);
+        $validated = $this->validator->validate($request, [$creditNote->type]);
         $dealer = $this->dealerAccess->resolveAccessibleActiveDealer(
             $request->user(),
             (int) $validated['dealer_id'],

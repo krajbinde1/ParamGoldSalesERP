@@ -41,7 +41,10 @@ class CreditNotePolicy
             return false;
         }
 
-        return $user->hasRole(UserRole::Employee);
+        return $user->hasAnyRole([
+            UserRole::Employee,
+            UserRole::Manager,
+        ]);
     }
 
     public function update(User $user, CreditNote $creditNote): bool

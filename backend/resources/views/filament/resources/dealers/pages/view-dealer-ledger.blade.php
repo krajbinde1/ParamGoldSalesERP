@@ -84,6 +84,17 @@
             font-variant-numeric: tabular-nums;
             white-space: nowrap;
         }
+        .pg-dealer-ledger-table tr.is-total td {
+            border-top: 2px solid #CBD5E1;
+            background: #F8FAFC;
+            font-weight: 700;
+            color: #0F172A;
+        }
+        .pg-dealer-ledger-table tr.is-closing td {
+            background: #FFFFFF;
+            font-weight: 700;
+            color: #0F172A;
+        }
         .pg-dealer-ledger-table tr:last-child td { border-bottom: 0; }
         .pg-dealer-ledger-empty {
             padding: 1.5rem;
@@ -145,6 +156,13 @@
                 </tr>
             </thead>
             <tbody>
+                @php
+                    $footerDebit = round((float) collect($ledger)->sum('debit'), 2);
+                    $footerCredit = round((float) collect($ledger)->sum('credit'), 2);
+                    $closingSigned = (float) $summary['current_outstanding_signed'];
+                    $closingIsDebit = $closingSigned >= 0;
+                    $closingLabel = IndianCurrency::formatDrCr($closingSigned);
+                @endphp
                 @forelse ($ledger as $entry)
                     <tr>
                         <td>{{ $entry['date'] ? \Illuminate\Support\Carbon::parse($entry['date'])->format('d M Y') : '—' }}</td>
@@ -160,6 +178,26 @@
                         <td colspan="7" class="pg-dealer-ledger-empty">No Tally ledger entries yet.</td>
                     </tr>
                 @endforelse
+                @if ($ledger !== [])
+                    <tr class="is-total">
+                        <td></td>
+                        <td>Total</td>
+                        <td></td>
+                        <td></td>
+                        <td class="num">{{ IndianCurrency::formatExact($footerDebit) }}</td>
+                        <td class="num">{{ IndianCurrency::formatExact($footerCredit) }}</td>
+                        <td class="num"></td>
+                    </tr>
+                    <tr class="is-closing">
+                        <td></td>
+                        <td>Closing Balance</td>
+                        <td></td>
+                        <td></td>
+                        <td class="num">{{ $closingIsDebit ? $closingLabel : '—' }}</td>
+                        <td class="num">{{ ! $closingIsDebit ? $closingLabel : '—' }}</td>
+                        <td class="num"></td>
+                    </tr>
+                @endif
             </tbody>
         </table>
     </div>

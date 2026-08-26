@@ -25,7 +25,14 @@ final class TallyLedgerImportService
      */
     public function preview(string $path, ?Dealer $dealer = null): array
     {
-        $parsed = $this->parser->parse($path);
+        return $this->previewParsed($this->parser->parse($path), $dealer);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function previewParsed(TallyLedgerParseResult $parsed, ?Dealer $dealer = null): array
+    {
         $matched = $parsed->tallyClosingMatches();
         $importErrors = $parsed->importErrors();
 

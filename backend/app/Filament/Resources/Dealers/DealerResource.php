@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Dealers;
 
 use App\Filament\Concerns\DeniesOrdersOnlyFilamentUsers;
+use App\Filament\Resources\Dealers\Pages\BulkImportTallyLedger;
 use App\Filament\Resources\Dealers\Pages\CreateDealer;
 use App\Filament\Resources\Dealers\Pages\EditDealer;
 use App\Filament\Resources\Dealers\Pages\ImportTallyLedger;
@@ -66,6 +67,7 @@ class DealerResource extends Resource
             'index' => ListDealers::route('/'),
             'create' => CreateDealer::route('/create'),
             'import-tally-ledger' => ImportTallyLedger::route('/{record}/import-tally-ledger'),
+            'bulk-import-tally-ledger' => BulkImportTallyLedger::route('/bulk-import-tally-ledger'),
             'tally-import-history' => ListTallyLedgerImports::route('/tally-import-history'),
             'view' => ViewDealer::route('/{record}'),
             'ledger' => ViewDealerLedger::route('/{record}/ledger'),

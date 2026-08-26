@@ -9,6 +9,7 @@ use App\Models\CreditNote;
 use App\Services\Dealers\DealerAccessService;
 use App\Support\CreditNotes\CreditNoteDetailPresenter;
 use App\Support\CreditNotes\CreditNotePayloadValidator;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -75,7 +76,7 @@ class EmployeeCreditNoteController extends Controller
     {
         $this->authorize('create', CreditNote::class);
 
-        $validated = $this->validator->validate($request);
+        $validated = $this->validator->validate($request, [CreditNote::TYPE_SALES_RETURN]);
         $dealer = $this->resolveDealer($request, (int) $validated['dealer_id']);
 
         $creditNote = $this->createCreditNote->execute(
@@ -108,7 +109,7 @@ class EmployeeCreditNoteController extends Controller
     {
         $this->authorize('update', $creditNote);
 
-        $validated = $this->validator->validate($request);
+        $validated = $this->validator->validate($request, [$creditNote->type]);
         $dealer = $this->resolveDealer($request, (int) $validated['dealer_id']);
 
         $creditNote = $this->updatePendingCreditNote->execute(
@@ -144,8 +145,8 @@ class EmployeeCreditNoteController extends Controller
     }
 
     /**
-     * @param  \Illuminate\Database\Eloquent\Builder<CreditNote>  $query
-     * @return \Illuminate\Database\Eloquent\Builder<CreditNote>
+     * @param  Builder<CreditNote>  $query
+     * @return Builder<CreditNote>
      */
     private function applyFilter($query, string $filter)
     {

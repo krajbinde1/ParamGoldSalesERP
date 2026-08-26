@@ -16,6 +16,7 @@ use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Services\TallyLedger\TallyLedgerExcelParser;
 use App\Services\TallyLedger\TallyLedgerImportService;
 use App\Support\IndianCurrency;
+use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
 use PhpOffice\PhpSpreadsheet\Spreadsheet;
@@ -317,6 +318,10 @@ it('shows the tally ledger on the dealer ledger page instead of billed orders', 
         ->assertSuccessful()
         ->assertSee('₹65,000.00 Dr')
         ->assertSee('₹50,000.00 Dr')
+        ->assertSee('Total')
+        ->assertSee('₹75,000.00')
+        ->assertSee('₹10,000.00')
+        ->assertSee('Closing Balance')
         ->assertDontSee('Sales Invoice / Order Bill');
 });
 
@@ -745,7 +750,7 @@ it('blocks confirm and import when parsed closing does not match tally', functio
         ->and($preview['parse_errors'])->not->toBeEmpty();
 
     expect(fn () => app(TallyLedgerImportService::class)->import($path, (int) $dealer->id, tallyImportAdmin(), 'mismatch.xlsx'))
-        ->toThrow(\Illuminate\Validation\ValidationException::class);
+        ->toThrow(ValidationException::class);
 });
 
 it('shows tally ledger status on the dealer list and updates it after import and reset', function (): void {

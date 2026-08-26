@@ -28,6 +28,10 @@ final class ManagerCreditNoteAccessService
     public function scopeToManagerTeam(Builder $query, User $manager): Builder
     {
         $employeeIds = $this->directReportEmployeeIds($manager);
+        if ($manager->employee_id !== null) {
+            $employeeIds[] = (int) $manager->employee_id;
+        }
+        $employeeIds = array_values(array_unique($employeeIds));
 
         if ($employeeIds === []) {
             return $query->whereRaw('1 = 0');
@@ -48,6 +52,10 @@ final class ManagerCreditNoteAccessService
 
         if ($salesEmployee === null) {
             return false;
+        }
+
+        if ((int) $creditNote->sales_employee_id === (int) $manager->employee_id) {
+            return true;
         }
 
         return (int) $salesEmployee->reporting_manager_id === (int) $manager->employee_id;

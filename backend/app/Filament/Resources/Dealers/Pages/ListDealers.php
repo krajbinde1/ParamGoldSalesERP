@@ -19,6 +19,10 @@ class ListDealers extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
+            Action::make('bulkImportTallyLedger')
+                ->label('Bulk Tally Ledger Import')
+                ->url(DealerResource::getUrl('bulk-import-tally-ledger'))
+                ->visible(fn (): bool => (auth()->user()?->isAdminUser() ?? false) || (auth()->user()?->isDirectorUser() ?? false)),
             Action::make('tallyImportHistory')
                 ->label('Tally Import History')
                 ->url(DealerResource::getUrl('tally-import-history'))

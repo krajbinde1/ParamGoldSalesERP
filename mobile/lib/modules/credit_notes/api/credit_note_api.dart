@@ -175,6 +175,43 @@ class ManagerCreditNoteApi {
     }
   }
 
+  Future<CreditNoteDetail> submit({
+    required String type,
+    required int dealerId,
+    required String billReference,
+    required DateTime creditNoteDate,
+    required List<Map<String, dynamic>> items,
+    String? remarks,
+    String? documentPath,
+  }) async {
+    try {
+      final formData = FormData.fromMap({
+        'type': type,
+        'dealer_id': dealerId,
+        'bill_reference': billReference,
+        'credit_note_date':
+            '${creditNoteDate.year.toString().padLeft(4, '0')}-'
+            '${creditNoteDate.month.toString().padLeft(2, '0')}-'
+            '${creditNoteDate.day.toString().padLeft(2, '0')}',
+        'items': jsonEncode(items),
+        if (remarks != null && remarks.trim().isNotEmpty)
+          'remarks': remarks.trim(),
+        if (documentPath != null && documentPath.isNotEmpty)
+          'supporting_document': await MultipartFile.fromFile(
+            documentPath,
+            filename: File(documentPath).uri.pathSegments.last,
+          ),
+      });
+      final response = await _dio.post('/manager/credit-notes', data: formData);
+      final body = Map<String, dynamic>.from(response.data as Map);
+      return CreditNoteDetail.fromJson(
+        Map<String, dynamic>.from(body['data'] as Map),
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
   Future<CreditNoteDetail> update({
     required int id,
     required String type,

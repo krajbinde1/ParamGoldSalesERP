@@ -78,11 +78,26 @@ final class TallyLedgerExcelParser
             ]);
         }
 
+        return $this->parseSheetRows($sheetRows, $worksheetName, $header);
+    }
+
+    /**
+     * @param  list<array<int, mixed>>  $sheetRows
+     * @param  array{index: int, map: array<string, int>, span: int, normalized: list<string>}  $header
+     */
+    private function parseSheetRows(
+        array $sheetRows,
+        string $worksheetName,
+        array $header,
+        int $preambleStart = 0,
+        ?int $endExclusive = null,
+    ): TallyLedgerParseResult {
         $headerRowIndex = $header['index'];
         $columnMap = $header['map'];
         $headerSpan = $header['span'];
+        $endExclusive ??= count($sheetRows);
 
-        $tallyLedgerName = $this->extractLedgerName($sheetRows, $headerRowIndex);
+        $tallyLedgerName = $this->extractLedgerName($sheetRows, $headerRowIndex, $preambleStart);
         $openingBalance = 0.0;
         $openingType = DealerTallyBalance::DEBIT;
         $openingExplicit = false;
@@ -95,14 +110,14 @@ final class TallyLedgerExcelParser
         $skippedBeforeStart = 0;
         $startDate = TallyLedgerConfig::FINANCIAL_START_DATE;
 
-        $preHeaderOpening = $this->extractOpeningFromPreamble($sheetRows, $headerRowIndex);
+        $preHeaderOpening = $this->extractOpeningFromPreamble($sheetRows, $headerRowIndex, $preambleStart);
         if ($preHeaderOpening !== null) {
             $openingBalance = $preHeaderOpening['amount'];
             $openingType = $preHeaderOpening['type'];
             $openingExplicit = true;
         }
 
-        for ($index = $headerRowIndex + $headerSpan; $index < count($sheetRows); $index++) {
+        for ($index = $headerRowIndex + $headerSpan; $index < $endExclusive; $index++) {
             $row = $sheetRows[$index];
             if (! is_array($row) || $this->isBlankRow($row)) {
                 continue;
@@ -115,7 +130,7 @@ final class TallyLedgerExcelParser
             $voucherNo = $this->cellString($row, $this->shiftedIndex($columnMap['voucher_no'] ?? null, $columnShift));
             $debit = $this->parseAmount($this->cellValue($row, $this->shiftedIndex($columnMap['debit'] ?? null, $columnShift)));
             $credit = $this->parseAmount($this->cellValue($row, $this->shiftedIndex($columnMap['credit'] ?? null, $columnShift)));
-            $nextRow = $sheetRows[$index + 1] ?? null;
+            $nextRow = ($index + 1) < $endExclusive ? ($sheetRows[$index + 1] ?? null) : null;
             $particulars = $this->resolveParticulars(
                 $row,
                 $columnMap,
@@ -250,6 +265,58 @@ final class TallyLedgerExcelParser
     }
 
     /**
+     * Parse every dealer ledger found in the workbook (all sheets, stacked ledgers).
+     *
+     * @return list<TallyLedgerParseResult>
+     */
+    public function parseAll(string $path): array
+    {
+        $sheets = $this->loadAllSheets($path);
+        if ($sheets === []) {
+            throw ValidationException::withMessages([
+                'file' => 'The Tally Excel file is empty.',
+            ]);
+        }
+
+        $parsed = [];
+        foreach ($sheets as $sheet) {
+            $headers = $this->findAllHeaderRows($sheet['rows']);
+            if ($headers === []) {
+                continue;
+            }
+
+            foreach ($headers as $index => $header) {
+                $preambleStart = $index === 0
+                    ? 0
+                    : $this->preambleStartBefore($sheet['rows'], $header['index']);
+                $endExclusive = isset($headers[$index + 1])
+                    ? $this->preambleStartBefore($sheet['rows'], $headers[$index + 1]['index'])
+                    : count($sheet['rows']);
+                $result = $this->parseSheetRows(
+                    $sheet['rows'],
+                    $sheet['worksheet'],
+                    $header,
+                    $preambleStart,
+                    $endExclusive,
+                );
+                if ($this->isEmptyLedgerResult($result)) {
+                    continue;
+                }
+
+                $parsed[] = $result;
+            }
+        }
+
+        if ($parsed === []) {
+            throw ValidationException::withMessages([
+                'file' => 'Could not find a transaction table header. Expected columns such as Date, Particulars, Vch Type, Vch No., Debit, and Credit.',
+            ]);
+        }
+
+        return $parsed;
+    }
+
+    /**
      * @return array{rows: list<array<int, mixed>>, worksheet: string}
      */
     private function loadBestSheet(string $path): array
@@ -297,6 +364,128 @@ final class TallyLedgerExcelParser
             'rows' => $best['rows'] ?? [],
             'worksheet' => $best['worksheet'] ?? 'Sheet1',
         ];
+    }
+
+    /**
+     * @return list<array{rows: list<array<int, mixed>>, worksheet: string}>
+     */
+    private function loadAllSheets(string $path): array
+    {
+        try {
+            $spreadsheet = IOFactory::load($path);
+        } catch (\Throwable $e) {
+            Log::debug('tally_ledger_excel_load_failed', [
+                'message' => $e->getMessage(),
+            ]);
+
+            throw ValidationException::withMessages([
+                'file' => 'Could not find a transaction table header. Expected columns such as Date, Particulars, Vch Type, Vch No., Debit, and Credit.',
+            ]);
+        }
+
+        $sheets = [];
+
+        try {
+            foreach ($spreadsheet->getAllSheets() as $sheet) {
+                $this->expandMergedCells($sheet);
+                $rows = $this->worksheetToRows($sheet);
+                if ($rows === []) {
+                    continue;
+                }
+
+                $sheets[] = [
+                    'rows' => $rows,
+                    'worksheet' => $sheet->getTitle(),
+                ];
+            }
+        } finally {
+            $spreadsheet->disconnectWorksheets();
+            unset($spreadsheet);
+        }
+
+        return $sheets;
+    }
+
+    /**
+     * @param  list<array<int, mixed>>  $sheetRows
+     * @return list<array{index: int, map: array<string, int>, span: int, normalized: list<string>}>
+     */
+    private function findAllHeaderRows(array $sheetRows): array
+    {
+        $headers = [];
+        $limit = count($sheetRows);
+
+        for ($index = 0; $index < $limit; $index++) {
+            $row = $sheetRows[$index] ?? [];
+            if (! is_array($row)) {
+                continue;
+            }
+
+            $single = $this->mapColumns($row);
+            if ($this->isValidHeaderMap($single)) {
+                $headers[] = [
+                    'index' => $index,
+                    'map' => $single,
+                    'span' => 1,
+                    'normalized' => $this->normalizedCells($row),
+                ];
+
+                continue;
+            }
+
+            if ($index + 1 >= $limit) {
+                continue;
+            }
+
+            $next = $sheetRows[$index + 1] ?? [];
+            if (! is_array($next)) {
+                continue;
+            }
+
+            $combined = $this->combineHeaderRows($row, $next);
+            $mapped = $this->mapColumns($combined);
+            if ($this->isValidHeaderMap($mapped)) {
+                $headers[] = [
+                    'index' => $index,
+                    'map' => $mapped,
+                    'span' => 2,
+                    'normalized' => $this->normalizedCells($combined),
+                ];
+                $index++;
+            }
+        }
+
+        return $headers;
+    }
+
+    /**
+     * @param  list<array<int, mixed>>  $sheetRows
+     */
+    private function preambleStartBefore(array $sheetRows, int $headerIndex): int
+    {
+        for ($index = $headerIndex - 1; $index >= 0; $index--) {
+            $row = $sheetRows[$index] ?? [];
+            if (! is_array($row) || $this->isBlankRow($row)) {
+                continue;
+            }
+
+            $particulars = $this->cellText($row[1] ?? $row[0] ?? null);
+            $kind = $this->classifyRow($row, $particulars, $row[0] ?? null, 0.0, 0.0);
+            if ($kind === 'closing' || $kind === 'total') {
+                return $index + 1;
+            }
+        }
+
+        return 0;
+    }
+
+    private function isEmptyLedgerResult(TallyLedgerParseResult $parsed): bool
+    {
+        return $parsed->tallyLedgerName === ''
+            && $parsed->transactions === []
+            && $parsed->failed === []
+            && ! $parsed->openingBalanceExplicit
+            && $parsed->tallyClosingBalance === null;
     }
 
     private function expandMergedCells(Worksheet $sheet): void
@@ -588,12 +777,13 @@ final class TallyLedgerExcelParser
     /**
      * @param  list<array<int, mixed>>  $sheetRows
      */
-    private function extractLedgerName(array $sheetRows, int $headerRowIndex): string
+    private function extractLedgerName(array $sheetRows, int $headerRowIndex, int $fromIndex = 0): string
     {
         $candidates = [];
         $companyName = null;
+        $fromIndex = max(0, $fromIndex);
 
-        for ($index = 0; $index < $headerRowIndex; $index++) {
+        for ($index = $fromIndex; $index < $headerRowIndex; $index++) {
             $row = $sheetRows[$index] ?? [];
             if (! is_array($row) || $this->isBlankRow($row)) {
                 continue;
@@ -669,9 +859,11 @@ final class TallyLedgerExcelParser
      * @param  list<array<int, mixed>>  $sheetRows
      * @return array{amount: float, type: string}|null
      */
-    private function extractOpeningFromPreamble(array $sheetRows, int $headerRowIndex): ?array
+    private function extractOpeningFromPreamble(array $sheetRows, int $headerRowIndex, int $fromIndex = 0): ?array
     {
-        for ($index = 0; $index < $headerRowIndex; $index++) {
+        $fromIndex = max(0, $fromIndex);
+
+        for ($index = $fromIndex; $index < $headerRowIndex; $index++) {
             $row = $sheetRows[$index] ?? [];
             if (! is_array($row) || $this->isBlankRow($row)) {
                 continue;

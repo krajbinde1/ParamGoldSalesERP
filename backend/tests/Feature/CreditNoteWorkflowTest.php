@@ -6,15 +6,17 @@ use App\Actions\Employees\CreateEmployeeWithUserAccount;
 use App\Enums\UserRole;
 use App\Models\CreditNote;
 use App\Models\Dealer;
+use App\Models\Employee;
 use App\Models\Product;
 use App\Models\User;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 
 uses(RefreshDatabase::class);
 
-function creditNoteEmployee(UserRole $role, string $mobile): \App\Models\Employee
+function creditNoteEmployee(UserRole $role, string $mobile): Employee
 {
     return app(CreateEmployeeWithUserAccount::class)->execute([
         'full_name' => $role->label().' User '.$mobile,
@@ -39,7 +41,7 @@ function creditNoteEmployee(UserRole $role, string $mobile): \App\Models\Employe
     ])->employee;
 }
 
-function creditNoteDealer(\App\Models\Employee $employee): Dealer
+function creditNoteDealer(Employee $employee): Dealer
 {
     return Dealer::query()->create([
         'firm_name' => 'Credit Note Dealer '.$employee->id,
@@ -99,6 +101,25 @@ function salesReturnPayload(Dealer $dealer, Product $product, array $overrides =
     ], $overrides);
 }
 
+function rateDifferencePayload(Dealer $dealer, Product $product, array $overrides = []): array
+{
+    return array_merge([
+        'type' => CreditNote::TYPE_RATE_DIFFERENCE,
+        'dealer_id' => $dealer->id,
+        'bill_reference' => 'INV-2002',
+        'credit_note_date' => now('Asia/Kolkata')->toDateString(),
+        'items' => [
+            [
+                'product_id' => $product->id,
+                'quantity' => 10,
+                'original_rate' => 150,
+                'revised_rate' => 140,
+                'reason' => 'Rate correction',
+            ],
+        ],
+    ], $overrides);
+}
+
 it('lets a sales employee create a sales return credit note with calculated amount', function () {
     $employee = creditNoteEmployee(UserRole::Employee, '9300000001');
     $dealer = creditNoteDealer($employee);
@@ -118,29 +139,77 @@ it('lets a sales employee create a sales return credit note with calculated amou
         ->and((float) $note->items->first()->amount)->toBe(300.0);
 });
 
-it('calculates rate difference amount from original and revised rates', function () {
+it('blocks a sales employee from creating a rate difference credit note', function () {
     $employee = creditNoteEmployee(UserRole::Employee, '9300000002');
     $dealer = creditNoteDealer($employee);
     $product = creditNoteProduct();
 
     $this->actingAs($employee->user, 'sanctum')
-        ->postJson('/api/employee/credit-notes', [
-            'type' => CreditNote::TYPE_RATE_DIFFERENCE,
-            'dealer_id' => $dealer->id,
-            'bill_reference' => 'INV-2002',
-            'credit_note_date' => now('Asia/Kolkata')->toDateString(),
-            'items' => [
-                [
-                    'product_id' => $product->id,
-                    'quantity' => 10,
-                    'original_rate' => 150,
-                    'revised_rate' => 140,
-                    'reason' => 'Rate correction',
-                ],
-            ],
-        ])
+        ->postJson('/api/employee/credit-notes', rateDifferencePayload($dealer, $product))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['type']);
+
+    expect(CreditNote::query()->count())->toBe(0);
+});
+
+it('lets a manager create a rate difference credit note with calculated amount', function () {
+    $manager = creditNoteEmployee(UserRole::Manager, '9300000021');
+    $employee = creditNoteEmployee(UserRole::Employee, '9300000022');
+    $employee->update(['reporting_manager_id' => $manager->id]);
+    $dealer = creditNoteDealer($employee);
+    $product = creditNoteProduct();
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson('/api/manager/credit-notes', rateDifferencePayload($dealer, $product))
         ->assertCreated()
+        ->assertJsonPath('status', CreditNote::STATUS_PENDING_APPROVAL)
         ->assertJsonPath('amount', 100);
+
+    $note = CreditNote::query()->first();
+    expect($note)->not->toBeNull()
+        ->and($note->type)->toBe(CreditNote::TYPE_RATE_DIFFERENCE)
+        ->and($note->sales_employee_id)->toBe($manager->id)
+        ->and($note->items)->toHaveCount(1)
+        ->and((float) $note->items->first()->amount)->toBe(100.0);
+});
+
+it('blocks a manager from creating a sales return credit note', function () {
+    $manager = creditNoteEmployee(UserRole::Manager, '9300000023');
+    $employee = creditNoteEmployee(UserRole::Employee, '9300000024');
+    $employee->update(['reporting_manager_id' => $manager->id]);
+    $dealer = creditNoteDealer($employee);
+    $product = creditNoteProduct();
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson('/api/manager/credit-notes', salesReturnPayload($dealer, $product))
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['type']);
+
+    expect(CreditNote::query()->count())->toBe(0);
+});
+
+it('lets a manager approve a rate difference they created', function () {
+    $manager = creditNoteEmployee(UserRole::Manager, '9300000025');
+    $employee = creditNoteEmployee(UserRole::Employee, '9300000026');
+    $employee->update(['reporting_manager_id' => $manager->id]);
+    $dealer = creditNoteDealer($employee);
+    $product = creditNoteProduct();
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson('/api/manager/credit-notes', rateDifferencePayload($dealer, $product))
+        ->assertCreated();
+
+    $note = CreditNote::query()->first();
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->getJson('/api/manager/credit-notes?status=pending_approval')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $note->id);
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson("/api/manager/credit-notes/{$note->id}/approve")
+        ->assertOk()
+        ->assertJsonPath('data.status', CreditNote::STATUS_APPROVED);
 });
 
 it('lists own credit notes and hides other employees notes', function () {
@@ -324,7 +393,7 @@ it('does not let admin complete a pending credit note', function () {
     $note = CreditNote::query()->first();
 
     expect(fn () => app(CompleteCreditNote::class)->execute($note, $admin))
-        ->toThrow(\Illuminate\Auth\Access\AuthorizationException::class);
+        ->toThrow(AuthorizationException::class);
 });
 
 it('blocks employee edits after manager approval', function () {

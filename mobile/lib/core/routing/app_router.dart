@@ -447,6 +447,13 @@ GoRouter createRouter(
       ),
       routes: [
         GoRoute(
+          path: 'new',
+          builder: (_, _) => CreditNoteFormScreen(
+            auth: auth,
+            managerMode: true,
+          ),
+        ),
+        GoRoute(
           path: ':creditNoteId',
           builder: (_, state) => ManagerCreditNoteDetailScreen(
             auth: auth,

@@ -9,9 +9,10 @@ use Illuminate\Validation\Rule;
 final class CreditNotePayloadValidator
 {
     /**
+     * @param  list<string>  $allowedTypes
      * @return array<string, mixed>
      */
-    public function validate(Request $request, bool $documentRequired = false): array
+    public function validate(Request $request, array $allowedTypes, bool $documentRequired = false): array
     {
         $items = $request->input('items');
         if (is_string($items)) {
@@ -45,10 +46,7 @@ final class CreditNotePayloadValidator
             : ['nullable'];
 
         return $request->validate(array_merge([
-            'type' => ['required', 'string', Rule::in([
-                CreditNote::TYPE_SALES_RETURN,
-                CreditNote::TYPE_RATE_DIFFERENCE,
-            ])],
+            'type' => ['required', 'string', Rule::in($allowedTypes)],
             'dealer_id' => ['required', 'integer', 'exists:dealers,id'],
             'bill_reference' => ['required', 'string', 'max:100'],
             'credit_note_date' => ['required', 'date'],

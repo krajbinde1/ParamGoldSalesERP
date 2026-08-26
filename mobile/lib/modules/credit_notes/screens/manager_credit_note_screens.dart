@@ -99,6 +99,15 @@ class _ManagerCreditNoteListScreenState extends State<ManagerCreditNoteListScree
           ],
         ),
       ),
+      floatingActionButton: FloatingActionButton.extended(
+        onPressed: () async {
+          await context.push('/manager/credit-notes/new');
+          if (!mounted) return;
+          _reloadAll();
+        },
+        icon: const Icon(Icons.add_rounded),
+        label: const Text('Rate Difference'),
+      ),
       body: TabBarView(
         controller: _tabs,
         children: _statuses

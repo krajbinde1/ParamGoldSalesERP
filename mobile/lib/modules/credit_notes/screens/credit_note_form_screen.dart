@@ -76,6 +76,19 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
 
   bool get _isEdit => widget.initial != null;
   bool get _isRateDifference => _type == 'rate_difference';
+  List<String> get _allowedTypes {
+    if (widget.managerMode && !_isEdit) {
+      return const ['rate_difference'];
+    }
+    if (!widget.managerMode && !_isEdit) {
+      return const ['sales_return'];
+    }
+    return [
+      if (_type != null) _type!,
+    ];
+  }
+
+  bool get _canChangeType => !_isEdit && _allowedTypes.length > 1;
 
   @override
   void initState() {
@@ -120,6 +133,10 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
           ),
         );
       }
+    } else if (widget.managerMode) {
+      _type = 'rate_difference';
+    } else {
+      _type = 'sales_return';
     }
   }
 
@@ -448,17 +465,29 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
           )
           .toList();
 
-      if (widget.managerMode && widget.initial != null) {
-        await ManagerCreditNoteApi(dio).update(
-          id: widget.initial!.id,
-          type: _type!,
-          dealerId: _dealer!.id,
-          billReference: _billRefController.text.trim(),
-          creditNoteDate: _date,
-          items: items,
-          remarks: _remarksController.text,
-          documentPath: _photoPath,
-        );
+      if (widget.managerMode) {
+        if (widget.initial != null) {
+          await ManagerCreditNoteApi(dio).update(
+            id: widget.initial!.id,
+            type: _type!,
+            dealerId: _dealer!.id,
+            billReference: _billRefController.text.trim(),
+            creditNoteDate: _date,
+            items: items,
+            remarks: _remarksController.text,
+            documentPath: _photoPath,
+          );
+        } else {
+          await ManagerCreditNoteApi(dio).submit(
+            type: _type!,
+            dealerId: _dealer!.id,
+            billReference: _billRefController.text.trim(),
+            creditNoteDate: _date,
+            items: items,
+            remarks: _remarksController.text,
+            documentPath: _photoPath,
+          );
+        }
       } else {
         await CreditNoteApi(dio).submit(
           type: _type!,
@@ -502,31 +531,36 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
     );
 
     if (_type == null) {
+      final showSalesReturn = _allowedTypes.contains('sales_return');
+      final showRateDifference = _allowedTypes.contains('rate_difference');
       return PgPageScaffold(
         title: 'Credit Note Type',
         showBack: true,
         body: ListView(
           padding: const EdgeInsets.all(AppSpacing.screenPadding),
           children: [
-            PgCard(
-              onTap: () => setState(() => _type = 'sales_return'),
-              child: const ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.assignment_return_outlined),
-                title: Text('Sales Return'),
-                subtitle: Text('Returned products with quantity and rate'),
+            if (showSalesReturn)
+              PgCard(
+                onTap: () => setState(() => _type = 'sales_return'),
+                child: const ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.assignment_return_outlined),
+                  title: Text('Sales Return'),
+                  subtitle: Text('Returned products with quantity and rate'),
+                ),
               ),
-            ),
-            const SizedBox(height: AppSpacing.md),
-            PgCard(
-              onTap: () => setState(() => _type = 'rate_difference'),
-              child: const ListTile(
-                contentPadding: EdgeInsets.zero,
-                leading: Icon(Icons.price_change_outlined),
-                title: Text('Rate Difference'),
-                subtitle: Text('Original vs revised rate for billed products'),
+            if (showSalesReturn && showRateDifference)
+              const SizedBox(height: AppSpacing.md),
+            if (showRateDifference)
+              PgCard(
+                onTap: () => setState(() => _type = 'rate_difference'),
+                child: const ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: Icon(Icons.price_change_outlined),
+                  title: Text('Rate Difference'),
+                  subtitle: Text('Original vs revised rate for billed products'),
+                ),
               ),
-            ),
           ],
         ),
       );
@@ -541,7 +575,7 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
           padding: const EdgeInsets.all(AppSpacing.screenPadding),
           children: [
             PgCard(
-              onTap: _isEdit ? null : () => setState(() => _type = null),
+              onTap: _canChangeType ? () => setState(() => _type = null) : null,
               child: Text(
                 _isRateDifference ? 'Type: Rate Difference' : 'Type: Sales Return',
                 style: Theme.of(context).textTheme.titleMedium,
