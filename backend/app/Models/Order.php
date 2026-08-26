@@ -145,6 +145,7 @@ class Order extends Model
     protected $fillable = [
         'order_no', 'order_date', 'dealer_id', 'sales_employee_id', 'payment_type',
         'remarks', 'status', 'subtotal', 'discount_amount', 'gst_amount', 'grand_total',
+        'unrounded_grand_total', 'round_off',
         'approved_by', 'approved_at', 'rejected_by', 'rejected_by_role', 'rejected_at', 'rejection_remark',
         'last_edited_by', 'last_edited_at', 'last_edited_by_role',
         'held_by', 'held_at', 'hold_remark', 'hold_return_status',
@@ -170,6 +171,8 @@ class Order extends Model
             'discount_amount' => 'decimal:2',
             'gst_amount' => 'decimal:2',
             'grand_total' => 'decimal:2',
+            'unrounded_grand_total' => 'decimal:2',
+            'round_off' => 'decimal:2',
             'transport_amount' => 'decimal:2',
             'original_grand_total' => 'decimal:2',
             'transport_adjustment' => 'decimal:2',

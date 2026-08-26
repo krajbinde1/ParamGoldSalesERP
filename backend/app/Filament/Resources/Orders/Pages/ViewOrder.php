@@ -151,6 +151,8 @@ class ViewOrder extends ViewRecord
                         'taxable_amount_after_transport',
                         'subtotal_before_transport',
                         'grand_total',
+                        'unrounded_grand_total',
+                        'round_off',
                         'transport_remark',
                         'sent_for_bill_by',
                         'sent_for_bill_at',
@@ -269,6 +271,8 @@ class ViewOrder extends ViewRecord
                     'subtotal_before_transport',
                     'grand_total',
                     'original_grand_total',
+                    'unrounded_grand_total',
+                    'round_off',
                 ]);
             }, $this->getRecord()),
             EditAction::make()

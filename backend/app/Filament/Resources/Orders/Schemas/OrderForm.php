@@ -92,11 +92,13 @@ class OrderForm
                             ->addActionLabel('Add product'),
                     ]),
                 Section::make('Order totals')
-                    ->columns(4)
+                    ->columns(5)
                     ->schema([
                         TextInput::make('subtotal')->label('Sub Total')->prefix('₹')->readOnly()->dehydrated()->default(0),
                         TextInput::make('discount_amount')->label('Discount')->prefix('₹')->readOnly()->dehydrated()->default(0),
                         TextInput::make('gst_amount')->label('GST')->prefix('₹')->readOnly()->dehydrated()->default(0),
+                        TextInput::make('round_off')->label('Round Off')->prefix('₹')->readOnly()->dehydrated()->default(0),
+                        TextInput::make('unrounded_grand_total')->hidden()->dehydrated()->default(0),
                         TextInput::make('grand_total')->label('Grand Total')->prefix('₹')->readOnly()->dehydrated()->default(0),
                     ]),
             ]);
@@ -104,7 +106,7 @@ class OrderForm
 
     private static function setOrderTotals(Get $get, Set $set): void
     {
-        $totals = ['subtotal' => 0.0, 'discount_amount' => 0.0, 'gst_amount' => 0.0, 'grand_total' => 0.0];
+        $totals = ['subtotal' => 0.0, 'discount_amount' => 0.0, 'gst_amount' => 0.0];
 
         foreach ($get('items') ?? [] as $item) {
             $caseQuantity = (float) ($item['case_quantity'] ?? 1);
@@ -119,11 +121,17 @@ class OrderForm
             $totals['subtotal'] += $base;
             $totals['discount_amount'] += $discount;
             $totals['gst_amount'] += $gst;
-            $totals['grand_total'] += $taxable + $gst;
         }
 
         foreach ($totals as $field => $amount) {
             $set($field, round($amount, 2));
         }
+
+        $rounded = \App\Services\Orders\OrderBillingTransportCalculator::persistableRoundedTotals(
+            round($totals['subtotal'] - $totals['discount_amount'] + $totals['gst_amount'], 2),
+        );
+        $set('unrounded_grand_total', $rounded['unrounded_grand_total']);
+        $set('round_off', $rounded['round_off']);
+        $set('grand_total', $rounded['grand_total']);
     }
 }

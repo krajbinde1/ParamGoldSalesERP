@@ -88,6 +88,8 @@ final class DispatchOrderWithTransport
                 'subtotal_before_transport' => $calculation['subtotal_before_transport'],
                 'taxable_amount_after_transport' => $calculation['taxable_amount_after_transport'],
                 'gst_amount' => $calculation['total_gst'],
+                'unrounded_grand_total' => $calculation['unrounded_grand_total'],
+                'round_off' => $calculation['round_off'],
                 'grand_total' => $calculation['grand_total'],
                 'dispatched_by' => $actor->id,
                 'dispatched_at' => now('Asia/Kolkata'),

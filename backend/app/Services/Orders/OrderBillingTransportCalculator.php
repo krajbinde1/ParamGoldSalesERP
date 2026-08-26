@@ -22,6 +22,8 @@ final class OrderBillingTransportCalculator
      *     cgst_amount: float,
      *     sgst_amount: float,
      *     original_grand_total: float,
+     *     unrounded_grand_total: float,
+     *     round_off: float,
      *     final_grand_total: float
      * }
      */
@@ -92,7 +94,7 @@ final class OrderBillingTransportCalculator
             'cgst_amount' => $cgst,
             'sgst_amount' => $sgst,
             'original_grand_total' => $originalGrand,
-            'final_grand_total' => round($taxableAfter + $gstAmount, 2),
+            ...self::roundedGrandTotalFields(round($taxableAfter + $gstAmount, 2)),
         ];
     }
 
@@ -110,6 +112,8 @@ final class OrderBillingTransportCalculator
      *     cgst_amount: float,
      *     sgst_amount: float,
      *     original_grand_total: float,
+     *     unrounded_grand_total: float,
+     *     round_off: float,
      *     final_grand_total: float
      * }
      */
@@ -173,9 +177,9 @@ final class OrderBillingTransportCalculator
             'subtotal' => $base['subtotal'],
             'discount_amount' => $base['discount_amount'],
             'gst_amount' => $base['gst_amount'],
-            'grand_total' => $base['grand_total'],
             'subtotal_before_transport' => $base['taxable_amount'],
             'taxable_amount_after_transport' => $base['taxable_amount'],
+            ...self::persistableRoundedTotals($base['grand_total']),
         ];
 
         if ($type !== null) {
@@ -305,6 +309,8 @@ final class OrderBillingTransportCalculator
             'subtotal_before_transport' => $calc['taxable_before_transport'],
             'taxable_amount_after_transport' => $calc['taxable_amount_after_transport'],
             'gst_amount' => $calc['gst_amount'],
+            'unrounded_grand_total' => $calc['unrounded_grand_total'],
+            'round_off' => $calc['round_off'],
             'grand_total' => $calc['final_grand_total'],
         ];
     }
@@ -323,7 +329,11 @@ final class OrderBillingTransportCalculator
 
     public static function finalGrandTotal(Order $order): float
     {
-        return round((float) $order->grand_total, 2);
+        $exact = $order->unrounded_grand_total !== null
+            ? (float) $order->unrounded_grand_total
+            : (float) $order->grand_total;
+
+        return self::roundOffGrandTotal($exact)['rounded_grand_total'];
     }
 
     public static function hasSavedAdjustment(Order $order): bool
@@ -363,6 +373,13 @@ final class OrderBillingTransportCalculator
                 ? round((float) $order->transport_adjustment, 2)
                 : null
         );
+        $round = $calc !== null
+            ? [
+                'unrounded_grand_total' => $calc['unrounded_grand_total'],
+                'round_off' => $calc['round_off'],
+                'final_grand_total' => $calc['final_grand_total'],
+            ]
+            : self::roundOffGrandTotal($base['grand_total']);
 
         return [
             'vehicle_no' => $order->vehicle_number,
@@ -386,7 +403,64 @@ final class OrderBillingTransportCalculator
                     : null
             ),
             'transport_adjustment' => $adjustment,
-            'final_grand_total' => $calc['final_grand_total'] ?? round((float) $order->grand_total, 2),
+            'unrounded_grand_total' => $round['unrounded_grand_total'],
+            'round_off' => $round['round_off'],
+            'final_grand_total' => $round['final_grand_total'] ?? $round['rounded_grand_total'],
+        ];
+    }
+
+    /**
+     * Round only the final Grand Total: < 0.50 down, >= 0.50 up, to a whole rupee.
+     *
+     * @return array{unrounded_grand_total: float, round_off: float, rounded_grand_total: float, final_grand_total: float}
+     */
+    public static function roundOffGrandTotal(float $exact): array
+    {
+        $unrounded = round($exact, 2);
+        $paise = (int) round($unrounded * 100);
+        $remainder = abs($paise) % 100;
+        $rupees = intdiv($paise, 100);
+
+        if ($remainder >= 50) {
+            $rupees += $paise >= 0 ? 1 : -1;
+        }
+
+        $rounded = (float) $rupees;
+        $roundOff = round($rounded - $unrounded, 2);
+
+        return [
+            'unrounded_grand_total' => $unrounded,
+            'round_off' => $roundOff,
+            'rounded_grand_total' => $rounded,
+            'final_grand_total' => $rounded,
+        ];
+    }
+
+    /**
+     * @return array{unrounded_grand_total: float, round_off: float, grand_total: float}
+     */
+    public static function persistableRoundedTotals(float $exact): array
+    {
+        $round = self::roundOffGrandTotal($exact);
+
+        return [
+            'unrounded_grand_total' => $round['unrounded_grand_total'],
+            'round_off' => $round['round_off'],
+            'grand_total' => $round['rounded_grand_total'],
+        ];
+    }
+
+    /**
+     * @return array{unrounded_grand_total: float, round_off: float, final_grand_total: float}
+     */
+    private static function roundedGrandTotalFields(float $exact): array
+    {
+        $round = self::roundOffGrandTotal($exact);
+
+        return [
+            'unrounded_grand_total' => $round['unrounded_grand_total'],
+            'round_off' => $round['round_off'],
+            'final_grand_total' => $round['rounded_grand_total'],
         ];
     }
 
@@ -395,6 +469,13 @@ final class OrderBillingTransportCalculator
         $prefix = $amount < 0 ? '- ' : '';
 
         return $prefix.'₹'.number_format(abs($amount), 2, '.', ',');
+    }
+
+    public static function formatRoundOff(float $amount): string
+    {
+        $sign = $amount < 0 ? '-' : '+';
+
+        return $sign.'₹'.number_format(abs($amount), 2, '.', ',');
     }
 
     public static function formatAdjustment(float $adjustment): string

@@ -6,6 +6,7 @@ use App\Models\Dealer;
 use App\Models\Order;
 use App\Models\Product;
 use App\Models\User;
+use App\Services\Orders\OrderBillingTransportCalculator;
 use App\Services\Orders\OrderLineCalculationService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -49,6 +50,8 @@ final class UpdatePendingOrder
                 'discount_amount' => $totals['discount_amount'],
                 'gst_amount' => $totals['gst_amount'],
                 'grand_total' => $totals['grand_total'],
+                'unrounded_grand_total' => $totals['unrounded_grand_total'],
+                'round_off' => $totals['round_off'],
             ];
 
             if ($editor !== null) {
@@ -132,7 +135,9 @@ final class UpdatePendingOrder
             'subtotal' => round($subtotal, 2),
             'discount_amount' => round($totalDiscount, 2),
             'gst_amount' => round($totalGst, 2),
-            'grand_total' => round($subtotal - $totalDiscount + $totalGst, 2),
+            ...OrderBillingTransportCalculator::persistableRoundedTotals(
+                round($subtotal - $totalDiscount + $totalGst, 2),
+            ),
         ];
     }
 

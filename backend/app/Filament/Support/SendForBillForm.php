@@ -194,7 +194,9 @@ final class SendForBillForm
         $adjustment = 0.0;
         $taxable = $base['taxable_amount'];
         $gst = $base['gst_amount'];
-        $final = $base['grand_total'];
+        $round = OrderBillingTransportCalculator::roundOffGrandTotal($base['grand_total']);
+        $roundOff = $round['round_off'];
+        $final = $round['rounded_grand_total'];
 
         if ($type !== '' && is_numeric($rawFreight)) {
             try {
@@ -202,6 +204,7 @@ final class SendForBillForm
                 $adjustment = $calc['transport_adjustment'];
                 $taxable = $calc['taxable_amount_after_transport'];
                 $gst = $calc['gst_amount'];
+                $roundOff = $calc['round_off'];
                 $final = $calc['final_grand_total'];
             } catch (ValidationException $exception) {
                 $messages = $exception->errors();
@@ -216,6 +219,7 @@ final class SendForBillForm
             ['Transport Charges', $type === '' ? '—' : OrderBillingTransportCalculator::formatAdjustment($adjustment)],
             ['Taxable Value', OrderBillingTransportCalculator::formatMoney($taxable)],
             ['GST', OrderBillingTransportCalculator::formatMoney($gst)],
+            ['Round Off', OrderBillingTransportCalculator::formatRoundOff($roundOff)],
             ['Grand Total', OrderBillingTransportCalculator::formatMoney($final)],
         ];
 

@@ -112,7 +112,7 @@ final class OrderDispatchCalculationService
 
         $taxableAfterTransport = round($subtotalBeforeTransport - $transportAmount, 2);
         $totalGst = round($totalGst, 2);
-        $grandTotal = round($grandTotal, 2);
+        $round = OrderBillingTransportCalculator::roundOffGrandTotal(round($grandTotal, 2));
 
         return [
             'gross_amount' => $grossAmount,
@@ -125,7 +125,9 @@ final class OrderDispatchCalculationService
             'transport_amount' => $transportAmount,
             'taxable_amount_after_transport' => $taxableAfterTransport,
             'total_gst' => $totalGst,
-            'grand_total' => $grandTotal,
+            'unrounded_grand_total' => $round['unrounded_grand_total'],
+            'round_off' => $round['round_off'],
+            'grand_total' => $round['rounded_grand_total'],
             'items' => array_values($lines),
         ];
     }

@@ -13,6 +13,7 @@
     $cgst = (float) $billing['cgst_amount'];
     $sgst = (float) $billing['sgst_amount'];
     $grandTotal = (float) $billing['final_grand_total'];
+    $roundOff = (float) $billing['round_off'];
 
     $rows = [
         ['label' => 'Subtotal', 'value' => $money($subtotal), 'emphasis' => false],
@@ -32,6 +33,7 @@
         if (filled($record->vehicle_number)) {
             $rows[] = ['label' => 'Vehicle No', 'value' => $record->vehicle_number, 'emphasis' => false];
         }
+        $rows[] = ['label' => 'Round Off', 'value' => OrderBillingTransportCalculator::formatRoundOff($roundOff), 'emphasis' => false];
         $rows[] = ['label' => 'Grand Total', 'value' => $money($grandTotal), 'emphasis' => true];
     } else {
         if (filled($record->vehicle_number) || $record->transport_amount !== null) {
@@ -39,6 +41,7 @@
             $rows[] = ['label' => 'Transport Type', 'value' => $billing['transport_charge_type_label'] ?: '—', 'emphasis' => false];
             $rows[] = ['label' => 'Transport Charges', 'value' => $record->transport_amount === null ? '—' : $money((float) $record->transport_amount), 'emphasis' => false];
         }
+        $rows[] = ['label' => 'Round Off', 'value' => OrderBillingTransportCalculator::formatRoundOff($roundOff), 'emphasis' => false];
         $rows[] = ['label' => 'Grand Total', 'value' => $money($grandTotal), 'emphasis' => true];
     }
 @endphp

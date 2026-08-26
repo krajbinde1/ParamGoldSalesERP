@@ -126,6 +126,11 @@ class OrderInfolist
                             ->state(fn (Order $record): float => (float) OrderBillingTransportCalculator::present($record)['gst_amount'])
                             ->money('INR')
                             ->visible(fn (Order $record): bool => OrderBillingTransportCalculator::hasSavedAdjustment($record)),
+                        TextEntry::make('round_off')
+                            ->label('Round Off')
+                            ->state(fn (Order $record): string => OrderBillingTransportCalculator::formatRoundOff(
+                                (float) OrderBillingTransportCalculator::present($record)['round_off'],
+                            )),
                         TextEntry::make('grand_total')
                             ->label('Grand Total')
                             ->state(fn (Order $record): float => OrderBillingTransportCalculator::finalGrandTotal($record))
