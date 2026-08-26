@@ -367,14 +367,6 @@ class Order extends Model
             ->first(fn (OrderEditPermissionRequest $request): bool => $request->isApprovedUnused());
     }
 
-    public function directorApprovedAwaitingAdminRequest(): ?OrderEditPermissionRequest
-    {
-        $this->loadMissing('editPermissionRequests');
-
-        return $this->editPermissionRequests
-            ->first(fn (OrderEditPermissionRequest $request): bool => $request->isAwaitingAdminConfirmation());
-    }
-
     public function canRequestDispatchedEditPermission(): bool
     {
         if (! $this->isDispatchedLocked()) {
@@ -401,23 +393,6 @@ class Order extends Model
         return OrderEditPermissionRequest::query()
             ->where('order_id', $this->id)
             ->approvedUnused()
-            ->exists();
-    }
-
-    public function hasDirectorApprovedAwaitingAdmin(): bool
-    {
-        if (! $this->isDispatchedLocked()) {
-            return false;
-        }
-
-        if ($this->relationLoaded('editPermissionRequests')) {
-            return $this->editPermissionRequests
-                ->contains(fn (OrderEditPermissionRequest $request): bool => $request->isAwaitingAdminConfirmation());
-        }
-
-        return OrderEditPermissionRequest::query()
-            ->where('order_id', $this->id)
-            ->awaitingAdminConfirmation()
             ->exists();
     }
 

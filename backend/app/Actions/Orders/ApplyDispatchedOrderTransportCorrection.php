@@ -32,7 +32,7 @@ final class ApplyDispatchedOrderTransportCorrection
         float $transportFreight,
     ): array {
         if (! Gate::forUser($actor)->allows('correctDispatchedTransport', $order)) {
-            throw new AuthorizationException('Director and Admin approval are required before this dispatched order can be corrected.');
+            throw new AuthorizationException('Director approval is required before this dispatched order can be corrected.');
         }
 
         Validator::make(
@@ -77,13 +77,13 @@ final class ApplyDispatchedOrderTransportCorrection
             /** @var OrderEditPermissionRequest|null $permission */
             $permission = OrderEditPermissionRequest::query()
                 ->where('order_id', $locked->id)
-                ->where('status', OrderEditPermissionRequest::STATUS_ADMIN_APPROVED)
+                ->whereIn('status', OrderEditPermissionRequest::unlockedStatuses())
                 ->lockForUpdate()
                 ->first();
 
             if ($permission === null) {
                 throw ValidationException::withMessages([
-                    'status' => ['Admin approval is required after Director approval, and permission is valid for one save only.'],
+                    'status' => ['Director approval is required, and permission is valid for one save only.'],
                 ]);
             }
 

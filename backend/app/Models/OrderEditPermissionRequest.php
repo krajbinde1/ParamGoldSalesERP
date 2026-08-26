@@ -23,7 +23,7 @@ class OrderEditPermissionRequest extends Model
 
     public const STATUS_LABELS = [
         self::STATUS_PENDING => 'Pending Director Approval',
-        self::STATUS_APPROVED => 'Director Approved — awaiting Admin',
+        self::STATUS_APPROVED => 'Approved — awaiting Admin correction',
         self::STATUS_ADMIN_APPROVED => 'Approved — awaiting Admin correction',
         self::STATUS_REJECTED => 'Rejected',
         self::STATUS_USED => 'Used',
@@ -90,21 +90,26 @@ class OrderEditPermissionRequest extends Model
 
     public function scopeApprovedUnused(Builder $query): Builder
     {
-        return $query->where('status', self::STATUS_ADMIN_APPROVED);
-    }
-
-    public function scopeAwaitingAdminConfirmation(Builder $query): Builder
-    {
-        return $query->where('status', self::STATUS_APPROVED);
+        return $query->whereIn('status', self::unlockedStatuses());
     }
 
     public function scopeOpen(Builder $query): Builder
     {
         return $query->whereIn('status', [
             self::STATUS_PENDING,
+            ...self::unlockedStatuses(),
+        ]);
+    }
+
+    /**
+     * @return list<string>
+     */
+    public static function unlockedStatuses(): array
+    {
+        return [
             self::STATUS_APPROVED,
             self::STATUS_ADMIN_APPROVED,
-        ]);
+        ];
     }
 
     public function isPending(): bool
@@ -112,16 +117,10 @@ class OrderEditPermissionRequest extends Model
         return $this->status === self::STATUS_PENDING;
     }
 
-    public function isAwaitingAdminConfirmation(): bool
-    {
-        return $this->status === self::STATUS_APPROVED
-            && $this->admin_reviewed_at === null
-            && $this->edited_at === null;
-    }
-
     public function isApprovedUnused(): bool
     {
-        return $this->status === self::STATUS_ADMIN_APPROVED;
+        return in_array($this->status, self::unlockedStatuses(), true)
+            && $this->edited_at === null;
     }
 
     public function isRejected(): bool
@@ -143,8 +142,7 @@ class OrderEditPermissionRequest extends Model
     {
         return match ($status) {
             self::STATUS_PENDING => 'warning',
-            self::STATUS_APPROVED => 'warning',
-            self::STATUS_ADMIN_APPROVED => 'info',
+            self::STATUS_APPROVED, self::STATUS_ADMIN_APPROVED => 'info',
             self::STATUS_USED => 'success',
             self::STATUS_REJECTED => 'danger',
             default => 'gray',
