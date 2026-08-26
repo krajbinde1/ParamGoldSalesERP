@@ -12,6 +12,14 @@ use Illuminate\Validation\ValidationException;
 
 final class TallyBulkLedgerImportService
 {
+    public const STATUS_MATCHED = 'Matched';
+
+    public const STATUS_NOT_MATCHED = 'Not Matched';
+
+    public const STATUS_ALREADY_IMPORTED = 'Already Imported';
+
+    public const STATUS_ERROR = 'Error';
+
     public function __construct(
         private readonly TallyLedgerExcelParser $parser = new TallyLedgerExcelParser,
         private readonly TallyLedgerImportService $importer = new TallyLedgerImportService,
@@ -34,56 +42,53 @@ final class TallyBulkLedgerImportService
     }
 
     /**
+     * @param  list<array{path: string, original_filename: string}>  $files
      * @return array{employee: Employee, assigned_dealers: list<array<string, mixed>>, rows: list<array<string, mixed>>}
      */
-    public function preview(string $path, int $employeeId): array
+    public function previewFiles(array $files, int $employeeId): array
     {
         $employee = $this->requireEmployee($employeeId);
         $dealers = $this->dealersForEmployee($employeeId);
-        $parsedLedgers = $this->parser->parseAll($path);
 
         return [
             'employee' => $employee,
             'assigned_dealers' => $this->assignedDealers($employeeId),
-            'rows' => array_map(
-                fn (TallyLedgerParseResult $parsed): array => $this->rowFromParsed($parsed, $dealers),
-                $parsedLedgers,
-            ),
+            'rows' => $this->rowsFromFiles($files, $dealers),
         ];
     }
 
     /**
+     * @param  list<array{path: string, original_filename: string}>  $files
      * @return array{employee: Employee, assigned_dealers: list<array<string, mixed>>, rows: list<array<string, mixed>>}
      */
-    public function import(string $path, int $employeeId, User $actor, string $originalFilename): array
+    public function importFiles(array $files, int $employeeId, User $actor): array
     {
         $employee = $this->requireEmployee($employeeId);
         $dealers = $this->dealersForEmployee($employeeId);
-        $parsedLedgers = $this->parser->parseAll($path);
         $rows = [];
 
-        foreach ($parsedLedgers as $parsed) {
-            $row = $this->rowFromParsed($parsed, $dealers);
-
-            if (! $row['matched'] || $row['dealer_id'] === null) {
-                $rows[] = $this->withImportOutcome($row, imported: false, importedCount: 0, duplicateCount: 0, failed: false);
+        foreach ($this->rowsFromFiles($files, $dealers) as $index => $row) {
+            if (($row['status'] ?? '') !== self::STATUS_MATCHED || empty($row['can_import']) || empty($row['dealer_id'])) {
+                $rows[] = $row;
 
                 continue;
             }
 
             $dealer = $dealers->firstWhere('id', (int) $row['dealer_id']);
-            if (! $dealer instanceof Dealer || (int) $dealer->assigned_employee_id !== $employeeId) {
-                $rows[] = $this->withImportOutcome(
-                    array_merge($row, [
-                        'matched' => false,
-                        'match_label' => 'Not Matched',
-                        'dealer_id' => null,
-                        'reason' => 'This Tally party is not assigned to the selected employee.',
-                    ]),
-                    imported: false,
-                    importedCount: 0,
-                    duplicateCount: 0,
-                    failed: false,
+            $file = $files[$index] ?? null;
+            if (! $dealer instanceof Dealer || (int) $dealer->assigned_employee_id !== $employeeId || ! is_array($file)) {
+                $rows[] = $this->withStatus($row, self::STATUS_NOT_MATCHED, 'This Tally party is not assigned to the selected employee.');
+
+                continue;
+            }
+
+            try {
+                $parsed = $this->parser->parse((string) $file['path']);
+            } catch (ValidationException $exception) {
+                $rows[] = $this->withStatus(
+                    $row,
+                    self::STATUS_ERROR,
+                    collect($exception->errors())->flatten()->first() ?: 'Unable to read this Tally Excel.',
                 );
 
                 continue;
@@ -91,14 +96,10 @@ final class TallyBulkLedgerImportService
 
             $ledgerPreview = $this->importer->previewParsed($parsed, $dealer);
             if (empty($ledgerPreview['can_import'])) {
-                $rows[] = $this->withImportOutcome(
-                    array_merge($row, [
-                        'reason' => collect($ledgerPreview['parse_errors'] ?? [])->first() ?: 'Tally ledger parsing is incomplete.',
-                    ]),
-                    imported: false,
-                    importedCount: 0,
-                    duplicateCount: 0,
-                    failed: true,
+                $rows[] = $this->withStatus(
+                    $row,
+                    self::STATUS_ERROR,
+                    collect($ledgerPreview['parse_errors'] ?? [])->first() ?: 'Tally ledger parsing is incomplete.',
                 );
 
                 continue;
@@ -109,29 +110,23 @@ final class TallyBulkLedgerImportService
                     $ledgerPreview,
                     $dealer,
                     $actor,
-                    $originalFilename,
+                    (string) ($file['original_filename'] ?? 'tally-ledger.xlsx'),
                 );
                 $dealer->refresh()->load('tallyLedger');
-                $rows[] = $this->withImportOutcome(
-                    array_merge($row, [
-                        'dealer_name' => (string) $dealer->firm_name,
-                        'closing_balance_label' => (string) ($result['summary']['current_outstanding_label'] ?? $row['closing_balance_label']),
-                        'tally_status' => $dealer->tallyLedgerImportStatusLabel(),
-                    ]),
-                    imported: true,
-                    importedCount: (int) $result['imported_count'],
-                    duplicateCount: (int) $result['duplicate_count'],
-                    failed: false,
-                );
+                $row['matched_dealer'] = (string) $dealer->firm_name;
+                $row['closing_balance_label'] = (string) ($result['summary']['current_outstanding_label'] ?? $row['closing_balance_label']);
+                $row['imported_count'] = (int) $result['imported_count'];
+                $row['duplicate_count'] = (int) $result['duplicate_count'];
+                $row['tally_status'] = $dealer->tallyLedgerImportStatusLabel();
+                $row['import_status_label'] = 'Ledger Imported';
+                $row['can_import'] = false;
+                $row['reason'] = null;
+                $rows[] = $row;
             } catch (ValidationException $exception) {
-                $rows[] = $this->withImportOutcome(
-                    array_merge($row, [
-                        'reason' => collect($exception->errors())->flatten()->first() ?: 'Unable to import this ledger.',
-                    ]),
-                    imported: false,
-                    importedCount: 0,
-                    duplicateCount: 0,
-                    failed: true,
+                $rows[] = $this->withStatus(
+                    $row,
+                    self::STATUS_ERROR,
+                    collect($exception->errors())->flatten()->first() ?: 'Unable to import this ledger.',
                 );
             }
         }
@@ -144,33 +139,150 @@ final class TallyBulkLedgerImportService
     }
 
     /**
+     * @param  list<array{path: string, original_filename: string}>  $files
      * @param  Collection<int, Dealer>  $dealers
+     * @return list<array<string, mixed>>
+     */
+    private function rowsFromFiles(array $files, Collection $dealers): array
+    {
+        $claimedDealerIds = [];
+        $rows = [];
+
+        foreach ($files as $file) {
+            $filename = (string) ($file['original_filename'] ?? 'tally-ledger.xlsx');
+            $path = (string) ($file['path'] ?? '');
+
+            if ($path === '' || ! is_file($path)) {
+                $rows[] = $this->fileRow(
+                    filename: $filename,
+                    detectedDealer: '—',
+                    status: self::STATUS_ERROR,
+                    reason: 'The uploaded file could not be read.',
+                );
+
+                continue;
+            }
+
+            try {
+                $parsed = $this->parser->parse($path);
+            } catch (ValidationException $exception) {
+                $rows[] = $this->fileRow(
+                    filename: $filename,
+                    detectedDealer: '—',
+                    status: self::STATUS_ERROR,
+                    reason: collect($exception->errors())->flatten()->first() ?: 'Unable to read this Tally Excel.',
+                );
+
+                continue;
+            }
+
+            $detected = $parsed->tallyLedgerName !== '' ? $parsed->tallyLedgerName : '—';
+            $preview = $this->importer->previewParsed($parsed);
+            $closingLabel = IndianCurrency::formatDrCr((float) ($preview['erp_closing_signed'] ?? $parsed->calculatedClosingSigned()));
+            $match = $this->matchDealer($parsed->tallyLedgerName, $dealers);
+
+            if (! $match['matched'] || $match['dealer'] === null) {
+                $rows[] = $this->fileRow(
+                    filename: $filename,
+                    detectedDealer: $detected,
+                    status: self::STATUS_NOT_MATCHED,
+                    reason: $match['reason'] ?? 'No assigned dealer matches this Tally party.',
+                    transactionCount: count($parsed->transactions),
+                    closingLabel: $closingLabel,
+                );
+
+                continue;
+            }
+
+            $dealer = $match['dealer'];
+            $dealerId = (int) $dealer->id;
+            if (in_array($dealerId, $claimedDealerIds, true)) {
+                $rows[] = $this->fileRow(
+                    filename: $filename,
+                    detectedDealer: $detected,
+                    status: self::STATUS_ERROR,
+                    reason: 'This dealer is already matched by another uploaded file.',
+                    dealer: $dealer,
+                    transactionCount: count($parsed->transactions),
+                    closingLabel: $closingLabel,
+                );
+
+                continue;
+            }
+
+            $claimedDealerIds[] = $dealerId;
+
+            if ($dealer->hasImportedTallyLedger()) {
+                $rows[] = $this->fileRow(
+                    filename: $filename,
+                    detectedDealer: $detected,
+                    status: self::STATUS_ALREADY_IMPORTED,
+                    reason: 'This dealer already has an imported Tally ledger.',
+                    dealer: $dealer,
+                    transactionCount: count($parsed->transactions),
+                    closingLabel: $closingLabel,
+                );
+
+                continue;
+            }
+
+            if (empty($preview['can_import'])) {
+                $rows[] = $this->fileRow(
+                    filename: $filename,
+                    detectedDealer: $detected,
+                    status: self::STATUS_ERROR,
+                    reason: collect($preview['parse_errors'] ?? [])->first() ?: 'Tally ledger parsing is incomplete.',
+                    dealer: $dealer,
+                    transactionCount: count($parsed->transactions),
+                    closingLabel: $closingLabel,
+                );
+
+                continue;
+            }
+
+            $rows[] = $this->fileRow(
+                filename: $filename,
+                detectedDealer: $detected,
+                status: self::STATUS_MATCHED,
+                reason: null,
+                dealer: $dealer,
+                transactionCount: count($parsed->transactions),
+                closingLabel: $closingLabel,
+                canImport: true,
+            );
+        }
+
+        return $rows;
+    }
+
+    /**
      * @return array<string, mixed>
      */
-    private function rowFromParsed(TallyLedgerParseResult $parsed, Collection $dealers): array
-    {
-        $match = $this->matchDealer($parsed->tallyLedgerName, $dealers);
-        $dealer = $match['dealer'];
-        $preview = $this->importer->previewParsed($parsed, $dealer);
-        $closingLabel = IndianCurrency::formatDrCr((float) ($preview['erp_closing_signed'] ?? $parsed->calculatedClosingSigned()));
-
+    private function fileRow(
+        string $filename,
+        string $detectedDealer,
+        string $status,
+        ?string $reason,
+        ?Dealer $dealer = null,
+        int $transactionCount = 0,
+        string $closingLabel = '—',
+        bool $canImport = false,
+    ): array {
         return [
-            'tally_ledger_name' => $parsed->tallyLedgerName !== '' ? $parsed->tallyLedgerName : '—',
+            'file_name' => $filename,
+            'detected_dealer' => $detectedDealer,
+            'matched_dealer' => $dealer?->firm_name ?: '—',
             'dealer_id' => $dealer?->id,
-            'dealer_name' => $dealer?->firm_name ?? ($parsed->tallyLedgerName !== '' ? $parsed->tallyLedgerName : '—'),
             'dealer_code' => $dealer?->dealer_code,
-            'matched' => $match['matched'],
-            'match_label' => $match['matched'] ? 'Matched' : 'Not Matched',
-            'import_status_label' => '',
+            'status' => $status,
+            'reason' => $reason,
             'tally_status' => $dealer?->tallyLedgerImportStatusLabel() ?? 'Not Imported',
-            'transaction_count' => count($parsed->transactions),
+            'transaction_count' => $transactionCount,
             'imported_count' => 0,
             'duplicate_count' => 0,
             'closing_balance_label' => $closingLabel,
-            'reason' => $match['reason'] ?? (empty($preview['can_import'])
-                ? (collect($preview['parse_errors'] ?? [])->first() ?: 'Tally ledger parsing is incomplete.')
-                : null),
-            'can_import' => $match['matched'] && ! empty($preview['can_import']),
+            'import_status_label' => '',
+            'can_import' => $canImport,
         ];
     }
 
@@ -178,32 +290,12 @@ final class TallyBulkLedgerImportService
      * @param  array<string, mixed>  $row
      * @return array<string, mixed>
      */
-    private function withImportOutcome(
-        array $row,
-        bool $imported,
-        int $importedCount,
-        int $duplicateCount,
-        bool $failed,
-    ): array {
-        $row['imported_count'] = $importedCount;
-        $row['duplicate_count'] = $duplicateCount;
+    private function withStatus(array $row, string $status, string $reason): array
+    {
+        $row['status'] = $status;
+        $row['reason'] = $reason;
         $row['can_import'] = false;
-
-        if ($failed) {
-            $row['import_status_label'] = 'Failed';
-
-            return $row;
-        }
-
-        if ($imported) {
-            $row['import_status_label'] = 'Ledger Imported';
-            $row['tally_status'] = 'Ledger Imported';
-            $row['reason'] = null;
-
-            return $row;
-        }
-
-        $row['import_status_label'] = 'Not Imported';
+        $row['import_status_label'] = '';
 
         return $row;
     }

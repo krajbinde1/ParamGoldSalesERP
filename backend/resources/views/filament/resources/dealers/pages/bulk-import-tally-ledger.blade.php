@@ -8,7 +8,7 @@
 <x-filament-panels::page>
     <div class="space-y-6">
         <div class="grid gap-3 sm:grid-cols-3">
-            @foreach ([1 => 'Select employee & upload', 2 => 'Match preview', 3 => 'Import results'] as $n => $label)
+            @foreach ([1 => 'Select employee & upload', 2 => 'Preview results', 3 => 'Import results'] as $n => $label)
                 <div @class([
                     'rounded-xl border px-4 py-3',
                     'border-primary-500 bg-primary-50 text-primary-700' => $step === $n,
@@ -25,18 +25,18 @@
                 <div>
                     <h2 class="text-lg font-semibold text-gray-950">Bulk Tally Ledger Import</h2>
                     <p class="mt-1 text-sm text-gray-600">
-                        Select the assigned employee first. Only that employee’s dealers are shown and matched.
-                        Parties in the Excel that do not match those dealers are skipped.
-                        The existing single-dealer Import Tally Ledger is unchanged.
+                        Select the assigned employee first, then upload multiple Tally Excel files together.
+                        Each file is one dealer ledger and is matched by the ledger name inside the file.
+                        Unmatched, already imported, and error files are skipped.
                     </p>
                 </div>
 
                 <form wire:submit="previewUpload" class="space-y-5">
                     {{ $this->form }}
                     @if ($employeeLabel)
-                        <x-filament::button type="submit" wire:loading.attr="disabled" wire:target="previewUpload,data.file">
-                            <span wire:loading.remove wire:target="previewUpload,data.file">Preview matches</span>
-                            <span wire:loading wire:target="previewUpload,data.file">Reading Excel…</span>
+                        <x-filament::button type="submit" wire:loading.attr="disabled" wire:target="previewUpload,data.files">
+                            <span wire:loading.remove wire:target="previewUpload,data.files">Preview results</span>
+                            <span wire:loading wire:target="previewUpload,data.files">Reading Excel files…</span>
                         </x-filament::button>
                     @endif
                 </form>
@@ -82,17 +82,17 @@
             <div class="rounded-xl border border-gray-200 bg-white p-6 space-y-5">
                 <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                     <div>
-                        <h2 class="text-lg font-semibold text-gray-950">Match preview</h2>
+                        <h2 class="text-lg font-semibold text-gray-950">Preview results</h2>
                         <p class="mt-1 text-sm text-gray-600">
                             Employee: <strong>{{ $employeeLabel }}</strong>.
-                            Unmatched parties will not be imported.
+                            Only <strong>Matched</strong> files will be imported. Unmatched, already imported, and error files are skipped.
                         </p>
                     </div>
                     <div class="flex flex-wrap gap-3">
-                        <x-filament::button color="gray" wire:click="resetUpload">Upload another file</x-filament::button>
+                        <x-filament::button color="gray" wire:click="resetUpload">Upload other files</x-filament::button>
                         @if (collect($previewRows)->contains(fn (array $row): bool => ! empty($row['can_import'])))
                             <x-filament::button wire:click="runImport" wire:loading.attr="disabled" wire:target="runImport">
-                                <span wire:loading.remove wire:target="runImport">Confirm &amp; import matched ledgers</span>
+                                <span wire:loading.remove wire:target="runImport">Bulk Import</span>
                                 <span wire:loading wire:target="runImport">Importing…</span>
                             </x-filament::button>
                         @endif
@@ -113,11 +113,11 @@
                         <h2 class="text-lg font-semibold text-gray-950">Import results</h2>
                         <p class="mt-1 text-sm text-gray-600">
                             Employee: <strong>{{ $employeeLabel }}</strong>.
-                            Open a dealer ledger to verify the imported transactions.
+                            Each dealer’s Tally Ledger Status is updated only when that file imported successfully.
                         </p>
                     </div>
                     <div class="flex flex-wrap gap-3">
-                        <x-filament::button color="gray" wire:click="resetUpload">Import another file</x-filament::button>
+                        <x-filament::button color="gray" wire:click="resetUpload">Import other files</x-filament::button>
                     </div>
                 </div>
 

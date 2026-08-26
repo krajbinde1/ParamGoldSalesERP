@@ -43,6 +43,14 @@ function multiSheetTallyLedgersExcel(array $dealerNames): string
     return $path;
 }
 
+function bulkTallyFile(string $dealerName, string $filename): array
+{
+    return [
+        'path' => tallyLedgerExcel(typicalTallyRows($dealerName)),
+        'original_filename' => $filename,
+    ];
+}
+
 it('parses every stacked tally ledger without changing single-file parse', function (): void {
     $path = stackedTallyLedgersExcel(['Alpha Agro', 'Beta Traders']);
 
@@ -68,57 +76,88 @@ it('parses tally ledgers from every worksheet', function (): void {
         ->and(collect($all)->pluck('tallyLedgerName')->all())->toBe(['Sheet One Agro', 'Sheet Two Mart']);
 });
 
-it('bulk imports matched assigned dealers and skips unmatched parties', function (): void {
+it('previews each uploaded excel as one dealer ledger', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9822100101');
+    $ganesh = ledgerDealer($employee, ['firm_name' => 'Shree Ganesh Traders']);
+    ledgerDealer($employee, ['firm_name' => 'Balaji Agro']);
+
+    $preview = app(TallyBulkLedgerImportService::class)->previewFiles([
+        bulkTallyFile('Shree Ganesh Traders', 'ganesh.xlsx'),
+        bulkTallyFile('Unknown Tally Party', 'unknown.xlsx'),
+        bulkTallyFile('Balaji Agro', 'balaji.xlsx'),
+    ], (int) $employee->id);
+
+    $rows = collect($preview['rows']);
+
+    expect($rows)->toHaveCount(3)
+        ->and($rows[0]['file_name'])->toBe('ganesh.xlsx')
+        ->and($rows[0]['detected_dealer'])->toBe('Shree Ganesh Traders')
+        ->and($rows[0]['matched_dealer'])->toBe('Shree Ganesh Traders')
+        ->and($rows[0]['status'])->toBe('Matched')
+        ->and($rows[0]['dealer_id'])->toBe($ganesh->id)
+        ->and($rows[1]['file_name'])->toBe('unknown.xlsx')
+        ->and($rows[1]['detected_dealer'])->toBe('Unknown Tally Party')
+        ->and($rows[1]['matched_dealer'])->toBe('—')
+        ->and($rows[1]['status'])->toBe('Not Matched')
+        ->and($rows[2]['status'])->toBe('Matched');
+});
+
+it('bulk imports matched files and skips unmatched and error files', function (): void {
     $employee = ledgerEmployee(UserRole::Employee, '9822100001');
     $otherEmployee = ledgerEmployee(UserRole::Employee, '9822100002');
     $matched = ledgerDealer($employee, ['firm_name' => 'Shree Ganesh Traders']);
     $alsoMatched = ledgerDealer($employee, ['firm_name' => 'Balaji Agro']);
     $otherDealers = ledgerDealer($otherEmployee, ['firm_name' => 'Other Employee Dealer']);
     $admin = tallyImportAdmin();
-    $path = stackedTallyLedgersExcel([
-        'Shree Ganesh Traders',
-        'Unknown Tally Party',
-        'Balaji Agro',
-        'Other Employee Dealer',
-    ]);
 
-    $result = app(TallyBulkLedgerImportService::class)->import($path, (int) $employee->id, $admin, 'bulk.xlsx');
-    $rows = collect($result['rows'])->keyBy('tally_ledger_name');
+    $mismatchRows = typicalTallyRows('Balaji Agro');
+    $mismatchRows[count($mismatchRows) - 2] = ['', 'Closing Balance', '', '', '', '99,000.00'];
+
+    $result = app(TallyBulkLedgerImportService::class)->importFiles([
+        bulkTallyFile('Shree Ganesh Traders', 'ganesh.xlsx'),
+        bulkTallyFile('Unknown Tally Party', 'unknown.xlsx'),
+        [
+            'path' => tallyLedgerExcel($mismatchRows),
+            'original_filename' => 'balaji-error.xlsx',
+        ],
+        bulkTallyFile('Other Employee Dealer', 'other.xlsx'),
+    ], (int) $employee->id, $admin);
+
+    $rows = collect($result['rows'])->keyBy('file_name');
 
     expect($rows)->toHaveCount(4)
-        ->and($rows['Shree Ganesh Traders']['matched'])->toBeTrue()
-        ->and($rows['Shree Ganesh Traders']['import_status_label'])->toBe('Ledger Imported')
-        ->and($rows['Shree Ganesh Traders']['imported_count'])->toBe(2)
-        ->and($rows['Shree Ganesh Traders']['closing_balance_label'])->toBe('₹65,000.00 Dr')
-        ->and($rows['Balaji Agro']['matched'])->toBeTrue()
-        ->and($rows['Balaji Agro']['import_status_label'])->toBe('Ledger Imported')
-        ->and($rows['Unknown Tally Party']['matched'])->toBeFalse()
-        ->and($rows['Unknown Tally Party']['match_label'])->toBe('Not Matched')
-        ->and($rows['Unknown Tally Party']['import_status_label'])->toBe('Not Imported')
-        ->and($rows['Other Employee Dealer']['matched'])->toBeFalse()
-        ->and($rows['Other Employee Dealer']['import_status_label'])->toBe('Not Imported')
+        ->and($rows['ganesh.xlsx']['status'])->toBe('Matched')
+        ->and($rows['ganesh.xlsx']['import_status_label'])->toBe('Ledger Imported')
+        ->and($rows['ganesh.xlsx']['imported_count'])->toBe(2)
+        ->and($rows['unknown.xlsx']['status'])->toBe('Not Matched')
+        ->and($rows['unknown.xlsx']['import_status_label'])->toBe('')
+        ->and($rows['balaji-error.xlsx']['status'])->toBe('Error')
+        ->and($rows['other.xlsx']['status'])->toBe('Not Matched')
         ->and($matched->fresh()->tallyLedgerImportStatusLabel())->toBe('Ledger Imported')
-        ->and($alsoMatched->fresh()->tallyLedgerImportStatusLabel())->toBe('Ledger Imported')
+        ->and($alsoMatched->fresh()->tallyLedgerImportStatusLabel())->toBe('Not Imported')
         ->and($otherDealers->fresh()->tallyLedgerImportStatusLabel())->toBe('Not Imported')
         ->and(DealerTallyEntry::query()->where('dealer_id', $matched->id)->count())->toBe(2)
-        ->and(DealerTallyEntry::query()->where('dealer_id', $alsoMatched->id)->count())->toBe(2)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $alsoMatched->id)->count())->toBe(0)
         ->and(DealerTallyEntry::query()->where('dealer_id', $otherDealers->id)->count())->toBe(0)
         ->and(Dealer::query()->where('firm_name', 'Unknown Tally Party')->exists())->toBeFalse();
 });
 
-it('skips duplicate transactions when the same bulk file is imported again', function (): void {
+it('marks already imported dealers and does not import them again', function (): void {
     $employee = ledgerEmployee(UserRole::Employee, '9822100003');
     $dealer = ledgerDealer($employee, ['firm_name' => 'Repeat Agro']);
     $admin = tallyImportAdmin();
-    $path = stackedTallyLedgersExcel(['Repeat Agro']);
+    $file = bulkTallyFile('Repeat Agro', 'repeat.xlsx');
 
-    $first = app(TallyBulkLedgerImportService::class)->import($path, (int) $employee->id, $admin, 'bulk.xlsx');
-    $second = app(TallyBulkLedgerImportService::class)->import($path, (int) $employee->id, $admin, 'bulk.xlsx');
+    $first = app(TallyBulkLedgerImportService::class)->importFiles([$file], (int) $employee->id, $admin);
+    $second = app(TallyBulkLedgerImportService::class)->importFiles([
+        bulkTallyFile('Repeat Agro', 'repeat-again.xlsx'),
+    ], (int) $employee->id, $admin);
 
-    expect($first['rows'][0]['imported_count'])->toBe(2)
+    expect($first['rows'][0]['import_status_label'])->toBe('Ledger Imported')
+        ->and($first['rows'][0]['imported_count'])->toBe(2)
+        ->and($second['rows'][0]['status'])->toBe('Already Imported')
+        ->and($second['rows'][0]['import_status_label'])->toBe('')
         ->and($second['rows'][0]['imported_count'])->toBe(0)
-        ->and($second['rows'][0]['duplicate_count'])->toBe(2)
-        ->and($second['rows'][0]['import_status_label'])->toBe('Ledger Imported')
         ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2)
         ->and($dealer->fresh()->tallyLedgerImportStatusLabel())->toBe('Ledger Imported');
 });
@@ -129,12 +168,16 @@ it('does not mark a mismatched tally ledger as imported', function (): void {
     $admin = tallyImportAdmin();
     $rows = typicalTallyRows('Mismatch Agro');
     $rows[count($rows) - 2] = ['', 'Closing Balance', '', '', '', '99,000.00'];
-    $path = tallyLedgerExcel($rows);
 
-    $result = app(TallyBulkLedgerImportService::class)->import($path, (int) $employee->id, $admin, 'mismatch.xlsx');
+    $result = app(TallyBulkLedgerImportService::class)->importFiles([
+        [
+            'path' => tallyLedgerExcel($rows),
+            'original_filename' => 'mismatch.xlsx',
+        ],
+    ], (int) $employee->id, $admin);
 
-    expect($result['rows'][0]['matched'])->toBeTrue()
-        ->and($result['rows'][0]['import_status_label'])->toBe('Failed')
+    expect($result['rows'][0]['status'])->toBe('Error')
+        ->and($result['rows'][0]['matched_dealer'])->toBe('Mismatch Agro')
         ->and($dealer->fresh()->tallyLedgerImportStatusLabel())->toBe('Not Imported')
         ->and(DealerTallyLedger::query()->where('dealer_id', $dealer->id)->exists())->toBeFalse()
         ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(0);
@@ -154,6 +197,7 @@ it('lists only the selected employee dealers on the bulk import page', function 
         ->assertDontSee('Assigned Visible Dealer')
         ->assertDontSee('Other Employee Hidden Dealer')
         ->fillForm(['employee_id' => $employee->id])
+        ->assertSee('Tally Ledger Excel files')
         ->assertSee('Assigned Visible Dealer')
         ->assertDontSee('Other Employee Hidden Dealer')
         ->assertSee($assigned->dealer_code)

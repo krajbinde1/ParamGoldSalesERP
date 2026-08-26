@@ -44,9 +44,8 @@ class BulkImportTallyLedger extends Page implements HasForms
     /** @var list<array<string, mixed>> */
     public array $resultRows = [];
 
-    public ?string $uploadedFilePath = null;
-
-    public ?string $originalFilename = null;
+    /** @var list<array{path: string, original_filename: string}> */
+    public array $uploadedFiles = [];
 
     public static function canAccess(array $parameters = []): bool
     {
@@ -81,13 +80,15 @@ class BulkImportTallyLedger extends Page implements HasForms
                     ->afterStateUpdated(function (): void {
                         $this->resetAfterEmployeeChange();
                     }),
-                FileUpload::make('file')
-                    ->label('Tally Ledger Excel')
-                    ->helperText('Upload one Tally Excel that contains ledgers for this employee’s dealers. Unmatched parties are not imported.')
+                FileUpload::make('files')
+                    ->label('Tally Ledger Excel files')
+                    ->helperText('Select multiple .xlsx / .xls files together. Each file is one dealer ledger and is matched by the ledger name inside the Excel.')
                     ->acceptedFileTypes([
                         'application/vnd.ms-excel',
                         'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
                     ])
+                    ->multiple()
+                    ->maxFiles(100)
                     ->required()
                     ->storeFiles(false)
                     ->visible(fn (Get $get): bool => filled($get('employee_id'))),
@@ -138,48 +139,30 @@ class BulkImportTallyLedger extends Page implements HasForms
     {
         $employeeId = (int) ($this->data['employee_id'] ?? 0);
         if ($employeeId < 1) {
-            Notification::make()->danger()->title('Select an employee')->body('Choose the assigned employee before uploading the Tally Excel.')->send();
+            Notification::make()->danger()->title('Select an employee')->body('Choose the assigned employee before uploading Tally Excel files.')->send();
 
             return;
         }
 
-        $data = $this->form->getState();
-        $uploaded = $data['file'] ?? null;
-
-        if (! $uploaded instanceof TemporaryUploadedFile) {
-            Notification::make()->danger()->title('Upload failed')->body('Please choose a Tally Excel file.')->send();
+        $files = $this->storeUploadedFiles();
+        if ($files === []) {
+            Notification::make()->danger()->title('Upload failed')->body('Please choose one or more Tally Excel files.')->send();
 
             return;
         }
-
-        $realPath = $uploaded->getRealPath();
-        if ($realPath === false) {
-            Notification::make()->danger()->title('Upload failed')->body('Unable to read the uploaded file.')->send();
-
-            return;
-        }
-
-        $originalName = $uploaded->getClientOriginalName();
-        $storedPath = $uploaded->storeAs(
-            path: 'tally-ledger-imports',
-            name: 'bulk-preview-'.now()->format('YmdHis').'-'.$originalName,
-            options: 'local',
-        );
-        $absolutePath = Storage::disk('local')->path($storedPath);
 
         try {
-            $preview = app(TallyBulkLedgerImportService::class)->preview($absolutePath, $employeeId);
+            $preview = app(TallyBulkLedgerImportService::class)->previewFiles($files, $employeeId);
             $this->previewRows = $preview['rows'];
-            $this->uploadedFilePath = $absolutePath;
-            $this->originalFilename = $originalName;
+            $this->uploadedFiles = $files;
             $this->resultRows = [];
             $this->step = 2;
         } catch (ValidationException $exception) {
-            Storage::disk('local')->delete($storedPath);
+            $this->deleteStoredFiles($files);
             Notification::make()
                 ->danger()
-                ->title('Unable to read Tally Excel')
-                ->body(collect($exception->errors())->flatten()->first() ?? 'Invalid import file.')
+                ->title('Unable to read Tally Excel files')
+                ->body(collect($exception->errors())->flatten()->first() ?? 'Invalid import files.')
                 ->send();
         }
     }
@@ -193,36 +176,36 @@ class BulkImportTallyLedger extends Page implements HasForms
             return;
         }
 
-        if ($this->uploadedFilePath === null || ! is_file($this->uploadedFilePath)) {
-            Notification::make()->danger()->title('Import failed')->body('Upload the Tally Excel again before importing.')->send();
+        if ($this->uploadedFiles === []) {
+            Notification::make()->danger()->title('Import failed')->body('Upload the Tally Excel files again before importing.')->send();
 
             return;
         }
 
         try {
-            $result = app(TallyBulkLedgerImportService::class)->import(
-                path: $this->uploadedFilePath,
+            $result = app(TallyBulkLedgerImportService::class)->importFiles(
+                files: $this->uploadedFiles,
                 employeeId: $employeeId,
                 actor: auth()->user(),
-                originalFilename: $this->originalFilename ?: 'tally-ledger.xlsx',
             );
             $this->resultRows = $result['rows'];
             $this->step = 3;
 
-            $importedDealers = collect($result['rows'])->where('import_status_label', 'Ledger Imported')->count();
-            $failed = collect($result['rows'])->where('import_status_label', 'Failed')->count();
-            $unmatched = collect($result['rows'])->where('matched', false)->count();
+            $imported = collect($result['rows'])->where('import_status_label', 'Ledger Imported')->count();
+            $notMatched = collect($result['rows'])->where('status', TallyBulkLedgerImportService::STATUS_NOT_MATCHED)->count();
+            $already = collect($result['rows'])->where('status', TallyBulkLedgerImportService::STATUS_ALREADY_IMPORTED)->count();
+            $errors = collect($result['rows'])->where('status', TallyBulkLedgerImportService::STATUS_ERROR)->count();
 
             Notification::make()
                 ->success()
                 ->title('Bulk Tally import finished')
-                ->body('Imported: '.$importedDealers.' · Failed: '.$failed.' · Not matched: '.$unmatched)
+                ->body('Imported: '.$imported.' · Not matched: '.$notMatched.' · Already imported: '.$already.' · Error: '.$errors)
                 ->send();
         } catch (ValidationException $exception) {
             Notification::make()
                 ->danger()
                 ->title('Import failed')
-                ->body(collect($exception->errors())->flatten()->first() ?? 'Unable to import this file.')
+                ->body(collect($exception->errors())->flatten()->first() ?? 'Unable to import these files.')
                 ->send();
         }
     }
@@ -233,8 +216,7 @@ class BulkImportTallyLedger extends Page implements HasForms
         $this->step = 1;
         $this->previewRows = [];
         $this->resultRows = [];
-        $this->uploadedFilePath = null;
-        $this->originalFilename = null;
+        $this->uploadedFiles = [];
         $this->data = ['employee_id' => $employeeId];
         $this->form->fill($this->data);
     }
@@ -244,9 +226,65 @@ class BulkImportTallyLedger extends Page implements HasForms
         $this->step = 1;
         $this->previewRows = [];
         $this->resultRows = [];
-        $this->uploadedFilePath = null;
-        $this->originalFilename = null;
-        $this->data['file'] = null;
+        $this->uploadedFiles = [];
+        $this->data['files'] = null;
+    }
+
+    /**
+     * @return list<array{path: string, original_filename: string}>
+     */
+    private function storeUploadedFiles(): array
+    {
+        $data = $this->form->getState();
+        $uploaded = $data['files'] ?? [];
+        if ($uploaded instanceof TemporaryUploadedFile) {
+            $uploaded = [$uploaded];
+        }
+
+        if (! is_array($uploaded) || $uploaded === []) {
+            return [];
+        }
+
+        $stored = [];
+        $stamp = now()->format('YmdHis');
+
+        foreach (array_values($uploaded) as $index => $file) {
+            if (! $file instanceof TemporaryUploadedFile) {
+                continue;
+            }
+
+            $realPath = $file->getRealPath();
+            if ($realPath === false) {
+                continue;
+            }
+
+            $originalName = $file->getClientOriginalName();
+            $storedPath = $file->storeAs(
+                path: 'tally-ledger-imports',
+                name: 'bulk-'.$stamp.'-'.$index.'-'.$originalName,
+                options: 'local',
+            );
+
+            $stored[] = [
+                'path' => Storage::disk('local')->path($storedPath),
+                'original_filename' => $originalName,
+            ];
+        }
+
+        return $stored;
+    }
+
+    /**
+     * @param  list<array{path: string, original_filename: string}>  $files
+     */
+    private function deleteStoredFiles(array $files): void
+    {
+        foreach ($files as $file) {
+            $path = (string) ($file['path'] ?? '');
+            if ($path !== '' && is_file($path)) {
+                @unlink($path);
+            }
+        }
     }
 
     /**
