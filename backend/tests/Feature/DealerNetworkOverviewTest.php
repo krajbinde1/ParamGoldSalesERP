@@ -1,6 +1,8 @@
 <?php
 
 use App\Enums\UserRole;
+use App\Filament\Pages\DealerNetwork;
+use App\Filament\Resources\Dealers\DealerResource;
 use App\Filament\Resources\Dealers\Pages\ListDealers;
 use App\Services\Dealers\DealerNetworkOverviewService;
 use Livewire\Livewire;
@@ -138,4 +140,68 @@ it('does not show a map toggle when dealers have no coordinates', function (): v
         ->test(ListDealers::class)
         ->assertSuccessful()
         ->assertDontSee('Map View');
+});
+
+it('registers dealer network under sales operations for the same roles as dealers', function (): void {
+    $admin = tallyImportAdmin();
+
+    $this->actingAs($admin);
+
+    expect(DealerNetwork::canAccess())->toBeTrue()
+        ->and(DealerNetwork::shouldRegisterNavigation())->toBeTrue()
+        ->and(DealerNetwork::getNavigationGroup())->toBe('Sales Operations')
+        ->and(DealerNetwork::getNavigationLabel())->toBe('Dealer Network')
+        ->and(DealerResource::canAccess())->toBeTrue();
+
+    expect(DealerNetwork::getUrl())->toContain('dealer-network');
+});
+
+it('opens the existing dealer network overview from the sales operations menu page', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100205');
+    $admin = tallyImportAdmin();
+    $jalnaPartur = ledgerDealer($employee, [
+        'firm_name' => 'Sidebar Jalna Partur Dealer',
+        'state' => 'Maharashtra',
+        'district' => 'Jalna',
+        'taluka' => 'Partur',
+        'village' => 'Ashti',
+        'dealer_type' => 'Retailer',
+    ]);
+    $jalnaAmbad = ledgerDealer($employee, [
+        'firm_name' => 'Sidebar Jalna Ambad Dealer',
+        'state' => 'Maharashtra',
+        'district' => 'Jalna',
+        'taluka' => 'Ambad',
+        'village' => 'Ambad',
+        'dealer_type' => 'Retailer',
+    ]);
+    $beed = ledgerDealer($employee, [
+        'firm_name' => 'Sidebar Beed Dealer',
+        'state' => 'Maharashtra',
+        'district' => 'Beed',
+        'taluka' => 'Georai',
+        'village' => 'Georai',
+        'dealer_type' => 'Retailer',
+    ]);
+
+    Livewire::actingAs($admin)
+        ->test(DealerNetwork::class)
+        ->assertSuccessful()
+        ->assertSee('Dealer Network Overview')
+        ->assertSee('Total Dealers')
+        ->assertSee('Districts Covered')
+        ->assertSee('Talukas Covered')
+        ->assertSee('Villages Covered')
+        ->assertSee('District-wise Dealer Network')
+        ->assertSee('Taluka-wise Distribution')
+        ->assertSee('Area Network')
+        ->assertCanSeeTableRecords([$jalnaPartur, $jalnaAmbad, $beed])
+        ->call('selectNetworkDistrict', 'Jalna')
+        ->assertSet('networkDistrict', 'Jalna')
+        ->assertCanSeeTableRecords([$jalnaPartur, $jalnaAmbad])
+        ->assertCanNotSeeTableRecords([$beed])
+        ->call('selectNetworkTaluka', 'Partur', 'Jalna')
+        ->assertSet('networkTaluka', 'Partur')
+        ->assertCanSeeTableRecords([$jalnaPartur])
+        ->assertCanNotSeeTableRecords([$jalnaAmbad, $beed]);
 });

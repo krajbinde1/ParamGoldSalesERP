@@ -1,6 +1,5 @@
 @php
-    /** @var \App\Filament\Resources\Dealers\Pages\ListDealers $page */
-    $page = $schemaComponent->getLivewire();
+    $page = isset($schemaComponent) ? $schemaComponent->getLivewire() : $this;
     $overview = $page->networkOverview();
     $summary = $overview['summary'];
     $districts = $overview['districts'];
