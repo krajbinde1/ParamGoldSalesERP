@@ -18,6 +18,11 @@ import '../updates/app_update_controller.dart';
 import '../../modules/collections/screens/collection_dashboard_screen.dart';
 import '../../modules/collections/screens/collection_detail_screen.dart';
 import '../../modules/collections/screens/new_collection_screen.dart';
+import '../../modules/credit_notes/models/credit_note.dart';
+import '../../modules/credit_notes/screens/credit_note_detail_screen.dart';
+import '../../modules/credit_notes/screens/credit_note_form_screen.dart';
+import '../../modules/credit_notes/screens/credit_note_list_screen.dart';
+import '../../modules/credit_notes/screens/manager_credit_note_screens.dart';
 import '../../modules/ta_da_claims/screens/new_ta_da_claim_screen.dart';
 import '../../modules/ta_da_claims/screens/ta_da_claim_dashboard_screen.dart';
 import '../../modules/ta_da_claims/screens/ta_da_claim_detail_screen.dart';
@@ -246,6 +251,32 @@ GoRouter createRouter(
       ],
     ),
     GoRoute(
+      path: '/credit-notes',
+      builder: (_, _) => CreditNoteListScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: 'new',
+          builder: (_, _) => CreditNoteFormScreen(auth: auth),
+        ),
+        GoRoute(
+          path: ':creditNoteId',
+          builder: (_, state) => CreditNoteDetailScreen(
+            auth: auth,
+            creditNoteId: int.parse(state.pathParameters['creditNoteId']!),
+          ),
+          routes: [
+            GoRoute(
+              path: 'edit',
+              builder: (_, state) => CreditNoteFormScreen(
+                auth: auth,
+                initial: state.extra as CreditNoteDetail?,
+              ),
+            ),
+          ],
+        ),
+      ],
+    ),
+    GoRoute(
       path: '/field-activities',
       builder: (_, _) => FieldActivityDashboardScreen(auth: auth),
       routes: [
@@ -404,6 +435,22 @@ GoRouter createRouter(
           builder: (_, state) => ManagerCollectionDetailScreen(
             auth: auth,
             collectionId: int.parse(state.pathParameters['collectionId']!),
+          ),
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/manager/credit-notes',
+      builder: (_, state) => ManagerCreditNoteListScreen(
+        auth: auth,
+        initialTab: state.uri.queryParameters['tab'] ?? 'pending',
+      ),
+      routes: [
+        GoRoute(
+          path: ':creditNoteId',
+          builder: (_, state) => ManagerCreditNoteDetailScreen(
+            auth: auth,
+            creditNoteId: int.parse(state.pathParameters['creditNoteId']!),
           ),
         ),
       ],

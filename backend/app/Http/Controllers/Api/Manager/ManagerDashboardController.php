@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api\Manager;
 use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
+use App\Models\CreditNote;
 use App\Models\Order;
 use App\Models\TaDaClaim;
 use App\Services\Dashboard\DashboardMetricsService;
@@ -121,6 +122,12 @@ class ManagerDashboardController extends Controller
                     'status_label' => $order->displayStatusLabel(),
                 ]),
             'pending_order_approval_count' => $placedOrders,
+            'pending_credit_note_approval_count' => $reportIds === []
+                ? 0
+                : CreditNote::query()
+                    ->whereIn('sales_employee_id', $reportIds)
+                    ->where('status', CreditNote::STATUS_PENDING_APPROVAL)
+                    ->count(),
             'pending_ta_da_approvals' => $reportIds === []
                 ? []
                 : TaDaClaim::query()

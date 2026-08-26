@@ -7,6 +7,7 @@ class ManagerDashboardData {
     required this.pendingOrders,
     required this.approvedOrders,
     this.returnedByProduction = 0,
+    this.pendingCreditNotes = 0,
     required this.dispatchedOrders,
     required this.pendingClaims,
     required this.approvedClaims,
@@ -30,6 +31,7 @@ class ManagerDashboardData {
   final int pendingOrders;
   final int approvedOrders;
   final int returnedByProduction;
+  final int pendingCreditNotes;
   final int dispatchedOrders;
   final int pendingClaims;
   final int approvedClaims;
@@ -65,6 +67,9 @@ class ManagerDashboardData {
       approvedOrders: int.tryParse('${orders['approved_orders'] ?? 0}') ?? 0,
       returnedByProduction:
           int.tryParse('${orders['returned_by_production'] ?? 0}') ?? 0,
+      pendingCreditNotes:
+          int.tryParse('${json['pending_credit_note_approval_count'] ?? 0}') ??
+          0,
       dispatchedOrders:
           int.tryParse('${orders['dispatched_orders'] ?? 0}') ?? 0,
       pendingClaims: int.tryParse('${taDa['pending_claims'] ?? 0}') ?? 0,

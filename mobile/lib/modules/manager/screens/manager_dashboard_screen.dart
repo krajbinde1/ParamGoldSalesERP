@@ -158,6 +158,15 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                                 _open('/manager/orders?tab=pending'),
                           ),
                           _ModuleItem(
+                            title: 'Credit Notes',
+                            subtitle: data.pendingCreditNotes > 0
+                                ? '${data.pendingCreditNotes} pending approval'
+                                : 'Review team credit notes',
+                            icon: Icons.note_alt_outlined,
+                            onTap: () =>
+                                _open('/manager/credit-notes?tab=pending'),
+                          ),
+                          _ModuleItem(
                             title: 'Collections',
                             subtitle: 'View team collections',
                             icon: Icons.payments_rounded,

@@ -9,7 +9,9 @@
     $hasTransportAdjustment = OrderBillingTransportCalculator::hasSavedAdjustment($record);
     $subtotal = (float) $billing['subtotal'];
     $discount = (float) $billing['discount_amount'];
-    $taxable = (float) $billing['taxable_amount_after_transport'];
+    $taxable = $record->taxable_amount_after_transport !== null
+        ? (float) $record->taxable_amount_after_transport
+        : (float) $billing['taxable_amount_after_transport'];
     $cgst = (float) $billing['cgst_amount'];
     $sgst = (float) $billing['sgst_amount'];
     $grandTotal = (float) $billing['final_grand_total'];

@@ -196,10 +196,10 @@ final class OrderDetailPresenter
                 : ($order->subtotal_before_transport !== null
                     ? (float) $order->subtotal_before_transport
                     : $calculation['subtotal_before_transport']),
-            'taxable_amount_after_transport' => OrderBillingTransportCalculator::hasSavedAdjustment($order)
-                ? (float) $billing['taxable_amount_after_transport']
-                : ($order->taxable_amount_after_transport !== null
-                    ? (float) $order->taxable_amount_after_transport
+            'taxable_amount_after_transport' => $order->taxable_amount_after_transport !== null
+                ? (float) $order->taxable_amount_after_transport
+                : (OrderBillingTransportCalculator::hasSavedAdjustment($order)
+                    ? (float) $billing['taxable_amount_after_transport']
                     : $calculation['taxable_amount_after_transport']),
             'total_gst' => OrderBillingTransportCalculator::hasSavedAdjustment($order)
                 ? (float) $billing['gst_amount']

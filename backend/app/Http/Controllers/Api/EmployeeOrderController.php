@@ -404,10 +404,10 @@ class EmployeeOrderController extends Controller
                 : ($order->subtotal_before_transport !== null
                     ? (float) $order->subtotal_before_transport
                     : null),
-            'taxable_amount_after_transport' => \App\Services\Orders\OrderBillingTransportCalculator::hasSavedAdjustment($order)
-                ? (float) $billing['taxable_amount_after_transport']
-                : ($order->taxable_amount_after_transport !== null
-                    ? (float) $order->taxable_amount_after_transport
+            'taxable_amount_after_transport' => $order->taxable_amount_after_transport !== null
+                ? (float) $order->taxable_amount_after_transport
+                : (\App\Services\Orders\OrderBillingTransportCalculator::hasSavedAdjustment($order)
+                    ? (float) $billing['taxable_amount_after_transport']
                     : null),
             'can_edit' => $order->status === 'pending_approval',
             'timeline' => $order->workflowTimeline(),

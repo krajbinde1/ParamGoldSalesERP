@@ -452,12 +452,9 @@ class OrderInvoiceSummaryBlock extends StatelessWidget {
             '${order['final_grand_total'] ?? order['grand_total'] ?? 0}',
           ) ??
           0,
-      taxableValue: order['taxable_amount_after_transport'] == null &&
-              calc['taxable_amount_after_transport'] == null
+      taxableValue: order['taxable_amount_after_transport'] == null
           ? null
-          : double.tryParse(
-              '${order['taxable_amount_after_transport'] ?? calc['taxable_amount_after_transport']}',
-            ),
+          : double.tryParse('${order['taxable_amount_after_transport']}'),
       transport: order['transport_amount'] == null &&
               order['transport_charges'] == null
           ? null

@@ -4,6 +4,7 @@ namespace App\Providers;
 
 use App\Models\Bom;
 use App\Models\Collection;
+use App\Models\CreditNote;
 use App\Models\Crop;
 use App\Models\Dealer;
 use App\Models\DealerApplication;
@@ -23,9 +24,11 @@ use App\Models\StockAdjustment;
 use App\Models\StockLedger;
 use App\Models\TaDaClaim;
 use App\Observers\CollectionObserver;
+use App\Observers\CreditNoteObserver;
 use App\Observers\OrderObserver;
 use App\Observers\PaymentRequestObserver;
 use App\Policies\BomPolicy;
+use App\Policies\CreditNotePolicy;
 use App\Policies\CropPolicy;
 use App\Policies\DealerApplicationPolicy;
 use App\Policies\DealerPolicy;
@@ -70,6 +73,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(Crop::class, CropPolicy::class);
         Gate::policy(Product::class, ProductPolicy::class);
         Gate::policy(Order::class, OrderPolicy::class);
+        Gate::policy(CreditNote::class, CreditNotePolicy::class);
         Gate::policy(OrderEditPermissionRequest::class, OrderEditPermissionRequestPolicy::class);
         Gate::policy(TaDaClaim::class, TaDaClaimPolicy::class);
         Gate::policy(PaymentRequest::class, PaymentRequestPolicy::class);
@@ -85,6 +89,7 @@ class AppServiceProvider extends ServiceProvider
 
         Order::observe(OrderObserver::class);
         Collection::observe(CollectionObserver::class);
+        CreditNote::observe(CreditNoteObserver::class);
         PaymentRequest::observe(PaymentRequestObserver::class);
     }
 }

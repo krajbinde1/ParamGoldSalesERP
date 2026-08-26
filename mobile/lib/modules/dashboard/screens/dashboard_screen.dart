@@ -279,6 +279,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   onTap: () => _open('/collections'),
                                 ),
                                 _EmployeeModuleItem(
+                                  title: 'Credit Note',
+                                  subtitle: 'Sales return / rate difference',
+                                  icon: Icons.note_alt_outlined,
+                                  onTap: () => _open('/credit-notes'),
+                                ),
+                                _EmployeeModuleItem(
                                   title: 'TA / DA Claim',
                                   subtitle: 'Submit expense claim',
                                   icon: Icons.receipt_long_outlined,

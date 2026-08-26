@@ -11,7 +11,9 @@
     $adjustment = $billing['transport_adjustment'];
     $subtotal = $billing['subtotal'];
     $discount = $billing['discount_amount'];
-    $taxable = $billing['taxable_amount_after_transport'];
+    $taxable = $record->taxable_amount_after_transport !== null
+        ? (float) $record->taxable_amount_after_transport
+        : $billing['taxable_amount_after_transport'];
     $gst = $billing['gst_amount'];
     $final = $billing['final_grand_total'];
     $roundOff = $billing['round_off'];
