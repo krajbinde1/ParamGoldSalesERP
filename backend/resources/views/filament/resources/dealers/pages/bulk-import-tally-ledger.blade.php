@@ -43,35 +43,43 @@
             </div>
 
             @if ($employeeLabel)
-                <div class="rounded-xl border border-slate-200 bg-white p-6">
-                    <div class="flex flex-wrap items-baseline justify-between gap-2">
+                <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                    <div class="flex flex-wrap items-baseline justify-between gap-2 px-6 py-5">
                         <h3 class="text-base font-semibold text-slate-950">Dealers assigned to {{ $employeeLabel }}</h3>
                         <div class="text-sm text-slate-500">{{ count($assignedDealers) }} dealer{{ count($assignedDealers) === 1 ? '' : 's' }}</div>
                     </div>
                     @if ($assignedDealers === [])
-                        <p class="mt-3 text-sm text-slate-600">No dealers are assigned to this employee.</p>
+                        <p class="border-t border-gray-200 px-6 py-5 text-sm text-slate-600">No dealers are assigned to this employee.</p>
                     @else
-                        <div class="mt-4 overflow-x-auto rounded-lg border border-slate-200">
-                            <table class="min-w-full text-sm">
-                                <thead class="bg-slate-50 text-xs uppercase text-slate-500">
-                                    <tr>
-                                        <th class="px-3 py-2 text-left">Dealer</th>
-                                        <th class="px-3 py-2 text-left">Code</th>
-                                        <th class="px-3 py-2 text-left">Village</th>
-                                        <th class="px-3 py-2 text-left">Tally Ledger Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    @foreach ($assignedDealers as $dealer)
-                                        <tr class="border-t border-slate-100">
-                                            <td class="px-3 py-2 font-medium text-slate-900">{{ $dealer['firm_name'] }}</td>
-                                            <td class="px-3 py-2">{{ $dealer['dealer_code'] ?: '—' }}</td>
-                                            <td class="px-3 py-2">{{ $dealer['village'] ?: '—' }}</td>
-                                            <td class="px-3 py-2">{{ $dealer['tally_status'] }}</td>
+                        <div class="fi-ta-ctn border-t border-gray-200">
+                            <div class="fi-ta-content relative overflow-x-auto">
+                                <table class="fi-ta-table w-full table-fixed divide-y divide-gray-200 text-sm">
+                                    <colgroup>
+                                        <col style="width: 40%">
+                                        <col style="width: 16%">
+                                        <col style="width: 24%">
+                                        <col style="width: 20%">
+                                    </colgroup>
+                                    <thead>
+                                        <tr class="bg-gray-50">
+                                            <th class="fi-ta-header-cell px-4 py-3 text-start text-xs font-semibold uppercase tracking-wide text-gray-600">Dealer</th>
+                                            <th class="fi-ta-header-cell px-4 py-3 text-start text-xs font-semibold uppercase tracking-wide text-gray-600">Code</th>
+                                            <th class="fi-ta-header-cell px-4 py-3 text-start text-xs font-semibold uppercase tracking-wide text-gray-600">Village</th>
+                                            <th class="fi-ta-header-cell px-4 py-3 text-start text-xs font-semibold uppercase tracking-wide text-gray-600">Ledger Status</th>
                                         </tr>
-                                    @endforeach
-                                </tbody>
-                            </table>
+                                    </thead>
+                                    <tbody class="divide-y divide-gray-200">
+                                        @foreach ($assignedDealers as $index => $dealer)
+                                            <tr @class(['fi-ta-row', 'bg-gray-50/70' => $index % 2 === 1])>
+                                                <td class="fi-ta-cell truncate px-4 py-3 font-medium text-slate-900" title="{{ $dealer['firm_name'] }}">{{ $dealer['firm_name'] }}</td>
+                                                <td class="fi-ta-cell whitespace-nowrap px-4 py-3">{{ $dealer['dealer_code'] ?: '—' }}</td>
+                                                <td class="fi-ta-cell truncate px-4 py-3" title="{{ $dealer['village'] ?: '—' }}">{{ $dealer['village'] ?: '—' }}</td>
+                                                <td class="fi-ta-cell whitespace-nowrap px-4 py-3">{{ $dealer['tally_status'] }}</td>
+                                            </tr>
+                                        @endforeach
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     @endif
                 </div>
@@ -79,8 +87,8 @@
         @endif
 
         @if ($step === 2)
-            <div class="rounded-xl border border-gray-200 bg-white p-6 space-y-5">
-                <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                <div class="flex flex-col gap-4 px-6 py-5 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                         <h2 class="text-lg font-semibold text-gray-950">Preview results</h2>
                         <p class="mt-1 text-sm text-gray-600">
@@ -99,16 +107,18 @@
                     </div>
                 </div>
 
-                @include('filament.resources.dealers.pages.partials.bulk-tally-import-rows', [
-                    'rows' => $previewRows,
-                    'showImportResult' => false,
-                ])
+                <div class="border-t border-gray-200">
+                    @include('filament.resources.dealers.pages.partials.bulk-tally-import-rows', [
+                        'rows' => $previewRows,
+                        'showImportResult' => false,
+                    ])
+                </div>
             </div>
         @endif
 
         @if ($step === 3)
-            <div class="rounded-xl border border-gray-200 bg-white p-6 space-y-5">
-                <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+            <div class="overflow-hidden rounded-xl border border-gray-200 bg-white">
+                <div class="flex flex-col gap-4 px-6 py-5 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                         <h2 class="text-lg font-semibold text-gray-950">Import results</h2>
                         <p class="mt-1 text-sm text-gray-600">
@@ -121,10 +131,12 @@
                     </div>
                 </div>
 
-                @include('filament.resources.dealers.pages.partials.bulk-tally-import-rows', [
-                    'rows' => $resultRows,
-                    'showImportResult' => true,
-                ])
+                <div class="border-t border-gray-200">
+                    @include('filament.resources.dealers.pages.partials.bulk-tally-import-rows', [
+                        'rows' => $resultRows,
+                        'showImportResult' => true,
+                    ])
+                </div>
             </div>
         @endif
     </div>

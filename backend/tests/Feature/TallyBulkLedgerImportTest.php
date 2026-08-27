@@ -257,6 +257,52 @@ it('does not mark a mismatched tally ledger as imported', function (): void {
         ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(0);
 });
 
+it('keeps import result columns aligned instead of mixing status and counts', function (): void {
+    $admin = tallyImportAdmin();
+
+    Livewire::actingAs($admin)
+        ->test(BulkImportTallyLedger::class)
+        ->set('step', 3)
+        ->set('resultRows', [
+            [
+                'file_name' => 'AVDHOOT AGRO MART (WADOD BAZAR).xlsx',
+                'detected_dealer' => 'AVDHOOT AGRO MART (WADOD BAZAR)',
+                'matched_dealer' => 'Avdhoot Agro Mart(Wadod bazar)',
+                'dealer_id' => 143,
+                'dealer_code' => 'D143',
+                'status' => 'Matched',
+                'reason' => null,
+                'tally_status' => 'Ledger Imported',
+                'imported_count' => 6,
+                'duplicate_count' => 0,
+                'import_status_label' => 'Ledger Imported',
+                'can_import' => false,
+            ],
+            [
+                'file_name' => 'Bhakti krushi Seva Kendra.xlsx',
+                'detected_dealer' => 'Bhakti krushi Seva Kendra',
+                'matched_dealer' => '—',
+                'dealer_id' => null,
+                'dealer_code' => null,
+                'status' => 'Not Matched',
+                'reason' => 'No assigned dealer matches this Tally party.',
+                'tally_status' => 'Not Imported',
+                'imported_count' => 0,
+                'duplicate_count' => 0,
+                'import_status_label' => '',
+                'can_import' => false,
+            ],
+        ])
+        ->assertSee('File Name')
+        ->assertSee('Ledger Status')
+        ->assertSee('Open ledger')
+        ->assertSeeHtml('erp-bulk-tally-rows--results')
+        ->assertSeeHtml('erp-status-badge')
+        ->assertSeeHtml('erp-col-num')
+        ->assertDontSee('Matched Imported')
+        ->assertSee('No assigned dealer matches this Tally party.');
+});
+
 it('lists only the selected employee dealers on the bulk import page', function (): void {
     $employee = ledgerEmployee(UserRole::Employee, '9822100005');
     $otherEmployee = ledgerEmployee(UserRole::Employee, '9822100006');
