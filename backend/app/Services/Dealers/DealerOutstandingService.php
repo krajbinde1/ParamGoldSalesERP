@@ -5,13 +5,14 @@ namespace App\Services\Dealers;
 use App\Enums\UserRole;
 use App\Models\Dealer;
 use App\Models\Employee;
+use App\Services\TallyLedger\TallyDealerLedgerService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\DB;
 
 /**
- * Outstanding listings for Admin / Director. Reuses DealerLedgerService SQL
- * and does not change ledger or outstanding calculation.
+ * Outstanding listings for Admin / Director.
+ * Uses the same current outstanding as Dealer Ledger (Tally opening + debit − credit).
  */
 final class DealerOutstandingService
 {
@@ -22,7 +23,7 @@ final class DealerOutstandingService
     ];
 
     public function __construct(
-        private readonly DealerLedgerService $ledger,
+        private readonly TallyDealerLedgerService $ledger,
     ) {}
 
     public function total(?int $assignedEmployeeId = null): float
@@ -43,7 +44,7 @@ final class DealerOutstandingService
      */
     public function summary(?int $assignedEmployeeId = null): array
     {
-        $sql = DealerLedgerService::currentOutstandingSql();
+        $sql = TallyDealerLedgerService::signedCurrentOutstandingSql();
 
         $inner = Dealer::query()
             ->where('status', true)
@@ -75,7 +76,7 @@ final class DealerOutstandingService
      */
     public function dealersQuery(?int $assignedEmployeeId = null): Builder
     {
-        $sql = DealerLedgerService::currentOutstandingSql();
+        $sql = TallyDealerLedgerService::signedCurrentOutstandingSql();
 
         $query = Dealer::query()
             ->where('status', true)
@@ -100,7 +101,7 @@ final class DealerOutstandingService
      */
     public function assignedDealersQuery(int $assignedEmployeeId): Builder
     {
-        $sql = DealerLedgerService::currentOutstandingSql();
+        $sql = TallyDealerLedgerService::signedCurrentOutstandingSql();
 
         $query = Dealer::query()
             ->where('status', true)
@@ -195,7 +196,7 @@ final class DealerOutstandingService
      */
     public function totalsByAssignedEmployee(): array
     {
-        $sql = DealerLedgerService::currentOutstandingSql();
+        $sql = TallyDealerLedgerService::signedCurrentOutstandingSql();
 
         $inner = Dealer::query()
             ->where('status', true)
@@ -275,7 +276,7 @@ final class DealerOutstandingService
         $net = $dealer->getAttribute('current_outstanding');
         $net = $net !== null
             ? $this->money($net)
-            : $this->ledger->getOutstanding($dealer);
+            : $this->ledger->signedCurrentOutstanding($dealer);
         $split = $this->splitBalances($net);
 
         return [

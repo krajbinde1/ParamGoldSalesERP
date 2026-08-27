@@ -5,6 +5,7 @@ namespace App\Services\TallyLedger;
 use App\Models\Dealer;
 use App\Models\DealerTallyEntry;
 use App\Support\IndianCurrency;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 
 final class TallyDealerLedgerService
@@ -115,5 +116,64 @@ final class TallyDealerLedgerService
                     : IndianCurrency::formatDrCr($running - $tallySigned),
             ],
         ];
+    }
+
+    /**
+     * Current outstanding as shown on Dealer Ledger: Opening + Debit − Credit.
+     * Positive is Dr, negative is Cr. Dealers without a Tally ledger are 0.
+     */
+    public function signedCurrentOutstanding(Dealer $dealer): float
+    {
+        return round((float) $this->statement($dealer)['summary']['current_outstanding_signed'], 2);
+    }
+
+    /**
+     * SQL matching {@see statement()} / {@see signedCurrentOutstanding()} for list pages.
+     */
+    public static function signedCurrentOutstandingSql(string $dealersTable = 'dealers'): string
+    {
+        $start = TallyLedgerConfig::FINANCIAL_START_DATE;
+        $credit = DealerTallyBalance::CREDIT;
+
+        return "(
+            COALESCE((
+                SELECT CASE
+                    WHEN LOWER(COALESCE(dealer_tally_ledgers.opening_balance_type, 'debit')) = '{$credit}'
+                    THEN -COALESCE(dealer_tally_ledgers.opening_balance, 0)
+                    ELSE COALESCE(dealer_tally_ledgers.opening_balance, 0)
+                END
+                FROM dealer_tally_ledgers
+                WHERE dealer_tally_ledgers.dealer_id = {$dealersTable}.id
+            ), 0)
+            + COALESCE((
+                SELECT COALESCE(SUM(dealer_tally_entries.debit), 0) - COALESCE(SUM(dealer_tally_entries.credit), 0)
+                FROM dealer_tally_entries
+                WHERE dealer_tally_entries.dealer_id = {$dealersTable}.id
+                  AND dealer_tally_entries.entry_date >= COALESCE((
+                      SELECT dealer_tally_ledgers.financial_start_date
+                      FROM dealer_tally_ledgers
+                      WHERE dealer_tally_ledgers.dealer_id = {$dealersTable}.id
+                  ), '{$start}')
+            ), 0)
+        )";
+    }
+
+    /**
+     * @param  Builder<Dealer>  $query
+     * @return Builder<Dealer>
+     */
+    public function scopeWithCurrentOutstanding(Builder $query): Builder
+    {
+        $alias = 'current_outstanding';
+
+        if (! collect($query->getQuery()->columns ?? [])->contains(fn ($column): bool => is_string($column) && str_contains($column, $alias))) {
+            if ($query->getQuery()->columns === null) {
+                $query->select($query->getModel()->getTable().'.*');
+            }
+
+            $query->selectRaw(self::signedCurrentOutstandingSql($query->getModel()->getTable()).' as '.$alias);
+        }
+
+        return $query;
     }
 }

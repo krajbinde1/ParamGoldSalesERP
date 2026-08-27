@@ -11,6 +11,7 @@ use App\Models\Attendance;
 use App\Models\Collection;
 use App\Models\Crop;
 use App\Models\Dealer;
+use App\Models\DealerTallyLedger;
 use App\Models\DealerVisit;
 use App\Models\Employee;
 use App\Models\FieldActivity;
@@ -20,7 +21,7 @@ use App\Models\PaymentRequest;
 use App\Models\Product;
 use App\Models\User;
 use App\Services\Dashboard\DirectorDashboardDataService;
-use App\Services\Dealers\DealerLedgerService;
+use App\Services\Dealers\DealerOutstandingService;
 use App\Support\AttendanceCalendar;
 use App\Support\PublicMediaUrl;
 use Illuminate\Support\Carbon;
@@ -921,15 +922,31 @@ it('lists dealers with outstanding for director and respects employee filter', f
         'firm_name' => 'High Balance Dealer',
         'village' => 'Wagholi',
         'assigned_employee_id' => $akash->id,
-        'opening_balance' => 200000,
+        'opening_balance' => 1,
         'opening_balance_date' => '2026-04-01',
+    ]);
+    DealerTallyLedger::query()->create([
+        'dealer_id' => $high->id,
+        'opening_balance' => 200000,
+        'opening_balance_type' => 'debit',
+        'opening_balance_explicit' => true,
+        'financial_start_date' => '2026-04-01',
+        'last_imported_at' => now(),
     ]);
     $mid = directorDashDealer([
         'firm_name' => 'Mid Balance Dealer',
         'village' => 'Kharadi',
         'assigned_employee_id' => $ganesh->id,
-        'opening_balance' => 80000,
+        'opening_balance' => 1,
         'opening_balance_date' => '2026-04-01',
+    ]);
+    DealerTallyLedger::query()->create([
+        'dealer_id' => $mid->id,
+        'opening_balance' => 80000,
+        'opening_balance_type' => 'debit',
+        'opening_balance_explicit' => true,
+        'financial_start_date' => '2026-04-01',
+        'last_imported_at' => now(),
     ]);
     directorDashDealer([
         'firm_name' => 'Zero Balance Dealer',
@@ -945,8 +962,16 @@ it('lists dealers with outstanding for director and respects employee filter', f
         'opening_balance' => 25000,
         'opening_balance_date' => '2026-04-01',
     ]);
+    DealerTallyLedger::query()->create([
+        'dealer_id' => $low->id,
+        'opening_balance' => 25000,
+        'opening_balance_type' => 'debit',
+        'opening_balance_explicit' => true,
+        'financial_start_date' => '2026-04-01',
+        'last_imported_at' => now(),
+    ]);
 
-    $companyTotal = app(DealerLedgerService::class)->companyTotalOutstanding();
+    $companyTotal = app(DealerOutstandingService::class)->summary()['outstanding'];
 
     $this->actingAs($director, 'sanctum');
 

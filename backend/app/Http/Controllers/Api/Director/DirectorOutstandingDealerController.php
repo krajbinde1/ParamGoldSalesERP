@@ -4,18 +4,18 @@ namespace App\Http\Controllers\Api\Director;
 
 use App\Http\Controllers\Controller;
 use App\Models\Dealer;
-use App\Services\Dealers\DealerLedgerService;
 use App\Services\Dealers\DealerOutstandingService;
+use App\Services\TallyLedger\TallyDealerLedgerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * Director dealer outstanding list — reuses existing ledger outstanding SQL.
+ * Director dealer outstanding list — same Tally ledger outstanding as Dealer Ledger.
  */
 class DirectorOutstandingDealerController extends Controller
 {
     public function __construct(
-        private readonly DealerLedgerService $ledger,
+        private readonly TallyDealerLedgerService $ledger,
         private readonly DealerOutstandingService $outstanding,
     ) {}
 
@@ -26,7 +26,7 @@ class DirectorOutstandingDealerController extends Controller
         ]);
 
         $employeeId = isset($validated['employee_id']) ? (int) $validated['employee_id'] : null;
-        $outstandingSql = DealerLedgerService::currentOutstandingSql();
+        $outstandingSql = TallyDealerLedgerService::signedCurrentOutstandingSql();
 
         $dealers = $this->outstanding->dealersQuery($employeeId)
             ->orderByRaw($outstandingSql.' DESC')
@@ -49,7 +49,7 @@ class DirectorOutstandingDealerController extends Controller
     {
         $employee = $dealer->assignedEmployee;
         $outstanding = round(
-            (float) ($dealer->getAttribute('current_outstanding') ?? $this->ledger->getOutstanding($dealer)),
+            (float) ($dealer->getAttribute('current_outstanding') ?? $this->ledger->signedCurrentOutstanding($dealer)),
             2
         );
 

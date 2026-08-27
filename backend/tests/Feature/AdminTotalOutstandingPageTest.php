@@ -5,10 +5,12 @@ use App\Exports\Dealers\EmployeeOutstandingExport;
 use App\Filament\Pages\TotalOutstanding;
 use App\Filament\Widgets\AdminDirectorCollectionOutstandingWidget;
 use App\Models\Dealer;
+use App\Models\DealerTallyEntry;
+use App\Models\DealerTallyLedger;
 use App\Models\Employee;
 use App\Models\User;
-use App\Services\Dealers\DealerLedgerService;
 use App\Services\Dealers\DealerOutstandingService;
+use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Support\IndianCurrency;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Livewire\Livewire;
@@ -76,6 +78,54 @@ function outstandingPageDealer(array $overrides = []): Dealer
     ], $overrides));
 }
 
+/**
+ * @param  list<array{debit?: float, credit?: float, entry_date?: string, particulars?: string, voucher_type?: string, voucher_no?: string}>  $entries
+ */
+function outstandingTallyAccount(
+    Dealer $dealer,
+    float $openingBalance,
+    string $openingType = 'debit',
+    array $entries = [],
+): void {
+    DealerTallyLedger::query()->create([
+        'dealer_id' => $dealer->id,
+        'opening_balance' => $openingBalance,
+        'opening_balance_type' => $openingType,
+        'opening_balance_explicit' => true,
+        'financial_start_date' => '2026-04-01',
+        'last_imported_at' => now(),
+    ]);
+
+    foreach (array_values($entries) as $index => $entry) {
+        $debit = (float) ($entry['debit'] ?? 0);
+        $credit = (float) ($entry['credit'] ?? 0);
+        $date = (string) ($entry['entry_date'] ?? '2026-04-10');
+        $particulars = (string) ($entry['particulars'] ?? 'Sales');
+        $voucherType = (string) ($entry['voucher_type'] ?? 'Sales');
+        $voucherNo = (string) ($entry['voucher_no'] ?? 'SL-'.$dealer->id.'-'.$index);
+
+        DealerTallyEntry::query()->create([
+            'dealer_id' => $dealer->id,
+            'entry_date' => $date,
+            'particulars' => $particulars,
+            'voucher_type' => $voucherType,
+            'voucher_no' => $voucherNo,
+            'debit' => $debit,
+            'credit' => $credit,
+            'source' => 'tally_import',
+            'fingerprint' => DealerTallyEntry::makeFingerprint(
+                (int) $dealer->id,
+                $date,
+                $voucherType,
+                $voucherNo,
+                $debit,
+                $credit,
+                $particulars,
+            ),
+        ]);
+    }
+}
+
 it('links the admin total outstanding card to the employee-wise outstanding page', function (): void {
     $director = outstandingPageDirector();
 
@@ -98,16 +148,18 @@ it('shows employee-wise outstanding by default and dealer-wise outstanding for a
         'firm_name' => 'High Balance Dealer',
         'village' => 'Wagholi',
         'assigned_employee_id' => $akash->id,
-        'opening_balance' => 200000,
+        'opening_balance' => 49242,
         'opening_balance_date' => '2026-04-01',
     ]);
+    outstandingTallyAccount($high, 200000);
     $mid = outstandingPageDealer([
         'firm_name' => 'Mid Balance Dealer',
         'village' => 'Kharadi',
         'assigned_employee_id' => $ganesh->id,
-        'opening_balance' => 80000,
+        'opening_balance' => 1000,
         'opening_balance_date' => '2026-04-01',
     ]);
+    outstandingTallyAccount($mid, 80000);
     $zero = outstandingPageDealer([
         'firm_name' => 'Zero Balance Dealer',
         'village' => 'Hadapsar',
@@ -122,8 +174,9 @@ it('shows employee-wise outstanding by default and dealer-wise outstanding for a
         'opening_balance' => 25000,
         'opening_balance_date' => '2026-04-01',
     ]);
+    outstandingTallyAccount($low, 25000);
 
-    $companyTotal = app(DealerLedgerService::class)->companyTotalOutstanding();
+    $companyTotal = app(DealerOutstandingService::class)->summary()['outstanding'];
 
     $page = Livewire::actingAs($director)
         ->test(TotalOutstanding::class)
@@ -155,13 +208,14 @@ it('exports selected employee outstanding to excel with all assigned dealers and
     $director = outstandingPageDirector();
     $akash = outstandingPageEmployee('Akash Outstanding', '9940000003');
 
-    outstandingPageDealer([
+    $high = outstandingPageDealer([
         'firm_name' => 'High Balance Dealer',
         'village' => 'Wagholi',
         'assigned_employee_id' => $akash->id,
-        'opening_balance' => 200000,
+        'opening_balance' => 1,
         'opening_balance_date' => '2026-04-01',
     ]);
+    outstandingTallyAccount($high, 200000);
     outstandingPageDealer([
         'firm_name' => 'Zero Balance Dealer',
         'village' => 'Hadapsar',
@@ -221,20 +275,22 @@ it('exports all employees outstanding to excel with dealer rows and a total', fu
     $akash = outstandingPageEmployee('Akash Outstanding', '9940000007');
     $ganesh = outstandingPageEmployee('Ganesh Outstanding', '9940000008');
 
-    outstandingPageDealer([
+    $high = outstandingPageDealer([
         'firm_name' => 'High Balance Dealer',
         'village' => 'Wagholi',
         'assigned_employee_id' => $akash->id,
-        'opening_balance' => 200000,
+        'opening_balance' => 1,
         'opening_balance_date' => '2026-04-01',
     ]);
-    outstandingPageDealer([
+    outstandingTallyAccount($high, 200000);
+    $mid = outstandingPageDealer([
         'firm_name' => 'Mid Balance Dealer',
         'village' => 'Kharadi',
         'assigned_employee_id' => $ganesh->id,
-        'opening_balance' => 80000,
+        'opening_balance' => 1,
         'opening_balance_date' => '2026-04-01',
     ]);
+    outstandingTallyAccount($mid, 80000);
 
     $payload = app(DealerOutstandingService::class)->exportPayload(null);
 
@@ -257,13 +313,14 @@ it('builds a pdf export for the selected employee outstanding list', function ()
     $director = outstandingPageDirector();
     $akash = outstandingPageEmployee('Akash Outstanding', '9940000004');
 
-    outstandingPageDealer([
+    $high = outstandingPageDealer([
         'firm_name' => 'High Balance Dealer',
         'village' => 'Wagholi',
         'assigned_employee_id' => $akash->id,
-        'opening_balance' => 125000,
+        'opening_balance' => 1,
         'opening_balance_date' => '2026-04-01',
     ]);
+    outstandingTallyAccount($high, 125000);
 
     $this->actingAs($director);
 
@@ -308,20 +365,22 @@ it('builds a pdf export for all employees outstanding', function (): void {
     $akash = outstandingPageEmployee('Akash Outstanding', '9940000005');
     $ganesh = outstandingPageEmployee('Ganesh Outstanding', '9940000006');
 
-    outstandingPageDealer([
+    $high = outstandingPageDealer([
         'firm_name' => 'High Balance Dealer',
         'village' => 'Wagholi',
         'assigned_employee_id' => $akash->id,
-        'opening_balance' => 200000,
+        'opening_balance' => 1,
         'opening_balance_date' => '2026-04-01',
     ]);
-    outstandingPageDealer([
+    outstandingTallyAccount($high, 200000);
+    $mid = outstandingPageDealer([
         'firm_name' => 'Mid Balance Dealer',
         'village' => 'Kharadi',
         'assigned_employee_id' => $ganesh->id,
-        'opening_balance' => 80000,
+        'opening_balance' => 1,
         'opening_balance_date' => '2026-04-01',
     ]);
+    outstandingTallyAccount($mid, 80000);
 
     $this->actingAs($director);
 
@@ -369,18 +428,20 @@ it('keeps credit opening balances out of total outstanding and lists them separa
         'firm_name' => 'Debit Opening Dealer',
         'village' => 'Wagholi',
         'assigned_employee_id' => $akash->id,
-        'opening_balance' => 200000,
+        'opening_balance' => 1,
         'opening_balance_type' => 'debit',
         'opening_balance_date' => '2026-04-01',
     ]);
+    outstandingTallyAccount($debitDealer, 200000, 'debit');
     $creditDealer = outstandingPageDealer([
         'firm_name' => 'Credit Opening Dealer',
         'village' => 'Kharadi',
         'assigned_employee_id' => $akash->id,
-        'opening_balance' => 40000,
+        'opening_balance' => 1,
         'opening_balance_type' => 'credit',
         'opening_balance_date' => '2026-04-01',
     ]);
+    outstandingTallyAccount($creditDealer, 40000, 'credit');
 
     $summary = app(DealerOutstandingService::class)->summary($akash->id);
     expect($summary)->toMatchArray([
@@ -438,4 +499,51 @@ it('keeps credit opening balances out of total outstanding and lists them separa
         ->toContain('Credit Opening Dealer')
         ->toContain('Net Balance')
         ->not->toContain('-40,000');
+});
+
+it('uses the dealer ledger tally outstanding on the total outstanding page', function (): void {
+    $director = outstandingPageDirector();
+    $akash = outstandingPageEmployee('Akash Tally Outstanding', '9940000010');
+
+    $dealer = outstandingPageDealer([
+        'firm_name' => 'Avdhoot Agro Mart (Wadod bazar)',
+        'village' => 'Wadod Bazar',
+        'assigned_employee_id' => $akash->id,
+        'opening_balance' => 49242,
+        'opening_balance_type' => 'debit',
+        'opening_balance_date' => '2026-04-01',
+    ]);
+    outstandingTallyAccount($dealer, 50000, 'debit', [
+        ['debit' => 38888, 'credit' => 0, 'particulars' => 'Sales', 'voucher_type' => 'Sales', 'voucher_no' => 'SL-1'],
+        ['debit' => 0, 'credit' => 10000, 'particulars' => 'Receipt', 'voucher_type' => 'Receipt', 'voucher_no' => 'RT-1'],
+    ]);
+
+    $ledgerSigned = app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer);
+    $listed = app(DealerOutstandingService::class)
+        ->assignedDealersQuery($akash->id)
+        ->whereKey($dealer->id)
+        ->value('current_outstanding');
+    $summary = app(DealerOutstandingService::class)->summary($akash->id);
+    $employeeRow = collect(app(DealerOutstandingService::class)->totalsByAssignedEmployee())
+        ->firstWhere('employee_id', $akash->id);
+
+    expect($ledgerSigned)->toBe(78888.0)
+        ->and((float) $listed)->toBe(78888.0)
+        ->and($summary)->toMatchArray([
+            'outstanding' => 78888.0,
+            'credit' => 0.0,
+            'net' => 78888.0,
+        ])
+        ->and($employeeRow['total_outstanding'])->toBe(78888.0)
+        ->and($employeeRow['total_credit'])->toBe(0.0);
+
+    Livewire::actingAs($director)
+        ->test(TotalOutstanding::class)
+        ->assertSuccessful()
+        ->assertSee(IndianCurrency::format(78888))
+        ->assertDontSee(IndianCurrency::format(49242))
+        ->call('selectEmployee', $akash->id)
+        ->assertCanSeeTableRecords([$dealer])
+        ->assertSee(IndianCurrency::format(78888))
+        ->assertDontSee(IndianCurrency::format(49242));
 });

@@ -6,8 +6,8 @@ use App\Exports\Dealers\EmployeeOutstandingExport;
 use App\Filament\Resources\Dealers\DealerResource;
 use App\Models\Dealer;
 use App\Services\Dealers\DealerAccessService;
-use App\Services\Dealers\DealerLedgerService;
 use App\Services\Dealers\DealerOutstandingService;
+use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Support\IndianCurrency;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -162,7 +162,7 @@ class TotalOutstanding extends Page implements HasForms, HasTable
                     ->formatStateUsing(fn ($state): string => IndianCurrency::format((float) $state))
                     ->alignEnd()
                     ->sortable(query: function (Builder $query, string $direction): Builder {
-                        $sql = DealerLedgerService::currentOutstandingSql($query->getModel()->getTable());
+                        $sql = TallyDealerLedgerService::signedCurrentOutstandingSql($query->getModel()->getTable());
 
                         return $query->orderByRaw(
                             '(CASE WHEN '.$sql.' > 0 THEN '.$sql.' ELSE 0 END) '.$direction
@@ -178,7 +178,7 @@ class TotalOutstanding extends Page implements HasForms, HasTable
                         : '-')
                     ->alignEnd()
                     ->sortable(query: function (Builder $query, string $direction): Builder {
-                        $sql = DealerLedgerService::currentOutstandingSql($query->getModel()->getTable());
+                        $sql = TallyDealerLedgerService::signedCurrentOutstandingSql($query->getModel()->getTable());
 
                         return $query->orderByRaw(
                             '(CASE WHEN '.$sql.' < 0 THEN -('.$sql.') ELSE 0 END) '.$direction
@@ -299,7 +299,7 @@ class TotalOutstanding extends Page implements HasForms, HasTable
         $value = $record->getAttribute('current_outstanding');
         $net = $value !== null
             ? round((float) $value, 2)
-            : app(DealerLedgerService::class)->getOutstanding($record);
+            : app(TallyDealerLedgerService::class)->signedCurrentOutstanding($record);
 
         return app(DealerOutstandingService::class)->splitBalances($net);
     }
