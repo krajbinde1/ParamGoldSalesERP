@@ -807,6 +807,10 @@ final class TallyLedgerExcelParser
 
             $joined = implode(' ', $cells);
 
+            if ($this->looksLikeLedgerHeadingMeta($joined)) {
+                continue;
+            }
+
             if (preg_match('/ledger(?:\s*name)?\s*[:\-]\s*(.+)$/iu', $joined, $matches) === 1) {
                 $name = $this->stripLedgerPrefix(trim($matches[1]));
                 if ($name !== '' && ! $this->shouldIgnoreLedgerCandidate($name, $companyName)) {
@@ -839,7 +843,9 @@ final class TallyLedgerExcelParser
 
     private function shouldIgnoreLedgerCandidate(string $text, ?string $companyName): bool
     {
-        if ($this->looksLikePeriodOrAddress($text) || $this->looksLikeCompanyMeta($text)) {
+        if ($this->looksLikeLedgerHeadingMeta($text)
+            || $this->looksLikePeriodOrAddress($text)
+            || $this->looksLikeCompanyMeta($text)) {
             return true;
         }
 
@@ -853,6 +859,38 @@ final class TallyLedgerExcelParser
         }
 
         return false;
+    }
+
+    /**
+     * Tally prints salesman/group/period under the ledger heading. Those rows
+     * must never be treated as the dealer/ledger name.
+     */
+    private function looksLikeLedgerHeadingMeta(string $text): bool
+    {
+        $normalized = Str::of($text)->lower()->replace(['.', '_'], ' ')->squish()->toString();
+        if ($normalized === '') {
+            return false;
+        }
+
+        if (in_array($normalized, [
+            'account',
+            'ledger',
+            'ledger account',
+            'ledger name',
+            'particulars',
+        ], true)) {
+            return true;
+        }
+
+        if (preg_match('/^ledger\s+account\b/u', $normalized) === 1) {
+            return true;
+        }
+
+        return preg_match(
+            '/^(salesman|sales man|group|period|under|currency|bill wise|cost centre|cost center|for the period)\b/u',
+            $normalized,
+        ) === 1
+            || preg_match('/\b(salesman|sales man|group|period)\s*[:\-]/u', $normalized) === 1;
     }
 
     /**

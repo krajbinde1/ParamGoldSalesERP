@@ -176,10 +176,10 @@ final class TallyBulkLedgerImportService
                 continue;
             }
 
-            $detected = $parsed->tallyLedgerName !== '' ? $parsed->tallyLedgerName : '—';
+            $detected = $this->detectDealerName($parsed, $filename);
             $preview = $this->importer->previewParsed($parsed);
             $closingLabel = IndianCurrency::formatDrCr((float) ($preview['erp_closing_signed'] ?? $parsed->calculatedClosingSigned()));
-            $match = $this->matchDealer($parsed->tallyLedgerName, $dealers);
+            $match = $this->matchDealer($detected, $dealers);
 
             if (! $match['matched'] || $match['dealer'] === null) {
                 $rows[] = $this->fileRow(
@@ -298,6 +298,34 @@ final class TallyBulkLedgerImportService
         $row['import_status_label'] = '';
 
         return $row;
+    }
+
+    private function detectDealerName(TallyLedgerParseResult $parsed, string $filename): string
+    {
+        $fromExcel = trim($parsed->tallyLedgerName);
+        if ($fromExcel !== '' && ! $this->isUnusableDetectedName($fromExcel)) {
+            return $fromExcel;
+        }
+
+        $fromFile = trim((string) pathinfo($filename, PATHINFO_FILENAME));
+        if ($fromFile !== '' && ! $this->isUnusableDetectedName($fromFile)) {
+            return $fromFile;
+        }
+
+        return $fromExcel !== '' ? $fromExcel : '—';
+    }
+
+    private function isUnusableDetectedName(string $name): bool
+    {
+        $normalized = TallyDealerMapping::normalizeName($name);
+        if ($normalized === '') {
+            return true;
+        }
+
+        return preg_match(
+            '/^(salesman|sales man|group|period|ledger account|ledger name)\b/iu',
+            trim($name),
+        ) === 1;
     }
 
     /**

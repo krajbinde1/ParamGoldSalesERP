@@ -203,6 +203,37 @@ it('parses a tally excel regardless of company header rows and skips totals', fu
         ->and($parsed->calculatedClosingSigned())->toBe(65000.0);
 });
 
+it('detects the ledger heading and ignores salesman, group, and period rows', function (): void {
+    $path = tallyLedgerExcel([
+        ['PARAMGOLD AGRITECH PRIVATE LIMITED'],
+        ['Reg. Office: Plot D-69, Five Star MIDC,'],
+        ['Shendra, Aurangabad 431007'],
+        ['CIN: U01400MH2019PTC328676'],
+        [],
+        ['Adinath Krushi Seva Kendra Wadgaon'],
+        ['Ledger Account'],
+        ['Salesman: SO Akash Nikam'],
+        ['Group: Sundry Debtors'],
+        ['Period: 1-Apr-26 to 31-Mar-27'],
+        [],
+        ['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit'],
+        ['01-04-2026', 'Opening Balance', '', '', '50,000.00', ''],
+        ['10-04-2026', 'Sales', 'Sales', 'SL-101', '25,000.00', ''],
+        ['18-04-2026', 'Receipt', 'Receipt', 'RT-22', '', '10,000.00'],
+        ['', 'Closing Balance', '', '', '', '65,000.00'],
+        ['', 'Total', '', '', '75,000.00', '75,000.00'],
+    ]);
+
+    $parsed = app(TallyLedgerExcelParser::class)->parse($path);
+
+    expect($parsed->tallyLedgerName)->toBe('Adinath Krushi Seva Kendra Wadgaon')
+        ->and($parsed->tallyLedgerName)->not->toContain('Salesman')
+        ->and($parsed->tallyLedgerName)->not->toContain('Akash')
+        ->and($parsed->transactions)->toHaveCount(2)
+        ->and($parsed->openingBalance)->toBe(50000.0)
+        ->and($parsed->tallyClosingBalance)->toBe(65000.0);
+});
+
 it('does not import opening, closing, or total rows as transactions', function (): void {
     $path = tallyLedgerExcel(typicalTallyRows());
     $parsed = app(TallyLedgerExcelParser::class)->parse($path);

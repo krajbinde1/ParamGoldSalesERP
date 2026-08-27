@@ -102,6 +102,80 @@ it('previews each uploaded excel as one dealer ledger', function (): void {
         ->and($rows[2]['status'])->toBe('Matched');
 });
 
+it('detects the excel ledger heading instead of salesman and matches assigned dealers', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9822100201');
+    $otherEmployee = ledgerEmployee(UserRole::Employee, '9822100202');
+    $assigned = ledgerDealer($employee, ['firm_name' => 'Adinath Krushi Seva Kendra (Wadgaon)']);
+    ledgerDealer($otherEmployee, ['firm_name' => 'Adinath Krushi Seva Kendra (Wadgaon)']);
+
+    $path = tallyLedgerExcel([
+        ['PARAMGOLD AGRITECH PRIVATE LIMITED'],
+        ['Reg. Office: Plot D-69, Five Star MIDC,'],
+        ['Shendra, Aurangabad 431007'],
+        [],
+        ['Adinath Krushi Seva Kendra Wadgaon'],
+        ['Ledger Account'],
+        ['Salesman: SO Akash Nikam'],
+        ['Group: Sundry Debtors'],
+        ['1-Apr-26 to 31-Mar-27'],
+        [],
+        ['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit'],
+        ['01-04-2026', 'Opening Balance', '', '', '50,000.00', ''],
+        ['10-04-2026', 'Sales', 'Sales', 'SL-101', '25,000.00', ''],
+        ['18-04-2026', 'Receipt', 'Receipt', 'RT-22', '', '10,000.00'],
+        ['', 'Closing Balance', '', '', '', '65,000.00'],
+        ['', 'Total', '', '', '75,000.00', '75,000.00'],
+    ]);
+
+    $preview = app(TallyBulkLedgerImportService::class)->previewFiles([
+        [
+            'path' => $path,
+            'original_filename' => 'Adinath Krushi Seva Kendra Wadgaon.xlsx',
+        ],
+    ], (int) $employee->id);
+
+    expect($preview['rows'])->toHaveCount(1)
+        ->and($preview['rows'][0]['file_name'])->toBe('Adinath Krushi Seva Kendra Wadgaon.xlsx')
+        ->and($preview['rows'][0]['detected_dealer'])->toBe('Adinath Krushi Seva Kendra Wadgaon')
+        ->and($preview['rows'][0]['matched_dealer'])->toBe('Adinath Krushi Seva Kendra (Wadgaon)')
+        ->and($preview['rows'][0]['status'])->toBe('Matched')
+        ->and($preview['rows'][0]['dealer_id'])->toBe($assigned->id)
+        ->and($preview['rows'][0]['detected_dealer'])->not->toContain('Salesman')
+        ->and($preview['rows'][0]['detected_dealer'])->not->toContain('Akash');
+});
+
+it('uses the excel filename when the ledger heading is missing', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9822100203');
+    $assigned = ledgerDealer($employee, ['firm_name' => 'Adinath Krushi Seva Kendra Wadgaon']);
+
+    $path = tallyLedgerExcel([
+        ['PARAMGOLD AGRITECH PRIVATE LIMITED'],
+        ['Reg. Office: Plot D-69, Five Star MIDC,'],
+        ['Ledger Account'],
+        ['Salesman: SO Akash Nikam'],
+        ['Group: Sundry Debtors'],
+        ['1-Apr-26 to 31-Mar-27'],
+        [],
+        ['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit'],
+        ['01-04-2026', 'Opening Balance', '', '', '50,000.00', ''],
+        ['10-04-2026', 'Sales', 'Sales', 'SL-101', '25,000.00', ''],
+        ['', 'Closing Balance', '', '', '', '75,000.00'],
+        ['', 'Total', '', '', '75,000.00', '75,000.00'],
+    ]);
+
+    $preview = app(TallyBulkLedgerImportService::class)->previewFiles([
+        [
+            'path' => $path,
+            'original_filename' => 'Adinath Krushi Seva Kendra Wadgaon.xlsx',
+        ],
+    ], (int) $employee->id);
+
+    expect($preview['rows'][0]['detected_dealer'])->toBe('Adinath Krushi Seva Kendra Wadgaon')
+        ->and($preview['rows'][0]['matched_dealer'])->toBe('Adinath Krushi Seva Kendra Wadgaon')
+        ->and($preview['rows'][0]['status'])->toBe('Matched')
+        ->and($preview['rows'][0]['dealer_id'])->toBe($assigned->id);
+});
+
 it('bulk imports matched files and skips unmatched and error files', function (): void {
     $employee = ledgerEmployee(UserRole::Employee, '9822100001');
     $otherEmployee = ledgerEmployee(UserRole::Employee, '9822100002');
