@@ -201,7 +201,7 @@ it('removes the ledger credit when received is changed to not received', functio
 
     expect(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(-20000.0);
 
-    app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_NOT_RECEIVED, $admin);
+    app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_NOT_RECEIVED, $admin, 'Not received at office');
 
     expect($collection->fresh()->status)->toBe(Collection::STATUS_NOT_RECEIVED)
         ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(0)
@@ -214,7 +214,7 @@ it('removes the ledger credit when received is changed to rejected', function ()
     $dealer = collectionEditDealer($employee, 'To Rejected Dealer');
     $collection = collectionEditRecord($dealer, $employee, ['amount' => 15000, 'status' => Collection::STATUS_RECEIVED]);
 
-    app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_REJECTED, $admin);
+    app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_REJECTED, $admin, 'Rejected by accounts');
 
     expect($collection->fresh()->status)->toBe(Collection::STATUS_REJECTED)
         ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(0)
@@ -227,11 +227,11 @@ it('does not create a ledger effect between not received and rejected', function
     $dealer = collectionEditDealer($employee, 'No Ledger Dealer');
     $collection = collectionEditRecord($dealer, $employee, ['amount' => 8000, 'status' => Collection::STATUS_NOT_RECEIVED]);
 
-    app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_REJECTED, $admin);
+    app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_REJECTED, $admin, 'Rejected after review');
     expect(DealerTallyEntry::query()->where('source_id', $collection->id)->count())->toBe(0)
         ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(0.0);
 
-    app(UpdateCollectionStatus::class)->execute($collection->fresh(), Collection::STATUS_NOT_RECEIVED, $admin);
+    app(UpdateCollectionStatus::class)->execute($collection->fresh(), Collection::STATUS_NOT_RECEIVED, $admin, 'Still not received');
     expect($collection->fresh()->status)->toBe(Collection::STATUS_NOT_RECEIVED)
         ->and(DealerTallyEntry::query()->where('source_id', $collection->id)->count())->toBe(0)
         ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(0.0);
@@ -251,6 +251,67 @@ it('posts one ledger credit when rejected is changed to received', function (): 
     app(DealerLedgerPostingService::class)->syncReceivedCollection($collection->fresh());
 
     expect(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(1);
+});
+
+it('requires a remark when admin sets not received or rejected and shows it on the collection view', function (): void {
+    $admin = collectionEditAdmin();
+    $employee = collectionEditEmployee('9811200009');
+    $dealer = collectionEditDealer($employee, 'Remark Required Dealer');
+    $collection = collectionEditRecord($dealer, $employee, [
+        'status' => Collection::STATUS_RECEIVED,
+        'admin_remark' => null,
+    ]);
+
+    Livewire::actingAs($admin)
+        ->test(ListCollections::class)
+        ->callTableAction('edit', $collection, [
+            'status' => Collection::STATUS_NOT_RECEIVED,
+        ])
+        ->assertHasTableActionErrors(['admin_remark']);
+
+    expect($collection->fresh()->status)->toBe(Collection::STATUS_RECEIVED)
+        ->and($collection->fresh()->admin_remark)->toBeNull();
+
+    Livewire::actingAs($admin)
+        ->test(ListCollections::class)
+        ->callTableAction('edit', $collection, [
+            'status' => Collection::STATUS_REJECTED,
+            'admin_remark' => '   ',
+        ])
+        ->assertHasTableActionErrors(['admin_remark']);
+
+    Livewire::actingAs($admin)
+        ->test(ListCollections::class)
+        ->callTableAction('edit', $collection, [
+            'status' => Collection::STATUS_NOT_RECEIVED,
+            'admin_remark' => 'Cash not deposited',
+        ])
+        ->assertHasNoTableActionErrors();
+
+    $collection->refresh();
+
+    expect($collection->status)->toBe(Collection::STATUS_NOT_RECEIVED)
+        ->and($collection->admin_remark)->toBe('Cash not deposited')
+        ->and(collect($collection->audits()->first()?->auditRows() ?? [])->pluck('label')->all())
+        ->toContain('Status')
+        ->toContain('Status Remark');
+
+    Livewire::actingAs($admin)
+        ->test(ViewCollection::class, ['record' => $collection->getRouteKey()])
+        ->assertSuccessful()
+        ->assertSee('Not Received')
+        ->assertSee('Status Remark')
+        ->assertSee('Cash not deposited');
+
+    Livewire::actingAs($admin)
+        ->test(ListCollections::class)
+        ->callTableAction('edit', $collection, [
+            'status' => Collection::STATUS_RECEIVED,
+        ])
+        ->assertHasNoTableActionErrors();
+
+    expect($collection->fresh()->status)->toBe(Collection::STATUS_RECEIVED)
+        ->and($collection->fresh()->admin_remark)->toBe('Cash not deposited');
 });
 
 it('uses green orange and red status colors', function (): void {

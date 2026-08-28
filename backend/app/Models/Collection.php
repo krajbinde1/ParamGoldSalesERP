@@ -129,6 +129,22 @@ class Collection extends Model
         return array_intersect_key(self::STATUS_LABELS, array_flip(self::adminEditableStatuses()));
     }
 
+    /**
+     * @return list<string>
+     */
+    public static function statusesRequiringRemark(): array
+    {
+        return [
+            self::STATUS_NOT_RECEIVED,
+            self::STATUS_REJECTED,
+        ];
+    }
+
+    public static function statusRequiresRemark(string $status): bool
+    {
+        return in_array($status, self::statusesRequiringRemark(), true);
+    }
+
     public function statusLabel(): string
     {
         return self::STATUS_LABELS[$this->status] ?? (string) $this->status;

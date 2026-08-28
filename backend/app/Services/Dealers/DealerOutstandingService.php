@@ -210,18 +210,19 @@ final class DealerOutstandingService
             ->select('assigned_employee_id')
             ->selectRaw('COALESCE(SUM(CASE WHEN current_outstanding > 0 THEN current_outstanding ELSE 0 END), 0) as total_outstanding')
             ->selectRaw('COALESCE(SUM(CASE WHEN current_outstanding < 0 THEN -current_outstanding ELSE 0 END), 0) as total_credit')
-            ->selectRaw('SUM(CASE WHEN current_outstanding != 0 THEN 1 ELSE 0 END) as dealer_count')
+            ->selectRaw('COUNT(*) as dealer_count')
             ->groupBy('assigned_employee_id')
-            ->havingRaw('COALESCE(SUM(CASE WHEN current_outstanding > 0 THEN current_outstanding ELSE 0 END), 0) != 0 OR COALESCE(SUM(CASE WHEN current_outstanding < 0 THEN -current_outstanding ELSE 0 END), 0) != 0')
             ->orderByDesc('total_outstanding')
             ->get();
 
         $employees = Employee::query()
+            ->where('status', true)
             ->whereIn('id', $rows->pluck('assigned_employee_id'))
             ->get(['id', 'full_name', 'employee_code'])
             ->keyBy('id');
 
         return $rows
+            ->filter(fn (object $row): bool => $employees->has((int) $row->assigned_employee_id))
             ->map(function (object $row) use ($employees): array {
                 $employee = $employees->get((int) $row->assigned_employee_id);
                 $outstanding = $this->money($row->total_outstanding);
@@ -309,10 +310,17 @@ final class DealerOutstandingService
     {
         return Employee::query()
             ->where('status', true)
-            ->whereHas(
-                'user',
-                fn (Builder $query) => $query->whereIn('role', self::SALES_TEAM_ROLES),
-            )
+            ->where(function (Builder $query): void {
+                $query
+                    ->whereHas(
+                        'user',
+                        fn (Builder $userQuery) => $userQuery->whereIn('role', self::SALES_TEAM_ROLES),
+                    )
+                    ->orWhereHas(
+                        'assignedDealers',
+                        fn (Builder $dealerQuery) => $dealerQuery->where('status', true),
+                    );
+            })
             ->orderBy('full_name')
             ->get(['id', 'full_name', 'employee_code']);
     }

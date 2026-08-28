@@ -7,7 +7,9 @@ use App\Models\Collection;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
+use Filament\Schemas\Components\Utilities\Get;
 
 final class EditCollectionStatusAction
 {
@@ -23,6 +25,7 @@ final class EditCollectionStatusAction
                 'status' => in_array($record->status, Collection::adminEditableStatuses(), true)
                     ? $record->status
                     : null,
+                'admin_remark' => $record->admin_remark,
             ])
             ->form(fn (Collection $record): array => [
                 Placeholder::make('current_status')
@@ -32,7 +35,14 @@ final class EditCollectionStatusAction
                     ->label('New Status')
                     ->options(Collection::adminEditableStatusLabels())
                     ->required()
-                    ->native(false),
+                    ->native(false)
+                    ->live(),
+                Textarea::make('admin_remark')
+                    ->label('Remark')
+                    ->rows(3)
+                    ->visible(fn (Get $get): bool => Collection::statusRequiresRemark((string) ($get('status') ?? '')))
+                    ->required(fn (Get $get): bool => Collection::statusRequiresRemark((string) ($get('status') ?? '')))
+                    ->dehydrated(fn (Get $get): bool => Collection::statusRequiresRemark((string) ($get('status') ?? ''))),
             ])
             ->action(function (Collection $record, array $data): void {
                 $previous = $record->status;
@@ -40,6 +50,7 @@ final class EditCollectionStatusAction
                     $record,
                     (string) $data['status'],
                     auth()->user(),
+                    isset($data['admin_remark']) ? (string) $data['admin_remark'] : null,
                 );
 
                 if ($updated->status === $previous) {

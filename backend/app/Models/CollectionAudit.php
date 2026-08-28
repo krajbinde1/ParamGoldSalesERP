@@ -145,7 +145,7 @@ class CollectionAudit extends Model
             'amount' => 'Amount',
             'status' => 'Status',
             'remarks' => 'Remark',
-            'admin_remark' => 'Admin Remark',
+            'admin_remark' => 'Status Remark',
             'receipt_no' => 'Receipt No.',
             'payment_mode' => 'Payment Mode',
             'bank_name' => 'Bank Name',

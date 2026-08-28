@@ -60,6 +60,30 @@ function outstandingPageEmployee(string $name, string $mobile): Employee
     return $employee;
 }
 
+function outstandingPageEmployeeWithoutUser(string $name, string $mobile): Employee
+{
+    static $n = 1800;
+    $n++;
+
+    return Employee::query()->create([
+        'full_name' => $name,
+        'mobile' => $mobile,
+        'department' => 'Sales',
+        'designation' => 'Executive',
+        'joining_date' => '2026-01-01',
+        'salary' => 25000,
+        'base_location' => 'Pune',
+        'daily_allowance' => 0,
+        'travel_allowance' => 0,
+        'aadhaar_number' => str_pad((string) (810000000000 + $n), 12, '0', STR_PAD_LEFT),
+        'pan_number' => 'NNNNN'.str_pad((string) $n, 4, '0', STR_PAD_LEFT).'Z',
+        'bank_name' => 'Test Bank',
+        'account_number' => str_pad((string) (810000000000 + $n), 12, '0', STR_PAD_LEFT),
+        'ifsc_code' => 'TEST0123456',
+        'status' => true,
+    ]);
+}
+
 function outstandingPageDealer(array $overrides = []): Dealer
 {
     return Dealer::query()->create(array_merge([
@@ -177,6 +201,10 @@ it('shows employee-wise outstanding by default and dealer-wise outstanding for a
     outstandingTallyAccount($low, 25000);
 
     $companyTotal = app(DealerOutstandingService::class)->summary()['outstanding'];
+    $employeeRows = collect(app(DealerOutstandingService::class)->totalsByAssignedEmployee());
+
+    expect($employeeRows->firstWhere('employee_id', $akash->id)['dealer_count'])->toBe(3)
+        ->and($employeeRows->firstWhere('employee_id', $ganesh->id)['dealer_count'])->toBe(1);
 
     $page = Livewire::actingAs($director)
         ->test(TotalOutstanding::class)
@@ -200,6 +228,83 @@ it('shows employee-wise outstanding by default and dealer-wise outstanding for a
         ->assertSee('Export Excel')
         ->assertCanSeeTableRecords([$high, $low, $zero])
         ->assertCanNotSeeTableRecords([$mid]);
+});
+
+it('lists assigned sales employees with zero outstanding and includes them in the employee filter', function (): void {
+    $director = outstandingPageDirector();
+    $akshay = outstandingPageEmployee('Akshay Lahane', '9940000011');
+    $noUser = outstandingPageEmployeeWithoutUser('Field Sales Without Login', '9940000012');
+    $akash = outstandingPageEmployee('Akash With Balance', '9940000013');
+    $inactive = outstandingPageEmployee('Inactive Assigned', '9940000014');
+    $inactive->update(['status' => false]);
+
+    outstandingPageDealer([
+        'firm_name' => 'Akshay Party One',
+        'assigned_employee_id' => $akshay->id,
+    ]);
+    outstandingPageDealer([
+        'firm_name' => 'Akshay Party Two',
+        'assigned_employee_id' => $akshay->id,
+    ]);
+    outstandingPageDealer([
+        'firm_name' => 'No Login Party',
+        'assigned_employee_id' => $noUser->id,
+    ]);
+    outstandingPageDealer([
+        'firm_name' => 'Inactive Party',
+        'assigned_employee_id' => $inactive->id,
+    ]);
+    $akashDealer = outstandingPageDealer([
+        'firm_name' => 'Akash Balance Party',
+        'assigned_employee_id' => $akash->id,
+        'opening_balance' => 10000,
+        'opening_balance_date' => '2026-04-01',
+    ]);
+    outstandingTallyAccount($akashDealer, 10000);
+
+    $rows = collect(app(DealerOutstandingService::class)->totalsByAssignedEmployee());
+    $akshayRow = $rows->firstWhere('employee_id', $akshay->id);
+    $noUserRow = $rows->firstWhere('employee_id', $noUser->id);
+    $akashRow = $rows->firstWhere('employee_id', $akash->id);
+
+    expect($akshayRow)->toMatchArray([
+        'employee_name' => 'Akshay Lahane',
+        'dealer_count' => 2,
+        'total_outstanding' => 0.0,
+        'total_credit' => 0.0,
+        'net_balance' => 0.0,
+    ])
+        ->and($noUserRow)->toMatchArray([
+            'dealer_count' => 1,
+            'total_outstanding' => 0.0,
+            'total_credit' => 0.0,
+            'net_balance' => 0.0,
+        ])
+        ->and($akashRow)->toMatchArray([
+            'total_outstanding' => 10000.0,
+            'total_credit' => 0.0,
+            'net_balance' => 10000.0,
+            'dealer_count' => 1,
+        ])
+        ->and($rows->firstWhere('employee_id', $inactive->id))->toBeNull();
+
+    $options = app(DealerOutstandingService::class)->salesEmployeeOptions();
+
+    expect($options)->toHaveKey($akshay->id)
+        ->and($options[$akshay->id])->toContain('Akshay Lahane')
+        ->and($options)->toHaveKey($noUser->id)
+        ->and($options)->toHaveKey($akash->id)
+        ->and($options)->not->toHaveKey($inactive->id);
+
+    Livewire::actingAs($director)
+        ->test(TotalOutstanding::class)
+        ->assertSuccessful()
+        ->assertSee('Akshay Lahane')
+        ->assertSee('Field Sales Without Login')
+        ->assertSee('Akash With Balance')
+        ->assertSee(IndianCurrency::format(0))
+        ->assertSee(IndianCurrency::format(10000))
+        ->assertDontSee('Inactive Assigned');
 });
 
 it('exports selected employee outstanding to excel with all assigned dealers and a total', function (): void {

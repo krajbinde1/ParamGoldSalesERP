@@ -22,6 +22,12 @@ class CollectionInfolist
                         ->badge()
                         ->formatStateUsing(fn (?string $state): string => Collection::STATUS_LABELS[$state ?? ''] ?? (string) $state)
                         ->color(fn (?string $state): string => Collection::statusColor((string) $state)),
+                    TextEntry::make('admin_remark')
+                        ->label('Status Remark')
+                        ->placeholder('-')
+                        ->visible(fn (Collection $record): bool => filled($record->admin_remark)
+                            && Collection::statusRequiresRemark((string) $record->status))
+                        ->columnSpanFull(),
                     TextEntry::make('dealer.firm_name')->label('Dealer'),
                     TextEntry::make('salesEmployee.full_name')->label('Sales Employee')->placeholder('-'),
                     TextEntry::make('amount')->money('INR'),
@@ -38,11 +44,6 @@ class CollectionInfolist
                         ->openUrlInNewTab()
                         ->imageHeight(240)
                         ->visible(fn (Collection $record): bool => filled($record->photo_path))
-                        ->columnSpanFull(),
-                    TextEntry::make('admin_remark')
-                        ->label('Admin Remark')
-                        ->placeholder('-')
-                        ->visible(fn ($record): bool => filled($record->admin_remark))
                         ->columnSpanFull(),
                 ]),
                 Section::make('Status history')

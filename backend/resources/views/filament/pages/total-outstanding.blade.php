@@ -89,11 +89,7 @@
                                             {{ $this->formatMoney((float) $row['total_outstanding']) }}
                                         </td>
                                         <td class="fi-ta-cell px-4 py-3 text-end text-sm tabular-nums text-gray-700 dark:text-gray-300">
-                                            @if ((float) $row['total_credit'] > 0)
-                                                {{ $this->formatMoney((float) $row['total_credit']) }}
-                                            @else
-                                                -
-                                            @endif
+                                            {{ $this->formatMoney((float) $row['total_credit']) }}
                                         </td>
                                         <td class="fi-ta-cell px-4 py-3 text-end text-sm font-semibold tabular-nums text-gray-950 dark:text-white">
                                             {{ $this->formatMoney((float) $row['net_balance']) }}
