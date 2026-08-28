@@ -193,13 +193,13 @@ class BulkImportTallyLedger extends Page implements HasForms
 
             $imported = collect($result['rows'])->where('import_status_label', 'Ledger Imported')->count();
             $notMatched = collect($result['rows'])->where('status', TallyBulkLedgerImportService::STATUS_NOT_MATCHED)->count();
-            $already = collect($result['rows'])->where('status', TallyBulkLedgerImportService::STATUS_ALREADY_IMPORTED)->count();
+            $duplicates = (int) collect($result['rows'])->sum('duplicate_count');
             $errors = collect($result['rows'])->where('status', TallyBulkLedgerImportService::STATUS_ERROR)->count();
 
             Notification::make()
                 ->success()
                 ->title('Bulk Tally import finished')
-                ->body('Imported: '.$imported.' · Not matched: '.$notMatched.' · Already imported: '.$already.' · Error: '.$errors)
+                ->body('Imported: '.$imported.' · Not matched: '.$notMatched.' · Duplicates skipped: '.$duplicates.' · Error: '.$errors)
                 ->send();
         } catch (ValidationException $exception) {
             Notification::make()

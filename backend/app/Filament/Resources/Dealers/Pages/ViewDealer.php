@@ -23,9 +23,7 @@ class ViewDealer extends ViewRecord
                 ->label('Import Tally Ledger')
                 ->icon('heroicon-o-arrow-up-tray')
                 ->url(fn (): string => DealerResource::getUrl('import-tally-ledger', ['record' => $this->getRecord()]))
-                ->visible(fn (): bool => (
-                    (auth()->user()?->isAdminUser() ?? false) || (auth()->user()?->isDirectorUser() ?? false)
-                ) && ! $this->getRecord()->hasImportedTallyLedger()),
+                ->visible(fn (): bool => (auth()->user()?->isAdminUser() ?? false) || (auth()->user()?->isDirectorUser() ?? false)),
             EditAction::make()
                 ->authorize(fn (): bool => DealerResource::canEdit($this->getRecord())),
         ];

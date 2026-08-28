@@ -142,9 +142,7 @@ class DealersTable
                     ->label('Import Tally Ledger')
                     ->icon('heroicon-o-arrow-up-tray')
                     ->url(fn (Dealer $record): string => DealerResource::getUrl('import-tally-ledger', ['record' => $record]))
-                    ->visible(fn (Dealer $record): bool => (
-                        (auth()->user()?->isAdminUser() ?? false) || (auth()->user()?->isDirectorUser() ?? false)
-                    ) && ! $record->hasImportedTallyLedger()),
+                    ->visible(fn (Dealer $record): bool => (auth()->user()?->isAdminUser() ?? false) || (auth()->user()?->isDirectorUser() ?? false)),
                 EditAction::make()
                     ->authorize(fn (Dealer $record): bool => auth()->user()?->can('update', $record) ?? false),
             ])

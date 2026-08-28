@@ -27,7 +27,7 @@
                     <p class="mt-1 text-sm text-gray-600">
                         Select the assigned employee first, then upload multiple Tally Excel files together.
                         Each file is one dealer ledger and is matched by the ledger name inside the file.
-                        Unmatched, already imported, and error files are skipped.
+                        Unmatched and error files are skipped. Already imported dealers can be imported again; duplicate transactions are skipped.
                     </p>
                 </div>
 
@@ -93,7 +93,7 @@
                         <h2 class="text-lg font-semibold text-gray-950">Preview results</h2>
                         <p class="mt-1 text-sm text-gray-600">
                             Employee: <strong>{{ $employeeLabel }}</strong>.
-                            Only <strong>Matched</strong> files will be imported. Unmatched, already imported, and error files are skipped.
+                            Only <strong>Matched</strong> files will be imported. Unmatched and error files are skipped. Already imported dealers can be imported again; duplicate transactions are skipped.
                         </p>
                     </div>
                     <div class="flex flex-wrap gap-3">

@@ -107,29 +107,15 @@ final class DealerLedgerPostingService
 
         $query = DealerTallyEntry::query()
             ->where('dealer_id', $dealerId)
-            ->whereDate('entry_date', $date);
+            ->whereDate('entry_date', $date)
+            ->whereRaw('ABS(COALESCE(debit, 0) - ?) < 0.005', [$debit])
+            ->whereRaw('ABS(COALESCE(credit, 0) - ?) < 0.005', [$credit]);
 
         if ($exceptId !== null) {
             $query->whereKeyNot($exceptId);
         }
 
-        // Date + amount + side. Debit matches debit only; credit matches credit only.
-        // ABS(...) is used because SQLite ROUND(column, 2) = bound float does not match.
-        if ($debit > 0.0 && $credit == 0.0) {
-            return $query
-                ->whereRaw('ABS(COALESCE(debit, 0) - ?) < 0.005', [$debit])
-                ->whereRaw('ABS(COALESCE(credit, 0)) < 0.005')
-                ->exists();
-        }
-
-        if ($credit > 0.0 && $debit == 0.0) {
-            return $query
-                ->whereRaw('ABS(COALESCE(credit, 0) - ?) < 0.005', [$credit])
-                ->whereRaw('ABS(COALESCE(debit, 0)) < 0.005')
-                ->exists();
-        }
-
-        return false;
+        return $query->exists();
     }
 
     private function syncErpEntry(

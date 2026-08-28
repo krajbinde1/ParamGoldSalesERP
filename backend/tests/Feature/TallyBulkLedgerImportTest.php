@@ -216,23 +216,36 @@ it('bulk imports matched files and skips unmatched and error files', function ()
         ->and(Dealer::query()->where('firm_name', 'Unknown Tally Party')->exists())->toBeFalse();
 });
 
-it('marks already imported dealers and does not import them again', function (): void {
+it('re-imports already imported dealers and skips duplicate ledger entries', function (): void {
     $employee = ledgerEmployee(UserRole::Employee, '9822100003');
     $dealer = ledgerDealer($employee, ['firm_name' => 'Repeat Agro']);
     $admin = tallyImportAdmin();
     $file = bulkTallyFile('Repeat Agro', 'repeat.xlsx');
 
     $first = app(TallyBulkLedgerImportService::class)->importFiles([$file], (int) $employee->id, $admin);
+    $existing = DealerTallyEntry::query()->where('dealer_id', $dealer->id)->orderBy('id')->get();
     $second = app(TallyBulkLedgerImportService::class)->importFiles([
         bulkTallyFile('Repeat Agro', 'repeat-again.xlsx'),
     ], (int) $employee->id, $admin);
 
     expect($first['rows'][0]['import_status_label'])->toBe('Ledger Imported')
         ->and($first['rows'][0]['imported_count'])->toBe(2)
-        ->and($second['rows'][0]['status'])->toBe('Already Imported')
-        ->and($second['rows'][0]['import_status_label'])->toBe('')
+        ->and($second['rows'][0]['status'])->toBe('Matched')
+        ->and($second['rows'][0]['import_status_label'])->toBe('Ledger Imported')
         ->and($second['rows'][0]['imported_count'])->toBe(0)
+        ->and($second['rows'][0]['duplicate_count'])->toBe(2)
         ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->orderBy('id')->pluck('id')->all())
+        ->toBe($existing->pluck('id')->all())
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->orderBy('id')->get(['debit', 'credit', 'particulars'])->map(fn (DealerTallyEntry $row): array => [
+            'debit' => (string) $row->debit,
+            'credit' => (string) $row->credit,
+            'particulars' => $row->particulars,
+        ])->all())->toBe($existing->map(fn (DealerTallyEntry $row): array => [
+            'debit' => (string) $row->debit,
+            'credit' => (string) $row->credit,
+            'particulars' => $row->particulars,
+        ])->all())
         ->and($dealer->fresh()->tallyLedgerImportStatusLabel())->toBe('Ledger Imported');
 });
 

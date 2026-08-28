@@ -192,8 +192,7 @@ final class TallyLedgerImportService
                     particulars: $transaction['particulars'],
                 );
 
-                $existing = DealerTallyEntry::query()->where('fingerprint', $fingerprint)->exists();
-                if ($existing || $this->isDuplicateSide($dealer, $transaction)) {
+                if ($this->isDuplicateLedgerEntry($dealer, $transaction, $fingerprint)) {
                     $duplicates++;
 
                     continue;
@@ -215,17 +214,22 @@ final class TallyLedgerImportService
                 $imported++;
             }
 
+            $ledgerPayload = [
+                'tally_closing_balance' => $parsed->tallyClosingBalance,
+                'tally_closing_balance_type' => $parsed->tallyClosingBalanceType,
+                'last_imported_at' => Carbon::now('Asia/Kolkata'),
+            ];
+
+            if (! DealerTallyLedger::query()->where('dealer_id', $dealer->id)->exists()) {
+                $ledgerPayload['opening_balance'] = $parsed->openingBalance;
+                $ledgerPayload['opening_balance_type'] = $parsed->openingBalanceType;
+                $ledgerPayload['opening_balance_explicit'] = $parsed->openingBalanceExplicit;
+                $ledgerPayload['financial_start_date'] = TallyLedgerConfig::FINANCIAL_START_DATE;
+            }
+
             DealerTallyLedger::query()->updateOrCreate(
                 ['dealer_id' => $dealer->id],
-                [
-                    'opening_balance' => $parsed->openingBalance,
-                    'opening_balance_type' => $parsed->openingBalanceType,
-                    'opening_balance_explicit' => $parsed->openingBalanceExplicit,
-                    'financial_start_date' => TallyLedgerConfig::FINANCIAL_START_DATE,
-                    'tally_closing_balance' => $parsed->tallyClosingBalance,
-                    'tally_closing_balance_type' => $parsed->tallyClosingBalanceType,
-                    'last_imported_at' => Carbon::now('Asia/Kolkata'),
-                ],
+                $ledgerPayload,
             );
 
             $statement = $this->ledger->statement($dealer->fresh());
@@ -263,10 +267,17 @@ final class TallyLedgerImportService
     }
 
     /**
+     * Duplicate when an existing row already has the same dealer, date, debit, and credit.
+     * Existing imported rows are left unchanged.
+     *
      * @param  array<string, mixed>  $transaction
      */
-    private function isDuplicateSide(Dealer $dealer, array $transaction): bool
+    private function isDuplicateLedgerEntry(Dealer $dealer, array $transaction, string $fingerprint): bool
     {
+        if (DealerTallyEntry::query()->where('fingerprint', $fingerprint)->exists()) {
+            return true;
+        }
+
         return app(DealerLedgerPostingService::class)->matchingSideExists(
             dealerId: (int) $dealer->id,
             date: (string) $transaction['date'],

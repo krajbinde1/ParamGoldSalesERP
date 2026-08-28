@@ -51,6 +51,7 @@
                     <strong>{{ $dealer['firm_name'] }}</strong>.
                     Opening Balance is taken from Tally when shown; otherwise it is ₹0.00.
                     Existing ERP opening balances are ignored.
+                    Re-import is allowed when this dealer is already Ledger Imported: duplicate rows (same date, debit, and credit) are skipped, and previous transactions are kept.
                 </p>
                 <form wire:submit="previewUpload" class="mt-4 max-w-2xl space-y-4">
                     {{ $this->form }}

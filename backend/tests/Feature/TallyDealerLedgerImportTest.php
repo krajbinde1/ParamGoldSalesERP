@@ -303,6 +303,89 @@ it('imports into an existing dealer and ignores the old erp opening balance', fu
         ->and(Dealer::query()->count())->toBe(1);
 });
 
+it('allows re-import of an already imported dealer and only inserts non-duplicate transactions', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100401');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Reimport Agro']);
+    $admin = tallyImportAdmin();
+
+    app(TallyLedgerImportService::class)->import(
+        tallyLedgerExcel(typicalTallyRows($dealer->firm_name)),
+        (int) $dealer->id,
+        $admin,
+        'reimport-first.xlsx',
+    );
+
+    $existing = DealerTallyEntry::query()->where('dealer_id', $dealer->id)->orderBy('id')->get();
+    expect($existing)->toHaveCount(2)
+        ->and($dealer->fresh()->tallyLedgerImportStatusLabel())->toBe('Ledger Imported');
+
+    $updatedRows = typicalTallyRows($dealer->firm_name);
+    array_splice($updatedRows, 11, 0, [['25-04-2026', 'Sales', 'Sales', 'SL-102', '5,000.00', '']]);
+    $updatedRows[count($updatedRows) - 2] = ['', 'Closing Balance', '', '', '', '70,000.00'];
+    $updatedRows[count($updatedRows) - 1] = ['', 'Total', '', '', '80,000.00', '80,000.00'];
+
+    $result = app(TallyLedgerImportService::class)->import(
+        tallyLedgerExcel($updatedRows),
+        (int) $dealer->id,
+        $admin,
+        'reimport-second.xlsx',
+    );
+
+    $after = DealerTallyEntry::query()->where('dealer_id', $dealer->id)->orderBy('id')->get();
+
+    expect($result['imported_count'])->toBe(1)
+        ->and($result['duplicate_count'])->toBe(2)
+        ->and($after)->toHaveCount(3)
+        ->and($after->take(2)->pluck('id')->all())->toBe($existing->pluck('id')->all())
+        ->and($after->take(2)->map(fn (DealerTallyEntry $row): array => [
+            'particulars' => $row->particulars,
+            'voucher_no' => $row->voucher_no,
+            'debit' => (string) $row->debit,
+            'credit' => (string) $row->credit,
+        ])->all())->toBe($existing->map(fn (DealerTallyEntry $row): array => [
+            'particulars' => $row->particulars,
+            'voucher_no' => $row->voucher_no,
+            'debit' => (string) $row->debit,
+            'credit' => (string) $row->credit,
+        ])->all())
+        ->and((float) $after->last()->debit)->toBe(5000.0)
+        ->and($after->last()->voucher_no)->toBe('SL-102')
+        ->and($result['summary']['current_outstanding_signed'])->toBe(70000.0)
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(70000.0);
+});
+
+it('skips a re-imported row with the same dealer date debit and credit even when the voucher differs', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100402');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Duplicate Amount Agro']);
+    $admin = tallyImportAdmin();
+
+    app(TallyLedgerImportService::class)->import(
+        tallyLedgerExcel(typicalTallyRows($dealer->firm_name)),
+        (int) $dealer->id,
+        $admin,
+        'dup-first.xlsx',
+    );
+
+    $existingIds = DealerTallyEntry::query()->where('dealer_id', $dealer->id)->orderBy('id')->pluck('id')->all();
+
+    $rows = typicalTallyRows($dealer->firm_name);
+    $rows[9] = ['10-04-2026', 'Sales', 'Sales', 'SL-999', '25,000.00', ''];
+
+    $result = app(TallyLedgerImportService::class)->import(
+        tallyLedgerExcel($rows),
+        (int) $dealer->id,
+        $admin,
+        'dup-second.xlsx',
+    );
+
+    expect($result['imported_count'])->toBe(0)
+        ->and($result['duplicate_count'])->toBe(2)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->orderBy('id')->pluck('id')->all())->toBe($existingIds)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->where('voucher_no', 'SL-999')->exists())->toBeFalse()
+        ->and($result['summary']['current_outstanding_signed'])->toBe(65000.0);
+});
+
 it('imports the uploaded ledger into the selected erp dealer even when tally names differ', function (): void {
     $employee = ledgerEmployee(UserRole::Employee, '9811100092');
     $dealer = ledgerDealer($employee, ['firm_name' => 'Existing ERP Dealer']);
@@ -814,7 +897,7 @@ it('shows tally ledger status on the dealer list and updates it after import and
         ->assertSuccessful()
         ->assertSee('Ledger Imported')
         ->assertDontSee('Not Imported')
-        ->assertTableActionHidden('importTallyLedger', $dealer);
+        ->assertTableActionVisible('importTallyLedger', $dealer);
 
     app(TallyLedgerImportService::class)->resetForDealer($dealer);
 

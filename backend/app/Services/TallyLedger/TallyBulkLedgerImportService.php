@@ -212,20 +212,6 @@ final class TallyBulkLedgerImportService
 
             $claimedDealerIds[] = $dealerId;
 
-            if ($dealer->hasImportedTallyLedger()) {
-                $rows[] = $this->fileRow(
-                    filename: $filename,
-                    detectedDealer: $detected,
-                    status: self::STATUS_ALREADY_IMPORTED,
-                    reason: 'This dealer already has an imported Tally ledger.',
-                    dealer: $dealer,
-                    transactionCount: count($parsed->transactions),
-                    closingLabel: $closingLabel,
-                );
-
-                continue;
-            }
-
             if (empty($preview['can_import'])) {
                 $rows[] = $this->fileRow(
                     filename: $filename,
