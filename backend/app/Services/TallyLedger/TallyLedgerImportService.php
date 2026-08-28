@@ -199,6 +199,10 @@ final class TallyLedgerImportService
             $reconciler->reconcileExistingDuplicates($dealer);
 
             foreach ($parsed->transactions as $transaction) {
+                if ($this->isOpeningBalanceParticulars((string) ($transaction['particulars'] ?? ''))) {
+                    continue;
+                }
+
                 $fingerprint = DealerTallyEntry::makeFingerprint(
                     dealerId: (int) $dealer->id,
                     date: $transaction['date'],
@@ -251,17 +255,19 @@ final class TallyLedgerImportService
                 $imported++;
             }
 
+            $ledgerAlreadyExists = DealerTallyLedger::query()->where('dealer_id', $dealer->id)->exists();
             $ledgerPayload = [
                 'tally_closing_balance' => $parsed->tallyClosingBalance,
                 'tally_closing_balance_type' => $parsed->tallyClosingBalanceType,
                 'last_imported_at' => Carbon::now('Asia/Kolkata'),
             ];
 
-            if (! DealerTallyLedger::query()->where('dealer_id', $dealer->id)->exists()) {
-                $ledgerPayload['opening_balance'] = $parsed->openingBalance;
-                $ledgerPayload['opening_balance_type'] = $parsed->openingBalanceType;
-                $ledgerPayload['opening_balance_explicit'] = $parsed->openingBalanceExplicit;
-                $ledgerPayload['financial_start_date'] = TallyLedgerConfig::FINANCIAL_START_DATE;
+            if ($parsed->openingBalanceExplicit || ! $ledgerAlreadyExists) {
+                $ledgerPayload = array_merge($ledgerPayload, $this->importedOpeningPayload($parsed));
+            }
+
+            if ($parsed->openingBalanceExplicit) {
+                $this->replaceExistingOpeningBalance($dealer, $parsed);
             }
 
             DealerTallyLedger::query()->updateOrCreate(
@@ -302,6 +308,54 @@ final class TallyLedgerImportService
                 'summary' => $statement['summary'],
             ];
         });
+    }
+
+    /**
+     * @return array{
+     *     opening_balance: float,
+     *     opening_balance_type: string,
+     *     opening_balance_explicit: bool,
+     *     financial_start_date: string
+     * }
+     */
+    private function importedOpeningPayload(TallyLedgerParseResult $parsed): array
+    {
+        return [
+            'opening_balance' => $parsed->openingBalance,
+            'opening_balance_type' => $parsed->openingBalanceType,
+            'opening_balance_explicit' => $parsed->openingBalanceExplicit,
+            'financial_start_date' => TallyLedgerConfig::FINANCIAL_START_DATE,
+        ];
+    }
+
+    /**
+     * Tally Opening Balance replaces any existing ERP/Tally opening. Keep one opening only;
+     * do not insert Opening Balance as a ledger transaction.
+     */
+    private function replaceExistingOpeningBalance(Dealer $dealer, TallyLedgerParseResult $parsed): void
+    {
+        $dealer->forceFill([
+            'opening_balance' => $parsed->openingBalance,
+            'opening_balance_type' => $parsed->openingBalanceType,
+            'opening_balance_date' => TallyLedgerConfig::FINANCIAL_START_DATE,
+        ])->save();
+
+        DealerTallyEntry::query()
+            ->where('dealer_id', $dealer->id)
+            ->whereNotIn('source', [
+                DealerTallyEntry::SOURCE_SALES_ORDER,
+                DealerTallyEntry::SOURCE_COLLECTION,
+            ])
+            ->where(function ($query): void {
+                $query->whereRaw('LOWER(COALESCE(particulars, \'\')) LIKE ?', ['%opening%balance%'])
+                    ->orWhere('source', 'opening_balance');
+            })
+            ->delete();
+    }
+
+    private function isOpeningBalanceParticulars(string $particulars): bool
+    {
+        return preg_match('/opening\s*balance/i', $particulars) === 1;
     }
 
     /**

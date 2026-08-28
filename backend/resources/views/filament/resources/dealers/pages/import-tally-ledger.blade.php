@@ -49,8 +49,8 @@
                 <p class="mt-1 text-sm text-gray-600">
                     Financial start date is <strong>01 Apr 2026</strong>. Only genuine transactions on or after that date are imported into
                     <strong>{{ $dealer['firm_name'] }}</strong>.
-                    Opening Balance is taken from Tally when shown; otherwise it is ₹0.00.
-                    Existing ERP opening balances are ignored.
+                    If the Tally file has an Opening Balance row, that amount and Dr/Cr side become the dealer's only opening balance, including on re-import.
+                    Any existing ERP opening is replaced, not added. Otherwise opening is ₹0.00 for a new ledger.
                     Re-import is allowed when this dealer is already Ledger Imported. Duplicate Tally rows (same date, debit, credit, and voucher no.) are skipped.
                     Tally sales bills that match an ERP Sales Order (same dealer and bill amount) are merged into that Sales Order debit so outstanding is not doubled.
                 </p>

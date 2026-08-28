@@ -272,7 +272,7 @@ it('treats tally debit and credit columns as authoritative even for sales', func
         ->and($parsed->transactions[0]['voucher_type'])->toBe('Sales');
 });
 
-it('imports into an existing dealer and ignores the old erp opening balance', function (): void {
+it('replaces an existing erp opening balance with the imported tally opening', function (): void {
     $employee = ledgerEmployee(UserRole::Employee, '9811100091');
     $dealer = ledgerDealer($employee, [
         'firm_name' => 'Shree Ganesh Traders',
@@ -284,13 +284,17 @@ it('imports into an existing dealer and ignores the old erp opening balance', fu
 
     $result = app(TallyLedgerImportService::class)->import($path, (int) $dealer->id, $admin, 'ganesh.xlsx');
     $statement = $result['summary'];
+    $fresh = $dealer->fresh();
 
-    expect($dealer->fresh()->opening_balance)->toBe('999999.00')
-        ->and(app(DealerLedgerService::class)->getOpeningBalance($dealer->fresh()))->toBe(999999.0)
+    expect((float) $fresh->opening_balance)->toBe(50000.0)
+        ->and($fresh->opening_balance_type)->toBe('debit')
+        ->and(app(DealerLedgerService::class)->getOpeningBalance($fresh))->toBe(50000.0)
         ->and($statement['opening_balance'])->toBe(50000.0)
+        ->and($statement['opening_balance_type'])->toBe('debit')
         ->and($statement['current_outstanding_signed'])->toBe(65000.0)
         ->and($statement['current_outstanding_label'])->toBe('₹65,000.00 Dr')
         ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2)
+        ->and(collect(app(TallyDealerLedgerService::class)->statement($fresh)['ledger'])->where('is_opening', true))->toHaveCount(1)
         ->and($result['imported_count'])->toBe(2)
         ->and($result['duplicate_count'])->toBe(0)
         ->and($result['import']->balance_matched)->toBeTrue();
@@ -299,8 +303,171 @@ it('imports into an existing dealer and ignores the old erp opening balance', fu
     expect($again['imported_count'])->toBe(0)
         ->and($again['duplicate_count'])->toBe(2)
         ->and($again['summary']['current_outstanding_signed'])->toBe(65000.0)
+        ->and($again['summary']['opening_balance'])->toBe(50000.0)
         ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2)
         ->and(Dealer::query()->count())->toBe(1);
+});
+
+it('replaces the existing opening on re-import and keeps only the tally opening', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100410');
+    $dealer = ledgerDealer($employee, [
+        'firm_name' => 'Opening Replace Agro',
+        'opening_balance' => 259179.83,
+        'opening_balance_type' => 'debit',
+        'opening_balance_date' => '2026-04-01',
+    ]);
+    $admin = tallyImportAdmin();
+
+    $firstRows = [
+        ['Ledger : '.$dealer->firm_name],
+        ['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit'],
+        ['01-04-2026', 'Opening Balance', '', '', '2,59,179.83', ''],
+        ['10-04-2026', 'Sales', 'Sales', 'SL-101', '5,60,678.00', ''],
+        ['18-04-2026', 'Receipt', 'Receipt', 'RT-22', '', '10,000.00'],
+        ['22-04-2026', 'Sales return', 'Credit Note', 'CN-1', '', '2,000.00'],
+        ['', 'Closing Balance', '', '', '', '8,07,857.83'],
+        ['', 'Total', '', '', '8,19,857.83', '8,19,857.83'],
+    ];
+    // 259179.83 + 560678 - 10000 - 2000 = 807857.83
+
+    $first = app(TallyLedgerImportService::class)->import(
+        tallyLedgerExcel($firstRows),
+        (int) $dealer->id,
+        $admin,
+        'opening-old.xlsx',
+    );
+
+    expect($dealer->fresh()->tallyLedgerImportStatusLabel())->toBe('Ledger Imported')
+        ->and($first['summary']['opening_balance'])->toBe(259179.83)
+        ->and($first['summary']['current_outstanding_signed'])->toBe(807857.83);
+
+    $salesId = DealerTallyEntry::query()
+        ->where('dealer_id', $dealer->id)
+        ->where('voucher_no', 'SL-101')
+        ->value('id');
+    $receiptId = DealerTallyEntry::query()
+        ->where('dealer_id', $dealer->id)
+        ->where('voucher_no', 'RT-22')
+        ->value('id');
+    $creditNoteId = DealerTallyEntry::query()
+        ->where('dealer_id', $dealer->id)
+        ->where('voucher_no', 'CN-1')
+        ->value('id');
+
+    DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'entry_date' => '2026-04-01',
+        'particulars' => 'Opening Balance',
+        'voucher_type' => null,
+        'voucher_no' => null,
+        'debit' => 259179.83,
+        'credit' => 0,
+        'source' => DealerTallyEntry::SOURCE_TALLY_IMPORT,
+        'fingerprint' => DealerTallyEntry::makeFingerprint(
+            (int) $dealer->id,
+            '2026-04-01',
+            '',
+            '',
+            259179.83,
+            0.0,
+            'Opening Balance',
+        ),
+    ]);
+
+    $secondRows = [
+        ['Ledger : '.$dealer->firm_name],
+        ['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit'],
+        ['01-04-2026', 'Opening Balance', '', '', '80,267.37', ''],
+        ['10-04-2026', 'Sales', 'Sales', 'SL-101', '5,60,678.00', ''],
+        ['18-04-2026', 'Receipt', 'Receipt', 'RT-22', '', '10,000.00'],
+        ['22-04-2026', 'Sales return', 'Credit Note', 'CN-1', '', '2,000.00'],
+        ['', 'Closing Balance', '', '', '', '6,28,945.37'],
+        ['', 'Total', '', '', '6,40,945.37', '6,40,945.37'],
+    ];
+    // 80267.37 + 560678 - 10000 - 2000 = 628945.37
+
+    $result = app(TallyLedgerImportService::class)->import(
+        tallyLedgerExcel($secondRows),
+        (int) $dealer->id,
+        $admin,
+        'opening-new.xlsx',
+    );
+
+    $fresh = $dealer->fresh();
+    $statement = app(TallyDealerLedgerService::class)->statement($fresh);
+    $openingRows = collect($statement['ledger'])->where('is_opening', true)->values();
+    $entries = DealerTallyEntry::query()->where('dealer_id', $dealer->id)->orderBy('id')->get();
+
+    expect($result['imported_count'])->toBe(0)
+        ->and($result['duplicate_count'])->toBe(3)
+        ->and((float) $fresh->opening_balance)->toBe(80267.37)
+        ->and($fresh->opening_balance_type)->toBe('debit')
+        ->and((float) $fresh->tallyLedger->opening_balance)->toBe(80267.37)
+        ->and($fresh->tallyLedger->opening_balance_type)->toBe('debit')
+        ->and($statement['summary']['opening_balance'])->toBe(80267.37)
+        ->and($statement['summary']['opening_balance_type'])->toBe('debit')
+        ->and($statement['summary']['opening_balance_label'])->toBe('₹80,267.37 Dr')
+        ->and($statement['summary']['current_outstanding_signed'])->toBe(628945.37)
+        ->and($statement['summary']['current_outstanding_label'])->toBe('₹6,28,945.37 Dr')
+        ->and($statement['verification']['balance_matched'])->toBeTrue()
+        ->and($openingRows)->toHaveCount(1)
+        ->and($openingRows[0]['debit'])->toBe(80267.37)
+        ->and($openingRows[0]['credit'])->toBe(0.0)
+        ->and($entries)->toHaveCount(3)
+        ->and($entries->pluck('id')->all())->toBe([$salesId, $receiptId, $creditNoteId])
+        ->and((float) $entries->firstWhere('voucher_no', 'SL-101')->debit)->toBe(560678.0)
+        ->and((float) $entries->firstWhere('voucher_no', 'RT-22')->credit)->toBe(10000.0)
+        ->and((float) $entries->firstWhere('voucher_no', 'CN-1')->credit)->toBe(2000.0)
+        ->and($entries->contains(fn (DealerTallyEntry $row): bool => str_contains(strtolower((string) $row->particulars), 'opening')))->toBeFalse();
+});
+
+it('preserves imported tally credit opening on re-import of a ledger-imported dealer', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100411');
+    $dealer = ledgerDealer($employee, [
+        'firm_name' => 'Credit Opening Agro',
+        'opening_balance' => 10000,
+        'opening_balance_type' => 'debit',
+    ]);
+    $admin = tallyImportAdmin();
+
+    app(TallyLedgerImportService::class)->import(
+        tallyLedgerExcel([
+            ['Ledger : '.$dealer->firm_name],
+            ['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit'],
+            ['01-04-2026', 'Opening Balance', '', '', '10,000.00', ''],
+            ['10-04-2026', 'Sales', 'Sales', 'SL-1', '5,000.00', ''],
+            ['', 'Closing Balance', '', '', '', '15,000.00'],
+            ['', 'Total', '', '', '15,000.00', '15,000.00'],
+        ]),
+        (int) $dealer->id,
+        $admin,
+        'credit-open-first.xlsx',
+    );
+
+    app(TallyLedgerImportService::class)->import(
+        tallyLedgerExcel([
+            ['Ledger : '.$dealer->firm_name],
+            ['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit'],
+            ['01-04-2026', 'Opening Balance', '', '', '', '4,500.00'],
+            ['10-04-2026', 'Sales', 'Sales', 'SL-1', '5,000.00', ''],
+            ['', 'Closing Balance', '', '', '', '500.00'],
+            ['', 'Total', '', '', '5,000.00', '5,000.00'],
+        ]),
+        (int) $dealer->id,
+        $admin,
+        'credit-open-second.xlsx',
+    );
+
+    $statement = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
+
+    expect($dealer->fresh()->opening_balance_type)->toBe('credit')
+        ->and((float) $dealer->fresh()->opening_balance)->toBe(4500.0)
+        ->and($statement['summary']['opening_balance'])->toBe(4500.0)
+        ->and($statement['summary']['opening_balance_type'])->toBe('credit')
+        ->and($statement['summary']['opening_balance_label'])->toBe('₹4,500.00 Cr')
+        ->and($statement['summary']['current_outstanding_signed'])->toBe(500.0)
+        ->and($statement['verification']['balance_matched'])->toBeTrue()
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(1);
 });
 
 it('allows re-import of an already imported dealer and only inserts non-duplicate transactions', function (): void {
@@ -700,7 +867,7 @@ it('resets tally ledger data for the selected dealer only and allows re-import',
     $statement = app(TallyDealerLedgerService::class)->statement($dealer);
 
     expect(Dealer::query()->whereKey($dealer->id)->exists())->toBeTrue()
-        ->and($dealer->opening_balance)->toBe('888888.00')
+        ->and((float) $dealer->opening_balance)->toBe(50000.0)
         ->and(Order::query()->whereKey($order->id)->exists())->toBeTrue()
         ->and($collection->fresh())->not->toBeNull()
         ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(0)
