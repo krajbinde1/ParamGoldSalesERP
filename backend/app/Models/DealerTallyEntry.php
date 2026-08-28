@@ -21,6 +21,10 @@ class DealerTallyEntry extends Model
         'particulars',
         'voucher_type',
         'voucher_no',
+        'tally_voucher_type',
+        'tally_voucher_no',
+        'tally_entry_date',
+        'tally_reconciled_at',
         'debit',
         'credit',
         'source',
@@ -33,6 +37,8 @@ class DealerTallyEntry extends Model
     {
         return [
             'entry_date' => 'date',
+            'tally_entry_date' => 'date',
+            'tally_reconciled_at' => 'datetime',
             'debit' => 'decimal:2',
             'credit' => 'decimal:2',
             'source_id' => 'integer',

@@ -51,7 +51,8 @@
                     <strong>{{ $dealer['firm_name'] }}</strong>.
                     Opening Balance is taken from Tally when shown; otherwise it is ₹0.00.
                     Existing ERP opening balances are ignored.
-                    Re-import is allowed when this dealer is already Ledger Imported: duplicate rows (same date, debit, and credit) are skipped, and previous transactions are kept.
+                    Re-import is allowed when this dealer is already Ledger Imported. Duplicate Tally rows (same date, debit, credit, and voucher no.) are skipped.
+                    Tally sales bills that match an ERP Sales Order (same dealer and bill amount) are merged into that Sales Order debit so outstanding is not doubled.
                 </p>
                 <form wire:submit="previewUpload" class="mt-4 max-w-2xl space-y-4">
                     {{ $this->form }}
@@ -197,10 +198,14 @@
             <div class="rounded-xl border border-gray-200 bg-white p-6 space-y-4">
                 <h2 class="text-lg font-semibold text-gray-950">Import completed</h2>
                 <p class="text-sm text-gray-600">Dealer: <strong>{{ $result['dealer_name'] }}</strong></p>
-                <div class="grid gap-3 sm:grid-cols-3">
+                <div class="grid gap-3 sm:grid-cols-4">
                     <div class="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3">
                         <div class="text-xs font-semibold uppercase text-emerald-700">Imported Transactions</div>
                         <div class="mt-1 text-xl font-bold text-emerald-900">{{ $result['imported_count'] }}</div>
+                    </div>
+                    <div class="rounded-lg border border-sky-200 bg-sky-50 px-4 py-3">
+                        <div class="text-xs font-semibold uppercase text-sky-700">Reconciled Sales Orders</div>
+                        <div class="mt-1 text-xl font-bold text-sky-900">{{ $result['reconciled_count'] ?? 0 }}</div>
                     </div>
                     <div class="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3">
                         <div class="text-xs font-semibold uppercase text-slate-500">Duplicate / Skipped</div>

@@ -210,6 +210,7 @@ class ImportTallyLedger extends Page implements HasForms
             $this->result = [
                 'imported_count' => $result['imported_count'],
                 'duplicate_count' => $result['duplicate_count'],
+                'reconciled_count' => $result['reconciled_count'] ?? 0,
                 'failed_count' => $result['failed_count'],
                 'transaction_count' => $result['transaction_count'],
                 'dealer_name' => $result['dealer']->firm_name,
@@ -229,7 +230,7 @@ class ImportTallyLedger extends Page implements HasForms
             Notification::make()
                 ->success()
                 ->title('Tally ledger imported')
-                ->body('Imported: '.$result['imported_count'].' | Duplicates skipped: '.$result['duplicate_count'].' | Failed: '.$result['failed_count'])
+                ->body('Imported: '.$result['imported_count'].' | Reconciled with Sales Orders: '.($result['reconciled_count'] ?? 0).' | Duplicates skipped: '.$result['duplicate_count'].' | Failed: '.$result['failed_count'])
                 ->send();
         } catch (ValidationException $exception) {
             Notification::make()

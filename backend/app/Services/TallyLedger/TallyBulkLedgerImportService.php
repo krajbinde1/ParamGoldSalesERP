@@ -117,6 +117,7 @@ final class TallyBulkLedgerImportService
                 $row['closing_balance_label'] = (string) ($result['summary']['current_outstanding_label'] ?? $row['closing_balance_label']);
                 $row['imported_count'] = (int) $result['imported_count'];
                 $row['duplicate_count'] = (int) $result['duplicate_count'];
+                $row['reconciled_count'] = (int) ($result['reconciled_count'] ?? 0);
                 $row['tally_status'] = $dealer->tallyLedgerImportStatusLabel();
                 $row['import_status_label'] = 'Ledger Imported';
                 $row['can_import'] = false;

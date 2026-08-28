@@ -9,7 +9,7 @@ class BackfillDealerLedgerEntriesCommand extends Command
 {
     protected $signature = 'ledger:backfill-erp-entries';
 
-    protected $description = 'Post missing dealer ledger debits/credits for dispatched orders and received collections';
+    protected $description = 'Post missing dealer ledger entries and reconcile Tally sales bills with ERP sales orders';
 
     public function handle(DealerLedgerPostingService $posting): int
     {
@@ -17,6 +17,7 @@ class BackfillDealerLedgerEntriesCommand extends Command
 
         $this->info('Posted dispatched orders: '.$result['orders']);
         $this->info('Posted received collections: '.$result['collections']);
+        $this->info('Reconciled Tally sales with ERP sales orders: '.$result['sales_reconciled']);
 
         return self::SUCCESS;
     }

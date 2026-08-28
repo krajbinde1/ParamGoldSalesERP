@@ -10,6 +10,10 @@ use Illuminate\Support\Facades\DB;
 
 final class DealerLedgerPostingService
 {
+    public function __construct(
+        private readonly DealerSalesLedgerReconciler $salesReconciler,
+    ) {}
+
     public function syncDispatchedOrder(Order $order): ?DealerTallyEntry
     {
         if ($order->status !== Order::STATUS_DISPATCHED || $order->dealer_id === null) {
@@ -59,7 +63,7 @@ final class DealerLedgerPostingService
     }
 
     /**
-     * @return array{orders: int, collections: int}
+     * @return array{orders: int, collections: int, sales_reconciled: int}
      */
     public function backfill(): array
     {
@@ -87,6 +91,7 @@ final class DealerLedgerPostingService
         return [
             'orders' => $orders,
             'collections' => $collections,
+            'sales_reconciled' => $this->salesReconciler->reconcileExistingDuplicates(),
         ];
     }
 
@@ -149,6 +154,18 @@ final class DealerLedgerPostingService
                 ->first();
 
             if ($existing !== null) {
+                if ($this->salesReconciler->isReconciled($existing)) {
+                    $existing->fill([
+                        'debit' => $debit,
+                        'credit' => $credit,
+                        'source' => $source,
+                        'source_id' => $sourceId,
+                    ]);
+                    $existing->save();
+
+                    return $existing;
+                }
+
                 $existing->fill([
                     'entry_date' => $date,
                     'particulars' => $particulars,
@@ -162,6 +179,16 @@ final class DealerLedgerPostingService
                 $existing->save();
 
                 return $existing;
+            }
+
+            if ($source === DealerTallyEntry::SOURCE_SALES_ORDER) {
+                $order = Order::query()->find($sourceId);
+                if ($order instanceof Order) {
+                    $tallySales = $this->salesReconciler->findMatchingTallySalesEntry($order);
+                    if ($tallySales !== null) {
+                        return $this->salesReconciler->attachSalesOrderToTallyEntry($tallySales, $order);
+                    }
+                }
             }
 
             if ($this->matchingSideExists($dealerId, $date, $debit, $credit)) {

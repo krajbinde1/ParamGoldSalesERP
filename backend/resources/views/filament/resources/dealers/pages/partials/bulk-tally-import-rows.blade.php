@@ -128,6 +128,9 @@
                         @if ($showImportResult)
                             <td class="erp-col-num px-4 py-3 text-gray-950 dark:text-white">
                                 {{ ($row['import_status_label'] ?? '') === 'Ledger Imported' ? (int) ($row['imported_count'] ?? 0) : '—' }}
+                                @if ((int) ($row['reconciled_count'] ?? 0) > 0)
+                                    <div class="text-xs font-normal text-slate-500">{{ (int) $row['reconciled_count'] }} sales order{{ (int) $row['reconciled_count'] === 1 ? '' : 's' }} reconciled</div>
+                                @endif
                                 @if ((int) ($row['duplicate_count'] ?? 0) > 0)
                                     <div class="text-xs font-normal text-slate-500">{{ (int) $row['duplicate_count'] }} duplicate{{ (int) $row['duplicate_count'] === 1 ? '' : 's' }} skipped</div>
                                 @endif

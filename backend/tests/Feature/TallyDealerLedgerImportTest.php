@@ -354,7 +354,7 @@ it('allows re-import of an already imported dealer and only inserts non-duplicat
         ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(70000.0);
 });
 
-it('skips a re-imported row with the same dealer date debit and credit even when the voucher differs', function (): void {
+it('treats a different tally voucher on the same date and amount as a new transaction', function (): void {
     $employee = ledgerEmployee(UserRole::Employee, '9811100402');
     $dealer = ledgerDealer($employee, ['firm_name' => 'Duplicate Amount Agro']);
     $admin = tallyImportAdmin();
@@ -378,12 +378,13 @@ it('skips a re-imported row with the same dealer date debit and credit even when
         'dup-second.xlsx',
     );
 
-    expect($result['imported_count'])->toBe(0)
-        ->and($result['duplicate_count'])->toBe(2)
-        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2)
-        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->orderBy('id')->pluck('id')->all())->toBe($existingIds)
-        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->where('voucher_no', 'SL-999')->exists())->toBeFalse()
-        ->and($result['summary']['current_outstanding_signed'])->toBe(65000.0);
+    expect($result['imported_count'])->toBe(1)
+        ->and($result['duplicate_count'])->toBe(1)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(3)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->orderBy('id')->pluck('id')->all())
+        ->toContain(...$existingIds)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->where('voucher_no', 'SL-999')->exists())->toBeTrue()
+        ->and($result['summary']['current_outstanding_signed'])->toBe(90000.0);
 });
 
 it('imports the uploaded ledger into the selected erp dealer even when tally names differ', function (): void {

@@ -9,6 +9,7 @@ use App\Models\DealerTallyLedger;
 use App\Models\TallyDealerMapping;
 use App\Models\User;
 use App\Services\Dealers\DealerLedgerPostingService;
+use App\Services\Dealers\DealerSalesLedgerReconciler;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -114,6 +115,19 @@ final class TallyLedgerImportService
     public function resetForDealer(Dealer $dealer): void
     {
         DB::transaction(function () use ($dealer): void {
+            $reconciledSales = DealerTallyEntry::query()
+                ->where('dealer_id', $dealer->id)
+                ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+                ->where(function ($query): void {
+                    $query->whereNotNull('tally_reconciled_at')
+                        ->orWhereNotNull('tally_voucher_no');
+                })
+                ->get();
+
+            foreach ($reconciledSales as $entry) {
+                app(DealerSalesLedgerReconciler::class)->restoreSalesOrderEntry($entry);
+            }
+
             DealerTallyEntry::query()
                 ->where('dealer_id', $dealer->id)
                 ->where('source', TallyLedgerConfig::SOURCE)
@@ -180,6 +194,9 @@ final class TallyLedgerImportService
 
             $imported = 0;
             $duplicates = 0;
+            $reconciled = 0;
+            $reconciler = app(DealerSalesLedgerReconciler::class);
+            $reconciler->reconcileExistingDuplicates($dealer);
 
             foreach ($parsed->transactions as $transaction) {
                 $fingerprint = DealerTallyEntry::makeFingerprint(
@@ -192,7 +209,27 @@ final class TallyLedgerImportService
                     particulars: $transaction['particulars'],
                 );
 
-                if ($this->isDuplicateLedgerEntry($dealer, $transaction, $fingerprint)) {
+                if ($reconciler->tallyDuplicateExists((int) $dealer->id, $transaction, $fingerprint)) {
+                    $duplicates++;
+
+                    continue;
+                }
+
+                if ($reconciler->isTallySalesDebit($transaction)) {
+                    $salesOrder = $reconciler->findMatchingSalesOrderEntry(
+                        dealerId: (int) $dealer->id,
+                        debit: (float) $transaction['debit'],
+                        tallyDate: (string) $transaction['date'],
+                    );
+                    if ($salesOrder !== null) {
+                        $reconciler->reconcileSalesOrderWithTally($salesOrder, $transaction, (int) $import->id);
+                        $reconciled++;
+
+                        continue;
+                    }
+                }
+
+                if ($this->shouldSkipNonSalesDuplicate($dealer, $transaction)) {
                     $duplicates++;
 
                     continue;
@@ -247,7 +284,7 @@ final class TallyLedgerImportService
 
             $import->update([
                 'imported_count' => $imported,
-                'duplicate_count' => $duplicates,
+                'duplicate_count' => $duplicates + $reconciled,
                 'erp_closing_balance' => DealerTallyBalance::amountFromSigned($erpSigned),
                 'erp_closing_balance_type' => DealerTallyBalance::typeFromSigned($erpSigned),
                 'balance_matched' => $tallySigned === null ? null : $matched,
@@ -258,6 +295,7 @@ final class TallyLedgerImportService
                 'import' => $import->fresh(),
                 'imported_count' => $imported,
                 'duplicate_count' => $duplicates,
+                'reconciled_count' => $reconciled,
                 'failed_count' => count($parsed->failed),
                 'transaction_count' => count($parsed->transactions),
                 'dealer' => $dealer,
@@ -267,15 +305,15 @@ final class TallyLedgerImportService
     }
 
     /**
-     * Duplicate when an existing row already has the same dealer, date, debit, and credit.
-     * Existing imported rows are left unchanged.
+     * Skip non-sales Tally rows that already have the same dealer, date, debit and credit
+     * (for example an ERP collection vs a Tally receipt). Do not modify those existing rows.
      *
      * @param  array<string, mixed>  $transaction
      */
-    private function isDuplicateLedgerEntry(Dealer $dealer, array $transaction, string $fingerprint): bool
+    private function shouldSkipNonSalesDuplicate(Dealer $dealer, array $transaction): bool
     {
-        if (DealerTallyEntry::query()->where('fingerprint', $fingerprint)->exists()) {
-            return true;
+        if (app(DealerSalesLedgerReconciler::class)->isTallySalesDebit($transaction)) {
+            return false;
         }
 
         return app(DealerLedgerPostingService::class)->matchingSideExists(
