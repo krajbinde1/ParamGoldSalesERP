@@ -4,6 +4,8 @@ use App\Actions\Employees\CreateEmployeeWithUserAccount;
 use App\Enums\UserRole;
 use App\Models\Collection;
 use App\Models\Dealer;
+use App\Models\DealerTallyEntry;
+use App\Models\DealerTallyLedger;
 use App\Models\Employee;
 use App\Models\Order;
 use App\Models\User;
@@ -94,111 +96,91 @@ it('formats indian rupees without raw decimals', function (): void {
         ->and(IndianCurrency::format(1500.5))->toBe('₹1,500.50');
 });
 
-it('calculates dealer outstanding from opening billed sales and received collections', function (): void {
+it('posts dispatched sales and received collections into the dealer ledger once', function (): void {
     $employee = ledgerEmployee(UserRole::Employee, '9811100001');
     $dealer = ledgerDealer($employee);
     $service = app(DealerLedgerService::class);
 
-    expect($service->getOutstanding($dealer))->toBe(100000.0);
+    expect($service->getOutstanding($dealer))->toBe(0.0);
 
     $pending = ledgerOrder($dealer, $employee, ['status' => Order::STATUS_PENDING_APPROVAL, 'grand_total' => 40000]);
-    expect($service->getOutstanding($dealer->fresh()))->toBe(100000.0);
+    expect($service->getOutstanding($dealer->fresh()))->toBe(0.0);
 
     $pending->forceFill(['status' => Order::STATUS_APPROVED])->saveQuietly();
-    expect($service->getOutstanding($dealer->fresh()))->toBe(100000.0)
+    expect($service->getOutstanding($dealer->fresh()))->toBe(0.0)
         ->and($service->getUnbilledOrders($dealer->fresh()))->toBe(40000.0);
 
-    $billOne = ledgerOrder($dealer, $employee, [
+    $billed = ledgerOrder($dealer, $employee, [
         'status' => Order::STATUS_BILLED,
         'grand_total' => 50000,
         'bill_number' => 'BILL-1',
         'bill_date' => '2026-04-15',
         'billed_at' => '2026-04-15 11:00:00',
     ]);
-    expect($service->getOutstanding($dealer->fresh()))->toBe(150000.0);
+    expect($service->getOutstanding($dealer->fresh()))->toBe(0.0)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(0);
 
     $pendingCollection = ledgerCollection($dealer, $employee, ['amount' => 20000, 'status' => Collection::STATUS_PENDING]);
-    expect($service->getOutstanding($dealer->fresh()))->toBe(150000.0);
+    expect($service->getOutstanding($dealer->fresh()))->toBe(0.0);
 
     $pendingCollection->update(['status' => Collection::STATUS_RECEIVED]);
-    expect($service->getOutstanding($dealer->fresh()))->toBe(130000.0);
+    expect($service->getOutstanding($dealer->fresh()))->toBe(-20000.0)
+        ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->count())->toBe(1);
 
-    ledgerOrder($dealer, $employee, [
-        'status' => Order::STATUS_BILLED,
-        'grand_total' => 70000,
-        'bill_number' => 'BILL-2',
-        'bill_date' => '2026-04-20',
-        'billed_at' => '2026-04-20 11:00:00',
-    ]);
-    expect($service->getOutstanding($dealer->fresh()))->toBe(200000.0);
+    $pendingCollection->update(['admin_remark' => 're-saved received']);
+    expect(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->count())->toBe(1);
 
-    ledgerCollection($dealer, $employee, [
-        'amount' => 100000,
-        'status' => Collection::STATUS_RECEIVED,
-        'collection_date' => '2026-04-22',
-    ]);
-    expect($service->getOutstanding($dealer->fresh()))->toBe(100000.0);
-
-    $ledger = $service->getLedger($dealer->fresh());
-    $last = $ledger['ledger'][array_key_last($ledger['ledger'])];
-
-    expect($ledger['summary']['current_outstanding'])->toBe(100000.0)
-        ->and($last['balance'])->toBe(100000.0)
-        ->and(collect($ledger['ledger'])->where('type', 'sales_invoice')->pluck('source_id')->unique()->count())
-        ->toBe(collect($ledger['ledger'])->where('type', 'sales_invoice')->count());
-
-    $billOne->update([
-        'billing_remark' => 're-saved billed status',
-        'bill_number' => 'BILL-1',
-    ]);
-    $afterResave = $service->getLedger($dealer->fresh());
-    expect(collect($afterResave['ledger'])->where('source_id', $billOne->id)->where('type', 'sales_invoice')->count())->toBe(1);
-
-    ledgerOrder($dealer, $employee, [
+    $dispatched = ledgerOrder($dealer, $employee, [
         'status' => Order::STATUS_DISPATCHED,
-        'grand_total' => 25000,
-        'bill_date' => '2026-04-25',
-        'billed_at' => '2026-04-24 11:00:00',
+        'grand_total' => 50000,
+        'order_no' => 'ORD500001',
+        'dispatch_date' => '2026-04-25',
         'dispatched_at' => '2026-04-25 11:00:00',
     ]);
-    expect($service->getOutstanding($dealer->fresh()))->toBe(125000.0);
+    expect($service->getOutstanding($dealer->fresh()))->toBe(30000.0)
+        ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)->where('source_id', $dispatched->id)->count())->toBe(1)
+        ->and(DealerTallyEntry::query()->where('source_id', $dispatched->id)->value('voucher_no'))->toBe('ORD500001');
 
-    $rejected = ledgerCollection($dealer, $employee, [
+    $dispatched->update(['dispatch_remark' => 'refreshed']);
+    expect(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)->where('source_id', $dispatched->id)->count())->toBe(1);
+
+    $dispatched->update(['grand_total' => 55000]);
+    expect($service->getOutstanding($dealer->fresh()))->toBe(35000.0)
+        ->and((float) DealerTallyEntry::query()->where('source_id', $dispatched->id)->value('debit'))->toBe(55000.0);
+
+    ledgerCollection($dealer, $employee, [
         'amount' => 5000,
         'status' => Collection::STATUS_NOT_RECEIVED,
     ]);
-    expect($service->getOutstanding($dealer->fresh()))->toBe(125000.0);
+    expect($service->getOutstanding($dealer->fresh()))->toBe(35000.0);
 
-    $receivedThenReversed = ledgerCollection($dealer, $employee, [
-        'amount' => 15000,
-        'status' => Collection::STATUS_RECEIVED,
-        'collection_date' => '2026-04-26',
-    ]);
-    expect($service->getOutstanding($dealer->fresh()))->toBe(110000.0);
-    $receivedThenReversed->update(['status' => Collection::STATUS_NOT_RECEIVED]);
-    expect($service->getOutstanding($dealer->fresh()))->toBe(125000.0);
+    $ledger = $service->getLedger($dealer->fresh());
+    expect($ledger['summary']['current_outstanding'])->toBe(35000.0)
+        ->and(collect($ledger['ledger'])->where('type', 'sales_invoice')->pluck('source_id')->unique()->count())
+        ->toBe(collect($ledger['ledger'])->where('type', 'sales_invoice')->count());
 });
 
 it('exposes the same account summary and ledger through the api', function (): void {
     $employee = ledgerEmployee(UserRole::Employee, '9811100002');
     $dealer = ledgerDealer($employee);
-    ledgerOrder($dealer, $employee, [
-        'status' => Order::STATUS_BILLED,
+    $order = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
         'grand_total' => 50000,
-        'bill_date' => '2026-04-15',
+        'order_no' => 'ORD500002',
+        'dispatch_date' => '2026-04-15',
+        'dispatched_at' => '2026-04-15 11:00:00',
     ]);
     ledgerCollection($dealer, $employee, [
         'amount' => 20000,
         'status' => Collection::STATUS_RECEIVED,
+        'collection_date' => '2026-04-18',
     ]);
 
     $this->actingAs($employee->user, 'sanctum')
         ->getJson('/api/dealers/'.$dealer->id.'/account-summary')
         ->assertOk()
-        ->assertJsonPath('data.opening_balance', 100000)
-        ->assertJsonPath('data.billed_sales', 50000)
-        ->assertJsonPath('data.collections_received', 20000)
-        ->assertJsonPath('data.current_outstanding', 130000);
+        ->assertJsonPath('data.opening_balance', 0)
+        ->assertJsonPath('data.current_outstanding', 30000);
 
     $ledgerResponse = $this->actingAs($employee->user, 'sanctum')
         ->getJson('/api/dealers/'.$dealer->id.'/ledger')
@@ -206,8 +188,8 @@ it('exposes the same account summary and ledger through the api', function (): v
 
     $ledger = $ledgerResponse->json('data.ledger');
     expect($ledger[0]['type'])->toBe('opening_balance')
-        ->and($ledger[0]['debit'])->toBe(100000)
-        ->and($ledger[array_key_last($ledger)]['balance'])->toBe(130000);
+        ->and($ledger[array_key_last($ledger)]['balance'])->toBe(30000)
+        ->and(collect($ledger)->firstWhere('source_id', $order->id)['reference'])->toBe('ORD500002');
 });
 
 it('enforces dealer ledger permissions for employee manager and production supervisor', function (): void {
@@ -248,22 +230,30 @@ it('enforces dealer ledger permissions for employee manager and production super
         ->assertOk();
 });
 
-it('treats a credit opening balance as a credit in outstanding and ledger', function (): void {
+it('treats a tally credit opening balance as a credit in outstanding and ledger', function (): void {
     $employee = ledgerEmployee(UserRole::Employee, '9811100007');
     $dealer = ledgerDealer($employee, [
         'opening_balance' => 40000,
         'opening_balance_type' => 'credit',
         'opening_balance_date' => '2026-04-01',
     ]);
+    DealerTallyLedger::query()->create([
+        'dealer_id' => $dealer->id,
+        'opening_balance' => 40000,
+        'opening_balance_type' => 'credit',
+        'opening_balance_explicit' => true,
+        'financial_start_date' => '2026-04-01',
+        'last_imported_at' => now(),
+    ]);
     $service = app(DealerLedgerService::class);
 
     expect($service->getOutstanding($dealer))->toBe(-40000.0);
 
     ledgerOrder($dealer, $employee, [
-        'status' => Order::STATUS_BILLED,
+        'status' => Order::STATUS_DISPATCHED,
         'grand_total' => 50000,
-        'bill_date' => '2026-04-15',
-        'billed_at' => '2026-04-15 11:00:00',
+        'dispatch_date' => '2026-04-15',
+        'dispatched_at' => '2026-04-15 11:00:00',
     ]);
     expect($service->getOutstanding($dealer->fresh()))->toBe(10000.0);
 

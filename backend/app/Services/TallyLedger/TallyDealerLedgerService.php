@@ -38,6 +38,8 @@ final class TallyDealerLedgerService
             'credit' => $openingType === DealerTallyBalance::CREDIT ? $openingAmount : 0.0,
             'balance_signed' => $running,
             'is_opening' => true,
+            'source' => 'opening_balance',
+            'source_id' => null,
         ];
 
         $rows = DealerTallyEntry::query()
@@ -66,6 +68,8 @@ final class TallyDealerLedgerService
                 'credit' => $credit,
                 'balance_signed' => $running,
                 'is_opening' => false,
+                'source' => (string) $row->source,
+                'source_id' => $row->source_id !== null ? (int) $row->source_id : null,
             ];
         }
 
@@ -120,7 +124,6 @@ final class TallyDealerLedgerService
 
     /**
      * Current outstanding as shown on Dealer Ledger: Opening + Debit − Credit.
-     * Positive is Dr, negative is Cr. Dealers without a Tally ledger are 0.
      */
     public function signedCurrentOutstanding(Dealer $dealer): float
     {

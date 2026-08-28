@@ -4,7 +4,9 @@ namespace App\Services\Dealers;
 
 use App\Models\Collection;
 use App\Models\Dealer;
+use App\Models\DealerTallyEntry;
 use App\Models\Order;
+use App\Services\TallyLedger\TallyDealerLedgerService;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 
@@ -72,12 +74,7 @@ final class DealerLedgerService
 
     public function getOutstanding(Dealer $dealer): float
     {
-        return $this->money(
-            $this->getSignedOpeningBalance($dealer)
-            + $this->getTotalBilledSales($dealer)
-            - $this->getTotalCollections($dealer)
-            - $this->getTotalCreditNotes($dealer)
-        );
+        return app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer);
     }
 
     public function getTotalExposure(Dealer $dealer): float
@@ -102,23 +99,19 @@ final class DealerLedgerService
      */
     public function getAccountSummary(Dealer $dealer): array
     {
-        $openingBalance = $this->getOpeningBalance($dealer);
-        $billedSales = $this->getTotalBilledSales($dealer);
-        $collections = $this->getTotalCollections($dealer);
+        $statement = app(TallyDealerLedgerService::class)->statement($dealer);
+        $outstanding = (float) $statement['summary']['current_outstanding_signed'];
         $unbilled = $this->getUnbilledOrders($dealer);
-        $outstanding = $this->money(
-            $this->getSignedOpeningBalance($dealer) + $billedSales - $collections - $this->getTotalCreditNotes($dealer)
-        );
 
         return [
             'dealer_id' => (int) $dealer->id,
             'dealer_code' => (string) $dealer->dealer_code,
             'dealer_name' => (string) $dealer->firm_name,
-            'opening_balance' => $openingBalance,
-            'opening_balance_type' => $this->getOpeningBalanceType($dealer),
-            'opening_balance_date' => $this->getOpeningBalanceDate($dealer),
-            'billed_sales' => $billedSales,
-            'collections_received' => $collections,
+            'opening_balance' => (float) $statement['summary']['opening_balance'],
+            'opening_balance_type' => (string) $statement['summary']['opening_balance_type'],
+            'opening_balance_date' => $statement['summary']['financial_start_date'],
+            'billed_sales' => $this->getTotalBilledSales($dealer),
+            'collections_received' => $this->getTotalCollections($dealer),
             'current_outstanding' => $outstanding,
             'unbilled_orders' => $unbilled,
             'total_exposure' => $this->money($outstanding + $unbilled),
@@ -133,112 +126,30 @@ final class DealerLedgerService
      */
     public function getLedger(Dealer $dealer): array
     {
+        $statement = app(TallyDealerLedgerService::class)->statement($dealer);
         $summary = $this->getAccountSummary($dealer);
         $entries = [];
-        $running = 0.0;
 
-        $openingAmount = $summary['opening_balance'];
-        $openingIsCredit = $summary['opening_balance_type'] === Dealer::OPENING_BALANCE_CREDIT;
-        $openingDebit = $openingIsCredit ? 0.0 : $openingAmount;
-        $openingCredit = $openingIsCredit ? $openingAmount : 0.0;
-        $openingDate = $summary['opening_balance_date']
-            ?? $dealer->created_at?->timezone('Asia/Kolkata')?->toDateString()
-            ?? Carbon::now('Asia/Kolkata')->toDateString();
-
-        $running = $this->money($openingDebit - $openingCredit);
-        $entries[] = $this->ledgerRow(
-            date: $openingDate,
-            type: self::TYPE_OPENING_BALANCE,
-            particulars: 'Opening Balance',
-            reference: null,
-            debit: $openingDebit,
-            credit: $openingCredit,
-            balance: $running,
-            statusRemark: $openingAmount == 0.0 ? 'No opening balance' : 'Opening Balance',
-            sourceId: 0,
-            sequence: 0,
-        );
-
-        $transactions = [];
-
-        $dealer->orders()
-            ->whereIn('status', Order::billedReceivableStatuses())
-            ->orderBy('id')
-            ->get(['id', 'order_no', 'bill_number', 'bill_date', 'billed_at', 'order_date', 'grand_total', 'status'])
-            ->each(function (Order $order) use (&$transactions): void {
-                $date = $order->bill_date?->toDateString()
-                    ?? $order->billed_at?->timezone('Asia/Kolkata')?->toDateString()
-                    ?? $order->order_date?->toDateString();
-
-                $referenceParts = array_values(array_filter([
-                    $order->order_no,
-                    filled($order->bill_number) ? (string) $order->bill_number : null,
-                ]));
-
-                $transactions[] = [
-                    'date' => $date ?? Carbon::now('Asia/Kolkata')->toDateString(),
-                    'type' => self::TYPE_SALES_INVOICE,
-                    'particulars' => 'Sales Invoice / Order Bill',
-                    'reference' => $referenceParts === [] ? null : implode(' / ', $referenceParts),
-                    'debit' => $this->money($order->grand_total),
-                    'credit' => 0.0,
-                    'status_remark' => Order::STATUS_LABELS[$order->status] ?? 'Billed',
-                    'source_id' => (int) $order->id,
-                    'sequence' => 1,
-                ];
-            });
-
-        $dealer->collections()
-            ->where('status', Collection::STATUS_RECEIVED)
-            ->orderBy('id')
-            ->get(['id', 'receipt_no', 'collection_date', 'amount', 'status'])
-            ->each(function (Collection $collection) use (&$transactions): void {
-                $transactions[] = [
-                    'date' => $collection->collection_date?->toDateString()
-                        ?? Carbon::now('Asia/Kolkata')->toDateString(),
-                    'type' => self::TYPE_COLLECTION,
-                    'particulars' => 'Payment Received / Collection',
-                    'reference' => filled($collection->receipt_no)
-                        ? (string) $collection->receipt_no
-                        : 'COL-'.$collection->id,
-                    'debit' => 0.0,
-                    'credit' => $this->money($collection->amount),
-                    'status_remark' => Collection::STATUS_LABELS[$collection->status] ?? 'Received',
-                    'source_id' => (int) $collection->id,
-                    'sequence' => 2,
-                ];
-            });
-
-        usort($transactions, function (array $left, array $right): int {
-            $dateCompare = strcmp((string) $left['date'], (string) $right['date']);
-            if ($dateCompare !== 0) {
-                return $dateCompare;
-            }
-
-            $sequenceCompare = ((int) $left['sequence']) <=> ((int) $right['sequence']);
-            if ($sequenceCompare !== 0) {
-                return $sequenceCompare;
-            }
-
-            return ((int) $left['source_id']) <=> ((int) $right['source_id']);
-        });
-
-        foreach ($transactions as $transaction) {
-            $running = $this->money(
-                $running + (float) $transaction['debit'] - (float) $transaction['credit']
-            );
+        foreach ($statement['ledger'] as $index => $row) {
+            $source = (string) ($row['source'] ?? '');
+            $type = match (true) {
+                (bool) ($row['is_opening'] ?? false) => self::TYPE_OPENING_BALANCE,
+                $source === DealerTallyEntry::SOURCE_SALES_ORDER => self::TYPE_SALES_INVOICE,
+                $source === DealerTallyEntry::SOURCE_COLLECTION => self::TYPE_COLLECTION,
+                default => $source !== '' ? $source : 'ledger_entry',
+            };
 
             $entries[] = $this->ledgerRow(
-                date: $transaction['date'],
-                type: $transaction['type'],
-                particulars: $transaction['particulars'],
-                reference: $transaction['reference'],
-                debit: (float) $transaction['debit'],
-                credit: (float) $transaction['credit'],
-                balance: $running,
-                statusRemark: $transaction['status_remark'],
-                sourceId: (int) $transaction['source_id'],
-                sequence: (int) $transaction['sequence'],
+                date: (string) ($row['date'] ?? Carbon::now('Asia/Kolkata')->toDateString()),
+                type: $type,
+                particulars: (string) ($row['particulars'] ?? ''),
+                reference: $row['voucher_no'] !== null && $row['voucher_no'] !== '' ? (string) $row['voucher_no'] : null,
+                debit: (float) ($row['debit'] ?? 0),
+                credit: (float) ($row['credit'] ?? 0),
+                balance: (float) ($row['balance_signed'] ?? 0),
+                statusRemark: $type === self::TYPE_OPENING_BALANCE ? 'Opening Balance' : null,
+                sourceId: (int) ($row['source_id'] ?? 0),
+                sequence: $index,
             );
         }
 
@@ -261,7 +172,7 @@ final class DealerLedgerService
                 $query->select($query->getModel()->getTable().'.*');
             }
 
-            $query->selectRaw(self::currentOutstandingSql($query->getModel()->getTable()).' as '.$alias);
+            $query->selectRaw(TallyDealerLedgerService::signedCurrentOutstandingSql($query->getModel()->getTable()).' as '.$alias);
         }
 
         return $query;
@@ -280,50 +191,12 @@ final class DealerLedgerService
 
     public static function currentOutstandingSql(string $dealersTable = 'dealers'): string
     {
-        $billed = collect(Order::billedReceivableStatuses())
-            ->map(fn (string $status): string => "'".str_replace("'", "''", $status)."'")
-            ->implode(',');
-        $received = str_replace("'", "''", Collection::STATUS_RECEIVED);
-
-        return "(
-            ".self::signedOpeningBalanceSql($dealersTable)."
-            + COALESCE((
-                SELECT SUM(orders.grand_total)
-                FROM orders
-                WHERE orders.dealer_id = {$dealersTable}.id
-                  AND orders.deleted_at IS NULL
-                  AND orders.status IN ({$billed})
-            ), 0)
-            - COALESCE((
-                SELECT SUM(collections.amount)
-                FROM collections
-                WHERE collections.dealer_id = {$dealersTable}.id
-                  AND collections.deleted_at IS NULL
-                  AND collections.status = '{$received}'
-            ), 0)
-        )";
+        return TallyDealerLedgerService::signedCurrentOutstandingSql($dealersTable);
     }
 
     public function companyTotalOutstanding(): float
     {
-        $opening = $this->money(
-            (float) (Dealer::query()
-                ->toBase()
-                ->selectRaw('COALESCE(SUM('.self::signedOpeningBalanceSql().'), 0) as total')
-                ->value('total') ?? 0)
-        );
-        $billed = $this->money(
-            Order::query()
-                ->whereIn('status', Order::billedReceivableStatuses())
-                ->sum('grand_total')
-        );
-        $collections = $this->money(
-            Collection::query()
-                ->where('status', Collection::STATUS_RECEIVED)
-                ->sum('amount')
-        );
-
-        return $this->money($opening + $billed - $collections);
+        return app(DealerOutstandingService::class)->summary()['outstanding'];
     }
 
     public function highOutstandingDealerCount(): int

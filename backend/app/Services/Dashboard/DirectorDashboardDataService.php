@@ -12,8 +12,9 @@ use App\Models\Order;
 use App\Models\PaymentRequest;
 use App\Models\User;
 use App\Models\WeeklyTarget;
-use App\Services\PaymentRequests\PaymentRequestApproverResolver;
 use App\Services\Dealers\DealerLedgerService;
+use App\Services\Dealers\DealerOutstandingService;
+use App\Services\PaymentRequests\PaymentRequestApproverResolver;
 use App\Support\AttendanceCalendar;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection as SupportCollection;
@@ -104,9 +105,8 @@ class DirectorDashboardDataService
             ->where('status', Collection::STATUS_RECEIVED)
             ->sum('amount');
 
-        $ledger = app(DealerLedgerService::class);
-        $totalOutstanding = $ledger->companyTotalOutstanding();
-        $highOutstanding = $ledger->highOutstandingDealerCount();
+        $totalOutstanding = app(DealerOutstandingService::class)->summary()['outstanding'];
+        $highOutstanding = app(DealerLedgerService::class)->highOutstandingDealerCount();
 
         $dealerVisitsToday = DealerVisit::query()->whereDate('visit_date', $today)->count();
         $fieldVisitsToday = FieldActivity::query()->whereDate('activity_date', $today)->count();

@@ -10,6 +10,10 @@ class DealerTallyEntry extends Model
 {
     public const SOURCE_TALLY_IMPORT = 'tally_import';
 
+    public const SOURCE_SALES_ORDER = 'sales_order';
+
+    public const SOURCE_COLLECTION = 'collection';
+
     protected $fillable = [
         'dealer_id',
         'import_id',
@@ -20,6 +24,7 @@ class DealerTallyEntry extends Model
         'debit',
         'credit',
         'source',
+        'source_id',
         'fingerprint',
         'source_row',
     ];
@@ -30,6 +35,7 @@ class DealerTallyEntry extends Model
             'entry_date' => 'date',
             'debit' => 'decimal:2',
             'credit' => 'decimal:2',
+            'source_id' => 'integer',
             'source_row' => 'integer',
         ];
     }
@@ -69,5 +75,10 @@ class DealerTallyEntry extends Model
         }
 
         return hash('sha256', $payload);
+    }
+
+    public static function makeSourceFingerprint(string $source, int $sourceId): string
+    {
+        return hash('sha256', $source.'|'.$sourceId);
     }
 }

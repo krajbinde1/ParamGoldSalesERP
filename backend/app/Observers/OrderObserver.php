@@ -3,6 +3,7 @@
 namespace App\Observers;
 
 use App\Models\Order;
+use App\Services\Dealers\DealerLedgerPostingService;
 use App\Services\Notifications\OrderPushNotifier;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -11,10 +12,13 @@ class OrderObserver
 {
     public function __construct(
         private readonly OrderPushNotifier $notifier,
+        private readonly DealerLedgerPostingService $ledgerPosting,
     ) {}
 
     public function created(Order $order): void
     {
+        $this->syncLedger($order);
+
         if ($order->status !== Order::STATUS_PENDING_APPROVAL) {
             return;
         }
@@ -24,6 +28,10 @@ class OrderObserver
 
     public function updated(Order $order): void
     {
+        if ($order->wasChanged('status') || $order->wasChanged('grand_total') || $order->wasChanged('dispatch_date')) {
+            $this->syncLedger($order->fresh() ?? $order);
+        }
+
         if (! $order->wasChanged('status')) {
             return;
         }
@@ -55,6 +63,11 @@ class OrderObserver
             Order::STATUS_DISPATCHED => $this->safe(fn () => $this->notifier->notifyDispatched($fresh)),
             default => null,
         };
+    }
+
+    private function syncLedger(Order $order): void
+    {
+        $this->ledgerPosting->syncDispatchedOrder($order);
     }
 
     private function safe(callable $callback): void

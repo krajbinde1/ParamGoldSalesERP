@@ -8,6 +8,7 @@ use App\Models\DealerTallyImport;
 use App\Models\DealerTallyLedger;
 use App\Models\TallyDealerMapping;
 use App\Models\User;
+use App\Services\Dealers\DealerLedgerPostingService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -113,9 +114,14 @@ final class TallyLedgerImportService
     public function resetForDealer(Dealer $dealer): void
     {
         DB::transaction(function () use ($dealer): void {
-            DealerTallyEntry::query()->where('dealer_id', $dealer->id)->delete();
+            DealerTallyEntry::query()
+                ->where('dealer_id', $dealer->id)
+                ->where('source', TallyLedgerConfig::SOURCE)
+                ->delete();
             DealerTallyImport::query()->where('dealer_id', $dealer->id)->delete();
-            DealerTallyLedger::query()->where('dealer_id', $dealer->id)->delete();
+            if (! DealerTallyEntry::query()->where('dealer_id', $dealer->id)->exists()) {
+                DealerTallyLedger::query()->where('dealer_id', $dealer->id)->delete();
+            }
         });
 
         Log::debug('tally_ledger_reset', [
@@ -187,7 +193,7 @@ final class TallyLedgerImportService
                 );
 
                 $existing = DealerTallyEntry::query()->where('fingerprint', $fingerprint)->exists();
-                if ($existing) {
+                if ($existing || $this->isDuplicateSide($dealer, $transaction)) {
                     $duplicates++;
 
                     continue;
@@ -254,5 +260,18 @@ final class TallyLedgerImportService
                 'summary' => $statement['summary'],
             ];
         });
+    }
+
+    /**
+     * @param  array<string, mixed>  $transaction
+     */
+    private function isDuplicateSide(Dealer $dealer, array $transaction): bool
+    {
+        return app(DealerLedgerPostingService::class)->matchingSideExists(
+            dealerId: (int) $dealer->id,
+            date: (string) $transaction['date'],
+            debit: (float) $transaction['debit'],
+            credit: (float) $transaction['credit'],
+        );
     }
 }

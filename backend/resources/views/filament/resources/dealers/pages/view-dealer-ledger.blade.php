@@ -103,11 +103,11 @@
         }
     </style>
 
-    @if (! $summary['has_tally_ledger'])
+    @if (! $summary['has_tally_ledger'] && collect($ledger)->where('is_opening', false)->isEmpty())
         <p class="pg-dealer-ledger-note is-info">
-            No Tally ledger has been imported for this dealer yet. Opening Balance and Current Outstanding are
-            <strong>{{ IndianCurrency::formatExact(0) }}</strong> until a Tally Excel is imported.
-            The previous ERP opening balance is not used.
+            No Tally ledger has been imported and no ERP ledger entries have been posted yet.
+            Opening Balance is <strong>{{ IndianCurrency::formatExact(0) }}</strong> until a Tally Excel is imported.
+            The previous ERP dealer opening balance is not used.
         </p>
     @elseif ($verification['balance_matched'] === true)
         <p class="pg-dealer-ledger-note is-ok">✓ Tally Balance Matched</p>
@@ -175,7 +175,7 @@
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="7" class="pg-dealer-ledger-empty">No Tally ledger entries yet.</td>
+                        <td colspan="7" class="pg-dealer-ledger-empty">No ledger entries yet.</td>
                     </tr>
                 @endforelse
                 @if ($ledger !== [])

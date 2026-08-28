@@ -260,11 +260,27 @@ it('opens matching filtered lists for sales, collections, pending orders, and hi
         'opening_balance' => 95000,
         'opening_balance_date' => '2026-04-01',
     ]);
+    DealerTallyLedger::query()->create([
+        'dealer_id' => $highDealer->id,
+        'opening_balance' => 95000,
+        'opening_balance_type' => 'debit',
+        'opening_balance_explicit' => true,
+        'financial_start_date' => '2026-04-01',
+        'last_imported_at' => now(),
+    ]);
     $okDealer = directorDashDealer([
         'firm_name' => 'Healthy Dealer',
         'credit_limit' => 100000,
         'opening_balance' => 10000,
         'opening_balance_date' => '2026-04-01',
+    ]);
+    DealerTallyLedger::query()->create([
+        'dealer_id' => $okDealer->id,
+        'opening_balance' => 10000,
+        'opening_balance_type' => 'debit',
+        'opening_balance_explicit' => true,
+        'financial_start_date' => '2026-04-01',
+        'last_imported_at' => now(),
     ]);
 
     $todayOrder = directorDashOrder($employee->id, $todayDealer->id, ['grand_total' => 50000]);
@@ -771,7 +787,6 @@ it('filters director collections by week, month, employee, and date range', func
         ->assertJsonPath('total_collection', 4000)
         ->assertJsonPath('dealers_count', 1);
 });
-
 
 it('lists director today field visits grouped by employee matching dashboard count', function (): void {
     $director = directorDashDirector('Field Visit Director');
