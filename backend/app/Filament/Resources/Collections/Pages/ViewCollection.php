@@ -2,10 +2,10 @@
 
 namespace App\Filament\Resources\Collections\Pages;
 
+use App\Filament\Resources\Collections\Actions\EditCollectionStatusAction;
 use App\Filament\Resources\Collections\CollectionResource;
 use App\Models\Collection;
 use Filament\Actions\Action;
-use Filament\Actions\EditAction;
 use Filament\Forms\Components\Textarea;
 use Filament\Resources\Pages\ViewRecord;
 
@@ -16,8 +16,7 @@ class ViewCollection extends ViewRecord
     protected function getHeaderActions(): array
     {
         return [
-            EditAction::make()
-                ->visible(fn (): bool => auth()->user()?->isAdminUser() === true),
+            EditCollectionStatusAction::make(),
             Action::make('markReceived')
                 ->label('Mark Received')
                 ->color('success')

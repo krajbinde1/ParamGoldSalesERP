@@ -45,7 +45,7 @@ class CollectionInfolist
                         ->visible(fn ($record): bool => filled($record->admin_remark))
                         ->columnSpanFull(),
                 ]),
-                Section::make('Edit history')
+                Section::make('Status history')
                     ->columnSpanFull()
                     ->visible(fn (Collection $record): bool => $record->audits()->exists())
                     ->schema([

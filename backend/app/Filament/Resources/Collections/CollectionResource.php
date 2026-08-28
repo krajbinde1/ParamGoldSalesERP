@@ -56,7 +56,7 @@ class CollectionResource extends Resource
 
     public static function canEdit(Model $record): bool
     {
-        return auth()->user()?->isAdminUser() === true;
+        return false;
     }
 
     public static function getRelations(): array

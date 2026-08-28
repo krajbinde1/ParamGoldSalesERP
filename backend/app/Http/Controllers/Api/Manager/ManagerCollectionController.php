@@ -26,7 +26,7 @@ class ManagerCollectionController extends Controller
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
             'employee_id' => ['nullable', 'integer'],
-            'status' => ['nullable', 'string', 'in:pending,received,not_received'],
+            'status' => ['nullable', 'string', 'in:pending,received,not_received,rejected'],
         ]);
 
         $reportIds = $this->access->directReportEmployeeIds($request->user());

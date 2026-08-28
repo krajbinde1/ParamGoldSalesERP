@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Collections\UpdateCollectionStatus;
 use App\Actions\Employees\CreateEmployeeWithUserAccount;
 use App\Enums\UserRole;
 use App\Filament\Resources\Collections\Pages\EditCollection;
@@ -97,7 +98,7 @@ function collectionEditRecord(Dealer $dealer, Employee $employee, array $overrid
     ], $overrides));
 }
 
-it('shows edit beside view for admin and hides it from managers', function (): void {
+it('shows status edit beside view for admin and hides it from managers', function (): void {
     $admin = collectionEditAdmin();
     $manager = collectionEditManager();
     $employee = collectionEditEmployee('9811200001');
@@ -124,157 +125,136 @@ it('shows edit beside view for admin and hides it from managers', function (): v
         ->assertForbidden();
 });
 
-it('lets admin edit collection fields and writes an audit trail', function (): void {
+it('lets admin change only status from the edit popup and writes an audit trail', function (): void {
     $admin = collectionEditAdmin();
     $employee = collectionEditEmployee('9811200002');
-    $otherEmployee = collectionEditEmployee('9811200003');
     $dealer = collectionEditDealer($employee, 'Audit Dealer');
     $collection = collectionEditRecord($dealer, $employee, [
-        'status' => Collection::STATUS_PENDING,
+        'status' => Collection::STATUS_NOT_RECEIVED,
         'amount' => 12000,
+        'remarks' => 'Keep this remark',
+        'receipt_no' => 'RCP-KEEP-1',
     ]);
+    $originalAmount = (float) $collection->amount;
+    $originalDate = $collection->collection_date->toDateString();
 
     Livewire::actingAs($admin)
-        ->test(EditCollection::class, ['record' => $collection->getRouteKey()])
-        ->assertSuccessful()
-        ->fillForm([
-            'collection_date' => '2026-05-02',
-            'dealer_id' => $dealer->id,
-            'sales_employee_id' => $otherEmployee->id,
-            'amount' => 15500.5,
-            'status' => Collection::STATUS_PENDING,
-            'receipt_no' => 'RCP-EDITED-1',
-            'payment_mode' => 'UPI',
-            'transaction_number' => 'UPI-9988',
-            'remarks' => 'Updated by admin',
+        ->test(ListCollections::class)
+        ->callTableAction('edit', $collection, [
+            'status' => Collection::STATUS_RECEIVED,
         ])
-        ->call('save')
-        ->assertHasNoFormErrors();
+        ->assertHasNoTableActionErrors();
 
     $collection->refresh();
     $audit = CollectionAudit::query()->where('collection_id', $collection->id)->first();
 
-    expect($collection->collection_date->toDateString())->toBe('2026-05-02')
-        ->and((int) $collection->sales_employee_id)->toBe((int) $otherEmployee->id)
-        ->and((float) $collection->amount)->toBe(15500.5)
-        ->and($collection->receipt_no)->toBe('RCP-EDITED-1')
-        ->and($collection->payment_mode)->toBe('UPI')
-        ->and($collection->transaction_number)->toBe('UPI-9988')
-        ->and($collection->remarks)->toBe('Updated by admin')
+    expect($collection->status)->toBe(Collection::STATUS_RECEIVED)
+        ->and((float) $collection->amount)->toBe($originalAmount)
+        ->and($collection->collection_date->toDateString())->toBe($originalDate)
+        ->and($collection->remarks)->toBe('Keep this remark')
+        ->and($collection->receipt_no)->toBe('RCP-KEEP-1')
         ->and($audit)->not->toBeNull()
         ->and((int) $audit->changed_by)->toBe((int) $admin->id)
-        ->and(collect($audit->auditRows())->pluck('label')->all())->toContain('Collection Date', 'Sales Employee', 'Amount', 'Receipt No.', 'Payment Mode', 'Transaction / Reference No.', 'Remark');
+        ->and(collect($audit->auditRows())->pluck('label')->all())->toBe(['Status']);
 });
 
-it('removes the dealer ledger credit when a received collection is marked not received', function (): void {
+it('does nothing when the selected status is unchanged', function (): void {
+    $admin = collectionEditAdmin();
+    $employee = collectionEditEmployee('9811200003');
+    $dealer = collectionEditDealer($employee, 'Unchanged Status Dealer');
+    $collection = collectionEditRecord($dealer, $employee, ['status' => Collection::STATUS_RECEIVED]);
+    $entryId = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_COLLECTION)
+        ->where('source_id', $collection->id)
+        ->value('id');
+
+    app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_RECEIVED, $admin);
+
+    expect($collection->fresh()->status)->toBe(Collection::STATUS_RECEIVED)
+        ->and(CollectionAudit::query()->where('collection_id', $collection->id)->count())->toBe(0)
+        ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(1)
+        ->and((int) DealerTallyEntry::query()->where('source_id', $collection->id)->value('id'))->toBe((int) $entryId);
+});
+
+it('posts one ledger credit when status becomes received', function (): void {
     $admin = collectionEditAdmin();
     $employee = collectionEditEmployee('9811200004');
-    $dealer = collectionEditDealer($employee, 'Reverse Dealer');
+    $dealer = collectionEditDealer($employee, 'To Received Dealer');
+    $collection = collectionEditRecord($dealer, $employee, ['amount' => 9000, 'status' => Collection::STATUS_NOT_RECEIVED]);
+
+    expect(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(0);
+
+    app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_RECEIVED, $admin);
+    app(UpdateCollectionStatus::class)->execute($collection->fresh(), Collection::STATUS_RECEIVED, $admin);
+
+    expect($collection->fresh()->status)->toBe(Collection::STATUS_RECEIVED)
+        ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(1)
+        ->and((float) DealerTallyEntry::query()->where('source_id', $collection->id)->value('credit'))->toBe(9000.0)
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(-9000.0);
+});
+
+it('removes the ledger credit when received is changed to not received', function (): void {
+    $admin = collectionEditAdmin();
+    $employee = collectionEditEmployee('9811200005');
+    $dealer = collectionEditDealer($employee, 'To Not Received Dealer');
     $collection = collectionEditRecord($dealer, $employee, ['amount' => 20000, 'status' => Collection::STATUS_RECEIVED]);
 
-    expect(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(1)
-        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(-20000.0);
+    expect(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(-20000.0);
 
-    Livewire::actingAs($admin)
-        ->test(EditCollection::class, ['record' => $collection->getRouteKey()])
-        ->fillForm([
-            'status' => Collection::STATUS_NOT_RECEIVED,
-            'admin_remark' => 'Cheque bounced',
-            'amount' => 20000,
-            'dealer_id' => $dealer->id,
-            'collection_date' => '2026-04-18',
-        ])
-        ->call('save')
-        ->assertHasNoFormErrors();
+    app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_NOT_RECEIVED, $admin);
 
     expect($collection->fresh()->status)->toBe(Collection::STATUS_NOT_RECEIVED)
         ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(0)
         ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(0.0);
 });
 
-it('updates the existing ledger credit when a received collection amount is edited', function (): void {
-    $employee = collectionEditEmployee('9811200005');
-    $dealer = collectionEditDealer($employee, 'Amount Edit Dealer');
-    $collection = collectionEditRecord($dealer, $employee, ['amount' => 20000, 'status' => Collection::STATUS_RECEIVED]);
-    $entryId = DealerTallyEntry::query()
-        ->where('source', DealerTallyEntry::SOURCE_COLLECTION)
-        ->where('source_id', $collection->id)
-        ->value('id');
-
-    $collection->update(['amount' => 17500]);
-
-    $entries = DealerTallyEntry::query()
-        ->where('source', DealerTallyEntry::SOURCE_COLLECTION)
-        ->where('source_id', $collection->id)
-        ->get();
-
-    expect($entries)->toHaveCount(1)
-        ->and((int) $entries->first()->id)->toBe((int) $entryId)
-        ->and((float) $entries->first()->credit)->toBe(17500.0)
-        ->and((float) $entries->first()->debit)->toBe(0.0)
-        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(-17500.0);
-});
-
-it('moves the ledger credit when the dealer is changed on a received collection', function (): void {
+it('removes the ledger credit when received is changed to rejected', function (): void {
+    $admin = collectionEditAdmin();
     $employee = collectionEditEmployee('9811200006');
-    $oldDealer = collectionEditDealer($employee, 'Old Collection Dealer');
-    $newDealer = collectionEditDealer($employee, 'New Collection Dealer');
-    $collection = collectionEditRecord($oldDealer, $employee, ['amount' => 20000, 'status' => Collection::STATUS_RECEIVED]);
-    $entryId = DealerTallyEntry::query()
-        ->where('source', DealerTallyEntry::SOURCE_COLLECTION)
-        ->where('source_id', $collection->id)
-        ->value('id');
+    $dealer = collectionEditDealer($employee, 'To Rejected Dealer');
+    $collection = collectionEditRecord($dealer, $employee, ['amount' => 15000, 'status' => Collection::STATUS_RECEIVED]);
 
-    $collection->update(['dealer_id' => $newDealer->id]);
+    app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_REJECTED, $admin);
 
-    $entry = DealerTallyEntry::query()->find($entryId);
-
-    expect(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(1)
-        ->and((int) $entry->dealer_id)->toBe((int) $newDealer->id)
-        ->and((float) $entry->credit)->toBe(20000.0)
-        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($oldDealer->fresh()))->toBe(0.0)
-        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($newDealer->fresh()))->toBe(-20000.0);
+    expect($collection->fresh()->status)->toBe(Collection::STATUS_REJECTED)
+        ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(0)
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(0.0);
 });
 
-it('does not apply a ledger credit when the dealer is changed and status is not received', function (): void {
+it('does not create a ledger effect between not received and rejected', function (): void {
+    $admin = collectionEditAdmin();
     $employee = collectionEditEmployee('9811200007');
-    $oldDealer = collectionEditDealer($employee, 'Old Pending Dealer');
-    $newDealer = collectionEditDealer($employee, 'New Pending Dealer');
-    $collection = collectionEditRecord($oldDealer, $employee, ['amount' => 20000, 'status' => Collection::STATUS_RECEIVED]);
+    $dealer = collectionEditDealer($employee, 'No Ledger Dealer');
+    $collection = collectionEditRecord($dealer, $employee, ['amount' => 8000, 'status' => Collection::STATUS_NOT_RECEIVED]);
 
-    $collection->update([
-        'dealer_id' => $newDealer->id,
-        'status' => Collection::STATUS_PENDING,
-    ]);
+    app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_REJECTED, $admin);
+    expect(DealerTallyEntry::query()->where('source_id', $collection->id)->count())->toBe(0)
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(0.0);
 
-    expect(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(0)
-        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($oldDealer->fresh()))->toBe(0.0)
-        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($newDealer->fresh()))->toBe(0.0);
+    app(UpdateCollectionStatus::class)->execute($collection->fresh(), Collection::STATUS_NOT_RECEIVED, $admin);
+    expect($collection->fresh()->status)->toBe(Collection::STATUS_NOT_RECEIVED)
+        ->and(DealerTallyEntry::query()->where('source_id', $collection->id)->count())->toBe(0)
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(0.0);
 });
 
-it('posts a single ledger credit when status changes from pending to received', function (): void {
+it('posts one ledger credit when rejected is changed to received', function (): void {
+    $admin = collectionEditAdmin();
     $employee = collectionEditEmployee('9811200008');
-    $dealer = collectionEditDealer($employee, 'Pending To Received Dealer');
-    $collection = collectionEditRecord($dealer, $employee, ['amount' => 9000, 'status' => Collection::STATUS_PENDING]);
+    $dealer = collectionEditDealer($employee, 'Rejected To Received Dealer');
+    $collection = collectionEditRecord($dealer, $employee, ['amount' => 11000, 'status' => Collection::STATUS_REJECTED]);
 
-    expect(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(0);
-
-    $collection->update(['status' => Collection::STATUS_RECEIVED]);
-    $collection->update(['status' => Collection::STATUS_RECEIVED, 'remarks' => 'saved again']);
+    app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_RECEIVED, $admin);
 
     expect(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(1)
-        ->and((float) DealerTallyEntry::query()->where('source_id', $collection->id)->value('credit'))->toBe(9000.0)
-        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(-9000.0);
-});
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(-11000.0);
 
-it('syncs a received collection through the posting service without duplicating the credit', function (): void {
-    $employee = collectionEditEmployee('9811200009');
-    $dealer = collectionEditDealer($employee, 'Sync Once Dealer');
-    $collection = collectionEditRecord($dealer, $employee, ['amount' => 4000, 'status' => Collection::STATUS_RECEIVED]);
-    $service = app(DealerLedgerPostingService::class);
-
-    $service->syncReceivedCollection($collection->fresh());
-    $service->syncReceivedCollection($collection->fresh());
+    app(DealerLedgerPostingService::class)->syncReceivedCollection($collection->fresh());
 
     expect(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(1);
+});
+
+it('uses green orange and red status colors', function (): void {
+    expect(Collection::statusColor(Collection::STATUS_RECEIVED))->toBe('success')
+        ->and(Collection::statusColor(Collection::STATUS_NOT_RECEIVED))->toBe('warning')
+        ->and(Collection::statusColor(Collection::STATUS_REJECTED))->toBe('danger');
 });

@@ -20,6 +20,8 @@ class Collection extends Model
 
     public const STATUS_NOT_RECEIVED = 'not_received';
 
+    public const STATUS_REJECTED = 'rejected';
+
     private const BUSINESS_TIMEZONE = 'Asia/Kolkata';
 
     private const STATUS_TRANSITIONS = [
@@ -29,12 +31,14 @@ class Collection extends Model
         ],
         self::STATUS_RECEIVED => [],
         self::STATUS_NOT_RECEIVED => [],
+        self::STATUS_REJECTED => [],
     ];
 
     public const STATUS_LABELS = [
         self::STATUS_PENDING => 'Pending',
         self::STATUS_RECEIVED => 'Received',
         self::STATUS_NOT_RECEIVED => 'Not Received',
+        self::STATUS_REJECTED => 'Rejected',
     ];
 
     private ?array $verifiedSnapshot = null;
@@ -105,12 +109,38 @@ class Collection extends Model
         return self::STATUS_LABELS;
     }
 
+    /**
+     * @return list<string>
+     */
+    public static function adminEditableStatuses(): array
+    {
+        return [
+            self::STATUS_RECEIVED,
+            self::STATUS_NOT_RECEIVED,
+            self::STATUS_REJECTED,
+        ];
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function adminEditableStatusLabels(): array
+    {
+        return array_intersect_key(self::STATUS_LABELS, array_flip(self::adminEditableStatuses()));
+    }
+
+    public function statusLabel(): string
+    {
+        return self::STATUS_LABELS[$this->status] ?? (string) $this->status;
+    }
+
     public static function statusColor(string $status): string
     {
         return match ($status) {
-            self::STATUS_PENDING => 'warning',
+            self::STATUS_PENDING => 'gray',
             self::STATUS_RECEIVED => 'success',
-            self::STATUS_NOT_RECEIVED => 'danger',
+            self::STATUS_NOT_RECEIVED => 'warning',
+            self::STATUS_REJECTED => 'danger',
             default => 'gray',
         };
     }

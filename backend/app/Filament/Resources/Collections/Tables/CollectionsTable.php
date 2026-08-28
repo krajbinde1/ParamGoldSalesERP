@@ -2,12 +2,12 @@
 
 namespace App\Filament\Resources\Collections\Tables;
 
+use App\Filament\Resources\Collections\Actions\EditCollectionStatusAction;
 use App\Filament\Support\TodayDateFilter;
 use App\Models\Collection;
 use App\Support\AttendanceCalendar;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
-use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Textarea;
 use Filament\Tables\Columns\ImageColumn;
@@ -60,8 +60,7 @@ class CollectionsTable
             ])
             ->recordActions([
                 ViewAction::make(),
-                EditAction::make()
-                    ->visible(fn (): bool => auth()->user()?->isAdminUser() === true),
+                EditCollectionStatusAction::make(),
                 Action::make('markReceived')
                     ->label('Mark Received')
                     ->color('success')
