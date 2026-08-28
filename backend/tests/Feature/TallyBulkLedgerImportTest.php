@@ -1,11 +1,13 @@
 <?php
 
 use App\Enums\UserRole;
+use App\Exports\Dealers\TallyBulkNotMatchedExport;
 use App\Filament\Resources\Dealers\Pages\BulkImportTallyLedger;
 use App\Filament\Resources\Dealers\Pages\ListDealers;
 use App\Models\Dealer;
 use App\Models\DealerTallyEntry;
 use App\Models\DealerTallyLedger;
+use App\Models\TallyDealerMapping;
 use App\Services\TallyLedger\TallyBulkLedgerImportService;
 use App\Services\TallyLedger\TallyLedgerExcelParser;
 use Livewire\Livewire;
@@ -99,6 +101,8 @@ it('previews each uploaded excel as one dealer ledger', function (): void {
         ->and($rows[1]['detected_dealer'])->toBe('Unknown Tally Party')
         ->and($rows[1]['matched_dealer'])->toBe('—')
         ->and($rows[1]['status'])->toBe('Not Matched')
+        ->and($rows[1]['can_import'])->toBeFalse()
+        ->and($rows[1]['employee_code'])->toBe($employee->employee_code)
         ->and($rows[2]['status'])->toBe('Matched');
 });
 
@@ -345,4 +349,144 @@ it('shows bulk tally ledger import on the dealers list', function (): void {
         ->assertSuccessful()
         ->assertActionVisible('bulkImportTallyLedger')
         ->assertActionVisible('tallyImportHistory');
+});
+
+it('suggests a similar assigned dealer for unmatched tally files without importing them', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9822100301');
+    ledgerDealer($employee, [
+        'firm_name' => 'Shree Ganesh Traders',
+        'dealer_code' => 'D901',
+    ]);
+
+    $preview = app(TallyBulkLedgerImportService::class)->previewFiles([
+        bulkTallyFile('Shree Ganesh Trader', 'ganesh-close.xlsx'),
+        bulkTallyFile('Completely Unknown Party', 'unknown.xlsx'),
+    ], (int) $employee->id);
+
+    expect($preview['rows'][0]['status'])->toBe('Not Matched')
+        ->and($preview['rows'][0]['can_import'])->toBeFalse()
+        ->and($preview['rows'][0]['suggested_dealer'])->toContain('Shree Ganesh Traders')
+        ->and($preview['rows'][0]['employee_name'])->toBe($employee->full_name)
+        ->and($preview['rows'][0]['employee_code'])->toBe($employee->employee_code)
+        ->and($preview['rows'][1]['status'])->toBe('Not Matched')
+        ->and($preview['rows'][1]['suggested_dealer'])->toBeNull();
+});
+
+it('suggests a mapped dealer assigned to another employee', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9822100302');
+    $otherEmployee = ledgerEmployee(UserRole::Employee, '9822100303');
+    ledgerDealer($employee, ['firm_name' => 'Assigned Local Dealer']);
+    $other = ledgerDealer($otherEmployee, [
+        'firm_name' => 'Balaji Agro Traders',
+        'dealer_code' => 'D902',
+    ]);
+    TallyDealerMapping::query()->create([
+        'tally_ledger_name' => 'Balaji Agro Traders',
+        'tally_ledger_name_normalized' => TallyDealerMapping::normalizeName('Balaji Agro Traders'),
+        'dealer_id' => $other->id,
+    ]);
+
+    $preview = app(TallyBulkLedgerImportService::class)->previewFiles([
+        bulkTallyFile('Balaji Agro Traders', 'balaji.xlsx'),
+    ], (int) $employee->id);
+
+    expect($preview['rows'][0]['status'])->toBe('Not Matched')
+        ->and($preview['rows'][0]['can_import'])->toBeFalse()
+        ->and($preview['rows'][0]['reason'])->toBe('This Tally party is not assigned to the selected employee.')
+        ->and($preview['rows'][0]['suggested_dealer'])->toContain('Balaji Agro Traders')
+        ->and($preview['rows'][0]['suggested_dealer'])->toContain($otherEmployee->employee_code);
+});
+
+it('builds a not matched excel report with employee file name and suggested dealer', function (): void {
+    $export = new TallyBulkNotMatchedExport([
+        [
+            'employee_code' => 'E101',
+            'employee_name' => 'Akash Nikam',
+            'file_name' => 'unknown.xlsx',
+            'detected_dealer' => 'Unknown Tally Party',
+            'reason' => 'No assigned dealer matches this Tally party.',
+            'suggested_dealer' => 'Shree Ganesh Traders (D901)',
+        ],
+    ]);
+
+    expect($export->headings())->toBe([
+        'Employee Code',
+        'Employee Name',
+        'File Name',
+        'Tally Dealer Name',
+        'Reason',
+        'Suggested Dealer',
+    ])->and($export->array())->toBe([
+        [
+            'E101',
+            'Akash Nikam',
+            'unknown.xlsx',
+            'Unknown Tally Party',
+            'No assigned dealer matches this Tally party.',
+            'Shree Ganesh Traders (D901)',
+        ],
+    ]);
+});
+
+it('shows preview summary cards and a not matched dealers section', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9822100304');
+    $admin = tallyImportAdmin();
+
+    Livewire::actingAs($admin)
+        ->test(BulkImportTallyLedger::class)
+        ->set('data.employee_id', $employee->id)
+        ->set('step', 2)
+        ->set('previewRows', [
+            [
+                'file_name' => 'ganesh.xlsx',
+                'detected_dealer' => 'Shree Ganesh Traders',
+                'matched_dealer' => 'Shree Ganesh Traders',
+                'dealer_id' => 1,
+                'dealer_code' => 'D1',
+                'status' => 'Matched',
+                'reason' => null,
+                'suggested_dealer' => null,
+                'employee_code' => $employee->employee_code,
+                'employee_name' => $employee->full_name,
+                'can_import' => true,
+            ],
+            [
+                'file_name' => 'unknown.xlsx',
+                'detected_dealer' => 'Unknown Tally Party',
+                'matched_dealer' => '—',
+                'dealer_id' => null,
+                'dealer_code' => null,
+                'status' => 'Not Matched',
+                'reason' => 'No assigned dealer matches this Tally party.',
+                'suggested_dealer' => 'Shree Ganesh Traders (D1)',
+                'employee_code' => $employee->employee_code,
+                'employee_name' => $employee->full_name,
+                'can_import' => false,
+            ],
+            [
+                'file_name' => 'bad.xlsx',
+                'detected_dealer' => '—',
+                'matched_dealer' => '—',
+                'dealer_id' => null,
+                'dealer_code' => null,
+                'status' => 'Error',
+                'reason' => 'Unable to read this Tally Excel.',
+                'suggested_dealer' => null,
+                'employee_code' => $employee->employee_code,
+                'employee_name' => $employee->full_name,
+                'can_import' => false,
+            ],
+        ])
+        ->assertSee('Total Files')
+        ->assertSee('Matched')
+        ->assertSee('Not Matched')
+        ->assertSee('Error')
+        ->assertSee('Matched dealers')
+        ->assertSee('Not Matched Dealers')
+        ->assertSee('Error files')
+        ->assertSee('Download Not Matched Report')
+        ->assertSee('Suggested Dealer')
+        ->assertSee('Shree Ganesh Traders (D1)')
+        ->assertSee('Unknown Tally Party')
+        ->assertSee('upload the same files again');
 });

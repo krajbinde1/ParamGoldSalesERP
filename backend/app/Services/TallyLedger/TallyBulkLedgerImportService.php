@@ -20,6 +20,9 @@ final class TallyBulkLedgerImportService
 
     public const STATUS_ERROR = 'Error';
 
+    /** @var Collection<int, Dealer>|null */
+    private ?Collection $dealersForSuggestions = null;
+
     public function __construct(
         private readonly TallyLedgerExcelParser $parser = new TallyLedgerExcelParser,
         private readonly TallyLedgerImportService $importer = new TallyLedgerImportService,
@@ -53,7 +56,7 @@ final class TallyBulkLedgerImportService
         return [
             'employee' => $employee,
             'assigned_dealers' => $this->assignedDealers($employeeId),
-            'rows' => $this->rowsFromFiles($files, $dealers),
+            'rows' => $this->rowsFromFiles($files, $dealers, $employee),
         ];
     }
 
@@ -67,7 +70,7 @@ final class TallyBulkLedgerImportService
         $dealers = $this->dealersForEmployee($employeeId);
         $rows = [];
 
-        foreach ($this->rowsFromFiles($files, $dealers) as $index => $row) {
+        foreach ($this->rowsFromFiles($files, $dealers, $employee) as $index => $row) {
             if (($row['status'] ?? '') !== self::STATUS_MATCHED || empty($row['can_import']) || empty($row['dealer_id'])) {
                 $rows[] = $row;
 
@@ -144,7 +147,7 @@ final class TallyBulkLedgerImportService
      * @param  Collection<int, Dealer>  $dealers
      * @return list<array<string, mixed>>
      */
-    private function rowsFromFiles(array $files, Collection $dealers): array
+    private function rowsFromFiles(array $files, Collection $dealers, Employee $employee): array
     {
         $claimedDealerIds = [];
         $rows = [];
@@ -159,6 +162,7 @@ final class TallyBulkLedgerImportService
                     detectedDealer: '—',
                     status: self::STATUS_ERROR,
                     reason: 'The uploaded file could not be read.',
+                    employee: $employee,
                 );
 
                 continue;
@@ -172,6 +176,7 @@ final class TallyBulkLedgerImportService
                     detectedDealer: '—',
                     status: self::STATUS_ERROR,
                     reason: collect($exception->errors())->flatten()->first() ?: 'Unable to read this Tally Excel.',
+                    employee: $employee,
                 );
 
                 continue;
@@ -188,6 +193,8 @@ final class TallyBulkLedgerImportService
                     detectedDealer: $detected,
                     status: self::STATUS_NOT_MATCHED,
                     reason: $match['reason'] ?? 'No assigned dealer matches this Tally party.',
+                    employee: $employee,
+                    assignedDealers: $dealers,
                     transactionCount: count($parsed->transactions),
                     closingLabel: $closingLabel,
                 );
@@ -203,6 +210,7 @@ final class TallyBulkLedgerImportService
                     detectedDealer: $detected,
                     status: self::STATUS_ERROR,
                     reason: 'This dealer is already matched by another uploaded file.',
+                    employee: $employee,
                     dealer: $dealer,
                     transactionCount: count($parsed->transactions),
                     closingLabel: $closingLabel,
@@ -219,6 +227,7 @@ final class TallyBulkLedgerImportService
                     detectedDealer: $detected,
                     status: self::STATUS_ERROR,
                     reason: collect($preview['parse_errors'] ?? [])->first() ?: 'Tally ledger parsing is incomplete.',
+                    employee: $employee,
                     dealer: $dealer,
                     transactionCount: count($parsed->transactions),
                     closingLabel: $closingLabel,
@@ -232,6 +241,7 @@ final class TallyBulkLedgerImportService
                 detectedDealer: $detected,
                 status: self::STATUS_MATCHED,
                 reason: null,
+                employee: $employee,
                 dealer: $dealer,
                 transactionCount: count($parsed->transactions),
                 closingLabel: $closingLabel,
@@ -243,6 +253,7 @@ final class TallyBulkLedgerImportService
     }
 
     /**
+     * @param  Collection<int, Dealer>|null  $assignedDealers
      * @return array<string, mixed>
      */
     private function fileRow(
@@ -250,11 +261,18 @@ final class TallyBulkLedgerImportService
         string $detectedDealer,
         string $status,
         ?string $reason,
+        Employee $employee,
+        ?Collection $assignedDealers = null,
         ?Dealer $dealer = null,
         int $transactionCount = 0,
         string $closingLabel = '—',
         bool $canImport = false,
     ): array {
+        $suggested = null;
+        if ($status === self::STATUS_NOT_MATCHED && $assignedDealers !== null) {
+            $suggested = $this->suggestDealer($detectedDealer, $assignedDealers);
+        }
+
         return [
             'file_name' => $filename,
             'detected_dealer' => $detectedDealer,
@@ -263,6 +281,9 @@ final class TallyBulkLedgerImportService
             'dealer_code' => $dealer?->dealer_code,
             'status' => $status,
             'reason' => $reason,
+            'suggested_dealer' => $suggested,
+            'employee_code' => $employee->employee_code,
+            'employee_name' => $employee->full_name,
             'tally_status' => $dealer?->tallyLedgerImportStatusLabel() ?? 'Not Imported',
             'transaction_count' => $transactionCount,
             'imported_count' => 0,
@@ -313,6 +334,149 @@ final class TallyBulkLedgerImportService
             '/^(salesman|sales man|group|period|ledger account|ledger name)\b/iu',
             trim($name),
         ) === 1;
+    }
+
+    /**
+     * Possible ERP dealer for unmatched Tally names. Never used to auto-import.
+     *
+     * @param  Collection<int, Dealer>  $assignedDealers
+     */
+    private function suggestDealer(string $tallyLedgerName, Collection $assignedDealers): ?string
+    {
+        $normalized = TallyDealerMapping::normalizeName($tallyLedgerName);
+        if ($normalized === '') {
+            return null;
+        }
+
+        $exactAssigned = $assignedDealers->filter(
+            fn (Dealer $dealer): bool => TallyDealerMapping::normalizeName((string) $dealer->firm_name) === $normalized,
+        );
+        if ($exactAssigned->isNotEmpty()) {
+            return $exactAssigned
+                ->map(fn (Dealer $dealer): string => $this->dealerSuggestionLabel($dealer))
+                ->unique()
+                ->implode('; ');
+        }
+
+        $mappedDealerId = TallyDealerMapping::query()
+            ->where('tally_ledger_name_normalized', $normalized)
+            ->value('dealer_id');
+        if ($mappedDealerId !== null) {
+            $mapped = Dealer::query()
+                ->with('assignedEmployee:id,full_name,employee_code')
+                ->find((int) $mappedDealerId);
+            if ($mapped instanceof Dealer) {
+                return $this->dealerSuggestionLabel($mapped, includeEmployee: true);
+            }
+        }
+
+        $similarAssigned = $this->similarDealers($normalized, $assignedDealers);
+        if ($similarAssigned->isNotEmpty()) {
+            return $similarAssigned
+                ->map(fn (Dealer $dealer): string => $this->dealerSuggestionLabel($dealer))
+                ->implode('; ');
+        }
+
+        $assignedIds = $assignedDealers->modelKeys();
+        $otherDealers = $this->dealersForSuggestions()
+            ->when(
+                $assignedIds !== [],
+                fn (Collection $dealers): Collection => $dealers->reject(
+                    fn (Dealer $dealer): bool => in_array((int) $dealer->id, array_map('intval', $assignedIds), true),
+                ),
+            );
+        $similarOther = $this->similarDealers($normalized, $otherDealers);
+        if ($similarOther->isNotEmpty()) {
+            return $similarOther
+                ->map(fn (Dealer $dealer): string => $this->dealerSuggestionLabel($dealer, includeEmployee: true))
+                ->implode('; ');
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  Collection<int, Dealer>  $dealers
+     * @return Collection<int, Dealer>
+     */
+    private function similarDealers(string $normalizedTallyName, Collection $dealers): Collection
+    {
+        $scored = $dealers
+            ->map(function (Dealer $dealer) use ($normalizedTallyName): array {
+                return [
+                    'dealer' => $dealer,
+                    'score' => $this->nameSimilarity(
+                        $normalizedTallyName,
+                        TallyDealerMapping::normalizeName((string) $dealer->firm_name),
+                    ),
+                ];
+            })
+            ->filter(fn (array $row): bool => $row['score'] >= 75.0)
+            ->sortByDesc('score')
+            ->values();
+
+        if ($scored->isEmpty()) {
+            return collect();
+        }
+
+        $best = (float) $scored->first()['score'];
+
+        return $scored
+            ->filter(fn (array $row): bool => ($best - (float) $row['score']) <= 3.0)
+            ->take(3)
+            ->pluck('dealer');
+    }
+
+    private function nameSimilarity(string $left, string $right): float
+    {
+        if ($left === '' || $right === '') {
+            return 0.0;
+        }
+
+        if ($left === $right) {
+            return 100.0;
+        }
+
+        similar_text($left, $right, $percent);
+        $percent = (float) $percent;
+
+        $shorter = mb_strlen($left) <= mb_strlen($right) ? $left : $right;
+        $longer = $shorter === $left ? $right : $left;
+        if (mb_strlen($shorter) >= 8 && str_contains($longer, $shorter)) {
+            $percent = max($percent, 82.0);
+        }
+
+        return $percent;
+    }
+
+    private function dealerSuggestionLabel(Dealer $dealer, bool $includeEmployee = false): string
+    {
+        $label = trim((string) $dealer->firm_name);
+        if (filled($dealer->dealer_code)) {
+            $label .= ' ('.$dealer->dealer_code.')';
+        }
+
+        if ($includeEmployee) {
+            $employee = $dealer->assignedEmployee;
+            if ($employee instanceof Employee) {
+                $label .= ' — assigned to '.$employee->assignmentLabel();
+            } else {
+                $label .= ' — not assigned to this employee';
+            }
+        }
+
+        return $label;
+    }
+
+    /**
+     * @return Collection<int, Dealer>
+     */
+    private function dealersForSuggestions(): Collection
+    {
+        return $this->dealersForSuggestions ??= Dealer::query()
+            ->with('assignedEmployee:id,full_name,employee_code')
+            ->orderBy('firm_name')
+            ->get();
     }
 
     /**

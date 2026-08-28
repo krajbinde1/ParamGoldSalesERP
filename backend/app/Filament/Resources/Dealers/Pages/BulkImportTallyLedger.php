@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Dealers\Pages;
 
+use App\Exports\Dealers\TallyBulkNotMatchedExport;
 use App\Filament\Resources\Dealers\DealerResource;
 use App\Models\Employee;
 use App\Services\TallyLedger\TallyBulkLedgerImportService;
@@ -16,8 +17,11 @@ use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Features\SupportFileUploads\TemporaryUploadedFile;
+use Maatwebsite\Excel\Facades\Excel;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class BulkImportTallyLedger extends Page implements HasForms
 {
@@ -119,6 +123,68 @@ class BulkImportTallyLedger extends Page implements HasForms
         $employee = Employee::query()->find($employeeId);
 
         return $employee?->assignmentLabel();
+    }
+
+    /**
+     * @return array{total: int, matched: int, not_matched: int, error: int}
+     */
+    public function previewSummary(): array
+    {
+        $rows = collect($this->currentRows());
+
+        return [
+            'total' => $rows->count(),
+            'matched' => $rows->where('status', TallyBulkLedgerImportService::STATUS_MATCHED)->count(),
+            'not_matched' => $rows->where('status', TallyBulkLedgerImportService::STATUS_NOT_MATCHED)->count(),
+            'error' => $rows->where('status', TallyBulkLedgerImportService::STATUS_ERROR)->count(),
+        ];
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function matchedRows(): array
+    {
+        return collect($this->currentRows())
+            ->where('status', TallyBulkLedgerImportService::STATUS_MATCHED)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function notMatchedRows(): array
+    {
+        return collect($this->currentRows())
+            ->where('status', TallyBulkLedgerImportService::STATUS_NOT_MATCHED)
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function errorRows(): array
+    {
+        return collect($this->currentRows())
+            ->where('status', TallyBulkLedgerImportService::STATUS_ERROR)
+            ->values()
+            ->all();
+    }
+
+    public function downloadNotMatchedReport(): BinaryFileResponse
+    {
+        $rows = $this->notMatchedRows();
+        abort_if($rows === [], 404);
+
+        $employee = Employee::query()->find((int) ($this->data['employee_id'] ?? 0));
+        $slug = Str::slug((string) ($employee?->full_name ?: 'employee')) ?: 'employee';
+
+        return Excel::download(
+            new TallyBulkNotMatchedExport($rows),
+            'Tally_Not_Matched_'.$slug.'_'.now('Asia/Kolkata')->format('Y-m-d').'.xlsx',
+        );
     }
 
     protected function getHeaderActions(): array
@@ -285,6 +351,14 @@ class BulkImportTallyLedger extends Page implements HasForms
                 @unlink($path);
             }
         }
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function currentRows(): array
+    {
+        return $this->step === 3 ? $this->resultRows : $this->previewRows;
     }
 
     /**
