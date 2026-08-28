@@ -39,6 +39,8 @@ final class DealerLedgerPostingService
     public function syncReceivedCollection(Collection $collection): ?DealerTallyEntry
     {
         if ($collection->status !== Collection::STATUS_RECEIVED || $collection->dealer_id === null) {
+            $this->removeCollectionLedgerEntry($collection);
+
             return null;
         }
 
@@ -60,6 +62,20 @@ final class DealerLedgerPostingService
             voucherType: 'Receipt',
             voucherNo: $reference,
         );
+    }
+
+    public function removeCollectionLedgerEntry(Collection $collection): void
+    {
+        DealerTallyEntry::query()
+            ->where('source', DealerTallyEntry::SOURCE_COLLECTION)
+            ->where(function ($query) use ($collection): void {
+                $query->where('source_id', $collection->id)
+                    ->orWhere('fingerprint', DealerTallyEntry::makeSourceFingerprint(
+                        DealerTallyEntry::SOURCE_COLLECTION,
+                        (int) $collection->id,
+                    ));
+            })
+            ->delete();
     }
 
     /**
@@ -156,6 +172,7 @@ final class DealerLedgerPostingService
             if ($existing !== null) {
                 if ($this->salesReconciler->isReconciled($existing)) {
                     $existing->fill([
+                        'dealer_id' => $dealerId,
                         'debit' => $debit,
                         'credit' => $credit,
                         'source' => $source,
@@ -167,6 +184,7 @@ final class DealerLedgerPostingService
                 }
 
                 $existing->fill([
+                    'dealer_id' => $dealerId,
                     'entry_date' => $date,
                     'particulars' => $particulars,
                     'voucher_type' => $voucherType,

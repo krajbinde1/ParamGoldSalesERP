@@ -5,6 +5,7 @@ namespace App\Models;
 use App\Support\PublicMediaUrl;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
@@ -80,6 +81,10 @@ class Collection extends Model
         'photo_path',
         'admin_remark',
         'status',
+        'receipt_no',
+        'payment_mode',
+        'bank_name',
+        'transaction_number',
     ];
 
     protected function casts(): array
@@ -123,6 +128,11 @@ class Collection extends Model
     public function referenceOrder(): BelongsTo
     {
         return $this->belongsTo(Order::class, 'reference_order_id');
+    }
+
+    public function audits(): HasMany
+    {
+        return $this->hasMany(CollectionAudit::class)->orderByDesc('id');
     }
 
     public function canTransitionTo(string $status): bool

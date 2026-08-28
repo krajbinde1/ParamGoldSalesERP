@@ -17,6 +17,7 @@ use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class CollectionResource extends Resource
@@ -46,6 +47,16 @@ class CollectionResource extends Resource
     public static function table(Table $table): Table
     {
         return CollectionsTable::configure($table);
+    }
+
+    public static function canCreate(): bool
+    {
+        return false;
+    }
+
+    public static function canEdit(Model $record): bool
+    {
+        return auth()->user()?->isAdminUser() === true;
     }
 
     public static function getRelations(): array

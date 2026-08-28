@@ -23,7 +23,13 @@ class CollectionObserver
 
     public function updated(Collection $collection): void
     {
-        if ($collection->wasChanged('status') || $collection->wasChanged('amount') || $collection->wasChanged('collection_date')) {
+        if ($collection->wasChanged([
+            'status',
+            'amount',
+            'collection_date',
+            'dealer_id',
+            'receipt_no',
+        ])) {
             $this->syncLedger($collection->fresh() ?? $collection);
         }
 
@@ -34,6 +40,11 @@ class CollectionObserver
         if ($collection->status === Collection::STATUS_RECEIVED) {
             $this->safe(fn () => $this->notifier->notifyReceived($collection->fresh() ?? $collection));
         }
+    }
+
+    public function deleted(Collection $collection): void
+    {
+        $this->ledgerPosting->removeCollectionLedgerEntry($collection);
     }
 
     private function syncLedger(Collection $collection): void
