@@ -255,24 +255,15 @@ final class TallyLedgerImportService
                 $imported++;
             }
 
-            $ledgerAlreadyExists = DealerTallyLedger::query()->where('dealer_id', $dealer->id)->exists();
-            $ledgerPayload = [
-                'tally_closing_balance' => $parsed->tallyClosingBalance,
-                'tally_closing_balance_type' => $parsed->tallyClosingBalanceType,
-                'last_imported_at' => Carbon::now('Asia/Kolkata'),
-            ];
-
-            if ($parsed->openingBalanceExplicit || ! $ledgerAlreadyExists) {
-                $ledgerPayload = array_merge($ledgerPayload, $this->importedOpeningPayload($parsed));
-            }
-
-            if ($parsed->openingBalanceExplicit) {
-                $this->replaceExistingOpeningBalance($dealer, $parsed);
-            }
+            $this->replaceExistingOpeningBalance($dealer, $parsed);
 
             DealerTallyLedger::query()->updateOrCreate(
                 ['dealer_id' => $dealer->id],
-                $ledgerPayload,
+                array_merge([
+                    'tally_closing_balance' => $parsed->tallyClosingBalance,
+                    'tally_closing_balance_type' => $parsed->tallyClosingBalanceType,
+                    'last_imported_at' => Carbon::now('Asia/Kolkata'),
+                ], $this->importedOpeningPayload($parsed)),
             );
 
             $statement = $this->ledger->statement($dealer->fresh());
@@ -329,8 +320,8 @@ final class TallyLedgerImportService
     }
 
     /**
-     * Tally Opening Balance replaces any existing ERP/Tally opening. Keep one opening only;
-     * do not insert Opening Balance as a ledger transaction.
+     * Latest Tally Excel is the only opening source. Missing or zero opening becomes ₹0.00.
+     * Do not insert Opening Balance as a ledger transaction.
      */
     private function replaceExistingOpeningBalance(Dealer $dealer, TallyLedgerParseResult $parsed): void
     {

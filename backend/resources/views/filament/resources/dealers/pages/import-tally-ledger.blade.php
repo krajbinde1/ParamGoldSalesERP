@@ -49,8 +49,9 @@
                 <p class="mt-1 text-sm text-gray-600">
                     Financial start date is <strong>01 Apr 2026</strong>. Only genuine transactions on or after that date are imported into
                     <strong>{{ $dealer['firm_name'] }}</strong>.
-                    If the Tally file has an Opening Balance row, that amount and Dr/Cr side become the dealer's only opening balance, including on re-import.
-                    Any existing ERP opening is replaced, not added. Otherwise opening is ₹0.00 for a new ledger.
+                    Every import replaces Opening Balance from this Tally file (including re-import).
+                    If the file has an Opening Balance row, that amount and Dr/Cr are used; if the row is missing or ₹0.00, ERP opening is set to ₹0.00.
+                    The previous ERP opening is never kept.
                     Re-import is allowed when this dealer is already Ledger Imported. Duplicate Tally rows (same date, debit, credit, and voucher no.) are skipped.
                     Tally sales bills that match an ERP Sales Order (same dealer and bill amount) are merged into that Sales Order debit so outstanding is not doubled.
                 </p>
@@ -118,7 +119,7 @@
                             <div class="mt-1 font-semibold text-slate-900">
                                 {{ IndianCurrency::formatDrCr(($preview['opening_balance_type'] ?? 'debit') === 'credit' ? -1 * (float) $preview['opening_balance'] : (float) $preview['opening_balance']) }}
                                 @if (empty($preview['opening_balance_explicit']))
-                                    <span class="block text-xs font-medium text-slate-500">Not shown in Tally — set to ₹0.00</span>
+                                    <span class="block text-xs font-medium text-slate-500">Not shown in Tally — ERP opening will be set to ₹0.00</span>
                                 @endif
                             </div>
                         </div>

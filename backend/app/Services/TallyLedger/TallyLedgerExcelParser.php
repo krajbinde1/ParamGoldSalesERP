@@ -151,11 +151,9 @@ final class TallyLedgerExcelParser
 
             if ($kind === 'opening') {
                 $parsedOpening = $this->openingFromAmounts($debit, $credit, $particulars);
-                if ($parsedOpening !== null) {
-                    $openingBalance = $parsedOpening['amount'];
-                    $openingType = $parsedOpening['type'];
-                    $openingExplicit = true;
-                }
+                $openingBalance = $parsedOpening['amount'] ?? 0.0;
+                $openingType = $parsedOpening['type'] ?? DealerTallyBalance::DEBIT;
+                $openingExplicit = true;
 
                 continue;
             }

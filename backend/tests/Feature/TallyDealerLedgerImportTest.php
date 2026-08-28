@@ -259,6 +259,22 @@ it('uses zero opening when tally does not show an opening balance', function ():
         ->and($parsed->openingBalanceType)->toBe('debit');
 });
 
+it('treats a tally opening balance of zero as an explicit zero opening', function (): void {
+    $path = tallyLedgerExcel([
+        ['Ledger : Explicit Zero Open Dealer'],
+        ['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit'],
+        ['01-04-2026', 'Opening Balance', '', '', '0.00', ''],
+        ['05-04-2026', 'Sales', 'Sales', '1', '1000', ''],
+        ['', 'Closing Balance', '', '', '', '1000'],
+    ]);
+    $parsed = app(TallyLedgerExcelParser::class)->parse($path);
+
+    expect($parsed->openingBalanceExplicit)->toBeTrue()
+        ->and($parsed->openingBalance)->toBe(0.0)
+        ->and($parsed->openingBalanceType)->toBe('debit')
+        ->and(collect($parsed->transactions)->pluck('particulars')->all())->not->toContain('Opening Balance');
+});
+
 it('treats tally debit and credit columns as authoritative even for sales', function (): void {
     $path = tallyLedgerExcel([
         ['Ledger : Credit Note Dealer'],
@@ -306,6 +322,111 @@ it('replaces an existing erp opening balance with the imported tally opening', f
         ->and($again['summary']['opening_balance'])->toBe(50000.0)
         ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2)
         ->and(Dealer::query()->count())->toBe(1);
+});
+
+it('sets opening to zero when the tally file has no opening balance row', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100412');
+    $admin = tallyImportAdmin();
+    $rowsWithoutOpening = static fn (string $name): array => [
+        ['Ledger : '.$name],
+        ['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit'],
+        ['10-04-2026', 'Sales', 'Sales', 'SL-101', '25,000.00', ''],
+        ['18-04-2026', 'Receipt', 'Receipt', 'RT-22', '', '10,000.00'],
+        ['', 'Closing Balance', '', '', '', '15,000.00'],
+        ['', 'Total', '', '', '25,000.00', '25,000.00'],
+    ];
+
+    $firstImportDealer = ledgerDealer($employee, [
+        'firm_name' => 'First Missing Opening Agro',
+        'opening_balance' => 259179.83,
+        'opening_balance_type' => 'debit',
+    ]);
+    $first = app(TallyLedgerImportService::class)->import(
+        tallyLedgerExcel($rowsWithoutOpening($firstImportDealer->firm_name)),
+        (int) $firstImportDealer->id,
+        $admin,
+        'missing-open-first-import.xlsx',
+    );
+    $firstFresh = $firstImportDealer->fresh();
+
+    expect((float) $firstFresh->opening_balance)->toBe(0.0)
+        ->and($first['summary']['opening_balance'])->toBe(0.0)
+        ->and($first['summary']['current_outstanding_signed'])->toBe(15000.0);
+
+    $dealer = ledgerDealer($employee, [
+        'firm_name' => 'Missing Opening Agro',
+        'opening_balance' => 259179.83,
+        'opening_balance_type' => 'debit',
+    ]);
+
+    app(TallyLedgerImportService::class)->import(
+        tallyLedgerExcel(typicalTallyRows($dealer->firm_name)),
+        (int) $dealer->id,
+        $admin,
+        'missing-open-first.xlsx',
+    );
+
+    expect((float) $dealer->fresh()->opening_balance)->toBe(50000.0)
+        ->and($dealer->fresh()->tallyLedgerImportStatusLabel())->toBe('Ledger Imported');
+
+    $result = app(TallyLedgerImportService::class)->import(
+        tallyLedgerExcel($rowsWithoutOpening($dealer->firm_name)),
+        (int) $dealer->id,
+        $admin,
+        'missing-open-second.xlsx',
+    );
+
+    $fresh = $dealer->fresh();
+    $statement = app(TallyDealerLedgerService::class)->statement($fresh);
+
+    expect($result['imported_count'])->toBe(0)
+        ->and((float) $fresh->opening_balance)->toBe(0.0)
+        ->and($fresh->opening_balance_type)->toBe('debit')
+        ->and((float) $fresh->tallyLedger->opening_balance)->toBe(0.0)
+        ->and($fresh->tallyLedger->opening_balance_explicit)->toBeFalse()
+        ->and($statement['summary']['opening_balance'])->toBe(0.0)
+        ->and($statement['summary']['opening_balance_label'])->toBe('₹0.00')
+        ->and($statement['summary']['current_outstanding_signed'])->toBe(15000.0)
+        ->and($statement['summary']['current_outstanding_label'])->toBe('₹15,000.00 Dr')
+        ->and($statement['verification']['balance_matched'])->toBeTrue()
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2);
+});
+
+it('sets opening to zero when the tally file shows opening balance of zero', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100413');
+    $dealer = ledgerDealer($employee, [
+        'firm_name' => 'Zero Opening Agro',
+        'opening_balance' => 259179.83,
+        'opening_balance_type' => 'debit',
+    ]);
+    $admin = tallyImportAdmin();
+
+    $result = app(TallyLedgerImportService::class)->import(
+        tallyLedgerExcel([
+            ['Ledger : '.$dealer->firm_name],
+            ['Date', 'Particulars', 'Vch Type', 'Vch No.', 'Debit', 'Credit'],
+            ['01-04-2026', 'Opening Balance', '', '', '0.00', ''],
+            ['10-04-2026', 'Sales', 'Sales', 'SL-101', '15,000.00', ''],
+            ['', 'Closing Balance', '', '', '', '15,000.00'],
+            ['', 'Total', '', '', '15,000.00', '15,000.00'],
+        ]),
+        (int) $dealer->id,
+        $admin,
+        'zero-open.xlsx',
+    );
+
+    $fresh = $dealer->fresh();
+    $statement = app(TallyDealerLedgerService::class)->statement($fresh);
+
+    expect((float) $fresh->opening_balance)->toBe(0.0)
+        ->and((float) $fresh->tallyLedger->opening_balance)->toBe(0.0)
+        ->and($fresh->tallyLedger->opening_balance_explicit)->toBeTrue()
+        ->and($statement['summary']['opening_balance'])->toBe(0.0)
+        ->and($statement['summary']['current_outstanding_signed'])->toBe(15000.0)
+        ->and($statement['verification']['balance_matched'])->toBeTrue()
+        ->and($result['imported_count'])->toBe(1)
+        ->and(collect($statement['ledger'])->where('is_opening', true))->toHaveCount(1)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->where('particulars', 'like', '%Opening%')->count())->toBe(0);
 });
 
 it('replaces the existing opening on re-import and keeps only the tally opening', function (): void {
