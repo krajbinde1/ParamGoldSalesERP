@@ -65,7 +65,7 @@ final class EmployeeOutstandingExport implements FromArray, ShouldAutoSize, With
             '',
             '',
             'Total Outstanding',
-            $this->payload['total'],
+            $this->sumExportedOutstanding(),
             '',
         ];
 
@@ -129,6 +129,17 @@ final class EmployeeOutstandingExport implements FromArray, ShouldAutoSize, With
                     ->getAlignment()
                     ->setHorizontal(Alignment::HORIZONTAL_RIGHT);
 
+                $dealerCount = count($this->payload['rows']);
+                $firstDealerRow = 5;
+                $lastDealerRow = 4 + $dealerCount;
+                $totalRow = $lastDealerRow + 1;
+                if ($dealerCount > 0) {
+                    $sheet->setCellValue(
+                        'E'.$totalRow,
+                        sprintf('=SUM(E%d:E%d)', $firstDealerRow, $lastDealerRow),
+                    );
+                }
+
                 $sheet->getStyle('A'.$highestRow.':F'.$highestRow)->getFont()->setBold(true);
                 $creditTotal = (float) ($this->payload['credit_total'] ?? 0);
                 if ($creditTotal > 0) {
@@ -136,5 +147,16 @@ final class EmployeeOutstandingExport implements FromArray, ShouldAutoSize, With
                 }
             },
         ];
+    }
+
+    private function sumExportedOutstanding(): float
+    {
+        $total = 0.0;
+
+        foreach ($this->payload['rows'] as $row) {
+            $total += round((float) ($row['outstanding'] ?? 0), 2);
+        }
+
+        return round($total, 2);
     }
 }

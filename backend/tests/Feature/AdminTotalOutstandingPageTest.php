@@ -309,6 +309,55 @@ it('exports all employees outstanding to excel with dealer rows and a total', fu
     );
 });
 
+it('sets excel total outstanding to the sum of every exported dealer outstanding row', function (): void {
+    $export = new EmployeeOutstandingExport(
+        payload: [
+            'employee_name' => 'All Employees',
+            'employee_code' => null,
+            'total' => 3021073.35,
+            'credit_total' => 0,
+            'net_total' => 3021073.35,
+            'rows' => [
+                [
+                    'employee_name' => 'Akash',
+                    'dealer_code' => 'D1',
+                    'dealer_name' => 'Large Dealer',
+                    'village' => 'Wagholi',
+                    'outstanding' => 3015808.00,
+                    'credit_balance' => 0,
+                ],
+                [
+                    'employee_name' => 'Akash',
+                    'dealer_code' => 'D2',
+                    'dealer_name' => 'Fifteen Thousand Dealer',
+                    'village' => 'Kharadi',
+                    'outstanding' => 15000.00,
+                    'credit_balance' => 0,
+                ],
+                [
+                    'employee_name' => 'Ganesh',
+                    'dealer_code' => 'D3',
+                    'dealer_name' => 'Paise Dealer',
+                    'village' => 'Hadapsar',
+                    'outstanding' => 5265.35,
+                    'credit_balance' => 0,
+                ],
+            ],
+        ],
+        generatedAt: '28 Aug 2026, 03:40 PM',
+    );
+
+    $exportRows = $export->array();
+    $dealerOutstanding = collect($exportRows)
+        ->filter(fn (array $row): bool => $row[3] !== 'Total Outstanding')
+        ->sum(fn (array $row): float => (float) $row[4]);
+    $totalRow = collect($exportRows)->firstWhere(3, 'Total Outstanding');
+
+    expect($dealerOutstanding)->toBe(3036073.35)
+        ->and($totalRow[4])->toBe(3036073.35)
+        ->and($totalRow[4])->not->toBe(3021073.35);
+});
+
 it('builds a pdf export for the selected employee outstanding list', function (): void {
     $director = outstandingPageDirector();
     $akash = outstandingPageEmployee('Akash Outstanding', '9940000004');
