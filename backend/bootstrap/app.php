@@ -1,8 +1,15 @@
 <?php
 
+use App\Http\Middleware\DetectReplacedMobileSession;
+use App\Http\Middleware\EnsureActiveMobileSession;
+use App\Http\Middleware\EnsureTallyConnectorToken;
+use App\Http\Middleware\EnsureUserRole;
+use App\Services\Auth\MobileSessionService;
+use Illuminate\Auth\AuthenticationException;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
+use Illuminate\Http\Request;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -13,25 +20,26 @@ return Application::configure(basePath: dirname(__DIR__))
     )
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
-            'role' => \App\Http\Middleware\EnsureUserRole::class,
-            'mobile.session' => \App\Http\Middleware\EnsureActiveMobileSession::class,
+            'role' => EnsureUserRole::class,
+            'mobile.session' => EnsureActiveMobileSession::class,
+            'tally.connector' => EnsureTallyConnectorToken::class,
         ]);
 
         // Rewrite generic 401s for revoked mobile tokens → SESSION_REPLACED.
         $middleware->api(append: [
-            \App\Http\Middleware\DetectReplacedMobileSession::class,
+            DetectReplacedMobileSession::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
         // API clients (including Accept: application/pdf) must get JSON errors,
         // never login HTML redirects that could be saved as a fake .pdf.
-        $exceptions->shouldRenderJsonWhen(function ($request, \Throwable $e) {
+        $exceptions->shouldRenderJsonWhen(function ($request, Throwable $e) {
             return $request->is('api/*') || $request->expectsJson();
         });
 
         $exceptions->render(function (
-            \Illuminate\Auth\AuthenticationException $e,
-            \Illuminate\Http\Request $request,
+            AuthenticationException $e,
+            Request $request,
         ) {
             if (! $request->is('api/*')) {
                 return null;
@@ -42,7 +50,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 return null;
             }
 
-            $sessions = app(\App\Services\Auth\MobileSessionService::class);
+            $sessions = app(MobileSessionService::class);
             if ($sessions->wasRevokedMobileToken($bearer)) {
                 return $sessions->sessionReplacedResponse();
             }

@@ -5,6 +5,7 @@ namespace App\Observers;
 use App\Models\Collection;
 use App\Services\Dealers\DealerLedgerPostingService;
 use App\Services\Notifications\CollectionPushNotifier;
+use App\Services\TallySync\TallyOutboundEnqueueService;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -13,12 +14,15 @@ class CollectionObserver
     public function __construct(
         private readonly CollectionPushNotifier $notifier,
         private readonly DealerLedgerPostingService $ledgerPosting,
+        private readonly TallyOutboundEnqueueService $tallyOutbound,
     ) {}
 
     public function created(Collection $collection): void
     {
-        $this->syncLedger($collection->fresh() ?? $collection);
-        $this->safe(fn () => $this->notifier->notifyCreated($collection->fresh() ?? $collection));
+        $fresh = $collection->fresh() ?? $collection;
+        $this->syncLedger($fresh);
+        $this->queueTallyReceipt($fresh);
+        $this->safe(fn () => $this->notifier->notifyCreated($fresh));
     }
 
     public function updated(Collection $collection): void
@@ -31,6 +35,10 @@ class CollectionObserver
             'receipt_no',
         ])) {
             $this->syncLedger($collection->fresh() ?? $collection);
+        }
+
+        if ($collection->wasChanged('status')) {
+            $this->queueTallyReceipt($collection->fresh() ?? $collection);
         }
 
         if (! $collection->wasChanged('status')) {
@@ -50,6 +58,17 @@ class CollectionObserver
     private function syncLedger(Collection $collection): void
     {
         $this->ledgerPosting->syncReceivedCollection($collection);
+    }
+
+    private function queueTallyReceipt(Collection $collection): void
+    {
+        try {
+            $this->tallyOutbound->queueReceivedCollection($collection);
+        } catch (Throwable $e) {
+            Log::error('Tally outbound enqueue (collection) failed: '.$e->getMessage(), [
+                'collection_id' => $collection->id,
+            ]);
+        }
     }
 
     private function safe(callable $callback): void

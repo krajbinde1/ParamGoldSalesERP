@@ -5,6 +5,7 @@ namespace App\Observers;
 use App\Models\Order;
 use App\Services\Dealers\DealerLedgerPostingService;
 use App\Services\Notifications\OrderPushNotifier;
+use App\Services\TallySync\TallyOutboundEnqueueService;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -13,11 +14,13 @@ class OrderObserver
     public function __construct(
         private readonly OrderPushNotifier $notifier,
         private readonly DealerLedgerPostingService $ledgerPosting,
+        private readonly TallyOutboundEnqueueService $tallyOutbound,
     ) {}
 
     public function created(Order $order): void
     {
         $this->syncLedger($order);
+        $this->queueTallySales($order);
 
         if ($order->status !== Order::STATUS_PENDING_APPROVAL) {
             return;
@@ -30,6 +33,10 @@ class OrderObserver
     {
         if ($order->wasChanged('status') || $order->wasChanged('grand_total') || $order->wasChanged('dispatch_date')) {
             $this->syncLedger($order->fresh() ?? $order);
+        }
+
+        if ($order->wasChanged('status')) {
+            $this->queueTallySales($order->fresh() ?? $order);
         }
 
         if (! $order->wasChanged('status')) {
@@ -68,6 +75,17 @@ class OrderObserver
     private function syncLedger(Order $order): void
     {
         $this->ledgerPosting->syncDispatchedOrder($order);
+    }
+
+    private function queueTallySales(Order $order): void
+    {
+        try {
+            $this->tallyOutbound->queueBilledOrder($order);
+        } catch (Throwable $e) {
+            Log::error('Tally outbound enqueue (order) failed: '.$e->getMessage(), [
+                'order_id' => $order->id,
+            ]);
+        }
     }
 
     private function safe(callable $callback): void

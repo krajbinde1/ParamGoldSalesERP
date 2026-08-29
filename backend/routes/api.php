@@ -62,6 +62,7 @@ use App\Http\Controllers\Api\Production\StockItemLedgerApiController;
 use App\Http\Controllers\Api\Production\StockLedgerBrowseApiController;
 use App\Http\Controllers\Api\Production\StockReportApiController;
 use App\Http\Controllers\Api\Production\VehicleApiController;
+use App\Http\Controllers\Api\TallyConnectorController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('app-version', AppVersionController::class);
@@ -310,3 +311,12 @@ Route::middleware(['auth:sanctum', 'role:employee,manager'])->prefix('attendance
 Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
     Route::get('employee-routes/{attendance}', [AdminEmployeeRouteController::class, 'show']);
 });
+
+Route::middleware(['auth:sanctum', 'tally.connector', 'throttle:60,1'])
+    ->prefix('tally-connector')
+    ->group(function (): void {
+        Route::get('pending', [TallyConnectorController::class, 'pending']);
+        Route::post('vouchers/{tallyOutboundVoucher}/claim', [TallyConnectorController::class, 'claim']);
+        Route::post('vouchers/{tallyOutboundVoucher}/synced', [TallyConnectorController::class, 'synced']);
+        Route::post('vouchers/{tallyOutboundVoucher}/failed', [TallyConnectorController::class, 'failed']);
+    });
