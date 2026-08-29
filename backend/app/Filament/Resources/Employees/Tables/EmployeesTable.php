@@ -15,14 +15,14 @@ use Filament\Actions\ForceDeleteBulkAction;
 use Filament\Actions\RestoreBulkAction;
 use Filament\Actions\ViewAction;
 use Filament\Notifications\Notification;
-use Illuminate\Database\Eloquent\Builder;
-use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 use Filament\Tables\Columns\ImageColumn;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection as EloquentCollection;
 
 class EmployeesTable
 {
@@ -130,12 +130,14 @@ class EmployeesTable
                     DeleteBulkAction::make()
                         ->using(function (DeleteBulkAction $action, EloquentCollection $records): void {
                             $deleted = 0;
-                            $blocked = 0;
+                            $blockedReasons = [];
                             $guard = app(SafeDeleteGuard::class);
 
-                            $records->each(function (Employee $record) use (&$deleted, &$blocked, $guard): void {
-                                if ($guard->assess($record)->blocked()) {
-                                    $blocked++;
+                            $records->each(function (Employee $record) use (&$deleted, &$blockedReasons, $guard): void {
+                                $assessment = $guard->assess($record);
+
+                                if ($assessment->blocked()) {
+                                    $blockedReasons[] = $record->full_name.': '.$assessment->shortMessage();
 
                                     return;
                                 }
@@ -144,12 +146,18 @@ class EmployeesTable
                                     if (app(DeleteEmployeeWithUserAccount::class)->execute($record)) {
                                         $deleted++;
                                     } else {
-                                        $blocked++;
+                                        $blockedReasons[] = $record->full_name.': Could not be deleted.';
                                     }
-                                } catch (SafeDeleteBlockedException) {
-                                    $blocked++;
+                                } catch (SafeDeleteBlockedException $exception) {
+                                    $blockedReasons[] = $record->full_name.': '.($exception->assessment?->shortMessage()
+                                        ?? $exception->getMessage());
                                 }
                             });
+
+                            $blocked = count($blockedReasons);
+                            $reasonBody = $blockedReasons === []
+                                ? ''
+                                : implode("\n", $blockedReasons);
 
                             if ($deleted > 0 && $blocked === 0) {
                                 Notification::make()
@@ -165,7 +173,7 @@ class EmployeesTable
                                 Notification::make()
                                     ->warning()
                                     ->title('Partial delete completed')
-                                    ->body("{$deleted} employee(s) deleted successfully.\n{$blocked} employee(s) could not be deleted because they are already in use.")
+                                    ->body("{$deleted} employee(s) deleted successfully.\n{$reasonBody}")
                                     ->persistent()
                                     ->send();
 
@@ -175,19 +183,21 @@ class EmployeesTable
                             Notification::make()
                                 ->danger()
                                 ->title('No employees deleted')
-                                ->body("{$blocked} employee(s) could not be deleted because they are already in use. Deactivate them instead.")
+                                ->body($reasonBody !== '' ? $reasonBody : 'Selected employee(s) could not be deleted.')
                                 ->persistent()
                                 ->send();
                         }),
                     ForceDeleteBulkAction::make()
                         ->using(function (ForceDeleteBulkAction $action, EloquentCollection $records): void {
                             $deleted = 0;
-                            $blocked = 0;
+                            $blockedReasons = [];
                             $guard = app(SafeDeleteGuard::class);
 
-                            $records->each(function (Employee $record) use (&$deleted, &$blocked, $guard): void {
-                                if ($guard->assess($record)->blocked()) {
-                                    $blocked++;
+                            $records->each(function (Employee $record) use (&$deleted, &$blockedReasons, $guard): void {
+                                $assessment = $guard->assess($record);
+
+                                if ($assessment->blocked()) {
+                                    $blockedReasons[] = $record->full_name.': '.$assessment->shortMessage();
 
                                     return;
                                 }
@@ -196,18 +206,22 @@ class EmployeesTable
                                     if (app(DeleteEmployeeWithUserAccount::class)->execute($record, force: true)) {
                                         $deleted++;
                                     } else {
-                                        $blocked++;
+                                        $blockedReasons[] = $record->full_name.': Could not be deleted.';
                                     }
-                                } catch (SafeDeleteBlockedException) {
-                                    $blocked++;
+                                } catch (SafeDeleteBlockedException $exception) {
+                                    $blockedReasons[] = $record->full_name.': '.($exception->assessment?->shortMessage()
+                                        ?? $exception->getMessage());
                                 }
                             });
 
-                            if ($blocked > 0) {
+                            if ($blockedReasons !== []) {
                                 Notification::make()
                                     ->warning()
                                     ->title('Force delete result')
-                                    ->body("{$deleted} deleted, {$blocked} blocked (already in use).")
+                                    ->body(
+                                        ($deleted > 0 ? "{$deleted} deleted.\n" : '')
+                                        .implode("\n", $blockedReasons)
+                                    )
                                     ->persistent()
                                     ->send();
                             }

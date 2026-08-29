@@ -5,7 +5,6 @@ namespace App\Filament\Actions;
 use App\Enums\BomStatus;
 use App\Models\Bom;
 use App\Services\SafeDelete\SafeDeleteAssessment;
-use App\Services\SafeDelete\SafeDeleteBlockedException;
 use App\Services\SafeDelete\SafeDeleteGuard;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
@@ -34,7 +33,7 @@ final class SafeDeleteActions
         return DeleteBulkAction::make($name)
             ->using(function (Collection $records): void {
                 $deleted = 0;
-                $blocked = 0;
+                $blockedReasons = [];
                 $guard = app(SafeDeleteGuard::class);
 
                 foreach ($records as $record) {
@@ -45,7 +44,7 @@ final class SafeDeleteActions
                     $assessment = $guard->assess($record);
 
                     if ($assessment->blocked()) {
-                        $blocked++;
+                        $blockedReasons[] = $assessment->shortMessage();
 
                         continue;
                     }
@@ -53,6 +52,9 @@ final class SafeDeleteActions
                     $record->delete();
                     $deleted++;
                 }
+
+                $blocked = count($blockedReasons);
+                $reasonBody = $blockedReasons === [] ? '' : implode("\n", array_unique($blockedReasons));
 
                 if ($deleted > 0 && $blocked === 0) {
                     Notification::make()
@@ -68,7 +70,7 @@ final class SafeDeleteActions
                     Notification::make()
                         ->warning()
                         ->title('Partial delete completed')
-                        ->body("{$deleted} record(s) deleted successfully.\n{$blocked} record(s) could not be deleted because they are already in use.")
+                        ->body("{$deleted} record(s) deleted successfully.\n{$reasonBody}")
                         ->persistent()
                         ->send();
 
@@ -78,7 +80,7 @@ final class SafeDeleteActions
                 Notification::make()
                     ->danger()
                     ->title('No records deleted')
-                    ->body("{$blocked} record(s) could not be deleted because they are already in use. Deactivate them instead.")
+                    ->body($reasonBody !== '' ? $reasonBody : 'Selected record(s) could not be deleted.')
                     ->persistent()
                     ->send();
             });

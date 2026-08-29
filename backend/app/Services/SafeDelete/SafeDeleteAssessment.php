@@ -33,18 +33,7 @@ final class SafeDeleteAssessment
             return "This {$this->entityLabel} can be deleted.";
         }
 
-        $lines = [
-            "Cannot delete this {$this->entityLabel} because it is already used in the system.",
-        ];
-
-        if ($this->dependencies !== []) {
-            $lines[] = '';
-            $lines[] = 'It is currently linked with:';
-
-            foreach ($this->dependencies as $dependency) {
-                $lines[] = "• {$dependency->label}: {$dependency->count}";
-            }
-        }
+        $lines = [$this->shortMessage()];
 
         if ($this->supportsDeactivate) {
             $lines[] = '';
@@ -60,7 +49,33 @@ final class SafeDeleteAssessment
             return "This {$this->entityLabel} can be deleted.";
         }
 
-        return "Cannot delete this {$this->entityLabel} because it is already used in the system."
-            .($this->supportsDeactivate ? ' You can deactivate it instead.' : '');
+        if ($this->dependencies === []) {
+            return "Cannot delete this {$this->entityLabel} because it is already used in the system."
+                .($this->supportsDeactivate ? ' You can deactivate it instead.' : '');
+        }
+
+        $parts = array_map(
+            fn (SafeDeleteDependency $dependency): string => $dependency->countPhrase(),
+            $this->dependencies,
+        );
+        $verb = count($this->dependencies) === 1 && $this->dependencies[0]->count === 1
+            ? 'is'
+            : 'are';
+
+        return 'Cannot delete: '.$this->joinPhrase($parts)." {$verb} linked to this {$this->entityLabel}.";
+    }
+
+    /**
+     * @param  list<string>  $parts
+     */
+    private function joinPhrase(array $parts): string
+    {
+        if (count($parts) === 1) {
+            return $parts[0];
+        }
+
+        $last = array_pop($parts);
+
+        return implode(', ', $parts).' and '.$last;
     }
 }

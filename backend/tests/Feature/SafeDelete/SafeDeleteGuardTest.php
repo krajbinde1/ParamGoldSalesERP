@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Employees\CreateEmployeeWithUserAccount;
+use App\Actions\Employees\DeleteEmployeeWithUserAccount;
 use App\Enums\BomItemType;
 use App\Enums\BomOutputType;
 use App\Enums\BomStatus;
@@ -105,7 +106,7 @@ it('blocks deleting a dealer that has orders and suggests deactivate', function 
 
     expect($assessment->allowed)->toBeFalse()
         ->and($assessment->supportsDeactivate)->toBeTrue()
-        ->and($assessment->message())->toContain('Orders');
+        ->and($assessment->shortMessage())->toContain('order');
 
     expect(fn () => $dealer->delete())->toThrow(SafeDeleteBlockedException::class);
 
@@ -139,6 +140,11 @@ it('blocks deleting an employee with attendance or route points', function () {
 
     expect(app(SafeDeleteGuard::class)->canDelete($employee))->toBeFalse();
     expect(fn () => $employee->delete())->toThrow(SafeDeleteBlockedException::class);
+
+    $assessment = app(SafeDeleteGuard::class)->assess($employee);
+    expect($assessment->shortMessage())->toBe(
+        'Cannot delete: 1 attendance record and 1 route point are linked to this employee.'
+    );
 });
 
 it('allows deleting an unused employee', function () {
@@ -146,7 +152,7 @@ it('allows deleting an unused employee', function () {
 
     expect(app(SafeDeleteGuard::class)->canDelete($employee))->toBeTrue();
 
-    app(\App\Actions\Employees\DeleteEmployeeWithUserAccount::class)->execute($employee);
+    app(DeleteEmployeeWithUserAccount::class)->execute($employee);
 
     expect(Employee::query()->find($employee->id))->toBeNull();
 });
