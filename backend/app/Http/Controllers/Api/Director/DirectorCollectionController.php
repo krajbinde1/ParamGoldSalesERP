@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Collection;
 use App\Models\Dealer;
 use App\Models\Employee;
+use App\Services\Dashboard\DashboardMetricsService;
 use App\Support\AttendanceCalendar;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -137,7 +138,7 @@ class DirectorCollectionController extends Controller
     private function validateFilters(Request $request, bool $dealerRequired): array
     {
         return $request->validate([
-            'period' => ['nullable', 'in:today,week,month,custom'],
+            'period' => ['nullable', DashboardMetricsService::periodValidationRule()],
             'date' => ['nullable', 'date'],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
@@ -165,6 +166,9 @@ class DirectorCollectionController extends Controller
         } elseif ($period === 'week') {
             $from = $today->copy()->startOfWeek(Carbon::MONDAY)->toDateString();
             $to = $today->copy()->endOfWeek(Carbon::MONDAY)->toDateString();
+        } elseif ($period === 'last_week') {
+            $from = $today->copy()->subWeek()->startOfWeek(Carbon::MONDAY)->toDateString();
+            $to = $today->copy()->subWeek()->startOfWeek(Carbon::MONDAY)->endOfWeek(Carbon::SUNDAY)->toDateString();
         } elseif ($period === 'month') {
             $from = $today->copy()->startOfMonth()->toDateString();
             $to = $today->toDateString();

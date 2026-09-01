@@ -5,6 +5,7 @@ namespace App\Filament\Resources\RawMaterials\Tables;
 use App\Enums\InventoryUnit;
 use App\Filament\Actions\SafeDeleteActions;
 use App\Filament\Resources\RawMaterials\RawMaterialResource;
+use App\Filament\Support\MaterialMasterStockColumns;
 use App\Models\RawMaterial;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\EditAction;
@@ -33,6 +34,18 @@ class RawMaterialsTable
                     ->label('Unit')
                     ->badge()
                     ->sortable(),
+                MaterialMasterStockColumns::availableStock(
+                    'current_stock',
+                    fn (RawMaterial $record): string => match (true) {
+                        $record->isOutOfStock() => 'danger',
+                        $record->isLowStock() => 'warning',
+                        default => 'success',
+                    },
+                ),
+                MaterialMasterStockColumns::stockValue(
+                    'current_stock_value',
+                    fn (): bool => RawMaterialResource::canViewPurchaseRates(),
+                ),
                 TextColumn::make('minimum_stock')
                     ->label('Minimum Stock')
                     ->numeric(3)

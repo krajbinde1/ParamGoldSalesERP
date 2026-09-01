@@ -128,7 +128,9 @@ class ManagerEmployeePerformanceWidget extends Widget
 
         return [
             'employees' => $data['employees'],
-            'periodLabel' => $data['range']['label'],
+            'heading' => $this->managerPeriodHeading($this->period, 'Employee Performance'),
+            'periodLabel' => $this->managerPeriodRangeText($data['range']),
+            'periodFilters' => $this->managerPeriodFilterOptions(),
             'employeeOptions' => $this->managerEmployeeOptions($this->employeeSearch),
             'showCustomPeriod' => $this->normalizeManagerPeriod($this->period) === 'custom',
             'detailUrl' => fn (int $employeeId): string => ManagerEmployeePerformanceDetail::getUrl([

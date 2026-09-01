@@ -28,7 +28,7 @@ class DirectorDashboardController extends Controller
     public function __invoke(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'period' => ['nullable', 'in:today,week,month,custom'],
+            'period' => ['nullable', DashboardMetricsService::periodValidationRule()],
             'start_date' => ['nullable', 'date', 'required_if:period,custom'],
             'end_date' => ['nullable', 'date', 'required_if:period,custom', 'after_or_equal:start_date'],
             'employee_id' => ['nullable', 'integer', 'exists:employees,id'],
@@ -89,11 +89,13 @@ class DirectorDashboardController extends Controller
                 'targets' => [
                     'sales_target' => $salesTarget,
                     'sales_achieved' => $salesAchieved,
+                    'sales_remaining' => round(max($salesTarget - $salesAchieved, 0), 2),
                     'sales_percentage' => $salesTarget > 0
                         ? round(($salesAchieved / $salesTarget) * 100, 2)
                         : 0,
                     'collection_target' => $collectionTarget,
                     'collection_achieved' => $collectionAchieved,
+                    'collection_remaining' => round(max($collectionTarget - $collectionAchieved, 0), 2),
                     'collection_percentage' => $collectionTarget > 0
                         ? round(($collectionAchieved / $collectionTarget) * 100, 2)
                         : 0,

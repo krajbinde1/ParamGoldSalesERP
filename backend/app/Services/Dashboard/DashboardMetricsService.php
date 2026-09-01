@@ -18,6 +18,27 @@ class DashboardMetricsService
 {
     private const BUSINESS_TIMEZONE = 'Asia/Kolkata';
 
+    /** @var list<string> */
+    public const PERIOD_KEYS = ['today', 'week', 'last_week', 'month', 'custom'];
+
+    public static function periodValidationRule(): string
+    {
+        return 'in:'.implode(',', self::PERIOD_KEYS);
+    }
+
+    public function periodHeading(?string $period, string $suffix = 'Performance'): string
+    {
+        $label = match ($period) {
+            'today' => 'Today',
+            'week', 'weekly' => 'This Week',
+            'last_week' => 'Last Week',
+            'custom' => 'Custom',
+            default => 'This Month',
+        };
+
+        return $label.' '.$suffix;
+    }
+
     /**
      * @return array{start: Carbon, end: Carbon, label: string}
      */
@@ -36,6 +57,11 @@ class DashboardMetricsService
                 // Through current day only — do not include future weekdays.
                 'end' => $today->copy()->endOfDay(),
                 'label' => 'This Week',
+            ],
+            'last_week' => [
+                'start' => $today->copy()->subWeek()->startOfWeek(Carbon::MONDAY),
+                'end' => $today->copy()->subWeek()->startOfWeek(Carbon::MONDAY)->endOfWeek(Carbon::SUNDAY),
+                'label' => 'Last Week',
             ],
             'month' => [
                 'start' => $today->copy()->startOfMonth(),
@@ -202,9 +228,20 @@ class DashboardMetricsService
 
         $targets = $targetQuery->get();
 
-        $salesTarget = (float) $targets->sum('sales_target');
-        $collectionTarget = (float) $targets->sum('collection_target');
-        $fieldActivityTarget = (int) $targets->sum('field_activity_target');
+        $salesTarget = 0.0;
+        $collectionTarget = 0.0;
+        $fieldActivityTarget = 0.0;
+
+        foreach ($targets as $target) {
+            $ratio = $this->targetOverlapRatio($target, $start, $end);
+            $salesTarget += (float) $target->sales_target * $ratio;
+            $collectionTarget += (float) $target->collection_target * $ratio;
+            $fieldActivityTarget += (float) $target->field_activity_target * $ratio;
+        }
+
+        $salesTarget = round($salesTarget, 2);
+        $collectionTarget = round($collectionTarget, 2);
+        $fieldActivityTarget = (int) round($fieldActivityTarget);
 
         if ($employeeId !== null) {
             $salesAchieved = $this->salesAchievedForPeriod($employeeId, $start, $end);
@@ -258,7 +295,8 @@ class DashboardMetricsService
     {
         return (float) Collection::query()
             ->where('sales_employee_id', $employeeId)
-            ->whereBetween('collection_date', [$start->toDateString(), $end->toDateString()])
+            ->whereDate('collection_date', '>=', $start->toDateString())
+            ->whereDate('collection_date', '<=', $end->toDateString())
             ->where('status', Collection::STATUS_RECEIVED)
             ->sum('amount');
     }
@@ -267,7 +305,8 @@ class DashboardMetricsService
     {
         return (int) FieldActivity::query()
             ->where('employee_id', $employeeId)
-            ->whereBetween('activity_date', [$start->toDateString(), $end->toDateString()])
+            ->whereDate('activity_date', '>=', $start->toDateString())
+            ->whereDate('activity_date', '<=', $end->toDateString())
             ->count();
     }
 
@@ -492,5 +531,46 @@ class DashboardMetricsService
     private function percentage(float $target, float $achieved): float
     {
         return $target > 0 ? round(($achieved / $target) * 100, 2) : 0.0;
+    }
+
+    /**
+     * Share of a weekly/monthly target that falls inside the selected period.
+     * A month-long target overlapping "this week" is scaled to those weekdays,
+     * so Sales and Collection targets change with the filter.
+     */
+    private function targetOverlapRatio(WeeklyTarget $target, Carbon $periodStart, Carbon $periodEnd): float
+    {
+        if ($target->week_start_date === null || $target->week_end_date === null) {
+            return 0.0;
+        }
+
+        $targetStart = Carbon::parse(
+            $target->week_start_date->toDateString(),
+            self::BUSINESS_TIMEZONE,
+        )->startOfDay();
+        $targetEnd = Carbon::parse(
+            $target->week_end_date->toDateString(),
+            self::BUSINESS_TIMEZONE,
+        )->startOfDay();
+
+        if ($targetStart->gt($targetEnd)) {
+            return 0.0;
+        }
+
+        $overlapStart = $targetStart->copy()->max($periodStart->copy()->startOfDay());
+        $overlapEnd = $targetEnd->copy()->min($periodEnd->copy()->startOfDay());
+
+        if ($overlapStart->gt($overlapEnd)) {
+            return 0.0;
+        }
+
+        $targetDays = (int) $targetStart->diffInDays($targetEnd) + 1;
+        $overlapDays = (int) $overlapStart->diffInDays($overlapEnd) + 1;
+
+        if ($targetDays <= 0) {
+            return 0.0;
+        }
+
+        return min(1.0, $overlapDays / $targetDays);
     }
 }

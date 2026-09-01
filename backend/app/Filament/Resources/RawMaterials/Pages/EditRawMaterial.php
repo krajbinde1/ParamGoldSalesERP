@@ -4,15 +4,20 @@ namespace App\Filament\Resources\RawMaterials\Pages;
 
 use App\Enums\StockTransactionType;
 use App\Filament\Actions\SafeDeleteActions;
+use App\Filament\Concerns\SyncsMaterialOpeningStockOnEdit;
 use App\Filament\Resources\RawMaterials\RawMaterialResource;
 use App\Filament\Resources\RawMaterials\Schemas\RawMaterialForm;
 use App\Models\RawMaterial;
+use App\Models\User;
+use App\Services\Inventory\MaterialOpeningStockSyncService;
 use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Schema;
 
 class EditRawMaterial extends EditRecord
 {
+    use SyncsMaterialOpeningStockOnEdit;
+
     protected static string $resource = RawMaterialResource::class;
 
     public function form(Schema $schema): Schema
@@ -70,19 +75,23 @@ class EditRawMaterial extends EditRecord
         // Preserve existing category — the field is removed from the UI.
         unset($data['category']);
 
-        // Opening stock is create-only. Never update stock columns or re-post ledger on Edit.
-        unset(
-            $data['opening_stock_quantity'],
-            $data['opening_stock_value'],
-            $data['opening_date'],
-            $data['opening_effective_rate'],
-            $data['opening_stock'],
-            $data['current_stock'],
-            $data['current_stock_value'],
-            $data['purchase_rate'],
-            $data['average_rate'],
-        );
+        return $this->extractOpeningStockAndUnset($data, [
+            'opening_stock',
+            'current_stock',
+            'current_stock_value',
+            'purchase_rate',
+            'average_rate',
+        ]);
+    }
 
-        return $data;
+    protected function beforeSave(): void
+    {
+        $this->applyPendingOpeningStock(function (array $opening, User $user): void {
+            app(MaterialOpeningStockSyncService::class)->syncRawMaterial(
+                $this->getRecord(),
+                $opening,
+                $user,
+            );
+        });
     }
 }

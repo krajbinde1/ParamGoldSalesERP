@@ -4,40 +4,21 @@
     <x-filament::section class="manager-dashboard-section">
         <div class="manager-employee-section-header">
             <div class="manager-employee-section-header__title-wrap">
-                <h2 class="manager-employee-section-header__title">Employee Performance</h2>
+                <h2 class="manager-employee-section-header__title">{{ $heading }}</h2>
                 <p class="manager-employee-section-header__subtitle">{{ $periodLabel }}</p>
             </div>
 
             <div class="manager-employee-filters">
                 <div class="manager-period-filters" role="group" aria-label="Performance period filters">
-                    <button
-                        type="button"
-                        wire:click="setManagerPeriod('today')"
-                        @class(['manager-period-btn', 'manager-period-btn--active' => $this->isActiveManagerPeriod('today')])
-                    >
-                        Today
-                    </button>
-                    <button
-                        type="button"
-                        wire:click="setManagerPeriod('weekly')"
-                        @class(['manager-period-btn', 'manager-period-btn--active' => $this->isActiveManagerPeriod('weekly')])
-                    >
-                        Weekly
-                    </button>
-                    <button
-                        type="button"
-                        wire:click="setManagerPeriod('monthly')"
-                        @class(['manager-period-btn', 'manager-period-btn--active' => $this->isActiveManagerPeriod('monthly')])
-                    >
-                        Monthly
-                    </button>
-                    <button
-                        type="button"
-                        wire:click="setManagerPeriod('custom')"
-                        @class(['manager-period-btn', 'manager-period-btn--active' => $this->isActiveManagerPeriod('custom')])
-                    >
-                        Custom
-                    </button>
+                    @foreach ($periodFilters as $key => $label)
+                        <button
+                            type="button"
+                            wire:click="setManagerPeriod('{{ $key }}')"
+                            @class(['manager-period-btn', 'manager-period-btn--active' => $this->isActiveManagerPeriod($key)])
+                        >
+                            {{ $label }}
+                        </button>
+                    @endforeach
                 </div>
 
                 <div class="manager-employee-filter-select">
@@ -147,6 +128,10 @@
                                 <span class="manager-metric-row__label">Progress</span>
                                 <span class="manager-metric-row__value">{{ $formatPercentage($salesPercentage) }}</span>
                             </div>
+                            <div class="manager-metric-row">
+                                <span class="manager-metric-row__label">Remaining</span>
+                                <span class="manager-metric-row__value">{{ $formatMoney((float) $employee['sales_remaining']) }}</span>
+                            </div>
                             <div class="manager-progress-track" aria-hidden="true">
                                 <div
                                     class="manager-progress-bar manager-progress-bar--sales"
@@ -169,6 +154,10 @@
                             <div class="manager-metric-row">
                                 <span class="manager-metric-row__label">Progress</span>
                                 <span class="manager-metric-row__value">{{ $formatPercentage($collectionPercentage) }}</span>
+                            </div>
+                            <div class="manager-metric-row">
+                                <span class="manager-metric-row__label">Remaining</span>
+                                <span class="manager-metric-row__value">{{ $formatMoney((float) $employee['collection_remaining']) }}</span>
                             </div>
                             <div class="manager-progress-track" aria-hidden="true">
                                 <div

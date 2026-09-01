@@ -35,4 +35,16 @@ return [
         ],
     ],
 
+    'whatsapp' => [
+        'enabled' => env('WHATSAPP_ENABLED', true),
+        'token' => env('WHATSAPP_ACCESS_TOKEN'),
+        'phone_number_id' => env('WHATSAPP_PHONE_NUMBER_ID'),
+        'business_account_id' => env('WHATSAPP_BUSINESS_ACCOUNT_ID'),
+        'graph_version' => env('WHATSAPP_GRAPH_VERSION', 'v21.0'),
+        'template_language' => env('WHATSAPP_TEMPLATE_LANGUAGE', 'en'),
+        'bill_template' => env('WHATSAPP_BILL_TEMPLATE'),
+        'bill_image_template' => env('WHATSAPP_BILL_IMAGE_TEMPLATE'),
+        'collection_template' => env('WHATSAPP_COLLECTION_TEMPLATE'),
+    ],
+
 ];

@@ -6,6 +6,7 @@ use App\Enums\InventoryUnit;
 use App\Enums\StockItemType;
 use App\Filament\Pages\StockItemLedger;
 use App\Filament\Resources\FinishedProducts\FinishedProductResource;
+use App\Filament\Support\MaterialMasterStockColumns;
 use App\Models\Product;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
@@ -39,25 +40,24 @@ class FinishedProductsTable
                         ?: ($record->finishedProduct?->unit ?? '')
                     ))
                     ->badge(),
-                TextColumn::make('current_finished_stock')
-                    ->label('Available Quantity')
-                    ->numeric(3)
-                    ->sortable()
-                    ->color(fn (Product $record): string => match (true) {
+                MaterialMasterStockColumns::availableStock(
+                    'current_finished_stock',
+                    fn (Product $record): string => match (true) {
                         $record->isOutOfFinishedStock() => 'danger',
                         $record->isLowFinishedStock() => 'warning',
                         default => 'success',
-                    }),
-                TextColumn::make('current_stock_value')
-                    ->label('Inventory Value')
-                    ->state(fn (Product $record): float => $record->current_stock_value)
-                    ->money('INR')
-                    ->sortable(query: function ($query, string $direction): void {
+                    },
+                ),
+                MaterialMasterStockColumns::stockValue(
+                    'current_stock_value',
+                    fn (): bool => FinishedProductResource::canViewCosts(),
+                    fn (Product $record): float => $record->current_stock_value,
+                    function ($query, string $direction): void {
                         $query->orderByRaw(
                             '(current_finished_stock * weighted_average_cost) '.$direction
                         );
-                    })
-                    ->visible(fn (): bool => FinishedProductResource::canViewCosts()),
+                    },
+                ),
                 TextColumn::make('weighted_average_cost')
                     ->label('Avg / Effective Rate')
                     ->money('INR')

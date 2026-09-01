@@ -24,7 +24,7 @@ class ManagerDashboardController extends Controller
     public function __invoke(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'period' => ['nullable', 'in:today,week,month,custom'],
+            'period' => ['nullable', DashboardMetricsService::periodValidationRule()],
             'start_date' => ['nullable', 'date', 'required_if:period,custom'],
             'end_date' => ['nullable', 'date', 'required_if:period,custom', 'after_or_equal:start_date'],
         ]);

@@ -3,11 +3,11 @@
         <x-filament::section>
             <div class="pg-section-head">
                 <div>
-                    <h2 class="pg-section-title">This Month Performance</h2>
+                    <h2 class="pg-section-title">{{ $heading }}</h2>
                     <p class="pg-section-sub">{{ $periodLabel }}</p>
                 </div>
                 <div class="pg-seg" role="group" aria-label="Business performance period filters">
-                    @foreach (['today' => 'Today', 'weekly' => 'Weekly', 'monthly' => 'Monthly', 'custom' => 'Custom'] as $key => $label)
+                    @foreach ($periodFilters as $key => $label)
                         <button
                             type="button"
                             wire:click="setBizPeriod('{{ $key }}')"

@@ -366,8 +366,8 @@
         border: 0;
         border-radius: 0.5rem;
         background: transparent;
-        padding: 0.4rem 0.75rem;
-        font-size: 0.75rem;
+        padding: 0.4rem 0.55rem;
+        font-size: 0.72rem;
         font-weight: 650;
         color: #475569;
         cursor: pointer;

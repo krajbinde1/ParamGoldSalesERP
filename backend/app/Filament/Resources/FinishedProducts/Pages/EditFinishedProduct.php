@@ -4,15 +4,20 @@ namespace App\Filament\Resources\FinishedProducts\Pages;
 
 use App\Enums\StockTransactionType;
 use App\Filament\Actions\SafeDeleteActions;
+use App\Filament\Concerns\SyncsMaterialOpeningStockOnEdit;
 use App\Filament\Resources\FinishedProducts\FinishedProductResource;
 use App\Filament\Resources\FinishedProducts\Schemas\FinishedProductForm;
 use App\Models\Product;
+use App\Models\User;
+use App\Services\Inventory\MaterialOpeningStockSyncService;
 use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Schema;
 
 class EditFinishedProduct extends EditRecord
 {
+    use SyncsMaterialOpeningStockOnEdit;
+
     protected static string $resource = FinishedProductResource::class;
 
     public function form(Schema $schema): Schema
@@ -81,17 +86,7 @@ class EditFinishedProduct extends EditRecord
         /** @var Product $record */
         $record = $this->getRecord();
 
-        // Opening stock / sales identity & pricing are not editable here.
         unset(
-            $data['opening_stock_quantity'],
-            $data['opening_stock_value'],
-            $data['opening_date'],
-            $data['opening_effective_rate'],
-            $data['opening_finished_stock'],
-            $data['current_finished_stock'],
-            $data['weighted_average_cost'],
-            $data['standard_production_cost'],
-            $data['latest_production_cost'],
             $data['product_code'],
             $data['product_name'],
             $data['finished_product_code'],
@@ -106,6 +101,14 @@ class EditFinishedProduct extends EditRecord
             $data['nos_per_case'],
         );
 
+        $data = $this->extractOpeningStockAndUnset($data, [
+            'opening_finished_stock',
+            'current_finished_stock',
+            'weighted_average_cost',
+            'standard_production_cost',
+            'latest_production_cost',
+        ]);
+
         if (array_key_exists('unit', $data)) {
             if ($record->hasFinishedStockTransactions()) {
                 unset($data['unit']);
@@ -119,6 +122,17 @@ class EditFinishedProduct extends EditRecord
         $data['manufacturing_enabled'] = true;
 
         return $data;
+    }
+
+    protected function beforeSave(): void
+    {
+        $this->applyPendingOpeningStock(function (array $opening, User $user): void {
+            app(MaterialOpeningStockSyncService::class)->syncFinishedProduct(
+                $this->getRecord(),
+                $opening,
+                $user,
+            );
+        });
     }
 
     protected function afterSave(): void

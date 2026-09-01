@@ -111,7 +111,9 @@ class ManagerTeamPerformanceWidget extends Widget
 
         return [
             'summary' => $summary,
-            'periodLabel' => $data['range']['label'],
+            'heading' => $this->managerPeriodHeading($this->teamPeriod, 'Team Performance'),
+            'periodLabel' => $this->managerPeriodRangeText($data['range']),
+            'periodFilters' => $this->managerPeriodFilterOptions(),
             'showCustomPeriod' => $this->normalizeManagerPeriod($this->teamPeriod) === 'custom',
             'formatMoney' => fn (float $amount): string => Number::currency($amount, 'INR', 'en_IN'),
             'formatPercentage' => fn (float $percentage): string => number_format($percentage, 2).'%',

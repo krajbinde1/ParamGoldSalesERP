@@ -28,7 +28,7 @@ class SemiFinishedMaterialInfolist
                         TextEntry::make('remarks')->label('Remarks')->placeholder('—')->columnSpanFull(),
                     ]),
                 Section::make('Opening Stock')
-                    ->description('As entered when the material was created. Current stock and ledger live under Inventory Stock Report.')
+                    ->description('Snapshot entered at create or edit. Available Stock and Stock Value follow live inventory after inward, outward, production, consumption, and adjustment.')
                     ->columns(2)
                     ->schema([
                         TextEntry::make('opening_stock')
@@ -44,10 +44,10 @@ class SemiFinishedMaterialInfolist
                             ->label('Opening Date')
                             ->state(fn (SemiFinishedMaterial $record): string => self::openingDate($record) ?? '—'),
                     ]),
-                Section::make('Stock')
+                Section::make('Available Stock')
                     ->columns(3)
                     ->schema([
-                        TextEntry::make('current_stock')->label('Current Stock')->numeric(3),
+                        TextEntry::make('current_stock')->label('Available Stock')->numeric(3),
                         TextEntry::make('current_stock_value')
                             ->label('Stock Value')
                             ->money('INR')

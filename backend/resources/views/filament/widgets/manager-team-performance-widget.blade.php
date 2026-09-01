@@ -4,40 +4,21 @@
     <x-filament::section class="manager-dashboard-section">
         <div class="manager-employee-section-header">
             <div class="manager-employee-section-header__title-wrap">
-                <h2 class="manager-employee-section-header__title">Overall Team Performance</h2>
+                <h2 class="manager-employee-section-header__title">{{ $heading }}</h2>
                 <p class="manager-employee-section-header__subtitle">{{ $periodLabel }}</p>
             </div>
 
             <div class="manager-employee-filters">
                 <div class="manager-period-filters" role="group" aria-label="Team performance period filters">
-                    <button
-                        type="button"
-                        wire:click="setTeamPeriod('today')"
-                        @class(['manager-period-btn', 'manager-period-btn--active' => $this->isActiveTeamPeriod('today')])
-                    >
-                        Today
-                    </button>
-                    <button
-                        type="button"
-                        wire:click="setTeamPeriod('weekly')"
-                        @class(['manager-period-btn', 'manager-period-btn--active' => $this->isActiveTeamPeriod('weekly')])
-                    >
-                        Weekly
-                    </button>
-                    <button
-                        type="button"
-                        wire:click="setTeamPeriod('monthly')"
-                        @class(['manager-period-btn', 'manager-period-btn--active' => $this->isActiveTeamPeriod('monthly')])
-                    >
-                        Monthly
-                    </button>
-                    <button
-                        type="button"
-                        wire:click="setTeamPeriod('custom')"
-                        @class(['manager-period-btn', 'manager-period-btn--active' => $this->isActiveTeamPeriod('custom')])
-                    >
-                        Custom
-                    </button>
+                    @foreach ($periodFilters as $key => $label)
+                        <button
+                            type="button"
+                            wire:click="setTeamPeriod('{{ $key }}')"
+                            @class(['manager-period-btn', 'manager-period-btn--active' => $this->isActiveTeamPeriod($key)])
+                        >
+                            {{ $label }}
+                        </button>
+                    @endforeach
                 </div>
             </div>
         </div>
@@ -109,6 +90,10 @@
                     <span class="manager-metric-row__label">Overall Sales %</span>
                     <span class="manager-metric-row__value">{{ $formatPercentage((float) $summary['sales_percentage']) }}</span>
                 </div>
+                <div class="manager-metric-row">
+                    <span class="manager-metric-row__label">Remaining</span>
+                    <span class="manager-metric-row__value">{{ $formatMoney((float) $summary['sales_pending']) }}</span>
+                </div>
                 <div class="manager-progress-track" aria-hidden="true">
                     <div
                         class="manager-progress-bar manager-progress-bar--sales"
@@ -121,6 +106,10 @@
                 <div class="manager-metric-row">
                     <span class="manager-metric-row__label">Overall Collection %</span>
                     <span class="manager-metric-row__value">{{ $formatPercentage((float) $summary['collection_percentage']) }}</span>
+                </div>
+                <div class="manager-metric-row">
+                    <span class="manager-metric-row__label">Remaining</span>
+                    <span class="manager-metric-row__value">{{ $formatMoney((float) $summary['collection_pending']) }}</span>
                 </div>
                 <div class="manager-progress-track" aria-hidden="true">
                     <div

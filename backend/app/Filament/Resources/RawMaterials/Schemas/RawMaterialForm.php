@@ -3,6 +3,8 @@
 namespace App\Filament\Resources\RawMaterials\Schemas;
 
 use App\Enums\InventoryUnit;
+use App\Filament\Resources\RawMaterials\RawMaterialResource;
+use App\Models\RawMaterial;
 use App\Services\Inventory\MaterialInwardCosting;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Placeholder;
@@ -69,12 +71,13 @@ class RawMaterialForm
     }
 
     /**
-     * Opening stock fields.
+     * Opening stock fields — editable on Create and Edit.
      *
-     * Create: editable — posts Opening Stock ledger when quantity > 0.
-     * Edit: read-only snapshot of values entered at create (never re-posts ledger).
+     * Create: posts Opening Stock ledger when quantity > 0.
+     * Edit: posts opening if none exists, or updates the opening snapshot when
+     * no later inventory movements have been recorded.
      *
-     * Order: Quantity → Value → Effective Rate (existing read-only) → Opening Date.
+     * Order: Quantity → Value → Effective Rate (read-only) → Opening Date.
      *
      * @return list<\Filament\Schemas\Components\Component|\Filament\Forms\Components\Component>
      */
@@ -82,7 +85,7 @@ class RawMaterialForm
     {
         $description = $readOnly
             ? 'As entered at create. Opening stock is not changed on Edit (no duplicate Opening Stock ledger). Use Raw Material Inward or Stock Adjustment for later inventory changes.'
-            : 'Optional. Enter Opening Stock Quantity greater than zero to post opening stock, update inventory and average rate, and create an Opening Stock ledger entry on Create. Leave as 0 to create the material without stock. Supplier purchases use Raw Material Inward separately.';
+            : 'Optional. Quantity greater than zero posts or updates Opening Stock. Available Stock and Stock Value always follow live inventory after inward, outward, production, consumption, and adjustment — they are not frozen at this opening. After other stock movements, opening quantity and value cannot be changed here.';
 
         return [
             Section::make('Opening Stock')
@@ -159,7 +162,7 @@ class RawMaterialForm
 
     public static function configure(Schema $schema): Schema
     {
-        // Default resource form (Edit contexts via resource): master fields + read-only opening.
+        // Default resource form (Edit): master fields, editable opening, live available stock.
         return self::configureEdit($schema);
     }
 
@@ -175,8 +178,44 @@ class RawMaterialForm
     {
         return $schema->components([
             ...self::materialDetailsComponents(),
-            ...self::openingStockComponents(readOnly: true),
+            ...self::openingStockComponents(readOnly: false),
+            ...self::currentStockComponents(),
         ]);
+    }
+
+    /**
+     * @return list<\Filament\Schemas\Components\Component|\Filament\Forms\Components\Component>
+     */
+    public static function currentStockComponents(): array
+    {
+        return [
+            Section::make('Available Stock')
+                ->description('Live quantity and value after inward, outward, production, consumption, and adjustments.')
+                ->columns(2)
+                ->schema([
+                    Placeholder::make('available_stock_display')
+                        ->label('Available Stock')
+                        ->content(function (?RawMaterial $record): string {
+                            if ($record === null) {
+                                return '—';
+                            }
+
+                            $qty = number_format((float) $record->current_stock, 3, '.', '');
+
+                            return filled($record->unit) ? $qty.' '.$record->unit : $qty;
+                        }),
+                    Placeholder::make('stock_value_display')
+                        ->label('Stock Value')
+                        ->visible(fn (): bool => RawMaterialResource::canViewPurchaseRates())
+                        ->content(function (?RawMaterial $record): string {
+                            if ($record === null) {
+                                return '—';
+                            }
+
+                            return '₹'.number_format((float) $record->current_stock_value, 2, '.', ',');
+                        }),
+                ]),
+        ];
     }
 
     /**

@@ -122,7 +122,7 @@ class ManagerEmployeePerformanceController extends Controller
     private function validatedPeriod(Request $request): array
     {
         return $request->validate([
-            'period' => ['nullable', 'in:today,week,month,custom'],
+            'period' => ['nullable', DashboardMetricsService::periodValidationRule()],
             'start_date' => ['nullable', 'date', 'required_if:period,custom'],
             'end_date' => ['nullable', 'date', 'required_if:period,custom', 'after_or_equal:start_date'],
             'search' => ['nullable', 'string', 'max:100'],

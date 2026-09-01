@@ -108,7 +108,7 @@ class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
                   scrollDirection: Axis.horizontal,
                   child: Row(
                     children: [
-                      for (final period in ['today', 'week', 'month'])
+                      for (final period in ['today', 'week', 'last_week', 'month'])
                         Padding(
                           padding: const EdgeInsets.only(right: 8),
                           child: ChoiceChip(
@@ -449,6 +449,7 @@ class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
   String _periodLabel(String period) => switch (period) {
         'today' => 'Today',
         'week' => 'This Week',
+        'last_week' => 'Last Week',
         'month' => 'This Month',
         _ => period,
       };

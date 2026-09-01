@@ -20,7 +20,7 @@ class ManagerCollectionController extends Controller
     public function index(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'period' => ['nullable', 'in:today,week,month,custom'],
+            'period' => ['nullable', DashboardMetricsService::periodValidationRule()],
             'date_from' => ['nullable', 'date', 'required_if:period,custom'],
             'date_to' => ['nullable', 'date', 'required_if:period,custom', 'after_or_equal:date_from'],
             'start_date' => ['nullable', 'date'],

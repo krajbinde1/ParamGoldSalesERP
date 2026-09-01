@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\FinishedProducts\Schemas;
 
 use App\Enums\InventoryUnit;
+use App\Filament\Resources\FinishedProducts\FinishedProductResource;
 use App\Models\Product;
 use App\Services\Inventory\MaterialInwardCosting;
 use Filament\Forms\Components\DatePicker;
@@ -152,7 +153,7 @@ class FinishedProductForm
     ): array {
         $description = $readOnly
             ? 'As entered at create/import. Opening stock is not changed on Edit (no duplicate Opening Stock ledger). Use Production Entry or Stock Adjustment for later inventory changes.'
-            : 'Optional. Qty > 0 posts opening stock, updates finished inventory and average cost, and creates an Opening Stock ledger. Prefer Finished Goods Opening Stock Import for bulk. Leave 0 for inventory settings only.';
+            : 'Optional. Quantity greater than zero posts or updates Opening Stock. Available Stock and Stock Value always follow live inventory after production, consumption, and adjustment — they are not frozen at this opening. After other stock movements, opening quantity and value cannot be changed here.';
 
         $section = Section::make('Opening Stock')
             ->description($description)
@@ -263,8 +264,45 @@ class FinishedProductForm
     {
         return $schema->components([
             ...self::productDetailsComponents(forEdit: true, unitLocked: $unitLocked),
-            ...self::openingStockComponents(readOnly: true),
+            ...self::openingStockComponents(readOnly: false),
+            ...self::currentStockComponents(),
         ]);
+    }
+
+    /**
+     * @return list<\Filament\Schemas\Components\Component|\Filament\Forms\Components\Component>
+     */
+    public static function currentStockComponents(): array
+    {
+        return [
+            Section::make('Available Stock')
+                ->description('Live quantity and value after production, consumption, and adjustments.')
+                ->columns(2)
+                ->schema([
+                    Placeholder::make('available_stock_display')
+                        ->label('Available Stock')
+                        ->content(function (?Product $record): string {
+                            if ($record === null) {
+                                return '—';
+                            }
+
+                            $qty = number_format((float) $record->current_finished_stock, 3, '.', '');
+                            $unit = $record->production_unit ?: $record->uom ?: ($record->finishedProduct?->unit ?? '');
+
+                            return filled($unit) ? $qty.' '.$unit : $qty;
+                        }),
+                    Placeholder::make('stock_value_display')
+                        ->label('Stock Value')
+                        ->visible(fn (): bool => FinishedProductResource::canViewCosts())
+                        ->content(function (?Product $record): string {
+                            if ($record === null) {
+                                return '—';
+                            }
+
+                            return '₹'.number_format((float) $record->current_stock_value, 2, '.', ',');
+                        }),
+                ]),
+        ];
     }
 
     private static function formatEffectiveRate(Get $get): string

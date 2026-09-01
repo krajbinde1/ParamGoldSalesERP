@@ -91,6 +91,42 @@ final class RawMaterialCreateService
     /**
      * @param  array<string, mixed>  $opening
      */
+    public function applyOpeningStockToExisting(RawMaterial $material, array $opening, User $user): RawMaterial
+    {
+        return DB::transaction(function () use ($material, $opening, $user): RawMaterial {
+            $locked = $this->inventoryService->lockRawMaterial($material->id);
+
+            if ((float) $locked->opening_stock > 0 || $this->hasOpeningLedger($locked)) {
+                throw ValidationException::withMessages([
+                    'opening_stock_quantity' => 'Opening stock already exists for this raw material.',
+                ]);
+            }
+
+            $qty = round((float) ($opening['quantity'] ?? 0), 3);
+            if ($qty <= 0) {
+                return $locked;
+            }
+
+            $opening['remarks'] = filled($opening['remarks'] ?? null)
+                ? (string) $opening['remarks']
+                : 'Opening Stock';
+
+            $this->applyOpeningStock($locked, $opening, $user);
+
+            return $locked->fresh();
+        });
+    }
+
+    private function hasOpeningLedger(RawMaterial $material): bool
+    {
+        return $material->stockLedgers()
+            ->where('transaction_type', StockTransactionType::OpeningStock)
+            ->exists();
+    }
+
+    /**
+     * @param  array<string, mixed>  $opening
+     */
     private function applyOpeningStock(RawMaterial $material, array $opening, User $user): void
     {
         $qty = round((float) ($opening['quantity'] ?? 0), 3);

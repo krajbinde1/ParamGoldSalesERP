@@ -118,7 +118,9 @@ class AdminDirectorBusinessPerformanceWidget extends Widget
 
         return [
             'summary' => $summary,
-            'periodLabel' => $data['range']['label'],
+            'heading' => $this->managerPeriodHeading($this->bizPeriod),
+            'periodLabel' => $this->managerPeriodRangeText($data['range']),
+            'periodFilters' => $this->managerPeriodFilterOptions(),
             'showCustomPeriod' => $this->normalizeManagerPeriod($this->bizPeriod) === 'custom',
             'formatMoney' => $format,
             'formatPercentage' => fn (float $percentage): string => number_format($percentage, 0).'%',

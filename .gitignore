@@ -35,6 +35,11 @@ mobile/ios/Pods/
 mobile/ios/.symlinks/
 mobile/ios/Flutter/.last_build_id
 
+# Tally connector (office PC)
+tally-connector/.env
+tally-connector/__pycache__/
+tally-connector/*.pyc
+
 # Secrets and signing
 *.jks
 *.keystore

@@ -40,7 +40,7 @@ class FinishedProductInfolist
                         TextEntry::make('remarks')->label('Remarks')->placeholder('—')->columnSpanFull(),
                     ]),
                 Section::make('Opening Stock')
-                    ->description('As entered via Set Opening Stock or Finished Goods Opening Stock Import. Current stock and ledger live under Inventory Stock Report.')
+                    ->description('Snapshot entered at create, edit, or Finished Goods Opening Stock Import. Available Stock and Stock Value follow live inventory after production, consumption, and adjustment.')
                     ->columns(2)
                     ->schema([
                         TextEntry::make('opening_finished_stock')
@@ -56,12 +56,12 @@ class FinishedProductInfolist
                             ->label('Opening Date')
                             ->state(fn (Product $record): string => self::openingDate($record) ?? '—'),
                     ]),
-                Section::make('Stock Summary')
+                Section::make('Available Stock')
                     ->columns(3)
                     ->schema([
-                        TextEntry::make('current_finished_stock')->label('Available Quantity')->numeric(3),
+                        TextEntry::make('current_finished_stock')->label('Available Stock')->numeric(3),
                         TextEntry::make('current_stock_value')
-                            ->label('Inventory Value')
+                            ->label('Stock Value')
                             ->state(fn (Product $record): float => $record->current_stock_value)
                             ->money('INR')
                             ->visible(fn (): bool => FinishedProductResource::canViewCosts()),

@@ -565,6 +565,7 @@ class _PeriodSelector extends StatelessWidget {
   static const _options = <(String label, String value)>[
     ('Today', 'today'),
     ('This Week', 'week'),
+    ('Last Week', 'last_week'),
     ('This Month', 'month'),
     ('Custom', 'custom'),
   ];
@@ -578,7 +579,7 @@ class _PeriodSelector extends StatelessWidget {
     return LayoutBuilder(
       builder: (context, constraints) {
         // Approximate natural widths so we know when to switch to scroll mode.
-        const approxWidths = [72.0, 96.0, 104.0, 80.0];
+        const approxWidths = [72.0, 96.0, 96.0, 104.0, 80.0];
         final needed = approxWidths.reduce((a, b) => a + b) +
             (_gap * (_options.length - 1));
         final useScroll = constraints.maxWidth < needed;

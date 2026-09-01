@@ -6,6 +6,7 @@ use App\Models\Order;
 use App\Services\Dealers\DealerLedgerPostingService;
 use App\Services\Notifications\OrderPushNotifier;
 use App\Services\TallySync\TallyOutboundEnqueueService;
+use App\Services\WhatsApp\WhatsAppOutboundEnqueueService;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -15,12 +16,14 @@ class OrderObserver
         private readonly OrderPushNotifier $notifier,
         private readonly DealerLedgerPostingService $ledgerPosting,
         private readonly TallyOutboundEnqueueService $tallyOutbound,
+        private readonly WhatsAppOutboundEnqueueService $whatsAppOutbound,
     ) {}
 
     public function created(Order $order): void
     {
         $this->syncLedger($order);
         $this->queueTallySales($order);
+        $this->queueWhatsAppBill($order);
 
         if ($order->status !== Order::STATUS_PENDING_APPROVAL) {
             return;
@@ -37,6 +40,7 @@ class OrderObserver
 
         if ($order->wasChanged('status')) {
             $this->queueTallySales($order->fresh() ?? $order);
+            $this->queueWhatsAppBill($order->fresh() ?? $order);
         }
 
         if (! $order->wasChanged('status')) {
@@ -83,6 +87,17 @@ class OrderObserver
             $this->tallyOutbound->queueBilledOrder($order);
         } catch (Throwable $e) {
             Log::error('Tally outbound enqueue (order) failed: '.$e->getMessage(), [
+                'order_id' => $order->id,
+            ]);
+        }
+    }
+
+    private function queueWhatsAppBill(Order $order): void
+    {
+        try {
+            $this->whatsAppOutbound->queueBilledOrder($order);
+        } catch (Throwable $e) {
+            Log::error('WhatsApp outbound enqueue (order) failed: '.$e->getMessage(), [
                 'order_id' => $order->id,
             ]);
         }

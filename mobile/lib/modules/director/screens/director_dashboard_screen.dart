@@ -128,6 +128,7 @@ class DirectorDashboardScreen extends StatefulWidget {
 
 class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
   late Future<DirectorDashboardData> _future;
+  int _refreshNonce = 0;
 
   DirectorApi get _api => DirectorApi(
     ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
@@ -142,7 +143,10 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
   Future<DirectorDashboardData> _load() => _api.loadDashboard(period: 'month');
 
   Future<void> _reload() async {
-    setState(() => _future = _load());
+    setState(() {
+      _future = _load();
+      _refreshNonce++;
+    });
     await _future;
   }
 
@@ -219,7 +223,11 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                       const SizedBox(height: _dashSectionGap),
                       _TeamActivitySection(data: data, onOpen: _open),
                       const SizedBox(height: _dashSectionGap),
-                      _MonthPerformanceSection(data: data, onOpen: _open),
+                      _MonthPerformanceSection(
+                        auth: widget.auth,
+                        onOpen: _open,
+                        refreshNonce: _refreshNonce,
+                      ),
                     ]),
                   ),
                 ),
@@ -618,40 +626,162 @@ class _DashTile extends StatelessWidget {
   }
 }
 
-class _MonthPerformanceSection extends StatelessWidget {
-  const _MonthPerformanceSection({required this.data, required this.onOpen});
+String _performanceHeading(String period) => switch (period) {
+      'today' => 'Today Performance',
+      'week' => 'This Week Performance',
+      'last_week' => 'Last Week Performance',
+      'custom' => 'Custom Performance',
+      _ => 'This Month Performance',
+    };
 
-  final DirectorDashboardData data;
+class _MonthPerformanceSection extends StatefulWidget {
+  const _MonthPerformanceSection({
+    required this.auth,
+    required this.onOpen,
+    this.refreshNonce = 0,
+  });
+
+  final AuthController auth;
   final Future<void> Function(String path) onOpen;
+  final int refreshNonce;
+
+  @override
+  State<_MonthPerformanceSection> createState() =>
+      _MonthPerformanceSectionState();
+}
+
+class _MonthPerformanceSectionState extends State<_MonthPerformanceSection> {
+  String _period = 'month';
+  String? _startDate;
+  String? _endDate;
+  late Future<DirectorDashboardData> _future;
+
+  DirectorApi get _api => DirectorApi(
+    ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  @override
+  void didUpdateWidget(_MonthPerformanceSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshNonce != widget.refreshNonce) {
+      setState(() => _future = _load());
+    }
+  }
+
+  Future<DirectorDashboardData> _load() => _api.loadDashboard(
+        period: _period,
+        startDate: _startDate,
+        endDate: _endDate,
+      );
+
+  void _setPeriod(String period) {
+    if (_period == period) return;
+    setState(() {
+      _period = period;
+      _startDate = null;
+      _endDate = null;
+      _future = _load();
+    });
+  }
+
+  Future<void> _pickCustomRange() async {
+    final now = DateTime.now();
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 2),
+      lastDate: now,
+      initialDateRange: _startDate != null && _endDate != null
+          ? DateTimeRange(
+              start: DateTime.parse(_startDate!),
+              end: DateTime.parse(_endDate!),
+            )
+          : DateTimeRange(
+              start: DateTime(now.year, now.month, 1),
+              end: now,
+            ),
+    );
+    if (range == null || !mounted) return;
+
+    setState(() {
+      _period = 'custom';
+      _startDate = DateFormat('yyyy-MM-dd').format(range.start);
+      _endDate = DateFormat('yyyy-MM-dd').format(range.end);
+      _future = _load();
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const _DashHeading('This Month Performance'),
-        _TargetCard(
-          title: 'Sales',
-          icon: Icons.trending_up_outlined,
-          target: data.salesTarget,
-          achieved: data.salesAchieved,
-          remaining: data.salesRemaining,
-          percentage: data.salesPercentage,
-          color: AppColors.primary,
-          onTap: () => onOpen('/director/sales-performance'),
-        ),
-        const SizedBox(height: AppSpacing.sm),
-        _TargetCard(
-          title: 'Collection',
-          icon: Icons.account_balance_wallet_outlined,
-          target: data.collectionTarget,
-          achieved: data.collectionAchieved,
-          remaining: data.collectionRemaining,
-          percentage: data.collectionPercentage,
-          color: AppColors.primary,
-          onTap: () => onOpen('/director/collections'),
-        ),
-      ],
+    return FutureBuilder<DirectorDashboardData>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasError) {
+          return PgErrorState(
+            message: 'Unable to load performance',
+            onRetry: () => setState(() => _future = _load()),
+          );
+        }
+
+        final data = snapshot.data!;
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _DashHeading(_performanceHeading(_period)),
+            _PerformancePeriodFilters(
+              period: _period,
+              onSelect: _setPeriod,
+              onCustom: _pickCustomRange,
+            ),
+            if (_period == 'custom' &&
+                _startDate != null &&
+                _endDate != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                '$_startDate → $_endDate',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            _TargetCard(
+              title: 'Sales',
+              icon: Icons.trending_up_outlined,
+              target: data.salesTarget,
+              achieved: data.salesAchieved,
+              remaining: data.salesRemaining,
+              percentage: data.salesPercentage,
+              color: AppColors.primary,
+              onTap: () => widget.onOpen('/director/sales-performance'),
+            ),
+            const SizedBox(height: AppSpacing.sm),
+            _TargetCard(
+              title: 'Collection',
+              icon: Icons.account_balance_wallet_outlined,
+              target: data.collectionTarget,
+              achieved: data.collectionAchieved,
+              remaining: data.collectionRemaining,
+              percentage: data.collectionPercentage,
+              color: AppColors.primary,
+              onTap: () => widget.onOpen('/director/collections'),
+            ),
+          ],
+        );
+      },
     );
   }
 }
@@ -1193,6 +1323,8 @@ class DirectorEmployeePerformanceScreen extends StatefulWidget {
 class _DirectorEmployeePerformanceScreenState
     extends State<DirectorEmployeePerformanceScreen> {
   String _period = 'month';
+  String? _startDate;
+  String? _endDate;
   late Future<DirectorDashboardData> _future;
 
   DirectorApi get _api => DirectorApi(
@@ -1202,14 +1334,48 @@ class _DirectorEmployeePerformanceScreenState
   @override
   void initState() {
     super.initState();
-    _future = _api.loadDashboard(period: _period);
+    _future = _load();
   }
+
+  Future<DirectorDashboardData> _load() => _api.loadDashboard(
+        period: _period,
+        startDate: _startDate,
+        endDate: _endDate,
+      );
 
   void _setPeriod(String period) {
     if (_period == period) return;
     setState(() {
       _period = period;
-      _future = _api.loadDashboard(period: period);
+      _startDate = null;
+      _endDate = null;
+      _future = _load();
+    });
+  }
+
+  Future<void> _pickCustomRange() async {
+    final now = DateTime.now();
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 2),
+      lastDate: now,
+      initialDateRange: _startDate != null && _endDate != null
+          ? DateTimeRange(
+              start: DateTime.parse(_startDate!),
+              end: DateTime.parse(_endDate!),
+            )
+          : DateTimeRange(
+              start: DateTime(now.year, now.month, 1),
+              end: now,
+            ),
+    );
+    if (range == null || !mounted) return;
+
+    setState(() {
+      _period = 'custom';
+      _startDate = DateFormat('yyyy-MM-dd').format(range.start);
+      _endDate = DateFormat('yyyy-MM-dd').format(range.end);
+      _future = _load();
     });
   }
 
@@ -1228,7 +1394,7 @@ class _DirectorEmployeePerformanceScreenState
             return PgErrorState(
               message: 'Unable to load dashboard',
               onRetry: () => setState(() {
-                _future = _api.loadDashboard(period: _period);
+                _future = _load();
               }),
             );
           }
@@ -1239,7 +1405,7 @@ class _DirectorEmployeePerformanceScreenState
             color: AppColors.primary,
             onRefresh: () async {
               setState(() {
-                _future = _api.loadDashboard(period: _period);
+                _future = _load();
               });
               await _future;
             },
@@ -1247,26 +1413,29 @@ class _DirectorEmployeePerformanceScreenState
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(AppSpacing.screenPadding),
               children: [
-                Wrap(
-                  spacing: 8,
-                  children: [
-                    _PeriodChip(
-                      label: 'Today',
-                      selected: _period == 'today',
-                      onTap: () => _setPeriod('today'),
-                    ),
-                    _PeriodChip(
-                      label: 'This Week',
-                      selected: _period == 'week',
-                      onTap: () => _setPeriod('week'),
-                    ),
-                    _PeriodChip(
-                      label: 'This Month',
-                      selected: _period == 'month',
-                      onTap: () => _setPeriod('month'),
-                    ),
-                  ],
+                Text(
+                  _performanceHeading(_period),
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
                 ),
+                const SizedBox(height: AppSpacing.sm),
+                _PerformancePeriodFilters(
+                  period: _period,
+                  onSelect: _setPeriod,
+                  onCustom: _pickCustomRange,
+                ),
+                if (_period == 'custom' &&
+                    _startDate != null &&
+                    _endDate != null) ...[
+                  const SizedBox(height: 8),
+                  Text(
+                    '$_startDate → $_endDate',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.md),
                 PgCard(
                   padding: const EdgeInsets.all(AppSpacing.md),
@@ -1283,6 +1452,10 @@ class _DirectorEmployeePerformanceScreenState
                       _MetricRow(
                         'Achievement %',
                         '${data.salesPercentage.round()}%',
+                      ),
+                      _MetricRow(
+                        'Remaining',
+                        _inr.format(data.salesRemaining),
                       ),
                     ],
                   ),
@@ -1311,6 +1484,12 @@ class _DirectorEmployeePerformanceScreenState
                           '${employee['sales_percentage'] ?? 0}',
                         ) ??
                         0;
+                    final salesRemaining = double.tryParse(
+                          '${employee['sales_remaining'] ?? 0}',
+                        ) ??
+                        (salesTarget > salesAchieved
+                            ? salesTarget - salesAchieved
+                            : 0);
                     return PgCard(
                       margin: const EdgeInsets.only(bottom: AppSpacing.sm),
                       onTap: () => context.push(
@@ -1341,6 +1520,10 @@ class _DirectorEmployeePerformanceScreenState
                             'Achievement %',
                             '${salesPercentage.round()}%',
                           ),
+                          _MetricRow(
+                            'Remaining',
+                            _inr.format(salesRemaining),
+                          ),
                         ],
                       ),
                     );
@@ -1349,6 +1532,48 @@ class _DirectorEmployeePerformanceScreenState
             ),
           );
         },
+      ),
+    );
+  }
+}
+
+class _PerformancePeriodFilters extends StatelessWidget {
+  const _PerformancePeriodFilters({
+    required this.period,
+    required this.onSelect,
+    required this.onCustom,
+  });
+
+  final String period;
+  final ValueChanged<String> onSelect;
+  final VoidCallback onCustom;
+
+  static const _options = <(String label, String value)>[
+    ('Today', 'today'),
+    ('This Week', 'week'),
+    ('Last Week', 'last_week'),
+    ('This Month', 'month'),
+    ('Custom', 'custom'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final option in _options)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _PeriodChip(
+                label: option.$1,
+                selected: period == option.$2,
+                onTap: option.$2 == 'custom'
+                    ? onCustom
+                    : () => onSelect(option.$2),
+              ),
+            ),
+        ],
       ),
     );
   }
@@ -1512,6 +1737,8 @@ class DirectorCollectionsScreen extends StatefulWidget {
 
 class _DirectorCollectionsScreenState extends State<DirectorCollectionsScreen> {
   String _period = 'month';
+  String? _startDate;
+  String? _endDate;
   late Future<DirectorDashboardData> _future;
 
   DirectorApi get _api => DirectorApi(
@@ -1521,14 +1748,48 @@ class _DirectorCollectionsScreenState extends State<DirectorCollectionsScreen> {
   @override
   void initState() {
     super.initState();
-    _future = _api.loadDashboard(period: _period);
+    _future = _load();
   }
+
+  Future<DirectorDashboardData> _load() => _api.loadDashboard(
+        period: _period,
+        startDate: _startDate,
+        endDate: _endDate,
+      );
 
   void _setPeriod(String period) {
     if (_period == period) return;
     setState(() {
       _period = period;
-      _future = _api.loadDashboard(period: period);
+      _startDate = null;
+      _endDate = null;
+      _future = _load();
+    });
+  }
+
+  Future<void> _pickCustomRange() async {
+    final now = DateTime.now();
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 2),
+      lastDate: now,
+      initialDateRange: _startDate != null && _endDate != null
+          ? DateTimeRange(
+              start: DateTime.parse(_startDate!),
+              end: DateTime.parse(_endDate!),
+            )
+          : DateTimeRange(
+              start: DateTime(now.year, now.month, 1),
+              end: now,
+            ),
+    );
+    if (range == null || !mounted) return;
+
+    setState(() {
+      _period = 'custom';
+      _startDate = DateFormat('yyyy-MM-dd').format(range.start);
+      _endDate = DateFormat('yyyy-MM-dd').format(range.end);
+      _future = _load();
     });
   }
 
@@ -1547,7 +1808,7 @@ class _DirectorCollectionsScreenState extends State<DirectorCollectionsScreen> {
             return PgErrorState(
               message: 'Unable to load dashboard',
               onRetry: () => setState(() {
-                _future = _api.loadDashboard(period: _period);
+                _future = _load();
               }),
             );
           }
@@ -1559,26 +1820,29 @@ class _DirectorCollectionsScreenState extends State<DirectorCollectionsScreen> {
           return ListView(
             padding: const EdgeInsets.all(AppSpacing.screenPadding),
             children: [
-              Wrap(
-                spacing: 8,
-                children: [
-                  _PeriodChip(
-                    label: 'Today',
-                    selected: _period == 'today',
-                    onTap: () => _setPeriod('today'),
-                  ),
-                  _PeriodChip(
-                    label: 'This Week',
-                    selected: _period == 'week',
-                    onTap: () => _setPeriod('week'),
-                  ),
-                  _PeriodChip(
-                    label: 'This Month',
-                    selected: _period == 'month',
-                    onTap: () => _setPeriod('month'),
-                  ),
-                ],
+              Text(
+                _performanceHeading(_period),
+                style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
               ),
+              const SizedBox(height: AppSpacing.sm),
+              _PerformancePeriodFilters(
+                period: _period,
+                onSelect: _setPeriod,
+                onCustom: _pickCustomRange,
+              ),
+              if (_period == 'custom' &&
+                  _startDate != null &&
+                  _endDate != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  '$_startDate → $_endDate',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: AppColors.textSecondary,
+                      ),
+                ),
+              ],
               const SizedBox(height: AppSpacing.md),
               PgCard(
                 padding: const EdgeInsets.all(AppSpacing.md),
@@ -1591,8 +1855,16 @@ class _DirectorCollectionsScreenState extends State<DirectorCollectionsScreen> {
                       _inr.format(data.collectionTarget),
                     ),
                     _MetricRow(
+                      'Collection Achieved',
+                      _inr.format(data.collectionAchieved),
+                    ),
+                    _MetricRow(
                       'Achievement %',
                       '${data.collectionPercentage.round()}%',
+                    ),
+                    _MetricRow(
+                      'Remaining',
+                      _inr.format(data.collectionRemaining),
                     ),
                   ],
                 ),
@@ -1621,6 +1893,12 @@ class _DirectorCollectionsScreenState extends State<DirectorCollectionsScreen> {
                         '${employee['collection_percentage'] ?? 0}',
                       ) ??
                       0;
+                  final collectionRemaining = double.tryParse(
+                        '${employee['collection_remaining'] ?? 0}',
+                      ) ??
+                      (collectionTarget > collectionAchieved
+                          ? collectionTarget - collectionAchieved
+                          : 0);
                   return PgCard(
                     margin: const EdgeInsets.only(bottom: AppSpacing.sm),
                     onTap: () => context.push(
@@ -1646,6 +1924,10 @@ class _DirectorCollectionsScreenState extends State<DirectorCollectionsScreen> {
                         _MetricRow(
                           'Achievement %',
                           '${collectionPercentage.round()}%',
+                        ),
+                        _MetricRow(
+                          'Remaining',
+                          _inr.format(collectionRemaining),
                         ),
                       ],
                     ),

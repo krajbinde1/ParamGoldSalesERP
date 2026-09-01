@@ -6,6 +6,7 @@ use App\Enums\InventoryUnit;
 use App\Enums\StockItemType;
 use App\Filament\Pages\StockItemLedger;
 use App\Filament\Resources\SemiFinishedMaterials\SemiFinishedMaterialResource;
+use App\Filament\Support\MaterialMasterStockColumns;
 use App\Models\SemiFinishedMaterial;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
@@ -33,25 +34,23 @@ class SemiFinishedMaterialsTable
                     ->sortable(),
                 TextColumn::make('unit')
                     ->badge(),
-                TextColumn::make('current_stock')
-                    ->label('Current Stock')
-                    ->numeric(3)
-                    ->sortable()
-                    ->color(fn (SemiFinishedMaterial $record): string => match (true) {
+                MaterialMasterStockColumns::availableStock(
+                    'current_stock',
+                    fn (SemiFinishedMaterial $record): string => match (true) {
                         $record->isOutOfStock() => 'danger',
                         $record->isLowStock() => 'warning',
                         default => 'success',
-                    }),
+                    },
+                ),
                 TextColumn::make('average_production_cost')
                     ->label('Avg Production Cost')
                     ->money('INR')
                     ->sortable()
                     ->visible(fn (): bool => SemiFinishedMaterialResource::canViewCosts()),
-                TextColumn::make('current_stock_value')
-                    ->label('Stock Value')
-                    ->money('INR')
-                    ->sortable()
-                    ->visible(fn (): bool => SemiFinishedMaterialResource::canViewCosts()),
+                MaterialMasterStockColumns::stockValue(
+                    'current_stock_value',
+                    fn (): bool => SemiFinishedMaterialResource::canViewCosts(),
+                ),
                 TextColumn::make('minimum_stock')
                     ->label('Min Stock')
                     ->numeric(3)

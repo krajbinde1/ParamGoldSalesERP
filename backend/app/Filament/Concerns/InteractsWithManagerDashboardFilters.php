@@ -14,6 +14,7 @@ trait InteractsWithManagerDashboardFilters
         return match ($period) {
             'today' => 'today',
             'weekly', 'week' => 'week',
+            'last_week', 'last-week', 'lastweek' => 'last_week',
             'monthly', 'month' => 'month',
             'custom' => 'custom',
             default => 'month',
@@ -25,10 +26,41 @@ trait InteractsWithManagerDashboardFilters
         return match ($this->normalizeManagerPeriod($period)) {
             'today' => 'today',
             'week' => 'weekly',
+            'last_week' => 'last_week',
             'month' => 'monthly',
             'custom' => 'custom',
             default => 'monthly',
         };
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    protected function managerPeriodFilterOptions(): array
+    {
+        return [
+            'today' => 'Today',
+            'weekly' => 'This Week',
+            'last_week' => 'Last Week',
+            'monthly' => 'This Month',
+            'custom' => 'Custom',
+        ];
+    }
+
+    protected function managerPeriodHeading(string $period, string $suffix = 'Performance'): string
+    {
+        return app(DashboardMetricsService::class)->periodHeading(
+            $this->normalizeManagerPeriod($period),
+            $suffix,
+        );
+    }
+
+    protected function managerPeriodRangeText(array $range): string
+    {
+        $start = $range['start']->timezone('Asia/Kolkata')->format('d M Y');
+        $end = $range['end']->timezone('Asia/Kolkata')->format('d M Y');
+
+        return $start === $end ? $start : $start.' – '.$end;
     }
 
     /**

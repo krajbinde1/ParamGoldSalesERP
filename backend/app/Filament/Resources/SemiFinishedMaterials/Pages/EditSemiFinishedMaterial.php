@@ -4,15 +4,20 @@ namespace App\Filament\Resources\SemiFinishedMaterials\Pages;
 
 use App\Enums\StockTransactionType;
 use App\Filament\Actions\SafeDeleteActions;
+use App\Filament\Concerns\SyncsMaterialOpeningStockOnEdit;
 use App\Filament\Resources\SemiFinishedMaterials\Schemas\SemiFinishedMaterialForm;
 use App\Filament\Resources\SemiFinishedMaterials\SemiFinishedMaterialResource;
 use App\Models\SemiFinishedMaterial;
+use App\Models\User;
+use App\Services\Inventory\MaterialOpeningStockSyncService;
 use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\EditRecord;
 use Filament\Schemas\Schema;
 
 class EditSemiFinishedMaterial extends EditRecord
 {
+    use SyncsMaterialOpeningStockOnEdit;
+
     protected static string $resource = SemiFinishedMaterialResource::class;
 
     public function form(Schema $schema): Schema
@@ -69,19 +74,24 @@ class EditSemiFinishedMaterial extends EditRecord
      */
     protected function mutateFormDataBeforeSave(array $data): array
     {
-        // Opening stock is create-only. Never update stock columns or re-post ledger on Edit.
-        unset(
-            $data['opening_stock_quantity'],
-            $data['opening_stock_value'],
-            $data['opening_date'],
-            $data['opening_effective_rate'],
-            $data['opening_stock'],
-            $data['current_stock'],
-            $data['current_stock_value'],
-            $data['average_production_cost'],
-            $data['material_code'],
-        );
+        unset($data['material_code']);
 
-        return $data;
+        return $this->extractOpeningStockAndUnset($data, [
+            'opening_stock',
+            'current_stock',
+            'current_stock_value',
+            'average_production_cost',
+        ]);
+    }
+
+    protected function beforeSave(): void
+    {
+        $this->applyPendingOpeningStock(function (array $opening, User $user): void {
+            app(MaterialOpeningStockSyncService::class)->syncSemiFinishedMaterial(
+                $this->getRecord(),
+                $opening,
+                $user,
+            );
+        });
     }
 }

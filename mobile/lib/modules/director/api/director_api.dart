@@ -297,6 +297,8 @@ class DirectorApi {
 
   Future<DirectorDashboardData> loadDashboard({
     String period = 'month',
+    String? startDate,
+    String? endDate,
     String? role,
   }) async {
     try {
@@ -304,6 +306,8 @@ class DirectorApi {
         '/director/dashboard',
         queryParameters: {
           'period': period,
+          if (startDate != null) 'start_date': startDate,
+          if (endDate != null) 'end_date': endDate,
           if (role != null) 'role': role,
         },
       );

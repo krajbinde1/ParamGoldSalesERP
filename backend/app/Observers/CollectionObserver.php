@@ -6,6 +6,7 @@ use App\Models\Collection;
 use App\Services\Dealers\DealerLedgerPostingService;
 use App\Services\Notifications\CollectionPushNotifier;
 use App\Services\TallySync\TallyOutboundEnqueueService;
+use App\Services\WhatsApp\WhatsAppOutboundEnqueueService;
 use Illuminate\Support\Facades\Log;
 use Throwable;
 
@@ -15,6 +16,7 @@ class CollectionObserver
         private readonly CollectionPushNotifier $notifier,
         private readonly DealerLedgerPostingService $ledgerPosting,
         private readonly TallyOutboundEnqueueService $tallyOutbound,
+        private readonly WhatsAppOutboundEnqueueService $whatsAppOutbound,
     ) {}
 
     public function created(Collection $collection): void
@@ -22,6 +24,7 @@ class CollectionObserver
         $fresh = $collection->fresh() ?? $collection;
         $this->syncLedger($fresh);
         $this->queueTallyReceipt($fresh);
+        $this->queueWhatsAppReceipt($fresh);
         $this->safe(fn () => $this->notifier->notifyCreated($fresh));
     }
 
@@ -39,6 +42,7 @@ class CollectionObserver
 
         if ($collection->wasChanged('status')) {
             $this->queueTallyReceipt($collection->fresh() ?? $collection);
+            $this->queueWhatsAppReceipt($collection->fresh() ?? $collection);
         }
 
         if (! $collection->wasChanged('status')) {
@@ -66,6 +70,17 @@ class CollectionObserver
             $this->tallyOutbound->queueReceivedCollection($collection);
         } catch (Throwable $e) {
             Log::error('Tally outbound enqueue (collection) failed: '.$e->getMessage(), [
+                'collection_id' => $collection->id,
+            ]);
+        }
+    }
+
+    private function queueWhatsAppReceipt(Collection $collection): void
+    {
+        try {
+            $this->whatsAppOutbound->queueReceivedCollection($collection);
+        } catch (Throwable $e) {
+            Log::error('WhatsApp outbound enqueue (collection) failed: '.$e->getMessage(), [
                 'collection_id' => $collection->id,
             ]);
         }
