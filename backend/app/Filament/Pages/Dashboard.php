@@ -5,7 +5,6 @@ namespace App\Filament\Pages;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Widgets\AdminDirectorBusinessPerformanceWidget;
 use App\Filament\Widgets\AdminDirectorCollectionOutstandingWidget;
-use App\Filament\Widgets\AdminDirectorEmployeePerformanceWidget;
 use App\Filament\Widgets\AdminDirectorOrderOverviewWidget;
 use App\Filament\Widgets\AdminDirectorPaymentOverviewWidget;
 use App\Filament\Widgets\AdminDirectorTeamActivityWidget;
@@ -17,7 +16,9 @@ use App\Filament\Widgets\ManagerWelcomeWidget;
 use App\Filament\Widgets\ProductionOrderStatsWidget;
 use Filament\Facades\Filament;
 use Filament\Pages\Dashboard as BaseDashboard;
+use Filament\Widgets\Widget;
 use Filament\Widgets\WidgetConfiguration;
+use Illuminate\Contracts\Support\Htmlable;
 
 class Dashboard extends BaseDashboard
 {
@@ -49,7 +50,7 @@ class Dashboard extends BaseDashboard
     }
 
     /**
-     * @return array<class-string<\Filament\Widgets\Widget> | WidgetConfiguration>
+     * @return array<class-string<Widget> | WidgetConfiguration>
      */
     public function getWidgets(): array
     {
@@ -74,7 +75,6 @@ class Dashboard extends BaseDashboard
                 AdminDirectorBusinessPerformanceWidget::class,
                 AdminDirectorTeamActivityWidget::class,
                 AdminDirectorOrderOverviewWidget::class,
-                AdminDirectorEmployeePerformanceWidget::class,
                 AdminDirectorCollectionOutstandingWidget::class,
                 AdminDirectorPaymentOverviewWidget::class,
             ];
@@ -83,7 +83,7 @@ class Dashboard extends BaseDashboard
         return Filament::getWidgets();
     }
 
-    public function getHeading(): string|\Illuminate\Contracts\Support\Htmlable
+    public function getHeading(): string|Htmlable
     {
         if (auth()->user()?->usesManagerDashboard() || auth()->user()?->usesAdminDirectorDashboard()) {
             return '';

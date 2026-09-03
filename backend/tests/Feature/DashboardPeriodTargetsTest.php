@@ -5,6 +5,7 @@ use App\Enums\UserRole;
 use App\Filament\Widgets\AdminDirectorBusinessPerformanceWidget;
 use App\Models\Collection;
 use App\Models\Dealer;
+use App\Models\Employee;
 use App\Models\Order;
 use App\Models\User;
 use App\Models\WeeklyTarget;
@@ -20,7 +21,7 @@ afterEach(function (): void {
     Carbon::setTestNow();
 });
 
-function periodTargetEmployee(string $name, string $mobile): \App\Models\Employee
+function periodTargetEmployee(string $name, string $mobile): Employee
 {
     return app(CreateEmployeeWithUserAccount::class)->execute([
         'full_name' => $name,
@@ -80,7 +81,16 @@ it('resolves last week as the previous monday through sunday', function (): void
         ->and($range['end']->toDateString())->toBe('2026-08-16')
         ->and(app(DashboardMetricsService::class)->periodHeading('week'))->toBe('This Week Performance')
         ->and(app(DashboardMetricsService::class)->periodHeading('last_week'))->toBe('Last Week Performance')
+        ->and(app(DashboardMetricsService::class)->periodHeading('last_month'))->toBe('Last Month Performance')
         ->and(app(DashboardMetricsService::class)->periodHeading('today'))->toBe('Today Performance');
+});
+
+it('resolves last month as the previous calendar month', function (): void {
+    $range = app(DashboardMetricsService::class)->resolveDateRange('last_month');
+
+    expect($range['label'])->toBe('Last Month')
+        ->and($range['start']->toDateString())->toBe('2026-07-01')
+        ->and($range['end']->toDateString())->toBe('2026-07-31');
 });
 
 it('prorates sales and collection targets for today, this week, last week, and this month', function (): void {

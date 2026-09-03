@@ -2,6 +2,7 @@
 
 use App\Enums\UserRole;
 use App\Filament\Pages\Dashboard;
+use App\Filament\Pages\TeamPerformance;
 use App\Filament\Resources\Collections\Pages\ListCollections;
 use App\Filament\Resources\Dealers\Pages\ListDealers;
 use App\Filament\Resources\Orders\Pages\ListOrders;
@@ -367,7 +368,9 @@ it('renders director monitoring widgets and hides them from managers', function 
         ->assertSee('Pending My Approval');
 
     $this->actingAs($director);
-    expect((new Dashboard)->getWidgets())->not->toContain(AdminDirectorAttentionWidget::class);
+    expect((new Dashboard)->getWidgets())->not->toContain(AdminDirectorAttentionWidget::class)
+        ->and((new Dashboard)->getWidgets())->not->toContain(AdminDirectorEmployeePerformanceWidget::class)
+        ->and(AdminDirectorEmployeePerformanceWidget::canView())->toBeFalse();
 
     $this->actingAs($manager);
     expect(AdminDirectorWelcomeWidget::canView())->toBeFalse()
@@ -1081,10 +1084,16 @@ it('lists dealers with outstanding for director and respects employee filter', f
         ->toContain($low->id);
 });
 
-it('shows employee-wise monthly team performance with progress bars and a whatsapp share link', function (): void {
+it('shows employee-wise team performance on a dedicated page with period filters and clickable details', function (): void {
     $admin = directorDashAdmin();
+    $manager = User::query()->create([
+        'name' => 'Team Perf Manager',
+        'email' => 'team.perf.manager.'.uniqid().'@example.com',
+        'password' => 'password',
+        'role' => UserRole::Manager->value,
+    ]);
     $employee = directorDashEmployee('Ravi Team Perf', '9910000099');
-    $dealer = directorDashDealer();
+    $dealer = directorDashDealer(['firm_name' => 'Team Perf Dealer']);
     $today = AttendanceCalendar::today()->toDateString();
 
     WeeklyTarget::query()->create([
@@ -1097,10 +1106,18 @@ it('shows employee-wise monthly team performance with progress bars and a whatsa
         'status' => 'active',
     ]);
 
-    directorDashOrder($employee->id, $dealer->id, [
+    $order = directorDashOrder($employee->id, $dealer->id, [
+        'order_no' => 'ORD-TEAM-PERF-1',
         'grand_total' => 80000,
         'status' => Order::STATUS_DISPATCHED,
     ]);
+    $outOfRange = directorDashOrder($employee->id, $dealer->id, [
+        'order_no' => 'ORD-OUT-OF-RANGE',
+        'order_date' => '2026-07-15',
+        'grand_total' => 5000,
+        'status' => Order::STATUS_DISPATCHED,
+    ]);
+    $outOfRange->forceFill(['updated_at' => '2026-07-15 10:00:00'])->saveQuietly();
 
     Collection::query()->create([
         'collection_date' => $today,
@@ -1118,6 +1135,8 @@ it('shows employee-wise monthly team performance with progress bars and a whatsa
             'farmer_name' => 'Team Perf Farmer '.$index,
             'village' => 'Waluj',
             'taluka' => 'Gangapur',
+            'activity_type' => 'farmer_visit',
+            'remark' => 'Demo visit '.$index,
             'activity_date' => $today,
             'activity_time' => sprintf('11:%02d:00', $index),
             'photo_path' => 'field-activities/team-perf-'.$index.'.jpg',
@@ -1142,13 +1161,14 @@ it('shows employee-wise monthly team performance with progress bars and a whatsa
         ->and($row['field_activity_percentage'])->toBe(80.0)
         ->and($row['overall_percentage'])->toBe(80.0);
 
-    $message = AdminDirectorEmployeePerformanceWidget::whatsappShareMessage($row, 'August 2026');
-    $url = AdminDirectorEmployeePerformanceWidget::whatsappShareUrl($row, 'August 2026');
+    $periodLabel = 'This Month (01 Aug 2026 – 31 Aug 2026)';
+    $message = TeamPerformance::whatsappShareMessage($row, $periodLabel);
+    $url = TeamPerformance::whatsappShareUrl($row, $periodLabel);
 
     expect($message)
-        ->toContain('ParamGold Monthly Performance')
+        ->toContain('ParamGold Team Performance')
         ->toContain('Employee: Ravi Team Perf')
-        ->toContain('Month: August 2026')
+        ->toContain('Period: '.$periodLabel)
         ->toContain('Sales')
         ->toContain('Target: '.IndianCurrency::format(100000))
         ->toContain('Achieved: '.IndianCurrency::format(80000))
@@ -1164,24 +1184,79 @@ it('shows employee-wise monthly team performance with progress bars and a whatsa
         ->and($url)->not->toMatch('#wa\.me/\d#')
         ->and($url)->toContain(rawurlencode('Employee: Ravi Team Perf'));
 
-    Livewire::actingAs($admin)
-        ->test(AdminDirectorEmployeePerformanceWidget::class)
+    $this->actingAs($admin);
+    expect(TeamPerformance::canAccess())->toBeTrue()
+        ->and(TeamPerformance::shouldRegisterNavigation())->toBeTrue()
+        ->and(TeamPerformance::getNavigationLabel())->toBe('Team Performance');
+
+    $this->actingAs($manager);
+    expect(TeamPerformance::canAccess())->toBeFalse();
+
+    Livewire::actingAs($manager)
+        ->test(TeamPerformance::class)
+        ->assertForbidden();
+
+    $page = Livewire::actingAs($admin)
+        ->test(TeamPerformance::class)
         ->assertSuccessful()
         ->assertSee('Team Performance')
-        ->assertSee('August 2026')
+        ->assertSee('Last Week')
+        ->assertSee('This Week')
+        ->assertSee('Last Month')
+        ->assertSee('This Month')
+        ->assertSee('Custom Date Range')
+        ->assertSee('17 Aug 2026 – 21 Aug 2026')
         ->assertSee('Ravi Team Perf')
         ->assertSee('Sales')
         ->assertSee('Collection')
         ->assertSee('Field Activity')
-        ->assertSee('Overall 80%')
         ->assertSee('Share on WhatsApp')
+        ->assertSeeHtml('pg-progress__track')
+        ->assertSeeHtml('pg-progress__bar--field')
+        ->assertSeeHtml('https://wa.me/?text=')
+        ->assertDontSee('ORD-OUT-OF-RANGE');
+
+    $page->call('setPeriod', 'monthly')
+        ->assertSee('01 Aug 2026 – 31 Aug 2026')
+        ->assertSee('Overall 80%')
         ->assertSee('Target ₹1.00 L')
         ->assertSee('Achieved ₹80,000')
         ->assertSee('Target ₹50,000')
         ->assertSee('Achieved ₹40,000')
         ->assertSee('Target 5')
         ->assertSee('Achieved 4')
-        ->assertSeeHtml('pg-progress__track')
-        ->assertSeeHtml('pg-progress__bar--field')
-        ->assertSeeHtml('https://wa.me/?text=');
+        ->call('setPeriod', 'custom')
+        ->set('customFromDate', '2026-08-01')
+        ->set('customToDate', '2026-08-31')
+        ->call('applyCustomPeriod')
+        ->assertSee('Custom Range')
+        ->assertSee('Overall 80%')
+        ->call('setPeriod', 'monthly')
+        ->call('openDetail', $employee->id, 'sales')
+        ->assertSee('Sales orders')
+        ->assertSee('ORD-TEAM-PERF-1')
+        ->assertSee('Team Perf Dealer')
+        ->assertSee(IndianCurrency::format(80000))
+        ->assertSee($order->displayStatusLabel())
+        ->assertDontSee('ORD-OUT-OF-RANGE')
+        ->assertDontSee('Team Perf Farmer 1')
+        ->call('openDetail', $employee->id, 'collection')
+        ->assertSee('Collection entries')
+        ->assertSee('Team Perf Dealer')
+        ->assertSee(IndianCurrency::format(40000))
+        ->assertSee('Received')
+        ->assertDontSee('ORD-TEAM-PERF-1')
+        ->call('openDetail', $employee->id, 'field_activity')
+        ->assertSee('Field activity records')
+        ->assertSee('Team Perf Farmer 1')
+        ->assertSee('Waluj')
+        ->assertSee('Farmer Visit')
+        ->assertSee('Demo visit 1')
+        ->assertSee('Completed')
+        ->call('setPeriod', 'last_month')
+        ->assertSee('01 Jul 2026 – 31 Jul 2026')
+        ->assertDontSee('Team Perf Farmer 1')
+        ->call('openDetail', $employee->id, 'sales')
+        ->assertSee('ORD-OUT-OF-RANGE')
+        ->assertDontSee('ORD-TEAM-PERF-1');
 });

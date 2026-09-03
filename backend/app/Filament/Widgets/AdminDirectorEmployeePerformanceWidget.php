@@ -4,9 +4,9 @@ namespace App\Filament\Widgets;
 
 use App\Enums\UserRole;
 use App\Filament\Pages\ManagerEmployeePerformanceDetail;
+use App\Filament\Pages\TeamPerformance;
 use App\Services\Dashboard\DashboardMetricsService;
 use App\Services\Dashboard\DirectorDashboardDataService;
-use App\Support\IndianCurrency;
 use Filament\Widgets\Widget;
 use Illuminate\Support\Carbon;
 
@@ -20,7 +20,7 @@ class AdminDirectorEmployeePerformanceWidget extends Widget
 
     public static function canView(): bool
     {
-        return auth()->user()?->usesAdminDirectorDashboard() ?? false;
+        return false;
     }
 
     /**
@@ -28,34 +28,7 @@ class AdminDirectorEmployeePerformanceWidget extends Widget
      */
     public static function whatsappShareMessage(array $row, string $monthLabel): string
     {
-        $salesPct = number_format((float) ($row['sales_percentage'] ?? 0), 1);
-        $collectionPct = number_format((float) ($row['collection_percentage'] ?? 0), 1);
-        $fieldPct = number_format((float) ($row['field_activity_percentage'] ?? 0), 1);
-        $overallPct = number_format((float) ($row['overall_percentage'] ?? 0), 1);
-
-        return implode("\n", [
-            'ParamGold Monthly Performance',
-            '',
-            'Employee: '.(string) ($row['employee_name'] ?? ''),
-            'Month: '.$monthLabel,
-            '',
-            'Sales',
-            'Target: '.IndianCurrency::format($row['sales_target'] ?? 0),
-            'Achieved: '.IndianCurrency::format($row['sales_achieved'] ?? 0),
-            'Achievement: '.$salesPct.'%',
-            '',
-            'Collection',
-            'Target: '.IndianCurrency::format($row['collection_target'] ?? 0),
-            'Achieved: '.IndianCurrency::format($row['collection_achieved'] ?? 0),
-            'Achievement: '.$collectionPct.'%',
-            '',
-            'Field Activity',
-            'Target: '.(int) ($row['field_activity_target'] ?? 0),
-            'Achieved: '.(int) ($row['field_activity_achieved'] ?? 0),
-            'Achievement: '.$fieldPct.'%',
-            '',
-            'Overall Performance: '.$overallPct.'%',
-        ]);
+        return TeamPerformance::whatsappShareMessage($row, $monthLabel);
     }
 
     /**
@@ -63,7 +36,7 @@ class AdminDirectorEmployeePerformanceWidget extends Widget
      */
     public static function whatsappShareUrl(array $row, string $monthLabel): string
     {
-        return 'https://wa.me/?text='.rawurlencode(self::whatsappShareMessage($row, $monthLabel));
+        return TeamPerformance::whatsappShareUrl($row, $monthLabel);
     }
 
     /**

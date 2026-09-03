@@ -13,13 +13,14 @@ use App\Models\TaDaClaim;
 use App\Models\WeeklyTarget;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 class DashboardMetricsService
 {
     private const BUSINESS_TIMEZONE = 'Asia/Kolkata';
 
     /** @var list<string> */
-    public const PERIOD_KEYS = ['today', 'week', 'last_week', 'month', 'custom'];
+    public const PERIOD_KEYS = ['today', 'week', 'last_week', 'last_month', 'month', 'custom'];
 
     public static function periodValidationRule(): string
     {
@@ -32,6 +33,7 @@ class DashboardMetricsService
             'today' => 'Today',
             'week', 'weekly' => 'This Week',
             'last_week' => 'Last Week',
+            'last_month' => 'Last Month',
             'custom' => 'Custom',
             default => 'This Month',
         };
@@ -62,6 +64,11 @@ class DashboardMetricsService
                 'start' => $today->copy()->subWeek()->startOfWeek(Carbon::MONDAY),
                 'end' => $today->copy()->subWeek()->startOfWeek(Carbon::MONDAY)->endOfWeek(Carbon::SUNDAY),
                 'label' => 'Last Week',
+            ],
+            'last_month' => [
+                'start' => $today->copy()->subMonthNoOverflow()->startOfMonth(),
+                'end' => $today->copy()->subMonthNoOverflow()->endOfMonth(),
+                'label' => 'Last Month',
             ],
             'month' => [
                 'start' => $today->copy()->startOfMonth(),
@@ -325,12 +332,76 @@ class DashboardMetricsService
             ->map(fn (Order $order): array => [
                 'id' => $order->id,
                 'order_no' => $order->order_no,
+                'short_order_no' => $order->shortOrderNo(),
                 'order_date' => $order->order_date?->toDateString(),
                 'dealer_name' => $order->dealer?->firm_name,
                 'grand_total' => (float) $order->grand_total,
                 'status' => $order->status,
                 'status_label' => $order->displayStatusLabel(),
             ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function employeeCollectionsForPeriod(int $employeeId, Carbon $start, Carbon $end): array
+    {
+        return Collection::query()
+            ->with(['dealer:id,firm_name'])
+            ->where('sales_employee_id', $employeeId)
+            ->whereDate('collection_date', '>=', $start->toDateString())
+            ->whereDate('collection_date', '<=', $end->toDateString())
+            ->orderByDesc('collection_date')
+            ->orderByDesc('id')
+            ->get()
+            ->map(fn (Collection $collection): array => [
+                'id' => $collection->id,
+                'collection_date' => $collection->collection_date?->toDateString(),
+                'dealer_name' => $collection->dealer?->firm_name,
+                'amount' => (float) $collection->amount,
+                'status' => $collection->status,
+                'status_label' => $collection->statusLabel(),
+            ])
+            ->values()
+            ->all();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function employeeFieldActivitiesForPeriod(int $employeeId, Carbon $start, Carbon $end): array
+    {
+        return FieldActivity::query()
+            ->with(['crop:id,name'])
+            ->where('employee_id', $employeeId)
+            ->whereDate('activity_date', '>=', $start->toDateString())
+            ->whereDate('activity_date', '<=', $end->toDateString())
+            ->orderByDesc('activity_date')
+            ->orderByDesc('id')
+            ->get()
+            ->map(function (FieldActivity $activity): array {
+                $typeLabel = filled($activity->activity_type)
+                    ? Str::headline(str_replace('_', ' ', (string) $activity->activity_type))
+                    : null;
+
+                $details = collect([
+                    $typeLabel,
+                    $activity->crop?->name,
+                    $activity->remark,
+                ])->filter(fn (mixed $value): bool => filled($value))->implode(' · ');
+
+                return [
+                    'id' => $activity->id,
+                    'activity_date' => $activity->activity_date?->toDateString(),
+                    'farmer_name' => $activity->farmer_name,
+                    'village' => $activity->village,
+                    'details' => $details !== '' ? $details : '—',
+                    'status' => $activity->status,
+                    'status_label' => FieldActivity::statusLabel($activity->status),
+                ];
+            })
             ->values()
             ->all();
     }
