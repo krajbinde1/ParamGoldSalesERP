@@ -341,6 +341,7 @@ it('matches the sales order whose date is uniquely closest to the tally bill', f
         'status' => Order::STATUS_DISPATCHED,
         'grand_total' => 97249,
         'order_no' => 'PG-20260824-0016',
+        'order_date' => '2026-08-24',
         'dispatch_date' => '2026-08-24',
         'dispatched_at' => '2026-08-24 10:00:00',
     ]);
@@ -348,6 +349,7 @@ it('matches the sales order whose date is uniquely closest to the tally bill', f
         'status' => Order::STATUS_DISPATCHED,
         'grand_total' => 97249,
         'order_no' => 'PG-20260824-0017',
+        'order_date' => '2026-08-28',
         'dispatch_date' => '2026-08-28',
         'dispatched_at' => '2026-08-28 10:00:00',
     ]);
@@ -378,4 +380,111 @@ it('matches the sales order whose date is uniquely closest to the tally bill', f
         ->and((int) $matched?->source_id)->toBe($closer->id)
         ->and($matched?->voucher_no)->toBe('PG/26-27/0465')
         ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(194498.0);
+});
+
+it('posts billed and dispatched sales order debits on the order date linked to the order id', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811199010');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Amrut Fertilizers Purna']);
+
+    $billed = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_BILLED,
+        'grand_total' => 12000,
+        'order_no' => 'PG-20260830-0002',
+        'order_date' => '2026-08-30',
+        'bill_date' => '2026-08-30',
+        'billed_at' => '2026-08-30 11:00:00',
+    ]);
+
+    $dispatched = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 84525,
+        'order_no' => 'PG-20260831-0001',
+        'order_date' => '2026-08-31',
+        'dispatch_date' => '2026-09-03',
+        'dispatched_at' => '2026-09-03 16:00:00',
+    ]);
+
+    $billedEntry = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $billed->id)
+        ->first();
+    $dispatchedEntry = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $dispatched->id)
+        ->first();
+
+    expect($billedEntry)->not->toBeNull()
+        ->and($billedEntry?->entry_date?->toDateString())->toBe('2026-08-30')
+        ->and((float) $billedEntry?->debit)->toBe(12000.0)
+        ->and($dispatchedEntry)->not->toBeNull()
+        ->and($dispatchedEntry?->entry_date?->toDateString())->toBe('2026-08-31')
+        ->and((float) $dispatchedEntry?->debit)->toBe(84525.0)
+        ->and($dispatchedEntry?->voucher_no)->toBe('PG-20260831-0001')
+        ->and($dispatchedEntry?->particulars)->toBe('Sales Order PG-0001')
+        ->and($dispatchedEntry?->source)->toBe(DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(96525.0);
+
+    $again = app(DealerLedgerPostingService::class)->syncDispatchedOrder($dispatched->fresh());
+    expect($again?->id)->toBe($dispatchedEntry?->id)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2);
+});
+
+it('does not skip a sales order debit because another same-date same-amount debit already exists', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811199011');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Amrut Fertilizers Purna']);
+
+    $first = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 84525,
+        'order_no' => 'PG-20260831-0008',
+        'order_date' => '2026-08-31',
+        'dispatch_date' => '2026-08-31',
+        'dispatched_at' => '2026-08-31 10:00:00',
+    ]);
+    $second = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 84525,
+        'order_no' => 'PG-20260831-0001',
+        'order_date' => '2026-08-31',
+        'dispatch_date' => '2026-09-03',
+        'dispatched_at' => '2026-09-03 16:00:00',
+    ]);
+
+    expect(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2)
+        ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)->where('source_id', $first->id)->count())->toBe(1)
+        ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)->where('source_id', $second->id)->count())->toBe(1)
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(169050.0);
+});
+
+it('backfills billed orders that were never posted by a status-change event', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811199012');
+    $dealer = ledgerDealer($employee);
+
+    $order = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_BILLED,
+        'grand_total' => 84525,
+        'order_no' => 'PG-20260831-0001',
+        'order_date' => '2026-08-31',
+        'bill_date' => '2026-08-31',
+        'billed_at' => '2026-08-31 18:00:00',
+    ]);
+
+    DealerTallyEntry::query()->where('dealer_id', $dealer->id)->delete();
+    expect(DealerTallyEntry::query()->where('source_id', $order->id)->count())->toBe(0);
+
+    $result = app(DealerLedgerPostingService::class)->backfill();
+    $entry = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $order->id)
+        ->first();
+
+    expect($result['orders'])->toBe(1)
+        ->and($entry)->not->toBeNull()
+        ->and($entry?->entry_date?->toDateString())->toBe('2026-08-31')
+        ->and((float) $entry?->debit)->toBe(84525.0)
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(84525.0);
+
+    $second = app(DealerLedgerPostingService::class)->backfill();
+    expect(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(1)
+        ->and($second['orders'])->toBe(1);
 });

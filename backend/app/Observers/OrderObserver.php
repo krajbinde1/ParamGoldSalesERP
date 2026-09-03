@@ -34,7 +34,15 @@ class OrderObserver
 
     public function updated(Order $order): void
     {
-        if ($order->wasChanged('status') || $order->wasChanged('grand_total') || $order->wasChanged('dispatch_date')) {
+        if ($order->wasChanged([
+            'status',
+            'grand_total',
+            'dealer_id',
+            'order_date',
+            'bill_date',
+            'dispatch_date',
+            'order_no',
+        ])) {
             $this->syncLedger($order->fresh() ?? $order);
         }
 

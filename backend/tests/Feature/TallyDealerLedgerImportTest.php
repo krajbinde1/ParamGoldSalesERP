@@ -952,11 +952,8 @@ it('resets tally ledger data for the selected dealer only and allows re-import',
     ]);
     $other = ledgerDealer($employee, ['firm_name' => 'Other Tally Dealer']);
     $order = ledgerOrder($dealer, $employee, [
-        'status' => Order::STATUS_BILLED,
+        'status' => Order::STATUS_APPROVED,
         'grand_total' => 12000,
-        'bill_number' => 'BILL-RESET',
-        'bill_date' => '2026-04-15',
-        'billed_at' => '2026-04-15 11:00:00',
     ]);
     $collection = ledgerCollection($dealer, $employee);
     $admin = tallyImportAdmin();

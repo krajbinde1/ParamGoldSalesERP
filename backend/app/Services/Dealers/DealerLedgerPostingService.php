@@ -16,23 +16,27 @@ final class DealerLedgerPostingService
 
     public function syncDispatchedOrder(Order $order): ?DealerTallyEntry
     {
-        if ($order->status !== Order::STATUS_DISPATCHED || $order->dealer_id === null) {
+        if ($order->dealer_id === null || ! in_array($order->status, Order::billedReceivableStatuses(), true)) {
             $this->removeUnreconciledSalesOrderLedgerEntry($order);
 
             return null;
         }
 
         $amount = round((float) $order->grand_total, 2);
-        $date = $this->orderEntryDate($order);
+        if ($amount <= 0.0) {
+            $this->removeUnreconciledSalesOrderLedgerEntry($order);
+
+            return null;
+        }
 
         return $this->syncErpEntry(
             dealerId: (int) $order->dealer_id,
             source: DealerTallyEntry::SOURCE_SALES_ORDER,
             sourceId: (int) $order->id,
-            date: $date,
+            date: $order->dealerLedgerEntryDate(),
             debit: $amount,
             credit: 0.0,
-            particulars: 'Sales Order',
+            particulars: 'Sales Order '.$order->shortOrderNo(),
             voucherType: 'Sales',
             voucherNo: (string) $order->order_no,
         );
@@ -89,7 +93,7 @@ final class DealerLedgerPostingService
         $collections = 0;
 
         Order::query()
-            ->where('status', Order::STATUS_DISPATCHED)
+            ->whereIn('status', Order::billedReceivableStatuses())
             ->orderBy('id')
             ->each(function (Order $order) use (&$orders): void {
                 if ($this->syncDispatchedOrder($order) !== null) {
@@ -166,19 +170,15 @@ final class DealerLedgerPostingService
             $voucherNo,
             $fingerprint,
         ): ?DealerTallyEntry {
-            $existing = DealerTallyEntry::query()
-                ->where('fingerprint', $fingerprint)
-                ->lockForUpdate()
-                ->first();
+            $existing = $this->lockedExistingErpEntry($source, $sourceId, $fingerprint);
 
             if ($existing !== null) {
                 if ($this->salesReconciler->isReconciled($existing)) {
                     $existing->fill([
                         'dealer_id' => $dealerId,
-                        'debit' => $debit,
-                        'credit' => $credit,
                         'source' => $source,
                         'source_id' => $sourceId,
+                        'fingerprint' => $fingerprint,
                     ]);
                     $existing->save();
 
@@ -195,6 +195,7 @@ final class DealerLedgerPostingService
                     'credit' => $credit,
                     'source' => $source,
                     'source_id' => $sourceId,
+                    'fingerprint' => $fingerprint,
                 ]);
                 $existing->save();
 
@@ -211,7 +212,11 @@ final class DealerLedgerPostingService
                 }
             }
 
-            if ($this->matchingSideExists($dealerId, $date, $debit, $credit)) {
+            // Collections still skip a same-date/same-side duplicate (ERP vs Tally receipt).
+            // Sales orders must never be skipped for that reason: another 31 Aug debit of
+            // the same amount is a different voucher, not this order.
+            if ($source !== DealerTallyEntry::SOURCE_SALES_ORDER
+                && $this->matchingSideExists($dealerId, $date, $debit, $credit)) {
                 return null;
             }
 
@@ -253,11 +258,17 @@ final class DealerLedgerPostingService
             });
     }
 
-    private function orderEntryDate(Order $order): string
+    private function lockedExistingErpEntry(string $source, int $sourceId, string $fingerprint): ?DealerTallyEntry
     {
-        return $order->dispatch_date?->toDateString()
-            ?? $order->dispatched_at?->timezone('Asia/Kolkata')?->toDateString()
-            ?? $order->order_date?->toDateString()
-            ?? Carbon::now('Asia/Kolkata')->toDateString();
+        return DealerTallyEntry::query()
+            ->where(function ($query) use ($fingerprint, $source, $sourceId): void {
+                $query->where('fingerprint', $fingerprint)
+                    ->orWhere(function ($inner) use ($source, $sourceId): void {
+                        $inner->where('source', $source)->where('source_id', $sourceId);
+                    });
+            })
+            ->lockForUpdate()
+            ->orderByRaw('CASE WHEN fingerprint = ? THEN 0 ELSE 1 END', [$fingerprint])
+            ->first();
     }
 }

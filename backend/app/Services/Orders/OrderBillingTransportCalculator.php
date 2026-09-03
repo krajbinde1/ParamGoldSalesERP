@@ -4,6 +4,7 @@ namespace App\Services\Orders;
 
 use App\Enums\TransportChargeType;
 use App\Models\Order;
+use App\Services\Dealers\DealerLedgerPostingService;
 use Illuminate\Validation\ValidationException;
 
 final class OrderBillingTransportCalculator
@@ -159,6 +160,7 @@ final class OrderBillingTransportCalculator
     {
         $fill = self::correctedAttributes($order);
         $order->forceFill($fill)->saveQuietly();
+        app(DealerLedgerPostingService::class)->syncDispatchedOrder($order);
 
         return $fill;
     }

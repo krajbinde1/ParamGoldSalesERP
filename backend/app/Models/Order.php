@@ -109,6 +109,20 @@ class Order extends Model
     }
 
     /**
+     * Dealer ledger debit date for a billed/dispatched sales order.
+     * Uses the sales order date, not dispatch day, so month-boundary orders stay on the invoice date.
+     */
+    public function dealerLedgerEntryDate(): string
+    {
+        return $this->order_date?->toDateString()
+            ?? $this->bill_date?->toDateString()
+            ?? $this->dispatch_date?->toDateString()
+            ?? $this->dispatched_at?->timezone(self::BUSINESS_TIMEZONE)?->toDateString()
+            ?? $this->billed_at?->timezone(self::BUSINESS_TIMEZONE)?->toDateString()
+            ?? Carbon::now(self::BUSINESS_TIMEZONE)->toDateString();
+    }
+
+    /**
      * Active orders that are not yet billed and must not affect current outstanding.
      *
      * @return list<string>

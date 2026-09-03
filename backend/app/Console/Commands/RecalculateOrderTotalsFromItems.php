@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Order;
+use App\Services\Dealers\DealerLedgerPostingService;
 use App\Services\Orders\OrderBillingTransportCalculator;
 use Illuminate\Console\Command;
 
@@ -35,6 +36,7 @@ class RecalculateOrderTotalsFromItems extends Command
 
                 if (! $dryRun) {
                     $order->forceFill($fill)->saveQuietly();
+                    app(DealerLedgerPostingService::class)->syncDispatchedOrder($order);
                 }
 
                 $updated++;

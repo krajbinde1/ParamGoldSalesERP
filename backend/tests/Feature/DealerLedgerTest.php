@@ -113,18 +113,20 @@ it('posts dispatched sales and received collections into the dealer ledger once'
     $billed = ledgerOrder($dealer, $employee, [
         'status' => Order::STATUS_BILLED,
         'grand_total' => 50000,
+        'order_date' => '2026-04-15',
         'bill_number' => 'BILL-1',
         'bill_date' => '2026-04-15',
         'billed_at' => '2026-04-15 11:00:00',
     ]);
-    expect($service->getOutstanding($dealer->fresh()))->toBe(0.0)
-        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(0);
+    expect($service->getOutstanding($dealer->fresh()))->toBe(50000.0)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)->where('source_id', $billed->id)->count())->toBe(1)
+        ->and(DealerTallyEntry::query()->where('source_id', $billed->id)->value('entry_date')?->toDateString())->toBe('2026-04-15');
 
     $pendingCollection = ledgerCollection($dealer, $employee, ['amount' => 20000, 'status' => Collection::STATUS_PENDING]);
-    expect($service->getOutstanding($dealer->fresh()))->toBe(0.0);
+    expect($service->getOutstanding($dealer->fresh()))->toBe(50000.0);
 
     $pendingCollection->update(['status' => Collection::STATUS_RECEIVED]);
-    expect($service->getOutstanding($dealer->fresh()))->toBe(-20000.0)
+    expect($service->getOutstanding($dealer->fresh()))->toBe(30000.0)
         ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->count())->toBe(1);
 
     $pendingCollection->update(['admin_remark' => 're-saved received']);
@@ -134,10 +136,11 @@ it('posts dispatched sales and received collections into the dealer ledger once'
         'status' => Order::STATUS_DISPATCHED,
         'grand_total' => 50000,
         'order_no' => 'ORD500001',
+        'order_date' => '2026-04-25',
         'dispatch_date' => '2026-04-25',
         'dispatched_at' => '2026-04-25 11:00:00',
     ]);
-    expect($service->getOutstanding($dealer->fresh()))->toBe(30000.0)
+    expect($service->getOutstanding($dealer->fresh()))->toBe(80000.0)
         ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)->where('source_id', $dispatched->id)->count())->toBe(1)
         ->and(DealerTallyEntry::query()->where('source_id', $dispatched->id)->value('voucher_no'))->toBe('ORD500001');
 
@@ -145,17 +148,17 @@ it('posts dispatched sales and received collections into the dealer ledger once'
     expect(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)->where('source_id', $dispatched->id)->count())->toBe(1);
 
     $dispatched->update(['grand_total' => 55000]);
-    expect($service->getOutstanding($dealer->fresh()))->toBe(35000.0)
+    expect($service->getOutstanding($dealer->fresh()))->toBe(85000.0)
         ->and((float) DealerTallyEntry::query()->where('source_id', $dispatched->id)->value('debit'))->toBe(55000.0);
 
     ledgerCollection($dealer, $employee, [
         'amount' => 5000,
         'status' => Collection::STATUS_NOT_RECEIVED,
     ]);
-    expect($service->getOutstanding($dealer->fresh()))->toBe(35000.0);
+    expect($service->getOutstanding($dealer->fresh()))->toBe(85000.0);
 
     $ledger = $service->getLedger($dealer->fresh());
-    expect($ledger['summary']['current_outstanding'])->toBe(35000.0)
+    expect($ledger['summary']['current_outstanding'])->toBe(85000.0)
         ->and(collect($ledger['ledger'])->where('type', 'sales_invoice')->pluck('source_id')->unique()->count())
         ->toBe(collect($ledger['ledger'])->where('type', 'sales_invoice')->count());
 });

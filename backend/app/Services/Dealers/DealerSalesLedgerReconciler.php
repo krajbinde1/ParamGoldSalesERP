@@ -126,10 +126,7 @@ final class DealerSalesLedgerReconciler
             return $candidates->first();
         }
 
-        $orderDate = $order->dispatch_date?->toDateString()
-            ?? $order->dispatched_at?->timezone('Asia/Kolkata')?->toDateString()
-            ?? $order->order_date?->toDateString()
-            ?? Carbon::now('Asia/Kolkata')->toDateString();
+        $orderDate = $order->dealerLedgerEntryDate();
 
         return $this->uniquelyClosest($candidates, $orderDate);
     }
@@ -192,9 +189,7 @@ final class DealerSalesLedgerReconciler
         $order = $entry->source_id !== null
             ? Order::query()->withTrashed()->find($entry->source_id)
             : null;
-        $date = $order?->dispatch_date?->toDateString()
-            ?? $order?->dispatched_at?->timezone('Asia/Kolkata')?->toDateString()
-            ?? $order?->order_date?->toDateString()
+        $date = $order?->dealerLedgerEntryDate()
             ?? $entry->entry_date?->toDateString();
 
         $entry->fill([
