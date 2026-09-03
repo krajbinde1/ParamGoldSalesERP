@@ -113,8 +113,8 @@ class Order extends Model
         'on_hold' => ['approved', 'rejected'],
         'reverted_to_manager' => ['approved', 'rejected'],
         'pending_for_billing' => ['billed', 'rejected'],
-        'billed' => ['dispatched'],
-        'dispatched' => [],
+        'billed' => ['dispatched', 'rejected'],
+        'dispatched' => ['rejected'],
         'rejected' => [],
         'delivered' => [],
         'cancelled' => [],
@@ -464,6 +464,8 @@ class Order extends Model
             self::STATUS_ON_HOLD,
             self::STATUS_REVERTED_TO_MANAGER,
             self::STATUS_PENDING_FOR_BILLING,
+            self::STATUS_BILLED,
+            self::STATUS_DISPATCHED,
         ], true);
     }
 
@@ -657,52 +659,58 @@ class Order extends Model
             ];
         }
 
-        $steps[] = [
-            'key' => 'pending_for_billing',
-            'label' => 'Sent for Bill by Production Supervisor',
-            'actor' => $isSentForBilling ? $this->sentForBillByUser?->name : null,
-            'actor_role' => $isSentForBilling
-                ? ($this->displayActorRole($this->sentForBillByUser) ?? 'Production Supervisor')
-                : null,
-            'at' => $isSentForBilling ? $format($this->sent_for_bill_at) : null,
-            'status_text' => $isSentForBilling
-                ? ($isBilled ? null : 'Pending for Billing')
-                : 'Pending',
-            'remark' => $isSentForBilling ? $this->sentForBillTimelineRemark() : null,
-            'completed' => $isSentForBilling,
-            'is_current' => $isApproved && ! $isSentForBilling && ! $isOnHold && ! $isReverted && ! $isRejected,
-            'is_rejection' => false,
-        ];
+        if (! $isRejected || $isSentForBilling) {
+            $steps[] = [
+                'key' => 'pending_for_billing',
+                'label' => 'Sent for Bill by Production Supervisor',
+                'actor' => $isSentForBilling ? $this->sentForBillByUser?->name : null,
+                'actor_role' => $isSentForBilling
+                    ? ($this->displayActorRole($this->sentForBillByUser) ?? 'Production Supervisor')
+                    : null,
+                'at' => $isSentForBilling ? $format($this->sent_for_bill_at) : null,
+                'status_text' => $isSentForBilling
+                    ? ($isBilled ? null : 'Pending for Billing')
+                    : 'Pending',
+                'remark' => $isSentForBilling ? $this->sentForBillTimelineRemark() : null,
+                'completed' => $isSentForBilling,
+                'is_current' => $isApproved && ! $isSentForBilling && ! $isOnHold && ! $isReverted && ! $isRejected,
+                'is_rejection' => false,
+            ];
+        }
 
-        $steps[] = [
-            'key' => 'billed',
-            'label' => 'Billed by Admin',
-            'actor' => $isBilled ? $this->billedByUser?->name : null,
-            'actor_role' => $isBilled
-                ? ($this->displayActorRole($this->billedByUser) ?? 'Admin')
-                : null,
-            'at' => $isBilled ? $format($this->billed_at) : null,
-            'status_text' => $isBilled ? null : 'Pending',
-            'remark' => $isBilled ? $this->billing_remark : null,
-            'completed' => $isBilled,
-            'is_current' => $isSentForBilling && ! $isBilled,
-            'is_rejection' => false,
-        ];
+        if (! $isRejected || $isBilled) {
+            $steps[] = [
+                'key' => 'billed',
+                'label' => 'Billed by Admin',
+                'actor' => $isBilled ? $this->billedByUser?->name : null,
+                'actor_role' => $isBilled
+                    ? ($this->displayActorRole($this->billedByUser) ?? 'Admin')
+                    : null,
+                'at' => $isBilled ? $format($this->billed_at) : null,
+                'status_text' => $isBilled ? null : 'Pending',
+                'remark' => $isBilled ? $this->billing_remark : null,
+                'completed' => $isBilled,
+                'is_current' => $isSentForBilling && ! $isBilled && ! $isRejected,
+                'is_rejection' => false,
+            ];
+        }
 
-        $steps[] = [
-            'key' => 'dispatched',
-            'label' => 'Dispatched by Production Supervisor',
-            'actor' => $isDispatched ? $this->dispatchedByUser?->name : null,
-            'actor_role' => $isDispatched
-                ? ($this->displayActorRole($this->dispatchedByUser) ?? 'Production Supervisor')
-                : null,
-            'at' => $isDispatched ? $format($this->dispatched_at) : null,
-            'status_text' => $isDispatched ? null : 'Pending',
-            'remark' => $isDispatched ? $this->dispatch_remark : null,
-            'completed' => $isDispatched,
-            'is_current' => $isBilled && ! $isDispatched && ! $isRejected,
-            'is_rejection' => false,
-        ];
+        if (! $isRejected || $isDispatched) {
+            $steps[] = [
+                'key' => 'dispatched',
+                'label' => 'Dispatched by Production Supervisor',
+                'actor' => $isDispatched ? $this->dispatchedByUser?->name : null,
+                'actor_role' => $isDispatched
+                    ? ($this->displayActorRole($this->dispatchedByUser) ?? 'Production Supervisor')
+                    : null,
+                'at' => $isDispatched ? $format($this->dispatched_at) : null,
+                'status_text' => $isDispatched ? null : 'Pending',
+                'remark' => $isDispatched ? $this->dispatch_remark : null,
+                'completed' => $isDispatched,
+                'is_current' => $isBilled && ! $isDispatched && ! $isRejected,
+                'is_rejection' => false,
+            ];
+        }
 
         foreach ($this->workflowEvents as $event) {
             if ($event->action !== OrderWorkflowEvent::ACTION_DETAILS_CORRECTED) {
@@ -932,7 +940,7 @@ class Order extends Model
             ]);
         }
 
-        // Preserve prior approval history when Admin rejects an already-approved order.
+        // Preserve prior workflow history (approval, billing, dispatch, etc.).
         $this->update([
             'status' => self::STATUS_REJECTED,
             'rejected_by' => $userId,

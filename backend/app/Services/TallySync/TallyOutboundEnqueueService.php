@@ -22,6 +22,16 @@ final class TallyOutboundEnqueueService
 
     public function queueBilledOrder(Order $order): ?TallyOutboundVoucher
     {
+        if ($order->status === Order::STATUS_REJECTED) {
+            $this->withdrawUnsynced(
+                TallyOutboundVoucher::SOURCE_SALES_ORDER,
+                (int) $order->id,
+                'Order was rejected, so it must not be sent to Tally.',
+            );
+
+            return null;
+        }
+
         if ($order->status !== Order::STATUS_BILLED) {
             return null;
         }

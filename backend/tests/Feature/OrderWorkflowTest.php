@@ -284,7 +284,7 @@ it('allows admin to reject pending and approved orders with remarks', function (
         ->and($fresh->displayStatusLabel())->toBe('Rejected by Admin');
 });
 
-it('blocks admin reject after billed or dispatched', function () {
+it('allows admin to reject billed and dispatched orders with remarks', function () {
     Storage::fake('public');
 
     $employee = orderWorkflowEmployee(UserRole::Employee, '9200000007');
@@ -312,18 +312,90 @@ it('blocks admin reject after billed or dispatched', function () {
     expect(fn () => app(RejectOrderWithRemarks::class)->execute(
         order: $order->fresh(),
         actor: $admin,
-        remark: 'Too late',
+        remark: '',
         rejectedByRole: Order::REJECTED_BY_ROLE_ADMIN,
-    ))->toThrow(\Illuminate\Auth\Access\AuthorizationException::class);
-
-    $order->fresh()->dispatch($production->user->id, 'Out for delivery');
+    ))->toThrow(ValidationException::class);
 
     expect(fn () => app(RejectOrderWithRemarks::class)->execute(
         order: $order->fresh(),
-        actor: $admin,
-        remark: 'Too late again',
-        rejectedByRole: Order::REJECTED_BY_ROLE_ADMIN,
+        actor: $manager->user,
+        remark: 'Manager cannot reject billed orders',
+        rejectedByRole: Order::REJECTED_BY_ROLE_SALES_MANAGER,
     ))->toThrow(\Illuminate\Auth\Access\AuthorizationException::class);
+
+    $billed = $order->fresh();
+    $billedAt = $billed->billed_at?->toDateTimeString();
+    $approvedBy = $billed->approved_by;
+
+    app(RejectOrderWithRemarks::class)->execute(
+        order: $billed,
+        actor: $admin,
+        remark: 'Billing cancelled by accounts',
+        rejectedByRole: Order::REJECTED_BY_ROLE_ADMIN,
+    );
+
+    $rejectedBilled = $order->fresh();
+    $billedTimeline = collect($rejectedBilled->workflowTimeline());
+    $rejectedStep = $billedTimeline->firstWhere('key', 'rejected');
+
+    expect($rejectedBilled->status)->toBe(Order::STATUS_REJECTED)
+        ->and($rejectedBilled->approved_by)->toBe($approvedBy)
+        ->and($rejectedBilled->billed_at?->toDateTimeString())->toBe($billedAt)
+        ->and($rejectedBilled->rejected_by)->toBe($admin->id)
+        ->and($rejectedBilled->rejected_by_role)->toBe(Order::REJECTED_BY_ROLE_ADMIN)
+        ->and($rejectedBilled->rejected_at)->not->toBeNull()
+        ->and($rejectedBilled->rejection_remark)->toBe('Billing cancelled by accounts')
+        ->and($rejectedBilled->displayStatusLabel())->toBe('Rejected by Admin')
+        ->and($rejectedBilled->canBeRejectedByAdmin())->toBeFalse()
+        ->and($billedTimeline->firstWhere('key', 'approved')['completed'])->toBeTrue()
+        ->and($billedTimeline->firstWhere('key', 'billed')['completed'])->toBeTrue()
+        ->and($billedTimeline->firstWhere('key', 'dispatched'))->toBeNull()
+        ->and($rejectedStep['label'])->toBe('Rejected by Admin')
+        ->and($rejectedStep['remark'])->toBe('Billing cancelled by accounts')
+        ->and($rejectedStep['at'])->not->toBeNull()
+        ->and($rejectedStep['is_current'])->toBeTrue()
+        ->and($rejectedStep['is_rejection'])->toBeTrue();
+
+    $dispatched = orderWorkflowPending($employee->id);
+    $dispatched->approve($manager->user->id);
+    app(SendOrderForBilling::class)->execute(
+        order: $dispatched->fresh(),
+        actor: $production->user,
+        vehicleNumber: 'MH12XY8888',
+        transportFreight: 80,
+        transportChargeType: 'transport_extra',
+    );
+    app(BillOrderWithDocument::class)->execute(
+        order: $dispatched->fresh(),
+        actor: $admin,
+        bill: UploadedFile::fake()->create('bill-2.pdf', 100, 'application/pdf'),
+        billNumber: 'BILL-OW-2',
+    );
+    $dispatched->fresh()->dispatch($production->user->id, 'Out for delivery');
+
+    $beforeDispatch = $dispatched->fresh();
+    $dispatchedAt = $beforeDispatch->dispatched_at?->toDateTimeString();
+
+    app(RejectOrderWithRemarks::class)->execute(
+        order: $beforeDispatch,
+        actor: $admin,
+        remark: 'Dealer refused delivery',
+        rejectedByRole: Order::REJECTED_BY_ROLE_ADMIN,
+    );
+
+    $rejectedDispatched = $dispatched->fresh();
+    $dispatchTimeline = collect($rejectedDispatched->workflowTimeline());
+
+    expect($rejectedDispatched->status)->toBe(Order::STATUS_REJECTED)
+        ->and($rejectedDispatched->dispatched_at?->toDateTimeString())->toBe($dispatchedAt)
+        ->and($rejectedDispatched->displayStatusLabel())->toBe('Rejected by Admin')
+        ->and($dispatchTimeline->firstWhere('key', 'dispatched')['completed'])->toBeTrue()
+        ->and($dispatchTimeline->firstWhere('key', 'rejected')['label'])->toBe('Rejected by Admin')
+        ->and($dispatchTimeline->firstWhere('key', 'rejected')['remark'])->toBe('Dealer refused delivery')
+        ->and(\App\Models\DealerTallyEntry::query()
+            ->where('source', \App\Models\DealerTallyEntry::SOURCE_SALES_ORDER)
+            ->where('source_id', $rejectedDispatched->id)
+            ->exists())->toBeFalse();
 });
 
 it('blocks admin from approving and manager from billing', function () {

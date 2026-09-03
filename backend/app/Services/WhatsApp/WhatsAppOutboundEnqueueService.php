@@ -24,6 +24,16 @@ final class WhatsAppOutboundEnqueueService
 
     public function queueBilledOrder(Order $order): ?WhatsAppOutboundMessage
     {
+        if ($order->status === Order::STATUS_REJECTED) {
+            $this->withdrawUnsynced(
+                WhatsAppOutboundMessage::SOURCE_BILL,
+                (int) $order->id,
+                'Order was rejected, so it must not be sent on WhatsApp.',
+            );
+
+            return null;
+        }
+
         if ($order->status !== Order::STATUS_BILLED) {
             return null;
         }

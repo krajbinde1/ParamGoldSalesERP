@@ -17,6 +17,8 @@ final class DealerLedgerPostingService
     public function syncDispatchedOrder(Order $order): ?DealerTallyEntry
     {
         if ($order->status !== Order::STATUS_DISPATCHED || $order->dealer_id === null) {
+            $this->removeUnreconciledSalesOrderLedgerEntry($order);
+
             return null;
         }
 
@@ -228,6 +230,27 @@ final class DealerLedgerPostingService
                 'source_row' => null,
             ]);
         });
+    }
+
+    private function removeUnreconciledSalesOrderLedgerEntry(Order $order): void
+    {
+        DealerTallyEntry::query()
+            ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+            ->where(function ($query) use ($order): void {
+                $query->where('source_id', $order->id)
+                    ->orWhere('fingerprint', DealerTallyEntry::makeSourceFingerprint(
+                        DealerTallyEntry::SOURCE_SALES_ORDER,
+                        (int) $order->id,
+                    ));
+            })
+            ->get()
+            ->each(function (DealerTallyEntry $entry): void {
+                if ($this->salesReconciler->isReconciled($entry)) {
+                    return;
+                }
+
+                $entry->delete();
+            });
     }
 
     private function orderEntryDate(Order $order): string

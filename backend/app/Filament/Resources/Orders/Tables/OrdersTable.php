@@ -164,9 +164,12 @@ class OrdersTable
                     ->visible(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('reject', $record))
                     ->authorize(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('reject', $record))
                     ->modalHeading('Reject Order')
+                    ->modalDescription('The order will move to Rejected. Previous workflow history is kept.')
+                    ->modalSubmitActionLabel('Reject Order')
                     ->form([
                         Textarea::make('rejection_reason')
                             ->label('Reason / Remarks')
+                            ->helperText('Rejection reason is mandatory.')
                             ->required()
                             ->minLength(3)
                             ->rows(3),

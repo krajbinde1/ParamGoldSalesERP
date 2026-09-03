@@ -69,9 +69,12 @@ class ViewOrder extends ViewRecord
                 ->visible(fn (): bool => Gate::forUser(auth()->user())->allows('reject', $record))
                 ->authorize(fn (): bool => Gate::forUser(auth()->user())->allows('reject', $record))
                 ->modalHeading('Reject Order')
+                ->modalDescription('The order will move to Rejected. Previous workflow history is kept.')
+                ->modalSubmitActionLabel('Reject Order')
                 ->form([
                     Textarea::make('rejection_reason')
                         ->label('Reason / Remarks')
+                        ->helperText('Rejection reason is mandatory.')
                         ->required()
                         ->minLength(3)
                         ->rows(3),
@@ -88,6 +91,11 @@ class ViewOrder extends ViewRecord
                         remark: $data['rejection_reason'],
                         rejectedByRole: $role,
                     );
+
+                    Notification::make()
+                        ->title('Order rejected')
+                        ->success()
+                        ->send();
 
                     $this->refreshFormData([
                         'status',

@@ -312,6 +312,7 @@ class OrderInfolist
                 Section::make('Remarks')
                     ->visible(fn (Order $record): bool => filled($record->remarks)
                         || filled($record->rejection_remark)
+                        || filled($record->rejected_at)
                         || filled($record->dispatch_remark)
                         || filled($record->billing_remark)
                         || filled($record->transport_remark))
@@ -326,6 +327,16 @@ class OrderInfolist
                             ->placeholder('—')
                             ->visible(fn (Order $record): bool => filled($record->rejection_remark))
                             ->columnSpanFull(),
+                        TextEntry::make('rejected_by_role')
+                            ->label('Rejected By')
+                            ->visible(fn (Order $record): bool => $record->status === Order::STATUS_REJECTED
+                                || filled($record->rejected_at))
+                            ->formatStateUsing(fn (?string $state, Order $record): string => $record->displayStatusLabel()),
+                        TextEntry::make('rejected_at')
+                            ->label('Rejected At')
+                            ->dateTime('d M Y h:i A')
+                            ->timezone('Asia/Kolkata')
+                            ->visible(fn (Order $record): bool => filled($record->rejected_at)),
                         TextEntry::make('billing_remark')
                             ->label('Billing Remark')
                             ->placeholder('—')
