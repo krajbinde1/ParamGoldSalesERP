@@ -2,9 +2,11 @@
 
 namespace App\Filament\Resources\Targets\Pages;
 
+use App\Actions\Targets\DeleteTarget;
 use App\Actions\Targets\SaveMonthlyTarget;
 use App\Filament\Resources\Targets\WeeklyTargetResource;
 use App\Models\MonthlyTarget;
+use App\Models\WeeklyTarget;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\EditRecord;
@@ -21,20 +23,14 @@ class EditWeeklyTarget extends EditRecord
         return [
             ViewAction::make(),
             DeleteAction::make()
-                ->modalHeading(fn (): string => $this->getRecord()->isGeneratedFromMonthly()
-                    ? 'Delete monthly target'
-                    : 'Delete target')
-                ->modalDescription(fn (): ?string => $this->getRecord()->isGeneratedFromMonthly()
-                    ? 'This week belongs to a monthly target. Deleting it will remove the monthly target and all of its weekly splits.'
-                    : null)
+                ->requiresConfirmation()
+                ->modalHeading('Are you sure you want to delete this target?')
+                ->modalDescription('')
+                ->modalSubmitActionLabel('Delete')
                 ->using(function (Model $record): void {
-                    if ($record->monthlyTarget !== null) {
-                        $record->monthlyTarget->delete();
-
-                        return;
+                    if ($record instanceof WeeklyTarget) {
+                        app(DeleteTarget::class)->execute($record);
                     }
-
-                    $record->delete();
                 }),
         ];
     }

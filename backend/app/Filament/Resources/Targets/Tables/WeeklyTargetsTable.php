@@ -2,10 +2,12 @@
 
 namespace App\Filament\Resources\Targets\Tables;
 
+use App\Actions\Targets\DeleteTarget;
 use App\Filament\Support\EmployeeSelect;
 use App\Models\MonthlyTarget;
 use App\Models\WeeklyTarget;
 use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteAction;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
@@ -93,27 +95,32 @@ class WeeklyTargetsTable
             ->recordActions([
                 ViewAction::make(),
                 EditAction::make(),
+                DeleteAction::make()
+                    ->label('Delete')
+                    ->requiresConfirmation()
+                    ->modalHeading('Are you sure you want to delete this target?')
+                    ->modalDescription('')
+                    ->modalSubmitActionLabel('Delete')
+                    ->using(function (WeeklyTarget $record): void {
+                        app(DeleteTarget::class)->execute($record);
+                    }),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
                     DeleteBulkAction::make()
-                        ->modalDescription('Monthly-split weeks will delete the whole monthly target and all of its weekly records.')
+                        ->modalHeading('Are you sure you want to delete this target?')
+                        ->modalDescription('Monthly targets will also remove their auto-generated weekly targets. Manually created unrelated targets are not affected.')
                         ->using(function (Collection $records): void {
-                            $monthlyIds = $records
-                                ->pluck('monthly_target_id')
-                                ->filter()
-                                ->unique()
-                                ->all();
-
-                            if ($monthlyIds !== []) {
-                                MonthlyTarget::query()->whereIn('id', $monthlyIds)->delete();
-                            }
-
-                            WeeklyTarget::query()
-                                ->whereIn('id', $records->whereNull('monthly_target_id')->pluck('id'))
-                                ->delete();
+                            app(DeleteTarget::class)->executeMany($records);
                         }),
                 ]),
-            ]);
+            ])
+            ->defaultSort(
+                fn (Builder $query): Builder => $query
+                    ->orderByDesc('week_start_date')
+                    ->orderByDesc('created_at')
+                    ->orderByDesc('id'),
+                'desc',
+            );
     }
 }

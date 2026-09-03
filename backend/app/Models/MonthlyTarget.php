@@ -50,6 +50,13 @@ class MonthlyTarget extends Model
         return $this->hasMany(WeeklyTarget::class)->orderBy('week_start_date');
     }
 
+    protected static function booted(): void
+    {
+        static::deleting(function (MonthlyTarget $monthly): void {
+            $monthly->weeklyTargets()->delete();
+        });
+    }
+
     public function monthEndDate(): Carbon
     {
         return $this->month_start_date->copy()->timezone(self::BUSINESS_TIMEZONE)->endOfMonth()->startOfDay();
