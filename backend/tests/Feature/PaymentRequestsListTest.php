@@ -44,6 +44,8 @@ it('shows payment approval summary cards and lists pending requests first', func
         ->test(ListPaymentRequests::class)
         ->assertSuccessful()
         ->assertSeeLivewire(AdminDirectorPaymentOverviewWidget::class)
+        ->assertSeeHtml('pg-payment-requests-page')
+        ->assertSeeHtml('pg-payment-requests-table')
         ->assertCanSeeTableRecords([$pending, $done, $rejected]);
 
     Livewire::actingAs($admin)
@@ -51,7 +53,8 @@ it('shows payment approval summary cards and lists pending requests first', func
         ->assertSuccessful()
         ->assertSee('Pending My Approval')
         ->assertSee('Pending Next Approval')
-        ->assertSee('Payment Done Today');
+        ->assertSee('Payment Done Today')
+        ->assertSeeHtml('pg-status--compact');
 
     $ids = $page->instance()->getFilteredSortedTableQuery()->pluck('id')->all();
 

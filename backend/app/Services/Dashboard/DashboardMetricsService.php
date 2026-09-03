@@ -283,38 +283,63 @@ class DashboardMetricsService
         ];
     }
 
-    public function salesAchievedForPeriod(int $employeeId, Carbon $start, Carbon $end): float
+    /**
+     * Dispatched orders whose order date falls in the selected period.
+     * Used for both Sales Achieved and the Sales detail list so the totals match.
+     *
+     * @return Builder<Order>
+     */
+    public function salesOrdersQueryForPeriod(int $employeeId, Carbon $start, Carbon $end): Builder
     {
-        return (float) Order::query()
+        return Order::query()
             ->where('sales_employee_id', $employeeId)
             ->where('status', Order::STATUS_DISPATCHED)
-            ->where(function ($query) use ($start, $end): void {
-                $query->whereBetween('order_date', [$start->toDateString(), $end->toDateString()])
-                    ->orWhereRaw(
-                        WeeklyTarget::updatedAtBusinessDateSql().' BETWEEN ? AND ?',
-                        [$start->toDateString(), $end->toDateString()]
-                    );
-            })
-            ->sum('grand_total');
+            ->whereDate('order_date', '>=', $start->toDateString())
+            ->whereDate('order_date', '<=', $end->toDateString());
+    }
+
+    public function salesAchievedForPeriod(int $employeeId, Carbon $start, Carbon $end): float
+    {
+        return round((float) $this->salesOrdersQueryForPeriod($employeeId, $start, $end)->sum('grand_total'), 2);
+    }
+
+    /**
+     * Received collections whose collection date falls in the selected period.
+     * Used for both Collection Achieved and the Collection detail list.
+     *
+     * @return Builder<Collection>
+     */
+    public function collectionsQueryForPeriod(int $employeeId, Carbon $start, Carbon $end): Builder
+    {
+        return Collection::query()
+            ->where('sales_employee_id', $employeeId)
+            ->whereDate('collection_date', '>=', $start->toDateString())
+            ->whereDate('collection_date', '<=', $end->toDateString())
+            ->where('status', Collection::STATUS_RECEIVED);
     }
 
     public function collectionAchievedForPeriod(int $employeeId, Carbon $start, Carbon $end): float
     {
-        return (float) Collection::query()
-            ->where('sales_employee_id', $employeeId)
-            ->whereDate('collection_date', '>=', $start->toDateString())
-            ->whereDate('collection_date', '<=', $end->toDateString())
-            ->where('status', Collection::STATUS_RECEIVED)
-            ->sum('amount');
+        return round((float) $this->collectionsQueryForPeriod($employeeId, $start, $end)->sum('amount'), 2);
+    }
+
+    /**
+     * Field activities whose activity date falls in the selected period.
+     * Used for both Field Activity Achieved and the Field Activity detail list.
+     *
+     * @return Builder<FieldActivity>
+     */
+    public function fieldActivitiesQueryForPeriod(int $employeeId, Carbon $start, Carbon $end): Builder
+    {
+        return FieldActivity::query()
+            ->where('employee_id', $employeeId)
+            ->whereDate('activity_date', '>=', $start->toDateString())
+            ->whereDate('activity_date', '<=', $end->toDateString());
     }
 
     public function fieldActivityAchievedForPeriod(int $employeeId, Carbon $start, Carbon $end): int
     {
-        return (int) FieldActivity::query()
-            ->where('employee_id', $employeeId)
-            ->whereDate('activity_date', '>=', $start->toDateString())
-            ->whereDate('activity_date', '<=', $end->toDateString())
-            ->count();
+        return (int) $this->fieldActivitiesQueryForPeriod($employeeId, $start, $end)->count();
     }
 
     /**
@@ -322,10 +347,8 @@ class DashboardMetricsService
      */
     public function employeeOrdersForPeriod(int $employeeId, Carbon $start, Carbon $end): array
     {
-        return Order::query()
+        return $this->salesOrdersQueryForPeriod($employeeId, $start, $end)
             ->with(['dealer:id,firm_name'])
-            ->where('sales_employee_id', $employeeId)
-            ->whereBetween('order_date', [$start->toDateString(), $end->toDateString()])
             ->orderByDesc('created_at')
             ->orderByDesc('id')
             ->get()
@@ -348,11 +371,8 @@ class DashboardMetricsService
      */
     public function employeeCollectionsForPeriod(int $employeeId, Carbon $start, Carbon $end): array
     {
-        return Collection::query()
+        return $this->collectionsQueryForPeriod($employeeId, $start, $end)
             ->with(['dealer:id,firm_name'])
-            ->where('sales_employee_id', $employeeId)
-            ->whereDate('collection_date', '>=', $start->toDateString())
-            ->whereDate('collection_date', '<=', $end->toDateString())
             ->orderByDesc('collection_date')
             ->orderByDesc('id')
             ->get()
@@ -373,11 +393,8 @@ class DashboardMetricsService
      */
     public function employeeFieldActivitiesForPeriod(int $employeeId, Carbon $start, Carbon $end): array
     {
-        return FieldActivity::query()
+        return $this->fieldActivitiesQueryForPeriod($employeeId, $start, $end)
             ->with(['crop:id,name'])
-            ->where('employee_id', $employeeId)
-            ->whereDate('activity_date', '>=', $start->toDateString())
-            ->whereDate('activity_date', '<=', $end->toDateString())
             ->orderByDesc('activity_date')
             ->orderByDesc('id')
             ->get()

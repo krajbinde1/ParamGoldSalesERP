@@ -574,6 +574,52 @@
         line-height: 1;
     }
 
+    /* Compact Payment Approval cards — match Collection card density */
+    .pg-admin-dash .pg-status--compact {
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        grid-template-rows: auto auto auto;
+        column-gap: 0.7rem;
+        row-gap: 0.12rem;
+        align-items: center;
+        min-height: 0;
+        padding: 0.75rem 0.9rem;
+    }
+
+    .pg-admin-dash .pg-status--compact .pg-icon {
+        grid-row: 1 / span 3;
+        width: 1.85rem;
+        height: 1.85rem;
+        border-radius: 0.5rem;
+        align-self: center;
+    }
+
+    .pg-admin-dash .pg-status--compact .pg-icon svg,
+    .pg-admin-dash .pg-status--compact .pg-icon .fi-icon {
+        width: 0.95rem !important;
+        height: 0.95rem !important;
+        max-width: 0.95rem !important;
+        max-height: 0.95rem !important;
+    }
+
+    .pg-admin-dash .pg-status--compact .pg-status__label {
+        font-size: 0.75rem;
+    }
+
+    .pg-admin-dash .pg-status--compact .pg-status__value {
+        margin: 0;
+        font-size: 1.35rem;
+    }
+
+    .pg-admin-dash .pg-status--compact .pg-kpi__meta {
+        margin: 0;
+        font-size: 0.72rem;
+    }
+
+    .pg-payment-overview .pg-section-head {
+        margin-bottom: 0.7rem;
+    }
+
     /* Payment pipeline */
     .pg-admin-dash .pg-pipeline {
         display: flex;
@@ -1301,6 +1347,16 @@
         text-align: right;
         font-variant-numeric: tabular-nums;
         white-space: nowrap;
+    }
+
+    .pg-admin-dash .pg-team-detail__table tfoot th,
+    .pg-admin-dash .pg-team-detail__table tfoot td {
+        padding-top: 0.55rem;
+        border-bottom: 0;
+        border-top: 1px solid var(--pg-border);
+        font-weight: 750;
+        color: var(--pg-navy);
+        background: #fff;
     }
 
     @media (max-width: 799px) {

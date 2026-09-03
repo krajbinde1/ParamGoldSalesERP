@@ -268,4 +268,67 @@
             grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
         }
     }
+
+    /*
+     * Payment Requests list — same compact table density as Orders / Collections.
+     * Vendor name absorbs leftover width so other columns and Action stay tight.
+     */
+    .pg-payment-requests-page .fi-page-main {
+        gap: 0.875rem;
+    }
+
+    .pg-payment-requests-page .fi-ta-ctn {
+        overflow-x: auto;
+        border-radius: 0.75rem;
+    }
+
+    .pg-payment-requests-page .fi-ta-table {
+        width: 100%;
+        table-layout: auto;
+    }
+
+    .pg-payment-requests-page .fi-ta-header-cell,
+    .pg-payment-requests-page .fi-ta-cell {
+        padding-top: 0.5rem;
+        padding-bottom: 0.5rem;
+        padding-left: 0.65rem;
+        padding-right: 0.65rem;
+        white-space: nowrap;
+        vertical-align: middle;
+    }
+
+    .pg-payment-requests-page .fi-ta-cell-vendor-name,
+    .pg-payment-requests-page .fi-ta-cell-remark,
+    .pg-payment-requests-page .fi-ta-header-cell-vendor-name,
+    .pg-payment-requests-page .fi-ta-header-cell-remark {
+        white-space: normal;
+        max-width: 12.5rem;
+    }
+
+    .pg-payment-requests-page .fi-ta-header-cell.fi-align-end,
+    .pg-payment-requests-page .fi-ta-cell:has(.fi-ta-actions) {
+        width: 1%;
+        white-space: nowrap;
+        padding-left: 0.5rem;
+        padding-right: 0.75rem;
+    }
+
+    .pg-payment-requests-page .fi-ta-actions {
+        display: inline-flex;
+        flex-wrap: nowrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.25rem;
+        width: max-content;
+        max-width: none;
+    }
+
+    .pg-payment-requests-page .fi-ta-actions .fi-ac-btn,
+    .pg-payment-requests-page .fi-ta-actions .fi-link,
+    .pg-payment-requests-page .fi-ta-actions .fi-btn,
+    .pg-payment-requests-page .fi-ta-actions a,
+    .pg-payment-requests-page .fi-ta-actions button {
+        white-space: nowrap;
+        flex: 0 0 auto;
+    }
 </style>

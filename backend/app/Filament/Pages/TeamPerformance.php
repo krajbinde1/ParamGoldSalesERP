@@ -256,6 +256,28 @@ class TeamPerformance extends Page
         return $metric.' · '.$employeeName;
     }
 
+    public function detailTotalLabel(): string
+    {
+        return match ($this->detailType) {
+            'sales' => 'Total Sales Amount',
+            'collection' => 'Total Collection Amount',
+            'field_activity' => 'Total Field Activities',
+            default => 'Total',
+        };
+    }
+
+    public function detailTotalDisplay(): string
+    {
+        $rows = $this->detailRows();
+
+        return match ($this->detailType) {
+            'sales' => $this->formatExactMoney(round(array_sum(array_column($rows, 'grand_total')), 2)),
+            'collection' => $this->formatExactMoney(round(array_sum(array_column($rows, 'amount')), 2)),
+            'field_activity' => (string) count($rows),
+            default => '0',
+        };
+    }
+
     /**
      * @return list<array<string, mixed>>
      */

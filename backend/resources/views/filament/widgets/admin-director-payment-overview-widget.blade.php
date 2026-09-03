@@ -1,5 +1,5 @@
 <x-filament-widgets::widget class="fi-admin-director-payment-overview-widget">
-    <div class="pg-admin-dash">
+    <div class="pg-admin-dash pg-payment-overview">
         <x-filament::section>
             <div class="pg-section-head">
                 <div>
@@ -15,7 +15,7 @@
                     @endphp
                     <{{ $tag }}
                         @if (filled($stat['url'] ?? null)) href="{{ $stat['url'] }}" @endif
-                        class="pg-status {{ ($stat['alert'] ?? false) ? 'pg-status--alert' : '' }}"
+                        class="pg-status pg-status--compact {{ ($stat['alert'] ?? false) ? 'pg-status--alert' : '' }}"
                     >
                         <div class="pg-icon pg-icon--{{ $stat['tone'] }}" aria-hidden="true">
                             <x-filament::icon :icon="$stat['icon']" />

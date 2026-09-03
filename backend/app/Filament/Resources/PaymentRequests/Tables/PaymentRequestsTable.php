@@ -29,6 +29,9 @@ class PaymentRequestsTable
         $secondName = (string) config('payment_requests.second_approver_name', 'Bhagwan Kakde');
 
         return $table
+            ->extraAttributes(['class' => 'pg-payment-requests-table'])
+            ->recordActionsColumnLabel('Action')
+            ->recordActionsAlignment('end')
             ->modifyQueryUsing(function (Builder $query): Builder {
                 return $query
                     ->reorder()
@@ -47,32 +50,46 @@ class PaymentRequestsTable
                     ->label('Request No')
                     ->searchable()
                     ->sortable()
-                    ->weight('semibold'),
+                    ->weight('semibold')
+                    ->width('8.5rem'),
                 TextColumn::make('vendor_name')
                     ->label('Vendor Name')
                     ->searchable()
-                    ->wrap(),
+                    ->limit(28)
+                    ->tooltip(fn (PaymentRequest $record): ?string => filled($record->vendor_name) && mb_strlen((string) $record->vendor_name) > 28
+                        ? $record->vendor_name
+                        : null)
+                    ->grow(),
                 TextColumn::make('vendor_mobile')
                     ->label('Mobile')
-                    ->searchable(),
+                    ->searchable()
+                    ->width('8rem'),
                 TextColumn::make('amount')
                     ->label('Amount')
                     ->money('INR')
-                    ->sortable(),
+                    ->sortable()
+                    ->alignEnd()
+                    ->width('7.5rem'),
                 TextColumn::make('remark')
                     ->label('Remark')
-                    ->limit(40)
-                    ->toggleable()
-                    ->placeholder('—'),
+                    ->limit(28)
+                    ->tooltip(fn (PaymentRequest $record): ?string => filled($record->remark) && mb_strlen((string) $record->remark) > 28
+                        ? $record->remark
+                        : null)
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->placeholder('—')
+                    ->width('10rem'),
                 TextColumn::make('status')
                     ->label('Current Stage')
                     ->badge()
                     ->formatStateUsing(fn (PaymentRequest $record): string => $record->currentStageLabel())
-                    ->color(fn (string $state): string => PaymentRequest::statusColor($state)),
+                    ->color(fn (string $state): string => PaymentRequest::statusColor($state))
+                    ->width('9.5rem'),
                 TextColumn::make('current_approver')
                     ->label('Current Approver')
                     ->state(fn (PaymentRequest $record): string => $record->currentApproverLabel())
-                    ->placeholder('—'),
+                    ->placeholder('—')
+                    ->width('8.5rem'),
                 TextColumn::make('first_approval_status')
                     ->label('First Approval')
                     ->state(fn (PaymentRequest $record): string => $record->firstApprovalStatusLabel())
@@ -82,7 +99,8 @@ class PaymentRequestsTable
                         'Rejected' => 'danger',
                         'Pending' => 'warning',
                         default => 'gray',
-                    }),
+                    })
+                    ->width('8rem'),
                 TextColumn::make('second_approval_status')
                     ->label('Second Approval')
                     ->state(fn (PaymentRequest $record): string => $record->secondApprovalStatusLabel())
@@ -92,16 +110,20 @@ class PaymentRequestsTable
                         'Rejected' => 'danger',
                         'Pending' => 'warning',
                         default => 'gray',
-                    }),
+                    })
+                    ->width('8.5rem'),
                 TextColumn::make('reminder_count')
-                    ->label('Reminder Count')
+                    ->label('Reminders')
                     ->alignCenter()
-                    ->sortable(),
+                    ->sortable()
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('5.5rem'),
                 TextColumn::make('last_reminded_at')
                     ->label('Last Reminder')
                     ->dateTime('d M Y, h:i A')
                     ->placeholder('—')
-                    ->toggleable(),
+                    ->toggleable(isToggledHiddenByDefault: true)
+                    ->width('9.5rem'),
                 TextColumn::make('payment_status')
                     ->label('Payment Status')
                     ->state(fn (PaymentRequest $record): string => $record->paymentStatusLabel())
@@ -110,7 +132,8 @@ class PaymentRequestsTable
                         'Payment Done' => 'success',
                         'Pending Payment' => 'warning',
                         default => 'gray',
-                    }),
+                    })
+                    ->width('8.5rem'),
             ])
             ->filters([
                 SelectFilter::make('workflow_status')

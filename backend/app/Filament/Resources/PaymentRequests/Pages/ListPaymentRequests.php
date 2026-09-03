@@ -35,4 +35,12 @@ class ListPaymentRequests extends ListRecords
     {
         return 1;
     }
+
+    /**
+     * @return array<string>
+     */
+    public function getPageClasses(): array
+    {
+        return ['pg-payment-requests-page'];
+    }
 }

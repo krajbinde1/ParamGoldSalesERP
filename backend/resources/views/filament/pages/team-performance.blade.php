@@ -158,6 +158,13 @@
                                                 </tr>
                                             @endforeach
                                         </tbody>
+                                        <tfoot>
+                                            <tr>
+                                                <th colspan="3">{{ $this->detailTotalLabel() }}</th>
+                                                <td class="pg-team-detail__num">{{ $this->detailTotalDisplay() }}</td>
+                                                <td></td>
+                                            </tr>
+                                        </tfoot>
                                     </table>
                                 </div>
                             @elseif ($this->detailType === 'collection')
@@ -183,6 +190,13 @@
                                                 </tr>
                                             @endforeach
                                         </tbody>
+                                        <tfoot>
+                                            <tr>
+                                                <th colspan="2">{{ $this->detailTotalLabel() }}</th>
+                                                <td class="pg-team-detail__num">{{ $this->detailTotalDisplay() }}</td>
+                                                <td></td>
+                                            </tr>
+                                        </tfoot>
                                     </table>
                                 </div>
                             @else
@@ -210,6 +224,12 @@
                                                 </tr>
                                             @endforeach
                                         </tbody>
+                                        <tfoot>
+                                            <tr>
+                                                <th colspan="4">{{ $this->detailTotalLabel() }}</th>
+                                                <td>{{ $this->detailTotalDisplay() }}</td>
+                                            </tr>
+                                        </tfoot>
                                     </table>
                                 </div>
                             @endif

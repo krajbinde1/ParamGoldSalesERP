@@ -1118,6 +1118,18 @@ it('shows employee-wise team performance on a dedicated page with period filters
         'status' => Order::STATUS_DISPATCHED,
     ]);
     $outOfRange->forceFill(['updated_at' => '2026-07-15 10:00:00'])->saveQuietly();
+    directorDashOrder($employee->id, $dealer->id, [
+        'order_no' => 'ORD-PENDING-IN-RANGE',
+        'grand_total' => 50000,
+        'status' => Order::STATUS_PENDING_APPROVAL,
+    ]);
+    $staleDispatch = directorDashOrder($employee->id, $dealer->id, [
+        'order_no' => 'ORD-STALE-DISPATCH',
+        'order_date' => '2026-06-01',
+        'grand_total' => 99999,
+        'status' => Order::STATUS_DISPATCHED,
+    ]);
+    $staleDispatch->forceFill(['updated_at' => '2026-08-21 10:00:00'])->saveQuietly();
 
     Collection::query()->create([
         'collection_date' => $today,
@@ -1127,6 +1139,15 @@ it('shows employee-wise team performance on a dedicated page with period filters
         'status' => Collection::STATUS_RECEIVED,
         'payment_mode' => 'Cash',
         'transaction_number' => 'TXN-TEAM-PERF-1',
+    ]);
+    Collection::query()->create([
+        'collection_date' => $today,
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'amount' => 77777,
+        'status' => Collection::STATUS_PENDING,
+        'payment_mode' => 'Cash',
+        'transaction_number' => 'TXN-TEAM-PERF-PENDING',
     ]);
 
     foreach (range(1, 4) as $index) {
@@ -1160,6 +1181,24 @@ it('shows employee-wise team performance on a dedicated page with period filters
         ->and($row['field_activity_achieved'])->toBe(4)
         ->and($row['field_activity_percentage'])->toBe(80.0)
         ->and($row['overall_percentage'])->toBe(80.0);
+
+    $monthStart = Carbon::parse('2026-08-01', AttendanceCalendar::TIMEZONE)->startOfMonth();
+    $monthEnd = Carbon::parse('2026-08-21', AttendanceCalendar::TIMEZONE)->endOfMonth();
+    $metrics = app(DashboardMetricsService::class);
+    $salesOrders = $metrics->employeeOrdersForPeriod($employee->id, $monthStart, $monthEnd);
+    $collections = $metrics->employeeCollectionsForPeriod($employee->id, $monthStart, $monthEnd);
+    $activities = $metrics->employeeFieldActivitiesForPeriod($employee->id, $monthStart, $monthEnd);
+
+    expect($metrics->salesAchievedForPeriod($employee->id, $monthStart, $monthEnd))
+        ->toBe(round(array_sum(array_column($salesOrders, 'grand_total')), 2))
+        ->toBe(80000.0)
+        ->and(collect($salesOrders)->pluck('order_no')->all())->toBe(['ORD-TEAM-PERF-1'])
+        ->and($metrics->collectionAchievedForPeriod($employee->id, $monthStart, $monthEnd))
+        ->toBe(round(array_sum(array_column($collections, 'amount')), 2))
+        ->toBe(40000.0)
+        ->and($metrics->fieldActivityAchievedForPeriod($employee->id, $monthStart, $monthEnd))
+        ->toBe(count($activities))
+        ->toBe(4);
 
     $periodLabel = 'This Month (01 Aug 2026 – 31 Aug 2026)';
     $message = TeamPerformance::whatsappShareMessage($row, $periodLabel);
@@ -1238,13 +1277,18 @@ it('shows employee-wise team performance on a dedicated page with period filters
         ->assertSee('Team Perf Dealer')
         ->assertSee(IndianCurrency::format(80000))
         ->assertSee($order->displayStatusLabel())
+        ->assertSee('Total Sales Amount')
         ->assertDontSee('ORD-OUT-OF-RANGE')
+        ->assertDontSee('ORD-PENDING-IN-RANGE')
+        ->assertDontSee('ORD-STALE-DISPATCH')
         ->assertDontSee('Team Perf Farmer 1')
         ->call('openDetail', $employee->id, 'collection')
         ->assertSee('Collection entries')
         ->assertSee('Team Perf Dealer')
         ->assertSee(IndianCurrency::format(40000))
         ->assertSee('Received')
+        ->assertSee('Total Collection Amount')
+        ->assertDontSee(IndianCurrency::format(77777))
         ->assertDontSee('ORD-TEAM-PERF-1')
         ->call('openDetail', $employee->id, 'field_activity')
         ->assertSee('Field activity records')
@@ -1253,6 +1297,7 @@ it('shows employee-wise team performance on a dedicated page with period filters
         ->assertSee('Farmer Visit')
         ->assertSee('Demo visit 1')
         ->assertSee('Completed')
+        ->assertSee('Total Field Activities')
         ->call('setPeriod', 'last_month')
         ->assertSee('01 Jul 2026 – 31 Jul 2026')
         ->assertDontSee('Team Perf Farmer 1')
