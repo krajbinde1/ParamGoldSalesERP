@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Orders\Pages;
 
 use App\Filament\Resources\Orders\OrderResource;
+use App\Filament\Widgets\AdminDirectorOrderOverviewWidget;
 use App\Models\Order;
 use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
@@ -142,6 +143,18 @@ class ListOrders extends ListRecords
             CreateAction::make()
                 ->visible(fn (): bool => ! auth()->user()?->hasOrdersOnlyFilamentAccess()),
         ];
+    }
+
+    protected function getHeaderWidgets(): array
+    {
+        return [
+            AdminDirectorOrderOverviewWidget::class,
+        ];
+    }
+
+    public function getHeaderWidgetsColumns(): int|array
+    {
+        return 1;
     }
 
     private function clearStatusTableFilter(): void

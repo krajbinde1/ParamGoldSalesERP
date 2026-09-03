@@ -5,7 +5,7 @@ namespace App\Filament\Resources\RawMaterials\Schemas;
 use App\Enums\InventoryUnit;
 use App\Filament\Resources\RawMaterials\RawMaterialResource;
 use App\Models\RawMaterial;
-use App\Services\Inventory\MaterialInwardCosting;
+use App\Services\Inventory\MaterialEffectiveRate;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
@@ -16,7 +16,6 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Schema;
 use Illuminate\Support\HtmlString;
-use Illuminate\Validation\ValidationException;
 
 class RawMaterialForm
 {
@@ -214,38 +213,36 @@ class RawMaterialForm
 
                             return '₹'.number_format((float) $record->current_stock_value, 2, '.', ',');
                         }),
+                    Placeholder::make('available_effective_rate_display')
+                        ->label('Effective Rate')
+                        ->visible(fn (): bool => RawMaterialResource::canViewPurchaseRates())
+                        ->content(function (?RawMaterial $record): HtmlString {
+                            if ($record === null) {
+                                return new HtmlString('—');
+                            }
+
+                            return new HtmlString(
+                                '<span class="tabular-nums font-semibold">'.e(app(MaterialEffectiveRate::class)->format(
+                                    (float) $record->current_stock_value,
+                                    (float) $record->current_stock,
+                                    $record->unit,
+                                )).'</span>'
+                            );
+                        }),
                 ]),
         ];
     }
 
     /**
-     * Existing Effective Rate display — same MaterialInwardCosting path as before.
-     * With Opening Stock Value as total inventory value and no GST/freight/other
-     * charges on this section, Effective Rate remains value ÷ qty (effective_unit_rate).
+     * Effective Rate is always ₹/Kg for weight units (Ton stock is converted to Kg
+     * for this display only). Stock quantity and stock value are unchanged.
      */
     private static function formatEffectiveRate(Get $get): string
     {
-        $qty = (float) ($get('opening_stock_quantity') ?? 0);
-        $value = (float) ($get('opening_stock_value') ?? 0);
-
-        if ($qty <= 0 || $value <= 0) {
-            return '—';
-        }
-
-        try {
-            $basicRate = round($value / $qty, 4);
-            $calculated = app(MaterialInwardCosting::class)->calculateItemAmounts([
-                'inward_quantity' => $qty,
-                'basic_rate' => $basicRate,
-                'discount_amount' => 0,
-                'freight_amount' => 0,
-                'other_charges' => 0,
-                'gst_percentage' => 0,
-            ]);
-
-            return '₹'.number_format((float) $calculated['effective_unit_rate'], 4, '.', ',');
-        } catch (ValidationException) {
-            return '—';
-        }
+        return app(MaterialEffectiveRate::class)->format(
+            (float) ($get('opening_stock_value') ?? 0),
+            (float) ($get('opening_stock_quantity') ?? 0),
+            filled($get('unit')) ? (string) $get('unit') : null,
+        );
     }
 }

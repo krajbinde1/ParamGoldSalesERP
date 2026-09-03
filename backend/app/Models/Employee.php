@@ -185,6 +185,16 @@ class Employee extends Authenticatable
         return $this->hasMany(EmployeeTask::class);
     }
 
+    public function weeklyTargets(): HasMany
+    {
+        return $this->hasMany(WeeklyTarget::class);
+    }
+
+    public function monthlyTargets(): HasMany
+    {
+        return $this->hasMany(MonthlyTarget::class);
+    }
+
     public function assignedDealersCount(): int
     {
         return $this->assignedDealers()->count();

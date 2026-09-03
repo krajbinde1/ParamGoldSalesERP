@@ -84,6 +84,7 @@ class CollectionsTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([]),
-            ]);
+            ])
+            ->defaultSort('created_at', 'desc');
     }
 }

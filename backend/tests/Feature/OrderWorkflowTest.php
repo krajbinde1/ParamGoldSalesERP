@@ -5,12 +5,14 @@ use App\Actions\Orders\BillOrderWithDocument;
 use App\Actions\Orders\RejectOrderWithRemarks;
 use App\Actions\Orders\SendOrderForBilling;
 use App\Enums\UserRole;
+use App\Filament\Resources\Orders\Pages\ListOrders;
 use App\Models\Order;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Livewire\Livewire;
 
 uses(RefreshDatabase::class);
 
@@ -1162,5 +1164,46 @@ it('shows corrected gst and grand total for historical orders stored with grand-
         ->and((float) $persisted->grand_total)->toBe(413.0)
         ->and((float) $persisted->taxable_amount_after_transport)->toBe(350.0)
         ->and((float) $persisted->subtotal)->toBe(100.0);
+});
+
+it('sorts the admin all-tab orders list by status priority then newest first', function (): void {
+    $admin = orderWorkflowAdmin();
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000401');
+
+    $make = function (string $status, \Illuminate\Support\Carbon $createdAt) use ($employee): Order {
+        $order = orderWorkflowPending($employee->id);
+        $order->forceFill([
+            'status' => $status,
+            'created_at' => $createdAt,
+        ])->saveQuietly();
+
+        return $order->fresh();
+    };
+
+    $rejectedOld = $make(Order::STATUS_REJECTED, now()->subDays(1));
+    $rejectedNew = $make(Order::STATUS_REJECTED, now()->subMinutes(1));
+    $dispatched = $make(Order::STATUS_DISPATCHED, now()->subMinutes(2));
+    $approvedOld = $make(Order::STATUS_APPROVED, now()->subDays(2));
+    $approvedNew = $make(Order::STATUS_APPROVED, now()->subMinutes(3));
+    $billed = $make(Order::STATUS_BILLED, now()->subMinutes(4));
+    $sentOld = $make(Order::STATUS_PENDING_FOR_BILLING, now()->subDays(3));
+    $sentNew = $make(Order::STATUS_PENDING_FOR_BILLING, now()->subMinutes(5));
+
+    $page = Livewire::actingAs($admin)
+        ->test(ListOrders::class)
+        ->assertSuccessful();
+
+    expect($page->instance()->activeTab)->toBe('all')
+        ->and($page->instance()->getFilteredSortedTableQuery()->pluck('id')->all())
+        ->toBe([
+            $sentNew->id,
+            $sentOld->id,
+            $billed->id,
+            $approvedNew->id,
+            $approvedOld->id,
+            $dispatched->id,
+            $rejectedNew->id,
+            $rejectedOld->id,
+        ]);
 });
 

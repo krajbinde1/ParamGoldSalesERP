@@ -521,6 +521,10 @@
         background: linear-gradient(90deg, #1D4ED8, #3B82F6);
     }
 
+    .pg-admin-dash .pg-progress__bar--field {
+        background: linear-gradient(90deg, #7C3AED, #A78BFA);
+    }
+
     /* Order status */
     .pg-admin-dash .pg-status-grid {
         display: grid;
@@ -1081,5 +1085,112 @@
     @media (min-width: 800px) {
         .pg-admin-dash .pg-status-grid--3 { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         .pg-admin-dash .pg-status-grid--4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    }
+
+    .pg-admin-dash .pg-team-card {
+        padding: 0.85rem 0;
+        border-bottom: 1px solid var(--pg-border);
+    }
+
+    .pg-admin-dash .pg-team-card:last-of-type { border-bottom: 0; }
+
+    .pg-admin-dash .pg-team-card__head {
+        display: flex;
+        align-items: center;
+        gap: 0.65rem 0.85rem;
+        flex-wrap: wrap;
+        margin-bottom: 0.65rem;
+    }
+
+    .pg-admin-dash .pg-team-card__name {
+        font-size: 0.9375rem;
+        font-weight: 700;
+        color: var(--pg-navy);
+        text-decoration: none;
+    }
+
+    .pg-admin-dash .pg-team-card__name:hover { color: #0F766E; }
+
+    .pg-admin-dash .pg-team-card__overall {
+        margin-left: auto;
+        font-size: 0.75rem;
+        font-weight: 750;
+        font-variant-numeric: tabular-nums;
+        color: var(--pg-navy);
+        background: #F1F5F9;
+        border-radius: 9999px;
+        padding: 0.2rem 0.55rem;
+        white-space: nowrap;
+    }
+
+    .pg-admin-dash .pg-team-card__overall--good {
+        color: #15803D;
+        background: #DCFCE7;
+    }
+
+    .pg-admin-dash .pg-team-card__overall--warn {
+        color: #B45309;
+        background: #FEF3C7;
+    }
+
+    .pg-admin-dash .pg-team-card__wa {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        padding: 0.28rem 0.6rem;
+        border-radius: 0.45rem;
+        background: #25D366;
+        color: #fff;
+        font-size: 0.6875rem;
+        font-weight: 700;
+        letter-spacing: 0.01em;
+        text-decoration: none;
+        white-space: nowrap;
+    }
+
+    .pg-admin-dash .pg-team-card__wa:hover { background: #1EBE5A; }
+
+    .pg-admin-dash .pg-team-card__metrics {
+        display: grid;
+        grid-template-columns: 1fr;
+        gap: 0.65rem;
+    }
+
+    @media (min-width: 800px) {
+        .pg-admin-dash .pg-team-card__metrics {
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 0.85rem 1.25rem;
+        }
+    }
+
+    .pg-admin-dash .pg-team-metric__row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.5rem;
+        margin-bottom: 0.15rem;
+    }
+
+    .pg-admin-dash .pg-team-metric__label {
+        font-size: 0.6875rem;
+        font-weight: 750;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+        color: var(--pg-muted);
+    }
+
+    .pg-admin-dash .pg-team-metric__pct {
+        font-size: 0.8125rem;
+        font-weight: 750;
+        font-variant-numeric: tabular-nums;
+        color: var(--pg-navy);
+        white-space: nowrap;
+    }
+
+    .pg-admin-dash .pg-team-metric__values {
+        margin: 0 0 0.35rem;
+        font-size: 0.75rem;
+        color: var(--pg-muted);
+        font-variant-numeric: tabular-nums;
     }
 </style>

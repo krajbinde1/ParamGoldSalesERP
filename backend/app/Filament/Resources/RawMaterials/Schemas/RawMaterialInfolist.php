@@ -6,6 +6,7 @@ use App\Enums\StockTransactionType;
 use App\Filament\Resources\RawMaterials\RawMaterialResource;
 use App\Models\RawMaterial;
 use App\Models\StockLedger;
+use App\Services\Inventory\MaterialEffectiveRate;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
@@ -41,7 +42,13 @@ class RawMaterialInfolist
                             ->state(fn (RawMaterial $record): string => self::formatMoney(self::openingValue($record))),
                         TextEntry::make('opening_effective_rate_display')
                             ->label('Effective Rate')
-                            ->state(fn (RawMaterial $record): string => self::formatRate(self::openingEffectiveRate($record))),
+                            ->state(function (RawMaterial $record): string {
+                                return app(MaterialEffectiveRate::class)->format(
+                                    self::openingValue($record),
+                                    (float) $record->opening_stock,
+                                    $record->unit,
+                                );
+                            }),
                         TextEntry::make('opening_date_display')
                             ->label('Opening Date')
                             ->state(fn (RawMaterial $record): string => self::openingDate($record) ?? '—'),
@@ -56,6 +63,14 @@ class RawMaterialInfolist
                         TextEntry::make('current_stock_value')
                             ->label('Stock Value')
                             ->money('INR')
+                            ->visible(fn (): bool => RawMaterialResource::canViewPurchaseRates()),
+                        TextEntry::make('available_effective_rate_display')
+                            ->label('Effective Rate')
+                            ->state(fn (RawMaterial $record): string => app(MaterialEffectiveRate::class)->format(
+                                (float) $record->current_stock_value,
+                                (float) $record->current_stock,
+                                $record->unit,
+                            ))
                             ->visible(fn (): bool => RawMaterialResource::canViewPurchaseRates()),
                     ]),
                 Section::make('System')
@@ -122,14 +137,5 @@ class RawMaterialInfolist
         }
 
         return '₹'.number_format($value, 2, '.', ',');
-    }
-
-    private static function formatRate(float $rate): string
-    {
-        if ($rate <= 0) {
-            return '—';
-        }
-
-        return '₹'.number_format($rate, 4, '.', ',');
     }
 }

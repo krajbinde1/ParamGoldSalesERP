@@ -103,6 +103,14 @@ class PaymentRequest extends Model
                 ]);
             }
         });
+
+        static::deleting(function (PaymentRequest $paymentRequest): void {
+            if ($paymentRequest->isLockedForAdminEdits()) {
+                throw ValidationException::withMessages([
+                    'payment_request' => ['Payment Request cannot be deleted after Director approval.'],
+                ]);
+            }
+        });
     }
 
     public function createdByUser(): BelongsTo

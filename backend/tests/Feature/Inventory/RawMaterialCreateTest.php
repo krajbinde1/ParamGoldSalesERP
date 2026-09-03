@@ -3,10 +3,13 @@
 use App\Enums\StockTransactionType;
 use App\Enums\UserRole;
 use App\Filament\Resources\RawMaterials\Pages\CreateRawMaterial;
+use App\Filament\Resources\RawMaterials\Pages\EditRawMaterial;
+use App\Filament\Resources\RawMaterials\Pages\ViewRawMaterial;
 use App\Models\RawMaterial;
 use App\Models\RawMaterialInward;
 use App\Models\StockLedger;
 use App\Models\User;
+use App\Services\Inventory\MaterialEffectiveRate;
 use App\Services\Inventory\RawMaterialCreateService;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -171,4 +174,52 @@ it('renders the simplified Opening Stock section on the Create Raw Material page
         ->assertSee('Cancel')
         ->assertDontSee('Save Draft')
         ->assertDontSee('Post Inward');
+});
+
+it('shows opening and available effective rate per kg when stock unit is ton', function (): void {
+    $material = app(RawMaterialCreateService::class)->create(
+        materialData: [
+            'material_name' => 'Ton Rate Alloy',
+            'unit' => 'Ton',
+            'minimum_stock' => 0,
+            'status' => true,
+        ],
+        opening: [
+            'quantity' => 0.650,
+            'value' => 110175,
+            'date' => now('Asia/Kolkata')->toDateString(),
+        ],
+        user: $this->director,
+    );
+
+    expect((float) $material->opening_stock)->toBe(0.65)
+        ->and((float) $material->current_stock)->toBe(0.65)
+        ->and((float) $material->current_stock_value)->toBe(110175.0)
+        ->and(app(MaterialEffectiveRate::class)->format(
+            110175,
+            0.650,
+            'Ton',
+        ))->toBe('₹169.50/Kg');
+
+    $this->actingAs($this->director);
+
+    Livewire::test(CreateRawMaterial::class)
+        ->fillForm([
+            'unit' => 'Ton',
+            'opening_stock_quantity' => 0.650,
+            'opening_stock_value' => 110175,
+        ])
+        ->assertSee('₹169.50/Kg')
+        ->assertDontSee('₹169,500');
+
+    Livewire::test(ViewRawMaterial::class, ['record' => $material->getKey()])
+        ->assertSuccessful()
+        ->assertSee('₹169.50/Kg')
+        ->assertDontSee('₹169,500')
+        ->assertSee('0.650');
+
+    Livewire::test(EditRawMaterial::class, ['record' => $material->getKey()])
+        ->assertSuccessful()
+        ->assertSee('₹169.50/Kg')
+        ->assertDontSee('₹169,500');
 });

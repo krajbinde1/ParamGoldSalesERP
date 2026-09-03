@@ -20,6 +20,7 @@ class WeeklyTarget extends Model
 
     protected $fillable = [
         'employee_id',
+        'monthly_target_id',
         'week_start_date',
         'week_end_date',
         'sales_target',
@@ -43,6 +44,16 @@ class WeeklyTarget extends Model
     public function employee(): BelongsTo
     {
         return $this->belongsTo(Employee::class);
+    }
+
+    public function monthlyTarget(): BelongsTo
+    {
+        return $this->belongsTo(MonthlyTarget::class);
+    }
+
+    public function isGeneratedFromMonthly(): bool
+    {
+        return $this->monthly_target_id !== null;
     }
 
     public static function businessToday(): Carbon

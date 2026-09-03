@@ -1,10 +1,13 @@
 <?php
 
 use App\Enums\UserRole;
+use App\Filament\Pages\Dashboard;
 use App\Filament\Resources\Collections\Pages\ListCollections;
 use App\Filament\Resources\Dealers\Pages\ListDealers;
 use App\Filament\Resources\Orders\Pages\ListOrders;
 use App\Filament\Widgets\AdminDirectorAttentionWidget;
+use App\Filament\Widgets\AdminDirectorEmployeePerformanceWidget;
+use App\Filament\Widgets\AdminDirectorOrderOverviewWidget;
 use App\Filament\Widgets\AdminDirectorPaymentOverviewWidget;
 use App\Filament\Widgets\AdminDirectorWelcomeWidget;
 use App\Models\Attendance;
@@ -20,9 +23,12 @@ use App\Models\Order;
 use App\Models\PaymentRequest;
 use App\Models\Product;
 use App\Models\User;
+use App\Models\WeeklyTarget;
+use App\Services\Dashboard\DashboardMetricsService;
 use App\Services\Dashboard\DirectorDashboardDataService;
 use App\Services\Dealers\DealerOutstandingService;
 use App\Support\AttendanceCalendar;
+use App\Support\IndianCurrency;
 use App\Support\PublicMediaUrl;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -356,18 +362,70 @@ it('renders director monitoring widgets and hides them from managers', function 
         ->assertSee('Today Sales');
 
     Livewire::actingAs($director)
-        ->test(AdminDirectorAttentionWidget::class)
-        ->assertSuccessful()
-        ->assertSee('Attention Required');
-
-    Livewire::actingAs($director)
         ->test(AdminDirectorPaymentOverviewWidget::class)
         ->assertSuccessful()
         ->assertSee('Pending My Approval');
 
+    $this->actingAs($director);
+    expect((new Dashboard)->getWidgets())->not->toContain(AdminDirectorAttentionWidget::class);
+
     $this->actingAs($manager);
     expect(AdminDirectorWelcomeWidget::canView())->toBeFalse()
         ->and(AdminDirectorAttentionWidget::canView())->toBeFalse();
+});
+
+it('shows the dashboard order pipeline on the admin orders list without duplicating counts', function (): void {
+    $admin = directorDashAdmin();
+    $manager = User::query()->create([
+        'name' => 'Orders List Manager',
+        'email' => 'orders.list.manager.'.uniqid().'@example.com',
+        'password' => 'password',
+        'role' => UserRole::Manager->value,
+    ]);
+    $employee = directorDashEmployee('Pipeline List Sales', '9910000110');
+    $dealer = directorDashDealer();
+
+    directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_PENDING_APPROVAL]);
+    directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_APPROVED]);
+    directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_ON_HOLD]);
+    directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_REVERTED_TO_MANAGER]);
+    directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_PENDING_FOR_BILLING]);
+    directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_BILLED]);
+    directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_DISPATCHED]);
+    directorDashOrder($employee->id, $dealer->id, ['status' => Order::STATUS_REJECTED]);
+
+    $pipeline = app(DirectorDashboardDataService::class)->snapshot($admin)['pipeline'];
+
+    Livewire::actingAs($admin)
+        ->test(ListOrders::class)
+        ->assertSuccessful()
+        ->assertSeeLivewire(AdminDirectorOrderOverviewWidget::class);
+
+    Livewire::actingAs($admin)
+        ->test(AdminDirectorOrderOverviewWidget::class)
+        ->assertSuccessful()
+        ->assertSee('Order Pipeline')
+        ->assertSee('Placed')
+        ->assertSee('Approved')
+        ->assertSee('On Hold')
+        ->assertSee('Returned')
+        ->assertSee('Sent for Bill')
+        ->assertSee('Billed')
+        ->assertSee('Dispatched')
+        ->assertSee('Rejected')
+        ->assertSee((string) $pipeline['placed'])
+        ->assertSee((string) $pipeline['approved'])
+        ->assertSee((string) $pipeline['on_hold'])
+        ->assertSee((string) $pipeline['reverted_to_manager'])
+        ->assertSee((string) $pipeline['sent_for_bill'])
+        ->assertSee((string) $pipeline['billed'])
+        ->assertSee((string) $pipeline['dispatched'])
+        ->assertSee((string) $pipeline['rejected']);
+
+    Livewire::actingAs($manager)
+        ->test(ListOrders::class)
+        ->assertSuccessful()
+        ->assertDontSeeLivewire(AdminDirectorOrderOverviewWidget::class);
 });
 
 it('counts all active non-dispatched order statuses as pending and matches the orders filter', function (): void {
@@ -1021,4 +1079,109 @@ it('lists dealers with outstanding for director and respects employee filter', f
         ->not->toContain($mid->id)
         ->and(collect($akashList->json('data'))->pluck('id')->all())
         ->toContain($low->id);
+});
+
+it('shows employee-wise monthly team performance with progress bars and a whatsapp share link', function (): void {
+    $admin = directorDashAdmin();
+    $employee = directorDashEmployee('Ravi Team Perf', '9910000099');
+    $dealer = directorDashDealer();
+    $today = AttendanceCalendar::today()->toDateString();
+
+    WeeklyTarget::query()->create([
+        'employee_id' => $employee->id,
+        'week_start_date' => '2026-08-01',
+        'week_end_date' => '2026-08-31',
+        'sales_target' => 100000,
+        'collection_target' => 50000,
+        'field_activity_target' => 5,
+        'status' => 'active',
+    ]);
+
+    directorDashOrder($employee->id, $dealer->id, [
+        'grand_total' => 80000,
+        'status' => Order::STATUS_DISPATCHED,
+    ]);
+
+    Collection::query()->create([
+        'collection_date' => $today,
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'amount' => 40000,
+        'status' => Collection::STATUS_RECEIVED,
+        'payment_mode' => 'Cash',
+        'transaction_number' => 'TXN-TEAM-PERF-1',
+    ]);
+
+    foreach (range(1, 4) as $index) {
+        FieldActivity::query()->create([
+            'employee_id' => $employee->id,
+            'farmer_name' => 'Team Perf Farmer '.$index,
+            'village' => 'Waluj',
+            'taluka' => 'Gangapur',
+            'activity_date' => $today,
+            'activity_time' => sprintf('11:%02d:00', $index),
+            'photo_path' => 'field-activities/team-perf-'.$index.'.jpg',
+            'status' => FieldActivity::STATUS_COMPLETED,
+        ]);
+    }
+
+    $row = app(DashboardMetricsService::class)->employeePerformanceRow(
+        $employee,
+        Carbon::parse('2026-08-01', AttendanceCalendar::TIMEZONE)->startOfMonth(),
+        Carbon::parse('2026-08-21', AttendanceCalendar::TIMEZONE)->endOfMonth(),
+    );
+
+    expect($row['sales_target'])->toBe(100000.0)
+        ->and($row['sales_achieved'])->toBe(80000.0)
+        ->and($row['sales_percentage'])->toBe(80.0)
+        ->and($row['collection_target'])->toBe(50000.0)
+        ->and($row['collection_achieved'])->toBe(40000.0)
+        ->and($row['collection_percentage'])->toBe(80.0)
+        ->and($row['field_activity_target'])->toBe(5)
+        ->and($row['field_activity_achieved'])->toBe(4)
+        ->and($row['field_activity_percentage'])->toBe(80.0)
+        ->and($row['overall_percentage'])->toBe(80.0);
+
+    $message = AdminDirectorEmployeePerformanceWidget::whatsappShareMessage($row, 'August 2026');
+    $url = AdminDirectorEmployeePerformanceWidget::whatsappShareUrl($row, 'August 2026');
+
+    expect($message)
+        ->toContain('ParamGold Monthly Performance')
+        ->toContain('Employee: Ravi Team Perf')
+        ->toContain('Month: August 2026')
+        ->toContain('Sales')
+        ->toContain('Target: '.IndianCurrency::format(100000))
+        ->toContain('Achieved: '.IndianCurrency::format(80000))
+        ->toContain('Achievement: 80.0%')
+        ->toContain('Collection')
+        ->toContain('Target: '.IndianCurrency::format(50000))
+        ->toContain('Achieved: '.IndianCurrency::format(40000))
+        ->toContain('Field Activity')
+        ->toContain('Target: 5')
+        ->toContain('Achieved: 4')
+        ->toContain('Overall Performance: 80.0%')
+        ->and($url)->toStartWith('https://wa.me/?text=')
+        ->and($url)->not->toMatch('#wa\.me/\d#')
+        ->and($url)->toContain(rawurlencode('Employee: Ravi Team Perf'));
+
+    Livewire::actingAs($admin)
+        ->test(AdminDirectorEmployeePerformanceWidget::class)
+        ->assertSuccessful()
+        ->assertSee('Team Performance')
+        ->assertSee('August 2026')
+        ->assertSee('Ravi Team Perf')
+        ->assertSee('Sales')
+        ->assertSee('Collection')
+        ->assertSee('Field Activity')
+        ->assertSee('Overall 80%')
+        ->assertSee('Share on WhatsApp')
+        ->assertSee('Target ₹1.00 L')
+        ->assertSee('Achieved ₹80,000')
+        ->assertSee('Target ₹50,000')
+        ->assertSee('Achieved ₹40,000')
+        ->assertSee('Target 5')
+        ->assertSee('Achieved 4')
+        ->assertSeeHtml('pg-progress__track')
+        ->assertSeeHtml('pg-progress__bar--field')
+        ->assertSeeHtml('https://wa.me/?text=');
 });

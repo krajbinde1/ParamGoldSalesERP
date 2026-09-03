@@ -3,7 +3,6 @@
 namespace App\Filament\Pages;
 
 use App\Filament\Resources\Orders\OrderResource;
-use App\Filament\Widgets\AdminDirectorAttentionWidget;
 use App\Filament\Widgets\AdminDirectorBusinessPerformanceWidget;
 use App\Filament\Widgets\AdminDirectorCollectionOutstandingWidget;
 use App\Filament\Widgets\AdminDirectorEmployeePerformanceWidget;
@@ -72,7 +71,6 @@ class Dashboard extends BaseDashboard
         if (auth()->user()?->usesAdminDirectorDashboard()) {
             return [
                 AdminDirectorWelcomeWidget::class,
-                AdminDirectorAttentionWidget::class,
                 AdminDirectorBusinessPerformanceWidget::class,
                 AdminDirectorTeamActivityWidget::class,
                 AdminDirectorOrderOverviewWidget::class,

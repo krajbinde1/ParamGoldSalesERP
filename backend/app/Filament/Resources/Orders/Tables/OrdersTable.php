@@ -94,7 +94,12 @@ class OrdersTable
         }
 
         return $table
-            ->defaultSort('created_at', 'desc')
+            ->defaultSort(
+                fn (Builder $query): Builder => $query
+                    ->orderByAdminListPriority()
+                    ->orderByDesc('created_at'),
+                'desc',
+            )
             ->recordActionsColumnLabel('Action')
             ->columns([
                 TextColumn::make('order_no')

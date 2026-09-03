@@ -31,12 +31,12 @@ class PaymentRequestPolicy
 
     public function update(User $user, PaymentRequest $paymentRequest): bool
     {
-        return false;
+        return $user->isAdminUser() && ! $paymentRequest->isLockedForAdminEdits();
     }
 
     public function delete(User $user, PaymentRequest $paymentRequest): bool
     {
-        return false;
+        return $user->isAdminUser() && ! $paymentRequest->isLockedForAdminEdits();
     }
 
     public function approveFirst(User $user, PaymentRequest $paymentRequest): bool

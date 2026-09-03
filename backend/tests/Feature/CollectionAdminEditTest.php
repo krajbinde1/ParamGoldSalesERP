@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use App\Filament\Resources\Collections\Pages\EditCollection;
 use App\Filament\Resources\Collections\Pages\ListCollections;
 use App\Filament\Resources\Collections\Pages\ViewCollection;
+use App\Filament\Widgets\AdminDirectorCollectionOutstandingWidget;
 use App\Models\Collection;
 use App\Models\CollectionAudit;
 use App\Models\Dealer;
@@ -312,6 +313,42 @@ it('requires a remark when admin sets not received or rejected and shows it on t
 
     expect($collection->fresh()->status)->toBe(Collection::STATUS_RECEIVED)
         ->and($collection->fresh()->admin_remark)->toBe('Cash not deposited');
+});
+
+it('lists newest collection entries first and shows the dashboard collection cards for admin', function (): void {
+    $admin = collectionEditAdmin();
+    $manager = collectionEditManager();
+    $employee = collectionEditEmployee('9811200099');
+    $dealer = collectionEditDealer($employee, 'Newest First Dealer');
+    $older = collectionEditRecord($dealer, $employee, ['receipt_no' => 'RCP-OLD-1']);
+    $newer = collectionEditRecord($dealer, $employee, ['receipt_no' => 'RCP-NEW-1']);
+
+    $older->forceFill(['created_at' => now()->subDays(2)])->saveQuietly();
+    $newer->forceFill(['created_at' => now()->subHour()])->saveQuietly();
+
+    $adminPage = Livewire::actingAs($admin)
+        ->test(ListCollections::class)
+        ->assertSuccessful()
+        ->assertSeeLivewire(AdminDirectorCollectionOutstandingWidget::class);
+
+    expect($adminPage->instance()->getFilteredSortedTableQuery()->pluck('id')->all())
+        ->toBe([$newer->id, $older->id]);
+
+    Livewire::actingAs($admin)
+        ->test(AdminDirectorCollectionOutstandingWidget::class)
+        ->assertSuccessful()
+        ->assertSee("Today's Collection")
+        ->assertSee('This Month Collection')
+        ->assertSee('Total Outstanding')
+        ->assertSee('High Outstanding Dealers');
+
+    $managerPage = Livewire::actingAs($manager)
+        ->test(ListCollections::class)
+        ->assertSuccessful()
+        ->assertDontSeeLivewire(AdminDirectorCollectionOutstandingWidget::class);
+
+    expect($managerPage->instance()->getFilteredSortedTableQuery()->pluck('id')->all())
+        ->toBe([$newer->id, $older->id]);
 });
 
 it('uses green orange and red status colors', function (): void {

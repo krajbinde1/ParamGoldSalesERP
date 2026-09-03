@@ -435,6 +435,11 @@ class DashboardMetricsService
             'field_activity_achieved' => $targets['field_activity_achieved'],
             'field_activity_remaining' => $targets['field_activity_remaining'],
             'field_activity_percentage' => $targets['field_activity_percentage'],
+            'overall_percentage' => $this->overallPercentage(
+                (float) $targets['sales_percentage'],
+                (float) $targets['collection_percentage'],
+                (float) $targets['field_activity_percentage'],
+            ),
             'total_order_amount' => $totalOrderAmount,
             'total_orders' => $orders['total_orders'],
             'pending_orders' => $orders['pending_orders'],
@@ -531,6 +536,11 @@ class DashboardMetricsService
     private function percentage(float $target, float $achieved): float
     {
         return $target > 0 ? round(($achieved / $target) * 100, 2) : 0.0;
+    }
+
+    public function overallPercentage(float $salesPercentage, float $collectionPercentage, float $fieldActivityPercentage): float
+    {
+        return round(($salesPercentage + $collectionPercentage + $fieldActivityPercentage) / 3, 2);
     }
 
     /**

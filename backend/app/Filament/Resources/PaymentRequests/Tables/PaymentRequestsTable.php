@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\PaymentRequests\Tables;
 
+use App\Actions\PaymentRequests\DeletePaymentRequest;
 use App\Actions\PaymentRequests\SendPaymentRequestReminder;
 use App\Filament\Support\TodayDateFilter;
 use App\Models\PaymentRequest;
@@ -9,6 +10,8 @@ use App\Services\PaymentRequests\PaymentRequestApproverResolver;
 use Filament\Actions\Action;
 use Filament\Actions\BulkAction;
 use Filament\Actions\BulkActionGroup;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
@@ -160,6 +163,19 @@ class PaymentRequestsTable
                         }
                     }),
                 ViewAction::make(),
+                EditAction::make()
+                    ->visible(fn (PaymentRequest $record): bool => Gate::forUser(auth()->user())->allows('update', $record)),
+                DeleteAction::make()
+                    ->label('Delete')
+                    ->visible(fn (PaymentRequest $record): bool => Gate::forUser(auth()->user())->allows('delete', $record))
+                    ->requiresConfirmation()
+                    ->modalHeading('Delete Payment Request')
+                    ->modalDescription('This will permanently delete this payment request. This cannot be undone.')
+                    ->modalSubmitActionLabel('Delete')
+                    ->successNotificationTitle('Payment request deleted')
+                    ->using(function (PaymentRequest $record): void {
+                        app(DeletePaymentRequest::class)->execute($record, auth()->user());
+                    }),
             ])
             ->toolbarActions([
                 BulkActionGroup::make([

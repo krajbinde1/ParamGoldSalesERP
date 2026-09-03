@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\PaymentRequests\Pages;
 
+use App\Actions\PaymentRequests\DeletePaymentRequest;
 use App\Actions\PaymentRequests\DeletePaymentRequestSupportingDocument;
 use App\Actions\PaymentRequests\MarkPaymentRequestPaid;
 use App\Actions\PaymentRequests\SendPaymentRequestReminder;
@@ -10,6 +11,8 @@ use App\Filament\Resources\PaymentRequests\PaymentRequestResource;
 use App\Models\PaymentRequest;
 use App\Models\PaymentRequestSupportingDocument;
 use Filament\Actions\Action;
+use Filament\Actions\DeleteAction;
+use Filament\Actions\EditAction;
 use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -75,6 +78,20 @@ class ViewPaymentRequest extends ViewRecord
         $record = $this->getRecord();
 
         return [
+            EditAction::make()
+                ->visible(fn (): bool => Gate::forUser(auth()->user())->allows('update', $record)),
+            DeleteAction::make()
+                ->label('Delete')
+                ->visible(fn (): bool => Gate::forUser(auth()->user())->allows('delete', $record))
+                ->requiresConfirmation()
+                ->modalHeading('Delete Payment Request')
+                ->modalDescription('This will permanently delete this payment request. This cannot be undone.')
+                ->modalSubmitActionLabel('Delete')
+                ->successNotificationTitle('Payment request deleted')
+                ->successRedirectUrl(PaymentRequestResource::getUrl())
+                ->using(function () use ($record): void {
+                    app(DeletePaymentRequest::class)->execute($record, auth()->user());
+                }),
             Action::make('addSupportingDocuments')
                 ->label('Add Supporting Document')
                 ->icon('heroicon-o-paper-clip')

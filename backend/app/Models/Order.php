@@ -76,6 +76,25 @@ class Order extends Model
     }
 
     /**
+     * Admin Orders "All" tab: Sent for Bill, Billed, Approved, other statuses, Dispatched, Rejected last.
+     */
+    public function scopeOrderByAdminListPriority(Builder $query): Builder
+    {
+        $status = $query->getModel()->qualifyColumn('status');
+
+        return $query->orderByRaw(
+            "CASE {$status} WHEN ? THEN 1 WHEN ? THEN 2 WHEN ? THEN 3 WHEN ? THEN 5 WHEN ? THEN 6 ELSE 4 END",
+            [
+                self::STATUS_PENDING_FOR_BILLING,
+                self::STATUS_BILLED,
+                self::STATUS_APPROVED,
+                self::STATUS_DISPATCHED,
+                self::STATUS_REJECTED,
+            ],
+        );
+    }
+
+    /**
      * Orders that have entered accounting receivables (billed once; dispatch does not add again).
      *
      * @return list<string>

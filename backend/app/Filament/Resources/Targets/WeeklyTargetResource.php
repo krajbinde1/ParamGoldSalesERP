@@ -16,6 +16,7 @@ use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
 
 class WeeklyTargetResource extends Resource
 {
@@ -36,6 +37,11 @@ class WeeklyTargetResource extends Resource
     protected static ?string $pluralModelLabel = 'Targets';
 
     protected static ?string $recordTitleAttribute = 'week_start_date';
+
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->with(['employee', 'monthlyTarget']);
+    }
 
     public static function form(Schema $schema): Schema
     {

@@ -4,6 +4,7 @@ namespace App\Filament\Resources\PaymentRequests;
 
 use App\Filament\Resources\PaymentRequests\Pages\CreateBulkPaymentRequest;
 use App\Filament\Resources\PaymentRequests\Pages\CreatePaymentRequest;
+use App\Filament\Resources\PaymentRequests\Pages\EditPaymentRequest;
 use App\Filament\Resources\PaymentRequests\Pages\ListPaymentRequests;
 use App\Filament\Resources\PaymentRequests\Pages\ViewPaymentRequest;
 use App\Filament\Resources\PaymentRequests\Schemas\PaymentRequestForm;
@@ -72,17 +73,18 @@ class PaymentRequestResource extends Resource
             'create' => CreatePaymentRequest::route('/create'),
             'bulk-create' => CreateBulkPaymentRequest::route('/bulk-create'),
             'view' => ViewPaymentRequest::route('/{record}'),
+            'edit' => EditPaymentRequest::route('/{record}/edit'),
         ];
     }
 
     public static function canEdit(Model $record): bool
     {
-        return false;
+        return auth()->user()?->can('update', $record) ?? false;
     }
 
     public static function canDelete(Model $record): bool
     {
-        return false;
+        return auth()->user()?->can('delete', $record) ?? false;
     }
 
     public static function getEloquentQuery(): Builder
