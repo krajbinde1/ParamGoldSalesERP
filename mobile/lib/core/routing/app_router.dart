@@ -40,6 +40,7 @@ import '../../modules/field_activities/screens/field_activity_detail_screen.dart
 import '../../modules/field_activities/screens/new_field_activity_screen.dart';
 import '../../modules/dashboard/screens/coming_soon_screen.dart';
 import '../../modules/dashboard/screens/role_dashboard_screen.dart';
+import '../../modules/dashboard/screens/employee_targets_screen.dart';
 import '../../modules/planning/screens/todays_planning_screen.dart';
 import '../../modules/orders/models/order_draft.dart';
 import '../../modules/orders/models/order_filter.dart';
@@ -168,6 +169,10 @@ GoRouter createRouter(
     GoRoute(
       path: '/planning',
       builder: (_, _) => TodaysPlanningScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/targets',
+      builder: (_, _) => EmployeeTargetsScreen(auth: auth),
     ),
     GoRoute(
       path: '/profile',
@@ -546,7 +551,7 @@ GoRouter createRouter(
             return ManagerEmployeeDetailScreen(
               auth: auth,
               employeeId: int.parse(state.pathParameters['employeeId']!),
-              period: extra?['period']?.toString() ?? 'month',
+              period: extra?['period']?.toString() ?? 'week',
               startDate: extra?['startDate']?.toString(),
               endDate: extra?['endDate']?.toString(),
             );

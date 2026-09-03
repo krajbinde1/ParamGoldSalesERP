@@ -13,17 +13,20 @@ class PgProgressBar extends StatelessWidget {
   });
 
   final String label;
-  final double percentage;
+  final double? percentage;
   final String? currentLabel;
   final String? targetLabel;
   final Color color;
 
   @override
   Widget build(BuildContext context) {
-    final value = (percentage / 100).clamp(0.0, 1.0);
-    final percentText = percentage == percentage.roundToDouble()
-        ? '${percentage.toInt()}%'
-        : '${percentage.toStringAsFixed(1)}%';
+    final hasTarget = percentage != null;
+    final value = hasTarget ? (percentage! / 100).clamp(0.0, 1.0) : 0.0;
+    final percentText = !hasTarget
+        ? 'N/A'
+        : percentage == percentage!.roundToDouble()
+            ? '${percentage!.toInt()}%'
+            : '${percentage!.toStringAsFixed(1)}%';
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,

@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Employees\CreateEmployeeWithUserAccount;
+use App\Actions\Targets\SaveMonthlyTarget;
 use App\Enums\UserRole;
 use App\Models\Collection;
 use App\Models\Dealer;
@@ -175,7 +176,7 @@ it('returns each sales employee their own current-month targets using employee_i
     ]);
 
     $this->actingAs($first->user, 'sanctum')
-        ->getJson('/api/employee/dashboard')
+        ->getJson('/api/employee/dashboard?period=month')
         ->assertOk()
         ->assertJsonPath('employee.id', $first->id)
         ->assertJsonPath('sales_target', 500000)
@@ -190,7 +191,7 @@ it('returns each sales employee their own current-month targets using employee_i
         ->assertJsonPath('field_activity_percentage', 4);
 
     $this->actingAs($second->user, 'sanctum')
-        ->getJson('/api/employee/dashboard')
+        ->getJson('/api/employee/dashboard?period=month')
         ->assertOk()
         ->assertJsonPath('employee.id', $second->id)
         ->assertJsonPath('sales_target', 250000)
@@ -203,7 +204,7 @@ it('returns each sales employee their own current-month targets using employee_i
         ->assertJsonPath('field_activity_percentage', 5);
 
     $this->actingAs($third->user, 'sanctum')
-        ->getJson('/api/employee/dashboard')
+        ->getJson('/api/employee/dashboard?period=month')
         ->assertOk()
         ->assertJsonPath('employee.id', $third->id)
         ->assertJsonPath('sales_target', 0)
@@ -213,5 +214,182 @@ it('returns each sales employee their own current-month targets using employee_i
         ->assertJsonPath('field_activity_target', 0)
         ->assertJsonPath('field_activity_achieved', 0)
         ->assertJsonPath('field_activity_remaining', 0)
-        ->assertJsonPath('field_activity_percentage', 0);
+        ->assertJsonPath('field_activity_percentage', null);
+});
+
+it('defaults employee dashboard and targets to this week including auto-generated weekly splits', function () {
+    $employee = dashboardTargetEmployee('Weekly Split Sales', '9300000011');
+    $dealer = dashboardTargetDealer();
+
+    $monthly = app(SaveMonthlyTarget::class)->execute([
+        'employee_id' => $employee->id,
+        'month_start_date' => '2026-08-01',
+        'sales_target' => 310000,
+        'collection_target' => 155000,
+        'field_activity_target' => 31,
+        'status' => 'active',
+    ]);
+
+    $thisWeek = $monthly->weeklyTargets()
+        ->whereDate('week_start_date', '2026-08-17')
+        ->whereDate('week_end_date', '2026-08-23')
+        ->first();
+
+    expect($thisWeek)->not->toBeNull();
+
+    Order::query()->create([
+        'order_no' => 'ORD-WEEK-SPLIT',
+        'order_date' => '2026-08-20',
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'status' => Order::STATUS_DISPATCHED,
+        'payment_type' => 'Credit',
+        'subtotal' => 9000,
+        'discount_amount' => 0,
+        'gst_amount' => 0,
+        'grand_total' => 9000,
+        'updated_at' => '2026-08-20 10:00:00',
+    ]);
+    Collection::query()->create([
+        'collection_date' => '2026-08-19',
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'amount' => 2500,
+        'status' => Collection::STATUS_RECEIVED,
+        'payment_mode' => 'Cash',
+        'transaction_number' => 'TXN-WEEK-SPLIT',
+    ]);
+    FieldActivity::query()->create([
+        'employee_id' => $employee->id,
+        'farmer_name' => 'Week Farmer',
+        'village' => 'Waluj',
+        'taluka' => 'Gangapur',
+        'activity_date' => '2026-08-18',
+        'activity_time' => '10:00:00',
+        'photo_path' => 'field-activities/week-split.jpg',
+        'status' => FieldActivity::STATUS_COMPLETED,
+    ]);
+
+    $dashboard = $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/employee/dashboard')
+        ->assertOk()
+        ->assertJsonPath('period', 'This Week')
+        ->assertJsonPath('period_key', 'week')
+        ->assertJsonPath('start_date', '2026-08-17')
+        ->assertJsonPath('end_date', '2026-08-20')
+        ->assertJsonPath('sales_achieved', 9000)
+        ->assertJsonPath('collection_achieved', 2500)
+        ->assertJsonPath('field_activity_target', (int) $thisWeek->field_activity_target)
+        ->assertJsonPath('field_activity_achieved', 1);
+
+    expect((float) $dashboard->json('sales_target'))->toBe((float) $thisWeek->sales_target)
+        ->and((float) $dashboard->json('collection_target'))->toBe((float) $thisWeek->collection_target)
+        ->and((float) $dashboard->json('weekly_sales_target'))->toBe((float) $thisWeek->sales_target);
+
+    $targets = $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/employee/targets')
+        ->assertOk()
+        ->assertJsonPath('period', 'This Week')
+        ->assertJsonPath('period_key', 'week')
+        ->assertJsonPath('start_date', '2026-08-17')
+        ->assertJsonPath('end_date', '2026-08-20')
+        ->assertJsonPath('sales_achieved', 9000)
+        ->assertJsonPath('collection_achieved', 2500)
+        ->assertJsonPath('field_activity_achieved', 1);
+
+    expect((float) $targets->json('sales_target'))->toBe((float) $thisWeek->sales_target);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/employee/dashboard?period=month')
+        ->assertOk()
+        ->assertJsonPath('period', 'This Month')
+        ->assertJsonPath('sales_target', 310000)
+        ->assertJsonPath('collection_target', 155000)
+        ->assertJsonPath('field_activity_target', 31)
+        ->assertJsonPath('sales_achieved', 9000);
+
+    expect((float) $thisWeek->sales_target)->not->toBe(310000.0);
+
+    $updated = app(SaveMonthlyTarget::class)->execute([
+        'employee_id' => $employee->id,
+        'month_start_date' => '2026-08-01',
+        'sales_target' => 620000,
+        'collection_target' => 310000,
+        'field_activity_target' => 62,
+        'status' => 'active',
+    ], $monthly);
+
+    $updatedWeek = $updated->weeklyTargets()
+        ->whereDate('week_start_date', '2026-08-17')
+        ->whereDate('week_end_date', '2026-08-23')
+        ->first();
+
+    expect($updated->weeklyTargets()->count())->toBe($monthly->weeklyTargets()->count())
+        ->and((float) $updatedWeek->sales_target)->not->toBe((float) $thisWeek->sales_target);
+
+    $weekAfterEdit = $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/employee/targets?period=week')
+        ->assertOk();
+
+    expect((float) $weekAfterEdit->json('sales_target'))->toBe((float) $updatedWeek->sales_target)
+        ->and((float) $weekAfterEdit->json('collection_target'))->toBe((float) $updatedWeek->collection_target)
+        ->and((int) $weekAfterEdit->json('field_activity_target'))->toBe((int) $updatedWeek->field_activity_target);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/employee/targets?period=month')
+        ->assertOk()
+        ->assertJsonPath('sales_target', 620000)
+        ->assertJsonPath('collection_target', 310000)
+        ->assertJsonPath('field_activity_target', 62);
+});
+
+it('shows target zero and n/a percentage while still returning achievement for the selected week', function () {
+    $employee = dashboardTargetEmployee('No Target Sales', '9300000012');
+    $dealer = dashboardTargetDealer();
+
+    Order::query()->create([
+        'order_no' => 'ORD-NO-TARGET',
+        'order_date' => '2026-08-20',
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'status' => Order::STATUS_DISPATCHED,
+        'payment_type' => 'Credit',
+        'subtotal' => 4500,
+        'discount_amount' => 0,
+        'gst_amount' => 0,
+        'grand_total' => 4500,
+        'updated_at' => '2026-08-20 10:00:00',
+    ]);
+    Collection::query()->create([
+        'collection_date' => '2026-08-18',
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'amount' => 1200,
+        'status' => Collection::STATUS_RECEIVED,
+        'payment_mode' => 'Cash',
+        'transaction_number' => 'TXN-NO-TARGET',
+    ]);
+    FieldActivity::query()->create([
+        'employee_id' => $employee->id,
+        'farmer_name' => 'No Target Farmer',
+        'village' => 'Waluj',
+        'taluka' => 'Gangapur',
+        'activity_date' => '2026-08-19',
+        'activity_time' => '10:00:00',
+        'photo_path' => 'field-activities/no-target.jpg',
+        'status' => FieldActivity::STATUS_COMPLETED,
+    ]);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/employee/targets?period=week')
+        ->assertOk()
+        ->assertJsonPath('sales_target', 0)
+        ->assertJsonPath('sales_achieved', 4500)
+        ->assertJsonPath('sales_percentage', null)
+        ->assertJsonPath('collection_target', 0)
+        ->assertJsonPath('collection_achieved', 1200)
+        ->assertJsonPath('collection_percentage', null)
+        ->assertJsonPath('field_activity_target', 0)
+        ->assertJsonPath('field_activity_achieved', 1)
+        ->assertJsonPath('field_activity_percentage', null);
 });

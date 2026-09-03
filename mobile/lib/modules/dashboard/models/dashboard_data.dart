@@ -8,18 +8,22 @@ class DashboardData {
     required this.todayDealerVisits,
     this.todayPlanningPending = 0,
     this.todayPlanningCompleted = 0,
+    this.periodLabel = 'This Week',
+    this.periodKey = 'week',
+    this.startDate,
+    this.endDate,
     required this.weeklySalesTarget,
     required this.weeklySalesAchieved,
-    required this.weeklySalesPercentage,
+    this.weeklySalesPercentage,
     required this.weeklyCollectionTarget,
     required this.weeklyCollectionAchieved,
-    required this.weeklyCollectionPercentage,
+    this.weeklyCollectionPercentage,
     this.weeklySalesRemaining = 0,
     this.weeklyCollectionRemaining = 0,
     this.fieldActivityTarget = 0,
     this.fieldActivityAchieved = 0,
     this.fieldActivityRemaining = 0,
-    this.fieldActivityPercentage = 0,
+    this.fieldActivityPercentage,
   });
 
   final String attendanceStatus;
@@ -30,18 +34,22 @@ class DashboardData {
   final int todayDealerVisits;
   final int todayPlanningPending;
   final int todayPlanningCompleted;
+  final String periodLabel;
+  final String periodKey;
+  final String? startDate;
+  final String? endDate;
   final double weeklySalesTarget;
   final double weeklySalesAchieved;
-  final double weeklySalesPercentage;
+  final double? weeklySalesPercentage;
   final double weeklyCollectionTarget;
   final double weeklyCollectionAchieved;
-  final double weeklyCollectionPercentage;
+  final double? weeklyCollectionPercentage;
   final double weeklySalesRemaining;
   final double weeklyCollectionRemaining;
   final double fieldActivityTarget;
   final double fieldActivityAchieved;
   final double fieldActivityRemaining;
-  final double fieldActivityPercentage;
+  final double? fieldActivityPercentage;
 
   factory DashboardData.fromJson(Map<String, dynamic> json) {
     final attendance = Map<String, dynamic>.from(
@@ -62,6 +70,14 @@ class DashboardData {
       return 0;
     }
 
+    double? readPercent(List<String> keys) {
+      for (final key in keys) {
+        if (json.containsKey(key)) return _asDouble(json[key]);
+        if (summary.containsKey(key)) return _asDouble(summary[key]);
+      }
+      return null;
+    }
+
     return DashboardData(
       attendanceStatus: attendance['status']?.toString() ?? 'absent',
       attendancePunchIn: attendance['punch_in']?.toString(),
@@ -77,6 +93,10 @@ class DashboardData {
           0,
       todayPlanningPending: _asInt(planning['pending']) ?? 0,
       todayPlanningCompleted: _asInt(planning['completed']) ?? 0,
+      periodLabel: json['period']?.toString() ?? 'This Week',
+      periodKey: json['period_key']?.toString() ?? 'week',
+      startDate: json['start_date']?.toString(),
+      endDate: json['end_date']?.toString(),
       weeklySalesTarget: readAmount(const [
         'sales_target',
         'weekly_sales_target',
@@ -85,7 +105,7 @@ class DashboardData {
         'sales_achieved',
         'weekly_sales_achieved',
       ]),
-      weeklySalesPercentage: readAmount(const [
+      weeklySalesPercentage: readPercent(const [
         'sales_percentage',
         'weekly_sales_percentage',
       ]),
@@ -97,7 +117,7 @@ class DashboardData {
         'collection_achieved',
         'weekly_collection_achieved',
       ]),
-      weeklyCollectionPercentage: readAmount(const [
+      weeklyCollectionPercentage: readPercent(const [
         'collection_percentage',
         'weekly_collection_percentage',
       ]),
@@ -121,7 +141,7 @@ class DashboardData {
         'field_activity_remaining',
         'weekly_field_activity_remaining',
       ]),
-      fieldActivityPercentage: readAmount(const [
+      fieldActivityPercentage: readPercent(const [
         'field_activity_percentage',
         'weekly_field_activity_percentage',
       ]),
@@ -135,6 +155,7 @@ class DashboardData {
   }
 
   static double? _asDouble(Object? value) {
+    if (value == null) return null;
     if (value is double) return value;
     if (value is num) return value.toDouble();
     return double.tryParse('$value');

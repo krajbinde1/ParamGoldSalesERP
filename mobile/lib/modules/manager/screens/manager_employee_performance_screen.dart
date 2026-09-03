@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
@@ -9,6 +9,7 @@ import '../../../core/storage/session_store.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_detail_widgets.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
+import '../../../core/widgets/design/pg_period_filters.dart';
 import '../../../core/widgets/design/pg_progress_bar.dart';
 import '../../../core/widgets/design/pg_quick_action.dart';
 import '../../../core/widgets/design/pg_status_badge.dart';
@@ -28,7 +29,7 @@ class ManagerEmployeePerformanceScreen extends StatefulWidget {
 
 class _ManagerEmployeePerformanceScreenState
     extends State<ManagerEmployeePerformanceScreen> {
-  String _period = 'month';
+  String _period = 'week';
   String? _startDate;
   String? _endDate;
   String _search = '';
@@ -116,7 +117,7 @@ class _ManagerEmployeePerformanceScreenState
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                _PeriodSelector(
+                PgPeriodFilters(
                   selected: _period,
                   onSelected: _setPeriod,
                   onCustom: _pickCustomRange,
@@ -126,7 +127,7 @@ class _ManagerEmployeePerformanceScreenState
                     _endDate != null) ...[
                   const SizedBox(height: 8),
                   Text(
-                    '$_startDate → $_endDate',
+                    '$_startDate â†’ $_endDate',
                     style: Theme.of(context).textTheme.bodySmall?.copyWith(
                           color: AppColors.textSecondary,
                         ),
@@ -212,9 +213,41 @@ class _ManagerEmployeePerformanceScreenState
                       AppSpacing.screenPadding,
                       AppSpacing.screenPadding,
                     ),
-                    itemCount: employees.length,
+                    itemCount: employees.length + 1,
                     itemBuilder: (context, index) {
-                      final employee = employees[index];
+                      if (index == 0) {
+                        final range = PgPeriodFilters.formatRange(
+                          result.startDate,
+                          result.endDate,
+                        );
+                        return Padding(
+                          padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                result.period,
+                                style: Theme.of(context).textTheme.titleMedium
+                                    ?.copyWith(fontWeight: FontWeight.w700),
+                              ),
+                              if (range.isNotEmpty) ...[
+                                const SizedBox(height: 4),
+                                Text(
+                                  'From Date â€“ To Date: $range',
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodySmall
+                                      ?.copyWith(
+                                        color: AppColors.textSecondary,
+                                        fontWeight: FontWeight.w600,
+                                      ),
+                                ),
+                              ],
+                            ],
+                          ),
+                        );
+                      }
+                      final employee = employees[index - 1];
                       return _EmployeePerformanceCard(
                         employee: employee,
                         onTap: () async {
@@ -253,7 +286,7 @@ class _EmployeePerformanceCard extends StatelessWidget {
 
   static final _ordersCurrency = NumberFormat.currency(
     locale: 'en_IN',
-    symbol: '₹',
+    symbol: 'â‚¹',
     decimalDigits: 0,
   );
 
@@ -263,15 +296,27 @@ class _EmployeePerformanceCard extends StatelessWidget {
     final code = employee['employee_code']?.toString() ?? '-';
     final salesTarget = _num(employee['sales_target']);
     final salesAchieved = _num(employee['sales_achieved']);
-    final salesPct = _num(employee['sales_percentage']);
+    final salesPct = PgPeriodFilters.percentValue(
+      employee['sales_percentage'],
+      target: salesTarget,
+    );
     final collectionTarget = _num(employee['collection_target']);
     final collectionAchieved = _num(employee['collection_achieved']);
-    final collectionPct = _num(employee['collection_percentage']);
+    final collectionPct = PgPeriodFilters.percentValue(
+      employee['collection_percentage'],
+      target: collectionTarget,
+    );
     final fieldTarget = _num(employee['field_activity_target']);
     final fieldAchieved = _num(employee['field_activity_achieved']);
     final fieldRemaining = _num(employee['field_activity_remaining']);
-    final fieldPct = _num(employee['field_activity_percentage']);
-    final overallPct = (salesPct + collectionPct + fieldPct) / 3;
+    final fieldPct = PgPeriodFilters.percentValue(
+      employee['field_activity_percentage'],
+      target: fieldTarget,
+    );
+    final overallPct = PgPeriodFilters.percentValue(
+      employee['overall_percentage'],
+      target: salesTarget + collectionTarget + fieldTarget,
+    );
 
     return PgCard(
       onTap: onTap,
@@ -388,27 +433,28 @@ class _EmployeePerformanceCard extends StatelessWidget {
 
   static double _num(Object? value) => double.tryParse('$value') ?? 0;
 
-  static double _barValue(double percentage) =>
-      (percentage / 100).clamp(0.0, 1.0);
+  static double _barValue(double? percentage) =>
+      ((percentage ?? 0) / 100).clamp(0.0, 1.0);
 
-  static String _percentLabel(double value) {
+  static String _percentLabel(double? value) {
+    if (value == null) return 'N/A';
     if (value == value.roundToDouble()) return '${value.toInt()}%';
     return '${value.toStringAsFixed(1)}%';
   }
 
   static String _compactInr(double value) {
-    if (value == 0) return '₹0';
+    if (value == 0) return 'â‚¹0';
     final abs = value.abs();
     final sign = value < 0 ? '-' : '';
     if (abs >= 10000000) {
-      return '$sign₹${(abs / 10000000).toStringAsFixed(2)}Cr';
+      return '$signâ‚¹${(abs / 10000000).toStringAsFixed(2)}Cr';
     }
     if (abs >= 100000) {
-      return '$sign₹${(abs / 100000).toStringAsFixed(2)}L';
+      return '$signâ‚¹${(abs / 100000).toStringAsFixed(2)}L';
     }
     return NumberFormat.currency(
       locale: 'en_IN',
-      symbol: '₹',
+      symbol: 'â‚¹',
       decimalDigits: 0,
     ).format(value);
   }
@@ -417,13 +463,15 @@ class _EmployeePerformanceCard extends StatelessWidget {
 class _OverallBadge extends StatelessWidget {
   const _OverallBadge({required this.percentage});
 
-  final double percentage;
+  final double? percentage;
 
   @override
   Widget build(BuildContext context) {
-    final label = percentage == percentage.roundToDouble()
-        ? '${percentage.toInt()}%'
-        : '${percentage.toStringAsFixed(0)}%';
+    final label = percentage == null
+        ? 'N/A'
+        : percentage == percentage!.roundToDouble()
+            ? '${percentage!.toInt()}%'
+            : '${percentage!.toStringAsFixed(0)}%';
 
     return Container(
       width: 48,
@@ -550,125 +598,6 @@ class _PerformanceSection extends StatelessWidget {
   }
 }
 
-/// Responsive period pills for Employee Performance (UI only).
-class _PeriodSelector extends StatelessWidget {
-  const _PeriodSelector({
-    required this.selected,
-    required this.onSelected,
-    required this.onCustom,
-  });
-
-  final String selected;
-  final ValueChanged<String> onSelected;
-  final VoidCallback onCustom;
-
-  static const _options = <(String label, String value)>[
-    ('Today', 'today'),
-    ('This Week', 'week'),
-    ('Last Week', 'last_week'),
-    ('This Month', 'month'),
-    ('Custom', 'custom'),
-  ];
-
-  static const double _height = 40;
-  static const double _gap = 8;
-  static const double _radius = 20;
-
-  @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        // Approximate natural widths so we know when to switch to scroll mode.
-        const approxWidths = [72.0, 96.0, 96.0, 104.0, 80.0];
-        final needed = approxWidths.reduce((a, b) => a + b) +
-            (_gap * (_options.length - 1));
-        final useScroll = constraints.maxWidth < needed;
-
-        Widget pill(
-          String label,
-          String value, {
-          bool compact = false,
-        }) {
-          final isSelected = selected == value;
-          return Material(
-            color: isSelected
-                ? AppColors.primary.withValues(alpha: 0.12)
-                : AppColors.surface,
-            borderRadius: BorderRadius.circular(_radius),
-            child: InkWell(
-              onTap: () {
-                if (value == 'custom') {
-                  onCustom();
-                } else {
-                  onSelected(value);
-                }
-              },
-              borderRadius: BorderRadius.circular(_radius),
-              child: Container(
-                height: _height,
-                alignment: Alignment.center,
-                padding: EdgeInsets.symmetric(horizontal: compact ? 8 : 12),
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(_radius),
-                  border: Border.all(
-                    color: isSelected ? AppColors.primary : AppColors.border,
-                    width: isSelected ? 1.5 : 1,
-                  ),
-                ),
-                child: Text(
-                  label,
-                  maxLines: 1,
-                  softWrap: false,
-                  overflow: compact
-                      ? TextOverflow.ellipsis
-                      : TextOverflow.visible,
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: compact ? 12 : 13,
-                    height: 1.1,
-                    fontWeight:
-                        isSelected ? FontWeight.w700 : FontWeight.w500,
-                    color: isSelected
-                        ? AppColors.primary
-                        : AppColors.textSecondary,
-                  ),
-                ),
-              ),
-            ),
-          );
-        }
-
-        if (!useScroll) {
-          return Row(
-            children: [
-              for (var i = 0; i < _options.length; i++) ...[
-                if (i > 0) const SizedBox(width: _gap),
-                Expanded(
-                  child: pill(_options[i].$1, _options[i].$2, compact: true),
-                ),
-              ],
-            ],
-          );
-        }
-
-        return SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          physics: const BouncingScrollPhysics(),
-          clipBehavior: Clip.hardEdge,
-          child: Row(
-            children: [
-              for (var i = 0; i < _options.length; i++) ...[
-                if (i > 0) const SizedBox(width: _gap),
-                pill(_options[i].$1, _options[i].$2),
-              ],
-            ],
-          ),
-        );
-      },
-    );
-  }
-}
-
 class ManagerEmployeeDetailScreen extends StatefulWidget {
   const ManagerEmployeeDetailScreen({
     super.key,
@@ -771,6 +700,8 @@ class _ManagerEmployeeDetailScreenState extends State<ManagerEmployeeDetailScree
                 child: _PerformanceSummary(
                   employee: employee,
                   period: detail.period,
+                  startDate: detail.startDate,
+                  endDate: detail.endDate,
                 ),
               ),
               RefreshIndicator(
@@ -793,14 +724,22 @@ class _PerformanceSummary extends StatelessWidget {
   const _PerformanceSummary({
     required this.employee,
     required this.period,
+    this.startDate,
+    this.endDate,
   });
 
   final Map<String, dynamic> employee;
   final String period;
+  final String? startDate;
+  final String? endDate;
 
   @override
   Widget build(BuildContext context) {
-    final currency = NumberFormat.currency(locale: 'en_IN', symbol: '₹');
+    final currency = NumberFormat.currency(locale: 'en_IN', symbol: 'â‚¹');
+    final rangeLabel = PgPeriodFilters.formatRange(startDate, endDate);
+    final salesTarget = _toDouble(employee['sales_target']);
+    final collectionTarget = _toDouble(employee['collection_target']);
+    final fieldTarget = _toDouble(employee['field_activity_target']);
 
     return ListView(
       physics: const AlwaysScrollableScrollPhysics(),
@@ -808,7 +747,10 @@ class _PerformanceSummary extends StatelessWidget {
       children: [
         PgDetailHeader(
           title: employee['employee_name']?.toString() ?? '-',
-          subtitle: period,
+          subtitle: [
+            period,
+            if (rangeLabel.isNotEmpty) 'From Date â€“ To Date: $rangeLabel',
+          ].join('\n'),
         ),
         const SizedBox(height: AppSpacing.md),
         PgCard(
@@ -839,41 +781,49 @@ class _PerformanceSummary extends StatelessWidget {
         const SizedBox(height: AppSpacing.sm),
         _PerformanceBlock(
           targetLabel: 'Sales Target Given',
-          targetValue: currency.format(_toDouble(employee['sales_target'])),
+          targetValue: currency.format(salesTarget),
           achievedLabel: 'Sales Achieved',
           achievedValue: currency.format(_toDouble(employee['sales_achieved'])),
           remainingLabel: 'Remaining Sales Target',
           remainingValue: currency.format(_toDouble(employee['sales_remaining'])),
-          percentage: _toDouble(employee['sales_percentage']),
+          percentage: PgPeriodFilters.percentValue(
+            employee['sales_percentage'],
+            target: salesTarget,
+          ),
         ),
         const SizedBox(height: AppSpacing.md),
         const PgSectionHeader(title: 'Collection Performance'),
         const SizedBox(height: AppSpacing.sm),
         _PerformanceBlock(
           targetLabel: 'Collection Target Given',
-          targetValue: currency.format(_toDouble(employee['collection_target'])),
+          targetValue: currency.format(collectionTarget),
           achievedLabel: 'Collection Achieved',
           achievedValue:
               currency.format(_toDouble(employee['collection_achieved'])),
           remainingLabel: 'Remaining Collection Target',
           remainingValue:
               currency.format(_toDouble(employee['collection_remaining'])),
-          percentage: _toDouble(employee['collection_percentage']),
+          percentage: PgPeriodFilters.percentValue(
+            employee['collection_percentage'],
+            target: collectionTarget,
+          ),
         ),
         const SizedBox(height: AppSpacing.md),
         const PgSectionHeader(title: 'Field Activity Performance'),
         const SizedBox(height: AppSpacing.sm),
         _PerformanceBlock(
           targetLabel: 'Field Activity Target',
-          targetValue:
-              '${_toDouble(employee['field_activity_target']).round()}',
+          targetValue: '${fieldTarget.round()}',
           achievedLabel: 'Field Activity Achieved',
           achievedValue:
               '${_toDouble(employee['field_activity_achieved']).round()}',
           remainingLabel: 'Remaining Field Activity Target',
           remainingValue:
               '${_toDouble(employee['field_activity_remaining']).round()}',
-          percentage: _toDouble(employee['field_activity_percentage']),
+          percentage: PgPeriodFilters.percentValue(
+            employee['field_activity_percentage'],
+            target: fieldTarget,
+          ),
         ),
       ],
     );
@@ -899,7 +849,7 @@ class _PerformanceBlock extends StatelessWidget {
   final String achievedValue;
   final String remainingLabel;
   final String remainingValue;
-  final double percentage;
+  final double? percentage;
 
   @override
   Widget build(BuildContext context) {
@@ -936,7 +886,7 @@ class _EmployeeOrdersTab extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final currency = NumberFormat.currency(locale: 'en_IN', symbol: '₹');
+    final currency = NumberFormat.currency(locale: 'en_IN', symbol: 'â‚¹');
 
     if (orders.isEmpty) {
       return ListView(
@@ -980,7 +930,7 @@ class _EmployeeOrdersTab extends StatelessWidget {
                           style: Theme.of(context).textTheme.titleSmall,
                         ),
                         Text(
-                          '${order['dealer_name'] ?? '-'} • ${order['order_date'] ?? '-'}',
+                          '${order['dealer_name'] ?? '-'} â€¢ ${order['order_date'] ?? '-'}',
                           style: Theme.of(context).textTheme.bodySmall,
                         ),
                       ],

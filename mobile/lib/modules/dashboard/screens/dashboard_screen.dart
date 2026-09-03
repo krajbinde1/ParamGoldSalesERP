@@ -128,9 +128,18 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
     return '—';
   }
 
-  String _percentLabel(double value) {
+  String _percentLabel(double? value, {required double target}) {
+    if (target <= 0 || value == null) return 'N/A';
     if (value == value.roundToDouble()) return '${value.toInt()}%';
     return '${value.toStringAsFixed(0)}%';
+  }
+
+  String _formatRange(String? startDate, String? endDate) {
+    if (startDate == null || endDate == null) return '';
+    final start = DateTime.tryParse(startDate);
+    final end = DateTime.tryParse(endDate);
+    if (start == null || end == null) return '$startDate – $endDate';
+    return '${DateFormat('dd MMM yyyy').format(start)} – ${DateFormat('dd MMM yyyy').format(end)}';
   }
 
   String _roleLabel(String designation) {
@@ -228,9 +237,11 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               workingHours: workingHours,
                               salesPct: _percentLabel(
                                 data.weeklySalesPercentage,
+                                target: data.weeklySalesTarget,
                               ),
                               collectionPct: _percentLabel(
                                 data.weeklyCollectionPercentage,
+                                target: data.weeklyCollectionTarget,
                               ),
                               planningPending: data.todayPlanningPending,
                               planningCompleted: data.todayPlanningCompleted,
@@ -242,6 +253,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                             const SizedBox(height: AppSpacing.sm),
                             _EmployeeModuleGrid(
                               items: [
+                                _EmployeeModuleItem(
+                                  title: 'My Targets',
+                                  subtitle: 'Weekly & monthly performance',
+                                  icon: Icons.flag_outlined,
+                                  onTap: () => _open('/targets'),
+                                ),
                                 _EmployeeModuleItem(
                                   title: 'Dealer Visit',
                                   subtitle: data.todayDealerVisits > 0
@@ -311,14 +328,43 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                               ],
                             ),
                             const SizedBox(height: AppSpacing.lg),
-                            const PgSectionHeader(title: 'Performance'),
-                            const SizedBox(height: AppSpacing.sm),
+                            PgSectionHeader(
+                              title: 'Performance',
+                              actionLabel: 'View all',
+                              onAction: () => _open('/targets'),
+                            ),
                             PgCard(
+                              onTap: () => _open('/targets'),
                               child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
+                                  Text(
+                                    data.periodLabel,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleSmall
+                                        ?.copyWith(fontWeight: FontWeight.w800),
+                                  ),
+                                  if ((data.startDate ?? '').isNotEmpty &&
+                                      (data.endDate ?? '').isNotEmpty) ...[
+                                    const SizedBox(height: 2),
+                                    Text(
+                                      'From Date – To Date: ${_formatRange(data.startDate, data.endDate)}',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall
+                                          ?.copyWith(
+                                            color: AppColors.textSecondary,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                    ),
+                                  ],
+                                  const SizedBox(height: AppSpacing.md),
                                   PgProgressBar(
                                     label: 'Sales Target',
-                                    percentage: data.weeklySalesPercentage,
+                                    percentage: data.weeklySalesTarget > 0
+                                        ? data.weeklySalesPercentage
+                                        : null,
                                     currentLabel: currency.format(
                                       data.weeklySalesAchieved,
                                     ),
@@ -335,8 +381,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   const SizedBox(height: AppSpacing.md),
                                   PgProgressBar(
                                     label: 'Collection Target',
-                                    percentage:
-                                        data.weeklyCollectionPercentage,
+                                    percentage: data.weeklyCollectionTarget > 0
+                                        ? data.weeklyCollectionPercentage
+                                        : null,
                                     currentLabel: currency.format(
                                       data.weeklyCollectionAchieved,
                                     ),
@@ -353,7 +400,9 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   const SizedBox(height: AppSpacing.md),
                                   PgProgressBar(
                                     label: 'Field Activity Target',
-                                    percentage: data.fieldActivityPercentage,
+                                    percentage: data.fieldActivityTarget > 0
+                                        ? data.fieldActivityPercentage
+                                        : null,
                                     currentLabel:
                                         '${data.fieldActivityAchieved.round()}',
                                     targetLabel:

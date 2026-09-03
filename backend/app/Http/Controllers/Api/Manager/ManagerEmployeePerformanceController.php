@@ -18,26 +18,25 @@ class ManagerEmployeePerformanceController extends Controller
     public function index(Request $request): JsonResponse
     {
         $validated = $this->validatedPeriod($request);
-
-        $range = $this->metrics->resolveDateRange(
-            $validated['period'] ?? 'month',
+        $context = $this->metrics->periodContext(
+            $validated['period'] ?? null,
             $validated['start_date'] ?? null,
             $validated['end_date'] ?? null,
         );
 
         return response()->json([
             'success' => true,
-            'period' => $range['label'],
-            'period_key' => $validated['period'] ?? 'month',
-            'start_date' => $range['start']->toDateString(),
-            'end_date' => $range['end']->toDateString(),
+            'period' => $context['label'],
+            'period_key' => $context['period'],
+            'start_date' => $context['start_date'],
+            'end_date' => $context['end_date'],
             'data' => $this->metrics->employeePerformance(
-                $range['start'],
-                $range['end'],
+                $context['start'],
+                $context['end'],
                 role: UserRole::Employee->value,
                 search: $validated['search'] ?? null,
                 reportingManagerId: $request->user()->employee_id,
-                period: $validated['period'] ?? 'month',
+                period: $context['period'],
             ),
         ]);
     }
@@ -49,27 +48,26 @@ class ManagerEmployeePerformanceController extends Controller
     public function targets(Request $request): JsonResponse
     {
         $validated = $this->validatedPeriod($request);
-
-        $range = $this->metrics->resolveDateRange(
-            $validated['period'] ?? 'month',
+        $context = $this->metrics->periodContext(
+            $validated['period'] ?? null,
             $validated['start_date'] ?? null,
             $validated['end_date'] ?? null,
         );
 
         $employees = $this->metrics->employeePerformance(
-            $range['start'],
-            $range['end'],
+            $context['start'],
+            $context['end'],
             role: UserRole::Employee->value,
             reportingManagerId: $request->user()->employee_id,
-            period: $validated['period'] ?? 'month',
+            period: $context['period'],
         );
 
         return response()->json([
             'success' => true,
-            'period' => $range['label'],
-            'period_key' => $validated['period'] ?? 'month',
-            'start_date' => $range['start']->toDateString(),
-            'end_date' => $range['end']->toDateString(),
+            'period' => $context['label'],
+            'period_key' => $context['period'],
+            'start_date' => $context['start_date'],
+            'end_date' => $context['end_date'],
             'summary' => $this->metrics->aggregateTeamPerformance($employees),
             'data' => $employees,
         ]);
@@ -80,32 +78,31 @@ class ManagerEmployeePerformanceController extends Controller
         $this->ensureEmployeeRoleTarget($request, $employee);
 
         $validated = $this->validatedPeriod($request);
-
-        $range = $this->metrics->resolveDateRange(
-            $validated['period'] ?? 'month',
+        $context = $this->metrics->periodContext(
+            $validated['period'] ?? null,
             $validated['start_date'] ?? null,
             $validated['end_date'] ?? null,
         );
 
         $performance = $this->metrics->employeePerformanceRow(
             $employee->loadMissing(['user:id,employee_id,role', 'reportingManager:id,full_name']),
-            $range['start'],
-            $range['end'],
-            $validated['period'] ?? 'month',
+            $context['start'],
+            $context['end'],
+            $context['period'],
         );
 
         $orders = $this->metrics->employeeOrdersForPeriod(
             $employee->id,
-            $range['start'],
-            $range['end'],
+            $context['start'],
+            $context['end'],
         );
 
         return response()->json([
             'success' => true,
-            'period' => $range['label'],
-            'period_key' => $validated['period'] ?? 'month',
-            'start_date' => $range['start']->toDateString(),
-            'end_date' => $range['end']->toDateString(),
+            'period' => $context['label'],
+            'period_key' => $context['period'],
+            'start_date' => $context['start_date'],
+            'end_date' => $context['end_date'],
             'performance' => $performance,
             'orders' => $orders,
             'order_summary' => [

@@ -117,7 +117,9 @@ final class DealerSalesLedgerReconciler
             return null;
         }
 
-        $candidates = $this->unreconciledTallySalesEntries((int) $order->dealer_id, $debit);
+        $candidates = $this->unreconciledTallySalesEntries((int) $order->dealer_id, $debit)
+            ->filter(fn (DealerTallyEntry $entry): bool => ! $this->refersToDifferentOrder($entry, $order))
+            ->values();
         if ($candidates->isEmpty()) {
             return null;
         }
@@ -129,6 +131,67 @@ final class DealerSalesLedgerReconciler
         $orderDate = $order->dealerLedgerEntryDate();
 
         return $this->uniquelyClosest($candidates, $orderDate);
+    }
+
+    private function uniqueOwnerOrderForEntry(DealerTallyEntry $entry, int $exceptOrderId): ?Order
+    {
+        $debit = round((float) $entry->debit, 2);
+        if ($debit <= 0.0 || abs((float) $entry->credit) >= 0.005) {
+            return null;
+        }
+
+        $matches = Order::query()
+            ->where('dealer_id', $entry->dealer_id)
+            ->whereIn('status', Order::billedReceivableStatuses())
+            ->whereKeyNot($exceptOrderId)
+            ->whereRaw('ABS(COALESCE(grand_total, 0) - ?) < 0.005', [$debit])
+            ->get();
+
+        if ($matches->count() !== 1) {
+            return null;
+        }
+
+        return $matches->first();
+    }
+
+    private function amountsMatch(DealerTallyEntry $entry, float $debit, float $credit): bool
+    {
+        return abs(round((float) $entry->debit, 2) - round($debit, 2)) < 0.005
+            && abs(round((float) $entry->credit, 2) - round($credit, 2)) < 0.005;
+    }
+
+    /**
+     * Voucher / particulars name a different short sales order (PG-0015) than $order (PG-0001).
+     * Full ERP numbers like PG-20260831-0001 must not be split into a fake PG-20260831 token.
+     */
+    public function refersToDifferentOrder(DealerTallyEntry $entry, Order $order): bool
+    {
+        $haystack = strtoupper(trim(implode(' ', array_filter([
+            (string) $entry->voucher_no,
+            (string) $entry->tally_voucher_no,
+            (string) $entry->particulars,
+        ]))));
+
+        if ($haystack === '' || preg_match_all('/\bPG-\d+\b/', $haystack, $matches) === 0) {
+            return false;
+        }
+
+        $short = strtoupper((string) $order->shortOrderNo());
+        $full = strtoupper((string) $order->order_no);
+        $sequence = preg_match('/^PG-\d{8}-(\d+)$/', $full, $parts) === 1
+            ? $parts[1]
+            : null;
+        $own = array_unique(array_filter([$short, $full, $sequence !== null ? 'PG-'.$sequence : null]));
+
+        foreach ($matches[0] as $token) {
+            if (in_array($token, $own, true) || preg_match('/^PG-\d{8}$/', $token) === 1) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
     }
 
     /**
@@ -160,8 +223,13 @@ final class DealerSalesLedgerReconciler
         return $salesOrderEntry;
     }
 
-    public function attachSalesOrderToTallyEntry(DealerTallyEntry $tallyEntry, Order $order): DealerTallyEntry
+    public function attachSalesOrderToTallyEntry(DealerTallyEntry $tallyEntry, Order $order): ?DealerTallyEntry
     {
+        if (! $this->amountsMatch($tallyEntry, round((float) $order->grand_total, 2), 0.0)
+            || $this->refersToDifferentOrder($tallyEntry, $order)) {
+            return null;
+        }
+
         $tallyEntry->fill([
             'source' => DealerTallyEntry::SOURCE_SALES_ORDER,
             'source_id' => (int) $order->id,
@@ -178,6 +246,119 @@ final class DealerSalesLedgerReconciler
         $tallyEntry->save();
 
         return $tallyEntry;
+    }
+
+    /**
+     * True when this ledger row is the posted debit for this sales order
+     * (same dealer, same order id/fingerprint, same grand total). A Tally bill
+     * for a different voucher/amount must never count as this order.
+     */
+    public function entryRepresentsOrder(DealerTallyEntry $entry, Order $order): bool
+    {
+        return ! $this->entryIsForeignToOrder($entry, $order)
+            && $this->amountsMatch($entry, round((float) $order->grand_total, 2), 0.0)
+            && ((int) $entry->source_id === (int) $order->id
+                || $entry->fingerprint === DealerTallyEntry::makeSourceFingerprint(
+                    DealerTallyEntry::SOURCE_SALES_ORDER,
+                    (int) $order->id,
+                ));
+    }
+
+    /**
+     * A row claimed by this order's source_id/fingerprint that is actually another
+     * voucher (different Tally bill / amount). Unreconciled ERP rows whose grand
+     * total was edited are not foreign — they should be updated in place.
+     */
+    public function entryIsForeignToOrder(DealerTallyEntry $entry, Order $order): bool
+    {
+        $fingerprint = DealerTallyEntry::makeSourceFingerprint(
+            DealerTallyEntry::SOURCE_SALES_ORDER,
+            (int) $order->id,
+        );
+        $pointsAtOrder = (int) $entry->source_id === (int) $order->id
+            || $entry->fingerprint === $fingerprint;
+
+        if (! $pointsAtOrder) {
+            return false;
+        }
+
+        if ((int) $entry->dealer_id !== (int) $order->dealer_id) {
+            return true;
+        }
+
+        if ($this->refersToDifferentOrder($entry, $order)) {
+            return true;
+        }
+
+        return $this->isReconciled($entry)
+            && ! $this->amountsMatch($entry, round((float) $order->grand_total, 2), 0.0);
+    }
+
+    /**
+     * Drop this order's source_id/fingerprint from a foreign ledger row.
+     * Never changes debit, credit, date, particulars, or voucher text.
+     */
+    public function releaseOrderClaim(DealerTallyEntry $entry, Order $claimedBy): void
+    {
+        $claimedFingerprint = DealerTallyEntry::makeSourceFingerprint(
+            DealerTallyEntry::SOURCE_SALES_ORDER,
+            (int) $claimedBy->id,
+        );
+
+        if ((int) $entry->source_id !== (int) $claimedBy->id && $entry->fingerprint !== $claimedFingerprint) {
+            return;
+        }
+
+        $owner = $this->uniqueOwnerOrderForEntry($entry, exceptOrderId: (int) $claimedBy->id);
+
+        if ($owner !== null) {
+            $ownerFingerprint = DealerTallyEntry::makeSourceFingerprint(
+                DealerTallyEntry::SOURCE_SALES_ORDER,
+                (int) $owner->id,
+            );
+            $ownerAlreadyPosted = DealerTallyEntry::query()
+                ->whereKeyNot($entry->id)
+                ->where(function ($query) use ($owner, $ownerFingerprint): void {
+                    $query->where('fingerprint', $ownerFingerprint)
+                        ->orWhere(function ($inner) use ($owner): void {
+                            $inner->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+                                ->where('source_id', $owner->id);
+                        });
+                })
+                ->exists();
+
+            if (! $ownerAlreadyPosted) {
+                $entry->fill([
+                    'source' => DealerTallyEntry::SOURCE_SALES_ORDER,
+                    'source_id' => (int) $owner->id,
+                    'fingerprint' => $ownerFingerprint,
+                ]);
+                $entry->save();
+
+                return;
+            }
+        }
+
+        $voucherNo = (string) ($entry->tally_voucher_no ?: $entry->voucher_no ?: '');
+        $entry->fill([
+            'source' => TallyLedgerConfig::SOURCE,
+            'source_id' => null,
+            'fingerprint' => DealerTallyEntry::makeFingerprint(
+                dealerId: (int) $entry->dealer_id,
+                date: $entry->entry_date?->toDateString() ?? Carbon::now('Asia/Kolkata')->toDateString(),
+                voucherType: (string) ($entry->tally_voucher_type ?: $entry->voucher_type ?: ''),
+                voucherNo: $voucherNo,
+                debit: (float) $entry->debit,
+                credit: (float) $entry->credit,
+                particulars: (string) ($entry->particulars ?? ''),
+            ),
+            'tally_voucher_type' => $entry->tally_voucher_type ?: $entry->voucher_type,
+            'tally_voucher_no' => $entry->tally_voucher_no ?: ($voucherNo !== '' ? $voucherNo : null),
+            'tally_entry_date' => $entry->tally_entry_date?->toDateString()
+                ?: $entry->entry_date?->toDateString(),
+            'tally_reconciled_at' => null,
+        ]);
+        $entry->save();
     }
 
     public function restoreSalesOrderEntry(DealerTallyEntry $entry): void

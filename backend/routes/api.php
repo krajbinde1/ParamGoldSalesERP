@@ -95,6 +95,7 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
 
     Route::middleware('role:employee')->group(function () {
         Route::get('employee/dashboard', EmployeeDashboardController::class);
+        Route::get('employee/targets', [EmployeeDashboardController::class, 'targets']);
         Route::get('employee/dealers', EmployeeDealerController::class);
         Route::get('employee/dealer-applications', [EmployeeDealerApplicationController::class, 'index']);
         Route::post('employee/dealer-applications', [EmployeeDealerApplicationController::class, 'store']);

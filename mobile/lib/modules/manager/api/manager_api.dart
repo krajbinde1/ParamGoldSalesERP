@@ -636,7 +636,7 @@ class ManagerApi {
   }
 
   Future<ManagerEmployeePerformanceListResult> listEmployeePerformance({
-    String period = 'month',
+    String period = 'week',
     String? startDate,
     String? endDate,
     String? search,
@@ -660,7 +660,7 @@ class ManagerApi {
 
   /// Team sales/collection targets — same employee rows as Team Performance.
   Future<ManagerTargetsResult> loadTargets({
-    String period = 'month',
+    String period = 'week',
     String? startDate,
     String? endDate,
   }) async {
@@ -683,7 +683,7 @@ class ManagerApi {
 
   Future<ManagerEmployeePerformanceDetail> getEmployeePerformance(
     int employeeId, {
-    String period = 'month',
+    String period = 'week',
     String? startDate,
     String? endDate,
   }) async {
@@ -820,19 +820,25 @@ class ManagerEmployeePerformanceListResult {
   const ManagerEmployeePerformanceListResult({
     required this.period,
     required this.periodKey,
+    this.startDate,
+    this.endDate,
     required this.employees,
   });
 
   final String period;
   final String periodKey;
+  final String? startDate;
+  final String? endDate;
   final List<Map<String, dynamic>> employees;
 
   factory ManagerEmployeePerformanceListResult.fromJson(
     Map<String, dynamic> json,
   ) {
     return ManagerEmployeePerformanceListResult(
-      period: json['period']?.toString() ?? 'This Month',
-      periodKey: json['period_key']?.toString() ?? 'month',
+      period: json['period']?.toString() ?? 'This Week',
+      periodKey: json['period_key']?.toString() ?? 'week',
+      startDate: json['start_date']?.toString(),
+      endDate: json['end_date']?.toString(),
       employees: (json['data'] as List?)
               ?.map((item) => Map<String, dynamic>.from(item as Map))
               .toList() ??
@@ -846,47 +852,58 @@ class ManagerTargetsSummary {
     required this.salesTarget,
     required this.salesAchieved,
     required this.salesPending,
-    required this.salesPercentage,
+    this.salesPercentage,
     required this.collectionTarget,
     required this.collectionAchieved,
     required this.collectionPending,
-    required this.collectionPercentage,
+    this.collectionPercentage,
     required this.fieldActivityTarget,
     required this.fieldActivityAchieved,
     required this.fieldActivityPending,
-    required this.fieldActivityPercentage,
+    this.fieldActivityPercentage,
   });
 
   final double salesTarget;
   final double salesAchieved;
   final double salesPending;
-  final double salesPercentage;
+  final double? salesPercentage;
   final double collectionTarget;
   final double collectionAchieved;
   final double collectionPending;
-  final double collectionPercentage;
+  final double? collectionPercentage;
   final double fieldActivityTarget;
   final double fieldActivityAchieved;
   final double fieldActivityPending;
-  final double fieldActivityPercentage;
+  final double? fieldActivityPercentage;
 
   factory ManagerTargetsSummary.fromJson(Map<String, dynamic> json) {
     double n(Object? v) => double.tryParse('$v') ?? 0;
+    double? pct(Object? v, double target) {
+      if (target <= 0 || v == null) return null;
+      return double.tryParse('$v');
+    }
+
+    final salesTarget = n(json['sales_target']);
+    final collectionTarget = n(json['collection_target']);
+    final fieldActivityTarget = n(json['field_activity_target']);
     return ManagerTargetsSummary(
-      salesTarget: n(json['sales_target']),
+      salesTarget: salesTarget,
       salesAchieved: n(json['sales_achieved']),
       salesPending: n(json['sales_pending']),
-      salesPercentage: n(json['sales_percentage']),
-      collectionTarget: n(json['collection_target']),
+      salesPercentage: pct(json['sales_percentage'], salesTarget),
+      collectionTarget: collectionTarget,
       collectionAchieved: n(json['collection_achieved']),
       collectionPending: n(json['collection_pending']),
-      collectionPercentage: n(json['collection_percentage']),
-      fieldActivityTarget: n(json['field_activity_target']),
+      collectionPercentage: pct(json['collection_percentage'], collectionTarget),
+      fieldActivityTarget: fieldActivityTarget,
       fieldActivityAchieved: n(json['field_activity_achieved']),
       fieldActivityPending: n(
         json['field_activity_pending'] ?? json['field_activity_remaining'],
       ),
-      fieldActivityPercentage: n(json['field_activity_percentage']),
+      fieldActivityPercentage: pct(
+        json['field_activity_percentage'],
+        fieldActivityTarget,
+      ),
     );
   }
 }
@@ -895,19 +912,25 @@ class ManagerTargetsResult {
   const ManagerTargetsResult({
     required this.period,
     required this.periodKey,
+    this.startDate,
+    this.endDate,
     required this.summary,
     required this.employees,
   });
 
   final String period;
   final String periodKey;
+  final String? startDate;
+  final String? endDate;
   final ManagerTargetsSummary summary;
   final List<Map<String, dynamic>> employees;
 
   factory ManagerTargetsResult.fromJson(Map<String, dynamic> json) {
     return ManagerTargetsResult(
-      period: json['period']?.toString() ?? 'This Month',
-      periodKey: json['period_key']?.toString() ?? 'month',
+      period: json['period']?.toString() ?? 'This Week',
+      periodKey: json['period_key']?.toString() ?? 'week',
+      startDate: json['start_date']?.toString(),
+      endDate: json['end_date']?.toString(),
       summary: ManagerTargetsSummary.fromJson(
         Map<String, dynamic>.from(json['summary'] as Map? ?? const {}),
       ),
@@ -922,12 +945,16 @@ class ManagerTargetsResult {
 class ManagerEmployeePerformanceDetail {
   const ManagerEmployeePerformanceDetail({
     required this.period,
+    this.startDate,
+    this.endDate,
     required this.performance,
     required this.orders,
     required this.orderSummary,
   });
 
   final String period;
+  final String? startDate;
+  final String? endDate;
   final Map<String, dynamic> performance;
   final List<Map<String, dynamic>> orders;
   final Map<String, dynamic> orderSummary;
@@ -936,7 +963,9 @@ class ManagerEmployeePerformanceDetail {
     Map<String, dynamic> json,
   ) {
     return ManagerEmployeePerformanceDetail(
-      period: json['period']?.toString() ?? 'This Month',
+      period: json['period']?.toString() ?? 'This Week',
+      startDate: json['start_date']?.toString(),
+      endDate: json['end_date']?.toString(),
       performance: Map<String, dynamic>.from(
         json['performance'] as Map? ?? const {},
       ),

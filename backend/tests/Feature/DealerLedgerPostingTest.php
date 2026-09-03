@@ -488,3 +488,178 @@ it('backfills billed orders that were never posted by a status-change event', fu
     expect(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(1)
         ->and($second['orders'])->toBe(1);
 });
+
+it('does not treat a different-amount ledger row as this order even when source_id was wrongly linked', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811199013');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Amrut Fertilizers Purna']);
+
+    $large = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 2271675,
+        'order_no' => 'PG-20260820-0015',
+        'order_date' => '2026-08-20',
+        'dispatch_date' => '2026-08-20',
+        'dispatched_at' => '2026-08-20 10:00:00',
+    ]);
+    $missing = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 84525,
+        'order_no' => 'PG-20260831-0001',
+        'order_date' => '2026-08-31',
+        'dispatch_date' => '2026-09-03',
+        'dispatched_at' => '2026-09-03 16:00:00',
+    ]);
+
+    $largeEntry = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $large->id)
+        ->first();
+    $missingEntry = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $missing->id)
+        ->first();
+
+    expect($largeEntry)->not->toBeNull()
+        ->and($missingEntry)->not->toBeNull();
+
+    $missingEntry->delete();
+    $largeEntry->fill([
+        'source_id' => $missing->id,
+        'fingerprint' => DealerTallyEntry::makeSourceFingerprint(
+            DealerTallyEntry::SOURCE_SALES_ORDER,
+            (int) $missing->id,
+        ),
+        'voucher_no' => 'PG-0015',
+        'tally_voucher_no' => 'PG-0015',
+        'tally_reconciled_at' => now('Asia/Kolkata'),
+    ])->save();
+
+    expect(DealerTallyEntry::query()->where('source_id', $missing->id)->count())->toBe(1)
+        ->and((float) DealerTallyEntry::query()->where('source_id', $missing->id)->value('debit'))->toBe(2271675.0);
+
+    $posted = app(DealerLedgerPostingService::class)->syncDispatchedOrder($missing->fresh());
+    $largeAfter = $largeEntry->fresh();
+    $missingAfter = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $missing->id)
+        ->whereRaw('ABS(COALESCE(debit, 0) - 84525) < 0.005')
+        ->first();
+
+    expect($posted)->not->toBeNull()
+        ->and($posted?->id)->not->toBe($largeEntry->id)
+        ->and((float) $posted?->debit)->toBe(84525.0)
+        ->and($posted?->entry_date?->toDateString())->toBe('2026-08-31')
+        ->and($posted?->particulars)->toBe('Sales Order PG-0001')
+        ->and((float) $largeAfter?->debit)->toBe(2271675.0)
+        ->and($largeAfter?->voucher_no)->toBe('PG-0015')
+        ->and((int) $largeAfter?->source_id)->toBe($large->id)
+        ->and($missingAfter?->id)->toBe($posted?->id)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2);
+});
+
+it('backfills a dispatched order that was skipped because a larger tally debit stole its source_id', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811199014');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Amrut Fertilizers Purna']);
+
+    $missing = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 84525,
+        'order_no' => 'PG-20260831-0001',
+        'order_date' => '2026-08-31',
+        'dispatch_date' => '2026-09-03',
+        'dispatched_at' => '2026-09-03 16:00:00',
+    ]);
+
+    DealerTallyEntry::query()->where('source_id', $missing->id)->delete();
+
+    $tally = DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'import_id' => null,
+        'entry_date' => '2026-08-20',
+        'particulars' => 'Sales @5%',
+        'voucher_type' => 'Sales',
+        'voucher_no' => 'PG-0015',
+        'tally_voucher_no' => 'PG-0015',
+        'tally_voucher_type' => 'Sales',
+        'tally_entry_date' => '2026-08-20',
+        'tally_reconciled_at' => now('Asia/Kolkata'),
+        'debit' => 2271675,
+        'credit' => 0,
+        'source' => DealerTallyEntry::SOURCE_SALES_ORDER,
+        'source_id' => $missing->id,
+        'fingerprint' => DealerTallyEntry::makeSourceFingerprint(
+            DealerTallyEntry::SOURCE_SALES_ORDER,
+            (int) $missing->id,
+        ),
+        'source_row' => 4,
+    ]);
+
+    $result = app(DealerLedgerPostingService::class)->backfill();
+    $erp = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $missing->id)
+        ->first();
+    $tallyAfter = $tally->fresh();
+
+    expect($result['orders'])->toBeGreaterThanOrEqual(1)
+        ->and($erp)->not->toBeNull()
+        ->and($erp?->id)->not->toBe($tally->id)
+        ->and((float) $erp?->debit)->toBe(84525.0)
+        ->and($erp?->entry_date?->toDateString())->toBe('2026-08-31')
+        ->and((float) $tallyAfter?->debit)->toBe(2271675.0)
+        ->and($tallyAfter?->voucher_no)->toBe('PG-0015')
+        ->and($tallyAfter?->source_id)->toBeNull()
+        ->and($tallyAfter?->source)->toBe(TallyLedgerConfig::SOURCE);
+});
+
+it('does not attach a unique tally sales bill whose voucher is a different order number', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811199015');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Amrut Fertilizers Purna']);
+
+    DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'entry_date' => '2026-08-31',
+        'particulars' => 'Sales @5%',
+        'voucher_type' => 'Sales',
+        'voucher_no' => 'PG-0015',
+        'debit' => 84525,
+        'credit' => 0,
+        'source' => TallyLedgerConfig::SOURCE,
+        'fingerprint' => DealerTallyEntry::makeFingerprint(
+            dealerId: (int) $dealer->id,
+            date: '2026-08-31',
+            voucherType: 'Sales',
+            voucherNo: 'PG-0015',
+            debit: 84525,
+            credit: 0,
+            particulars: 'Sales @5%',
+        ),
+        'source_row' => 3,
+    ]);
+
+    $order = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 84525,
+        'order_no' => 'PG-20260831-0001',
+        'order_date' => '2026-08-31',
+        'dispatch_date' => '2026-08-31',
+        'dispatched_at' => '2026-08-31 16:00:00',
+    ]);
+
+    $erp = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $order->id)
+        ->first();
+    $tally = DealerTallyEntry::query()
+        ->where('dealer_id', $dealer->id)
+        ->where('voucher_no', 'PG-0015')
+        ->first();
+
+    expect($erp)->not->toBeNull()
+        ->and($erp?->id)->not->toBe($tally?->id)
+        ->and((float) $erp?->debit)->toBe(84525.0)
+        ->and($tally?->source)->toBe(TallyLedgerConfig::SOURCE)
+        ->and($tally?->source_id)->toBeNull()
+        ->and((float) $tally?->debit)->toBe(84525.0)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2);
+});

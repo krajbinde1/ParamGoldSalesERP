@@ -172,6 +172,19 @@ final class DealerLedgerPostingService
         ): ?DealerTallyEntry {
             $existing = $this->lockedExistingErpEntry($source, $sourceId, $fingerprint);
 
+            if ($source === DealerTallyEntry::SOURCE_SALES_ORDER) {
+                $order = Order::query()->find($sourceId);
+
+                if ($existing !== null && $order instanceof Order
+                    && $this->salesReconciler->entryIsForeignToOrder($existing, $order)) {
+                    $this->salesReconciler->releaseOrderClaim($existing, $order);
+                    $existing = $this->lockedExistingErpEntry($source, $sourceId, $fingerprint);
+                    if ($existing !== null && $this->salesReconciler->entryIsForeignToOrder($existing, $order)) {
+                        $existing = null;
+                    }
+                }
+            }
+
             if ($existing !== null) {
                 if ($this->salesReconciler->isReconciled($existing)) {
                     $existing->fill([
@@ -207,7 +220,10 @@ final class DealerLedgerPostingService
                 if ($order instanceof Order) {
                     $tallySales = $this->salesReconciler->findMatchingTallySalesEntry($order);
                     if ($tallySales !== null) {
-                        return $this->salesReconciler->attachSalesOrderToTallyEntry($tallySales, $order);
+                        $attached = $this->salesReconciler->attachSalesOrderToTallyEntry($tallySales, $order);
+                        if ($attached !== null) {
+                            return $attached;
+                        }
                     }
                 }
             }

@@ -31,6 +31,7 @@ class RoutePermissions {
       '/dealer-visits',
       '/ta-da-claims',
       '/planning',
+      '/targets',
       '/dealer-applications',
     ];
 

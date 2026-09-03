@@ -43,6 +43,28 @@ class DashboardMetricsService
     }
 
     /**
+     * @return array{period: string, label: string, start: Carbon, end: Carbon, start_date: string, end_date: string}
+     */
+    public function periodContext(
+        ?string $period,
+        ?string $startDate = null,
+        ?string $endDate = null,
+        string $default = 'week',
+    ): array {
+        $normalized = filled($period) ? $period : $default;
+        $range = $this->resolveDateRange($normalized, $startDate, $endDate);
+
+        return [
+            'period' => $normalized,
+            'label' => $range['label'],
+            'start' => $range['start'],
+            'end' => $range['end'],
+            'start_date' => $range['start']->toDateString(),
+            'end_date' => $range['end']->toDateString(),
+        ];
+    }
+
+    /**
      * @return array{start: Carbon, end: Carbon, label: string}
      */
     public function resolveDateRange(?string $period, ?string $startDate = null, ?string $endDate = null): array
@@ -595,9 +617,9 @@ class DashboardMetricsService
         ];
     }
 
-    private function percentage(float $target, float $achieved): float
+    private function percentage(float $target, float $achieved): ?float
     {
-        return $target > 0 ? round(($achieved / $target) * 100, 2) : 0.0;
+        return $target > 0 ? round(($achieved / $target) * 100, 2) : null;
     }
 
     public function overallPercentage(float $salesPercentage, float $collectionPercentage, float $fieldActivityPercentage): float

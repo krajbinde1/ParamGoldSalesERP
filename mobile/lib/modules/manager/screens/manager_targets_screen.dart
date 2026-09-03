@@ -8,6 +8,7 @@ import '../../../core/design/app_spacing.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
+import '../../../core/widgets/design/pg_period_filters.dart';
 import '../../../core/widgets/design/pg_progress_bar.dart';
 import '../../../core/widgets/design/pg_quick_action.dart';
 import '../../../core/widgets/role_shell_widgets.dart';
@@ -24,7 +25,7 @@ class ManagerTargetsScreen extends StatefulWidget {
 }
 
 class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
-  String _period = 'month';
+  String _period = 'week';
   String? _startDate;
   String? _endDate;
   late Future<ManagerTargetsResult> _future;
@@ -104,28 +105,10 @@ class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SingleChildScrollView(
-                  scrollDirection: Axis.horizontal,
-                  child: Row(
-                    children: [
-                      for (final period in ['today', 'week', 'last_week', 'month'])
-                        Padding(
-                          padding: const EdgeInsets.only(right: 8),
-                          child: ChoiceChip(
-                            label: Text(_periodLabel(period)),
-                            selected: _period == period,
-                            onSelected: (selected) {
-                              if (selected) _setPeriod(period);
-                            },
-                          ),
-                        ),
-                      ChoiceChip(
-                        label: const Text('Custom'),
-                        selected: _period == 'custom',
-                        onSelected: (_) => _pickCustomRange(),
-                      ),
-                    ],
-                  ),
+                PgPeriodFilters(
+                  selected: _period,
+                  onSelected: _setPeriod,
+                  onCustom: _pickCustomRange,
                 ),
                 if (_period == 'custom' &&
                     _startDate != null &&
@@ -184,6 +167,19 @@ class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
                         style: Theme.of(context).textTheme.titleMedium
                             ?.copyWith(fontWeight: FontWeight.w700),
                       ),
+                      if (PgPeriodFilters.formatRange(
+                            result.startDate,
+                            result.endDate,
+                          ).isNotEmpty) ...[
+                        const SizedBox(height: 4),
+                        Text(
+                          'From Date – To Date: ${PgPeriodFilters.formatRange(result.startDate, result.endDate)}',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w600,
+                              ),
+                        ),
+                      ],
                       const SizedBox(height: AppSpacing.md),
                       LayoutBuilder(
                         builder: (context, constraints) {
@@ -250,7 +246,10 @@ class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
                             ),
                             _MetricRow(
                               'Sales Achievement %',
-                              '${_formatPercent(summary.salesPercentage)}%',
+                              PgPeriodFilters.percentLabel(
+                                summary.salesPercentage,
+                                target: summary.salesTarget,
+                              ),
                             ),
                           ],
                         ),
@@ -278,7 +277,10 @@ class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
                             ),
                             _MetricRow(
                               'Collection Achievement %',
-                              '${_formatPercent(summary.collectionPercentage)}%',
+                              PgPeriodFilters.percentLabel(
+                                summary.collectionPercentage,
+                                target: summary.collectionTarget,
+                              ),
                             ),
                           ],
                         ),
@@ -308,7 +310,10 @@ class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
                             ),
                             _MetricRow(
                               'Field Activity Achievement %',
-                              '${_formatPercent(summary.fieldActivityPercentage)}%',
+                              PgPeriodFilters.percentLabel(
+                                summary.fieldActivityPercentage,
+                                target: summary.fieldActivityTarget,
+                              ),
                             ),
                           ],
                         ),
@@ -373,13 +378,21 @@ class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
                                 ),
                                 _MetricRow(
                                   'Sales Achievement %',
-                                  '${_formatPercent(_toDouble(employee['sales_percentage']))}%',
+                                  PgPeriodFilters.percentLabel(
+                                    PgPeriodFilters.percentValue(
+                                      employee['sales_percentage'],
+                                      target: _toDouble(employee['sales_target']),
+                                    ),
+                                    target: _toDouble(employee['sales_target']),
+                                  ),
                                 ),
                                 const SizedBox(height: 4),
                                 PgProgressBar(
                                   label: 'Sales',
-                                  percentage:
-                                      _toDouble(employee['sales_percentage']),
+                                  percentage: PgPeriodFilters.percentValue(
+                                    employee['sales_percentage'],
+                                    target: _toDouble(employee['sales_target']),
+                                  ),
                                   color: AppColors.primary,
                                 ),
                                 const SizedBox(height: AppSpacing.sm),
@@ -397,13 +410,26 @@ class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
                                 ),
                                 _MetricRow(
                                   'Collection Achievement %',
-                                  '${_formatPercent(_toDouble(employee['collection_percentage']))}%',
+                                  PgPeriodFilters.percentLabel(
+                                    PgPeriodFilters.percentValue(
+                                      employee['collection_percentage'],
+                                      target: _toDouble(
+                                        employee['collection_target'],
+                                      ),
+                                    ),
+                                    target: _toDouble(
+                                      employee['collection_target'],
+                                    ),
+                                  ),
                                 ),
                                 const SizedBox(height: 4),
                                 PgProgressBar(
                                   label: 'Collection',
-                                  percentage: _toDouble(
+                                  percentage: PgPeriodFilters.percentValue(
                                     employee['collection_percentage'],
+                                    target: _toDouble(
+                                      employee['collection_target'],
+                                    ),
                                   ),
                                   color: AppColors.accent,
                                 ),
@@ -422,13 +448,26 @@ class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
                                 ),
                                 _MetricRow(
                                   'Field Activity Achievement %',
-                                  '${_formatPercent(_toDouble(employee['field_activity_percentage']))}%',
+                                  PgPeriodFilters.percentLabel(
+                                    PgPeriodFilters.percentValue(
+                                      employee['field_activity_percentage'],
+                                      target: _toDouble(
+                                        employee['field_activity_target'],
+                                      ),
+                                    ),
+                                    target: _toDouble(
+                                      employee['field_activity_target'],
+                                    ),
+                                  ),
                                 ),
                                 const SizedBox(height: 4),
                                 PgProgressBar(
                                   label: 'Field Activity',
-                                  percentage: _toDouble(
+                                  percentage: PgPeriodFilters.percentValue(
                                     employee['field_activity_percentage'],
+                                    target: _toDouble(
+                                      employee['field_activity_target'],
+                                    ),
                                   ),
                                   color: AppColors.info,
                                 ),
@@ -446,20 +485,7 @@ class _ManagerTargetsScreenState extends State<ManagerTargetsScreen> {
     );
   }
 
-  String _periodLabel(String period) => switch (period) {
-        'today' => 'Today',
-        'week' => 'This Week',
-        'last_week' => 'Last Week',
-        'month' => 'This Month',
-        _ => period,
-      };
-
   double _toDouble(Object? value) => double.tryParse('$value') ?? 0;
-
-  String _formatPercent(double value) =>
-      value == value.roundToDouble()
-          ? value.toInt().toString()
-          : value.toStringAsFixed(1);
 }
 
 class _SummaryMetricCard extends StatelessWidget {
