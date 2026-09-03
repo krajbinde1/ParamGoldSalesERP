@@ -57,22 +57,7 @@ class _ManagerEditOrderScreenState extends State<ManagerEditOrderScreen> {
         const [];
     for (final raw in rawItems) {
       final item = Map<String, dynamic>.from(raw as Map);
-      final line = OrderLineItem(
-        productId: int.tryParse('${item['product_id'] ?? 0}') ?? 0,
-        productName: item['product_name']?.toString() ?? '-',
-        productCode: item['product_code']?.toString() ?? '',
-        caseQuantity: int.tryParse('${item['case_quantity'] ?? 1}') ?? 1,
-        nosPerCase: int.tryParse('${item['nos_per_case'] ?? 1}') ?? 1,
-        ratePerNo:
-            double.tryParse('${item['rate_per_no'] ?? item['rate'] ?? 0}') ?? 0,
-        originalDealerPrice: double.tryParse(
-              '${item['original_dealer_price'] ?? item['rate_per_no'] ?? 0}',
-            ) ??
-            0,
-        discountValue:
-            double.tryParse('${item['discount_percentage'] ?? 0}') ?? 0,
-        gstPercent: double.tryParse('${item['gst_percentage'] ?? 0}') ?? 0,
-      );
+      final line = OrderLineItem.fromOrderJson(item);
       if (line.productId > 0) {
         _items.add(line);
         _itemKeys[line.productId] = GlobalKey();

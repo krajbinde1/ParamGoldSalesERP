@@ -120,7 +120,7 @@ class OrderInvoiceLine {
     final totalNos = _asInt(item['total_quantity_nos'] ?? item['quantity']) ??
         (cases * nosPerCase);
     final summary = item['display_summary']?.toString();
-    final rateType = OrderItemRateType.fromApi(item['rate_type']);
+    final rateType = OrderItemRateType.fromOrderJson(item);
     final discountPercent = rateType == OrderItemRateType.fixedRate
         ? 0.0
         : (_asDouble(item['discount_percentage']) ?? 0);

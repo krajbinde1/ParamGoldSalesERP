@@ -3,10 +3,12 @@
 use App\Actions\Employees\CreateEmployeeWithUserAccount;
 use App\Actions\Targets\SaveMonthlyTarget;
 use App\Enums\UserRole;
+use App\Filament\Pages\TeamPerformance;
 use App\Filament\Widgets\AdminDirectorBusinessPerformanceWidget;
 use App\Models\Collection;
 use App\Models\Dealer;
 use App\Models\Employee;
+use App\Models\FieldActivity;
 use App\Models\Order;
 use App\Models\User;
 use App\Models\WeeklyTarget;
@@ -281,5 +283,177 @@ it('uses this week linked weekly target and this month monthly total without car
 
     expect((float) $weekJson->json('company_summary.targets.sales_target'))->toBe((float) $thisWeek->sales_target)
         ->and((float) $monthJson->json('company_summary.targets.sales_target'))->toBe(310000.0);
+});
+
+function periodBoundaryOrder(int $employeeId, int $dealerId, string $orderNo, string $orderDate, float $amount): Order
+{
+    $order = Order::query()->create([
+        'order_no' => $orderNo,
+        'order_date' => $orderDate,
+        'dealer_id' => $dealerId,
+        'sales_employee_id' => $employeeId,
+        'status' => Order::STATUS_DISPATCHED,
+        'payment_type' => 'Credit',
+        'subtotal' => $amount,
+        'discount_amount' => 0,
+        'gst_amount' => 0,
+        'grand_total' => $amount,
+    ]);
+    $order->forceFill(['updated_at' => $orderDate.' 10:00:00'])->saveQuietly();
+
+    return $order;
+}
+
+function periodBoundaryFieldActivity(int $employeeId, string $activityDate, string $farmerName): FieldActivity
+{
+    return FieldActivity::query()->create([
+        'employee_id' => $employeeId,
+        'farmer_name' => $farmerName,
+        'village' => 'Waluj',
+        'taluka' => 'Gangapur',
+        'activity_type' => 'farmer_visit',
+        'remark' => $farmerName,
+        'activity_date' => $activityDate,
+        'activity_time' => '11:00:00',
+        'photo_path' => 'field-activities/'.strtolower(str_replace(' ', '-', $farmerName)).'.jpg',
+        'status' => FieldActivity::STATUS_COMPLETED,
+    ]);
+}
+
+it('clips this week to the current month when the calendar week starts in the previous month', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-03 12:00:00', 'Asia/Kolkata'));
+
+    $metrics = app(DashboardMetricsService::class);
+    $week = $metrics->resolveDateRange('week');
+    $lastWeek = $metrics->resolveDateRange('last_week');
+
+    expect($week['start']->toDateString())->toBe('2026-09-01')
+        ->and($week['end']->toDateString())->toBe('2026-09-03')
+        ->and($lastWeek['start']->toDateString())->toBe('2026-08-24')
+        ->and($lastWeek['end']->toDateString())->toBe('2026-08-30');
+
+    $director = periodTargetDirector();
+
+    Livewire::actingAs($director)
+        ->test(TeamPerformance::class)
+        ->assertSuccessful()
+        ->assertSee('This Week · 01 Sep 2026 – 03 Sep 2026')
+        ->call('setPeriod', 'last_week')
+        ->assertSee('Last Week · 24 Aug 2026 – 30 Aug 2026');
+});
+
+it('clips last week to the month that contains that sunday', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-07 12:00:00', 'Asia/Kolkata'));
+
+    $metrics = app(DashboardMetricsService::class);
+    $week = $metrics->resolveDateRange('week');
+    $lastWeek = $metrics->resolveDateRange('last_week');
+
+    expect($week['start']->toDateString())->toBe('2026-09-07')
+        ->and($week['end']->toDateString())->toBe('2026-09-07')
+        ->and($lastWeek['start']->toDateString())->toBe('2026-09-01')
+        ->and($lastWeek['end']->toDateString())->toBe('2026-09-06');
+});
+
+it('uses the month-clipped week for weekly target and sales collection and field activity', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-03 12:00:00', 'Asia/Kolkata'));
+
+    $employee = periodTargetEmployee('Month Boundary Sales', '9400000103');
+    $dealer = periodTargetDealer();
+    $director = periodTargetDirector();
+    $metrics = app(DashboardMetricsService::class);
+
+    $august = app(SaveMonthlyTarget::class)->execute([
+        'employee_id' => $employee->id,
+        'month_start_date' => '2026-08-01',
+        'sales_target' => 310000,
+        'collection_target' => 155000,
+        'field_activity_target' => 31,
+        'status' => 'active',
+    ]);
+    $september = app(SaveMonthlyTarget::class)->execute([
+        'employee_id' => $employee->id,
+        'month_start_date' => '2026-09-01',
+        'sales_target' => 300000,
+        'collection_target' => 150000,
+        'field_activity_target' => 30,
+        'status' => 'active',
+    ]);
+
+    $augustLastDay = $august->weeklyTargets()
+        ->whereDate('week_start_date', '2026-08-31')
+        ->whereDate('week_end_date', '2026-08-31')
+        ->first();
+    $septemberFirstWeek = $september->weeklyTargets()
+        ->whereDate('week_start_date', '2026-09-01')
+        ->whereDate('week_end_date', '2026-09-06')
+        ->first();
+
+    expect($augustLastDay)->not->toBeNull()
+        ->and($septemberFirstWeek)->not->toBeNull();
+
+    periodBoundaryOrder($employee->id, $dealer->id, 'ORD-AUG-31', '2026-08-31', 11111);
+    periodBoundaryOrder($employee->id, $dealer->id, 'ORD-SEP-01', '2026-09-01', 20000);
+    periodBoundaryOrder($employee->id, $dealer->id, 'ORD-SEP-03', '2026-09-03', 30000);
+
+    Collection::query()->create([
+        'collection_date' => '2026-08-31',
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'amount' => 4000,
+        'status' => Collection::STATUS_RECEIVED,
+        'payment_mode' => 'Cash',
+        'transaction_number' => 'TXN-AUG-31',
+    ]);
+    Collection::query()->create([
+        'collection_date' => '2026-09-02',
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'amount' => 7000,
+        'status' => Collection::STATUS_RECEIVED,
+        'payment_mode' => 'Cash',
+        'transaction_number' => 'TXN-SEP-02',
+    ]);
+
+    periodBoundaryFieldActivity($employee->id, '2026-08-31', 'Aug 31 farmer');
+    periodBoundaryFieldActivity($employee->id, '2026-09-03', 'Sep 3 farmer');
+
+    $weekRange = $metrics->resolveDateRange('week');
+    $row = $metrics->employeePerformanceRow($employee, $weekRange['start'], $weekRange['end'], 'week');
+
+    expect($row['sales_target'])->toBe((float) $septemberFirstWeek->sales_target)
+        ->and($row['sales_target'])->not->toBe((float) $augustLastDay->sales_target)
+        ->and($row['sales_target'])->not->toBe((float) $septemberFirstWeek->sales_target + (float) $augustLastDay->sales_target)
+        ->and($row['collection_target'])->toBe((float) $septemberFirstWeek->collection_target)
+        ->and($row['field_activity_target'])->toBe((int) $septemberFirstWeek->field_activity_target)
+        ->and($row['sales_achieved'])->toBe(50000.0)
+        ->and($row['collection_achieved'])->toBe(7000.0)
+        ->and($row['field_activity_achieved'])->toBe(1);
+
+    $salesOrders = collect($metrics->employeeOrdersForPeriod($employee->id, $weekRange['start'], $weekRange['end']));
+    $collections = collect($metrics->employeeCollectionsForPeriod($employee->id, $weekRange['start'], $weekRange['end']));
+    $activities = collect($metrics->employeeFieldActivitiesForPeriod($employee->id, $weekRange['start'], $weekRange['end']));
+
+    expect($salesOrders->pluck('order_no')->all())->toBe(['ORD-SEP-03', 'ORD-SEP-01'])
+        ->and($collections->pluck('amount')->all())->toBe([7000.0])
+        ->and($activities)->toHaveCount(1)
+        ->and($activities->first()['farmer_name'])->toBe('Sep 3 farmer');
+
+    $this->actingAs($director, 'sanctum');
+
+    $weekJson = $this->getJson('/api/director/dashboard?period=week')->assertOk();
+
+    expect($weekJson->json('period'))->toBe('This Week')
+        ->and((float) $weekJson->json('company_summary.targets.sales_target'))->toBe((float) $septemberFirstWeek->sales_target)
+        ->and((float) $weekJson->json('company_summary.targets.sales_achieved'))->toBe(50000.0)
+        ->and((float) $weekJson->json('company_summary.targets.collection_target'))->toBe((float) $septemberFirstWeek->collection_target)
+        ->and((float) $weekJson->json('company_summary.targets.collection_achieved'))->toBe(7000.0);
+
+    Livewire::actingAs($director)
+        ->test(TeamPerformance::class)
+        ->assertSuccessful()
+        ->assertSee('This Week · 01 Sep 2026 – 03 Sep 2026')
+        ->assertSee('Month Boundary Sales')
+        ->assertDontSee('ORD-AUG-31');
 });
 

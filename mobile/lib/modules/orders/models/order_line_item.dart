@@ -21,6 +21,24 @@ enum OrderItemRateType {
     }
     return OrderItemRateType.priceList;
   }
+
+  /// Infer rate mode from a stored order line. A custom rate that does not
+  /// match the price list is Fixed Rate even if rate_type is missing/wrong.
+  static OrderItemRateType fromOrderJson(Map<String, dynamic> json) {
+    final raw = json['rate_type']?.toString().trim().toLowerCase();
+    if (raw == 'fixed_rate' || raw == 'fixed') {
+      return OrderItemRateType.fixedRate;
+    }
+    final rate =
+        double.tryParse('${json['rate_per_no'] ?? json['rate'] ?? 0}') ?? 0;
+    final list = json['original_dealer_price'] == null
+        ? null
+        : double.tryParse('${json['original_dealer_price']}');
+    if (list != null && (rate - list).abs() >= 0.001) {
+      return OrderItemRateType.fixedRate;
+    }
+    return OrderItemRateType.priceList;
+  }
 }
 
 class OrderLineItem {
@@ -68,6 +86,30 @@ class OrderLineItem {
         gstPercent: product.orderGst,
         rateType: OrderItemRateType.priceList,
       );
+
+  factory OrderLineItem.fromOrderJson(Map<String, dynamic> item) {
+    final rate = double.tryParse('${item['rate_per_no'] ?? item['rate'] ?? 0}') ?? 0;
+    final listPrice = double.tryParse(
+          '${item['original_dealer_price'] ?? item['rate_per_no'] ?? item['rate'] ?? 0}',
+        ) ??
+        0;
+    final rateType = OrderItemRateType.fromOrderJson(item);
+
+    return OrderLineItem(
+      productId: int.tryParse('${item['product_id'] ?? 0}') ?? 0,
+      productName: item['product_name']?.toString() ?? '-',
+      productCode: item['product_code']?.toString() ?? '',
+      caseQuantity: int.tryParse('${item['case_quantity'] ?? 1}') ?? 1,
+      nosPerCase: int.tryParse('${item['nos_per_case'] ?? 1}') ?? 1,
+      ratePerNo: rate,
+      originalDealerPrice: listPrice,
+      discountValue: rateType == OrderItemRateType.fixedRate
+          ? 0
+          : (double.tryParse('${item['discount_percentage'] ?? 0}') ?? 0),
+      gstPercent: double.tryParse('${item['gst_percentage'] ?? 0}') ?? 0,
+      rateType: rateType,
+    );
+  }
 
   bool get isPriceList => rateType == OrderItemRateType.priceList;
 

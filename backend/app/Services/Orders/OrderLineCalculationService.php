@@ -58,10 +58,13 @@ final class OrderLineCalculationService
             ]);
         }
 
-        $rateType = $this->normalizeRateType($rateType);
+        $rateType = $this->resolveRateType(
+            $rateType,
+            $ratePerNo,
+            (float) $product->dealer_price,
+        );
 
         if ($rateType === self::RATE_TYPE_PRICE_LIST) {
-            // Price list rate always comes from product master dealer_price.
             $ratePerNo = (float) $product->dealer_price;
         }
 
@@ -136,9 +139,28 @@ final class OrderLineCalculationService
     {
         $normalized = strtolower(trim((string) $value));
 
-        return $normalized === self::RATE_TYPE_FIXED
+        return $normalized === self::RATE_TYPE_FIXED || $normalized === 'fixed'
             ? self::RATE_TYPE_FIXED
             : self::RATE_TYPE_PRICE_LIST;
+    }
+
+    /**
+     * Each line keeps its own rate mode. A stored/submitted rate that does not
+     * match the current price list is Fixed Rate and must not be replaced.
+     */
+    public function resolveRateType(?string $requestedType, float $submittedRate, float $dealerPrice): string
+    {
+        $normalized = strtolower(trim((string) $requestedType));
+
+        if ($normalized === self::RATE_TYPE_FIXED || $normalized === 'fixed') {
+            return self::RATE_TYPE_FIXED;
+        }
+
+        if ($submittedRate > 0 && abs($submittedRate - $dealerPrice) >= 0.001) {
+            return self::RATE_TYPE_FIXED;
+        }
+
+        return self::RATE_TYPE_PRICE_LIST;
     }
 
     /**
@@ -198,17 +220,14 @@ final class OrderLineCalculationService
         $nosPerCase = (int) ($item->nos_per_case ?? 1);
         $totalQuantityNos = (int) ($item->total_quantity_nos ?? round((float) $item->quantity));
         $ratePerNo = (float) ($item->rate_per_no ?? $item->rate);
-        $rateType = $this->normalizeRateType(
-            isset($item->rate_type) ? (string) $item->rate_type : null
+        $dealerPrice = $item->product !== null
+            ? (float) $item->product->dealer_price
+            : $ratePerNo;
+        $rateType = $this->resolveRateType(
+            isset($item->rate_type) ? (string) $item->rate_type : null,
+            $ratePerNo,
+            $dealerPrice,
         );
-        // Legacy rows without rate_type: treat non-list rates as fixed.
-        if (
-            (! isset($item->rate_type) || $item->rate_type === null || $item->rate_type === '')
-            && $item->product !== null
-            && abs($ratePerNo - (float) $item->product->dealer_price) >= 0.001
-        ) {
-            $rateType = self::RATE_TYPE_FIXED;
-        }
 
         return [
             'product_id' => $item->product_id,

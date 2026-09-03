@@ -66,7 +66,7 @@ class OrderDetailItem {
               '${json['rate_per_no'] ?? json['rate'] ?? 0}',
             ) ??
             0,
-        rateType: _rateTypeFromJson(json),
+        rateType: OrderItemRateType.fromOrderJson(json),
         discountPercentage:
             double.tryParse('${json['discount_percentage'] ?? 0}') ?? 0,
         gstPercentage: double.tryParse('${json['gst_percentage'] ?? 0}') ?? 0,
@@ -91,22 +91,6 @@ class OrderDetailItem {
             0,
         displaySummary: json['display_summary']?.toString(),
       );
-
-  static OrderItemRateType _rateTypeFromJson(Map<String, dynamic> json) {
-    final raw = json['rate_type']?.toString().trim();
-    if (raw != null && raw.isNotEmpty) {
-      return OrderItemRateType.fromApi(raw);
-    }
-    final rate =
-        double.tryParse('${json['rate_per_no'] ?? json['rate'] ?? 0}') ?? 0;
-    final list = json['original_dealer_price'] == null
-        ? null
-        : double.tryParse('${json['original_dealer_price']}');
-    if (list != null && (rate - list).abs() >= 0.001) {
-      return OrderItemRateType.fixedRate;
-    }
-    return OrderItemRateType.priceList;
-  }
 }
 
 class OrderDetail {

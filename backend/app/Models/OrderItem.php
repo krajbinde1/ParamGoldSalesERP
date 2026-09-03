@@ -58,15 +58,14 @@ class OrderItem extends Model
 
                 if ($product !== null) {
                     $submittedRate = (float) ($item->rate_per_no ?? $item->rate ?? 0);
-                    $rateType = filled($item->rate_type)
-                        ? (string) $item->rate_type
-                        : (
-                            abs($submittedRate - (float) $product->dealer_price) >= 0.001
-                                ? OrderLineCalculationService::RATE_TYPE_FIXED
-                                : OrderLineCalculationService::RATE_TYPE_PRICE_LIST
-                        );
+                    $calculator = app(OrderLineCalculationService::class);
+                    $rateType = $calculator->resolveRateType(
+                        filled($item->rate_type) ? (string) $item->rate_type : null,
+                        $submittedRate,
+                        (float) $product->dealer_price,
+                    );
 
-                    $calculated = app(OrderLineCalculationService::class)->calculateForProduct(
+                    $calculated = $calculator->calculateForProduct(
                         product: $product,
                         caseQuantity: (int) $item->case_quantity,
                         ratePerNo: $submittedRate,

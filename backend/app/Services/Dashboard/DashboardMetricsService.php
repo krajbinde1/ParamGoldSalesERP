@@ -55,17 +55,8 @@ class DashboardMetricsService
                 'end' => $today->copy()->endOfDay(),
                 'label' => 'Today',
             ],
-            'week' => [
-                'start' => $today->copy()->startOfWeek(Carbon::MONDAY),
-                // Through current day only — do not include future weekdays.
-                'end' => $today->copy()->endOfDay(),
-                'label' => 'This Week',
-            ],
-            'last_week' => [
-                'start' => $today->copy()->subWeek()->startOfWeek(Carbon::MONDAY),
-                'end' => $today->copy()->subWeek()->startOfWeek(Carbon::MONDAY)->endOfWeek(Carbon::SUNDAY),
-                'label' => 'Last Week',
-            ],
+            'week' => $this->monthBoundWeeklyRange(thisWeek: true),
+            'last_week' => $this->monthBoundWeeklyRange(thisWeek: false),
             'last_month' => [
                 'start' => $today->copy()->subMonthNoOverflow()->startOfMonth(),
                 'end' => $today->copy()->subMonthNoOverflow()->endOfMonth(),
@@ -718,11 +709,11 @@ class DashboardMetricsService
         };
 
         if (in_array($normalized, ['week', 'last_week'], true)) {
-            $weekStart = $start->copy()->timezone(self::BUSINESS_TIMEZONE)->startOfWeek(Carbon::MONDAY)->startOfDay();
+            $clipped = $this->monthClippedWeekContaining($end);
 
             return [
-                'start' => $weekStart,
-                'end' => $weekStart->copy()->endOfWeek(Carbon::SUNDAY)->startOfDay(),
+                'start' => $clipped['start'],
+                'end' => $clipped['weekEnd'],
                 'prefer_monthly' => false,
             ];
         }
@@ -746,6 +737,56 @@ class DashboardMetricsService
             'start' => $windowStart,
             'end' => $windowEnd,
             'prefer_monthly' => $isFullMonth,
+        ];
+    }
+
+    /**
+     * This Week: later of (week Monday, start of current month) through today.
+     * Last Week: later of (previous Monday, start of the month that contains that Sunday)
+     * through that Sunday. Never includes dates from another month.
+     *
+     * @return array{start: Carbon, end: Carbon, label: string}
+     */
+    private function monthBoundWeeklyRange(bool $thisWeek): array
+    {
+        $today = Carbon::now(self::BUSINESS_TIMEZONE)->startOfDay();
+
+        if ($thisWeek) {
+            $clipped = $this->monthClippedWeekContaining($today);
+
+            return [
+                'start' => $clipped['start'],
+                'end' => $today->copy()->endOfDay(),
+                'label' => 'This Week',
+            ];
+        }
+
+        $lastSunday = $today->copy()->subWeek()->startOfWeek(Carbon::MONDAY)->endOfWeek(Carbon::SUNDAY);
+        $clipped = $this->monthClippedWeekContaining($lastSunday);
+
+        return [
+            'start' => $clipped['start'],
+            'end' => $lastSunday,
+            'label' => 'Last Week',
+        ];
+    }
+
+    /**
+     * Monday–Sunday week that contains $anchor, clipped so it never crosses a month boundary.
+     *
+     * @return array{start: Carbon, weekEnd: Carbon}
+     */
+    private function monthClippedWeekContaining(Carbon $anchor): array
+    {
+        $anchor = $anchor->copy()->timezone(self::BUSINESS_TIMEZONE)->startOfDay();
+        $monthStart = $anchor->copy()->startOfMonth()->startOfDay();
+        $monthEnd = $anchor->copy()->endOfMonth()->startOfDay();
+        $monday = $anchor->copy()->startOfWeek(Carbon::MONDAY)->startOfDay();
+        $sunday = $anchor->copy()->endOfWeek(Carbon::SUNDAY)->startOfDay();
+
+        return [
+            'start' => $monday->greaterThan($monthStart) ? $monday : $monthStart,
+            'weekEnd' => $sunday->lessThan($monthEnd) ? $sunday : $monthEnd,
         ];
     }
 
