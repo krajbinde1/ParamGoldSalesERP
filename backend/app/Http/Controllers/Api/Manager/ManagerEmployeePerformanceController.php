@@ -37,6 +37,7 @@ class ManagerEmployeePerformanceController extends Controller
                 role: UserRole::Employee->value,
                 search: $validated['search'] ?? null,
                 reportingManagerId: $request->user()->employee_id,
+                period: $validated['period'] ?? 'month',
             ),
         ]);
     }
@@ -60,6 +61,7 @@ class ManagerEmployeePerformanceController extends Controller
             $range['end'],
             role: UserRole::Employee->value,
             reportingManagerId: $request->user()->employee_id,
+            period: $validated['period'] ?? 'month',
         );
 
         return response()->json([
@@ -89,6 +91,7 @@ class ManagerEmployeePerformanceController extends Controller
             $employee->loadMissing(['user:id,employee_id,role', 'reportingManager:id,full_name']),
             $range['start'],
             $range['end'],
+            $validated['period'] ?? 'month',
         );
 
         $orders = $this->metrics->employeeOrdersForPeriod(

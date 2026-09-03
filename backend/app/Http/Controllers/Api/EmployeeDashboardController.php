@@ -34,6 +34,7 @@ class EmployeeDashboardController extends Controller
             $employee->id,
             $range['start'],
             $range['end'],
+            'month',
         );
 
         $attendance = Attendance::query()

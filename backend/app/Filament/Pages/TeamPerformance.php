@@ -214,18 +214,37 @@ class TeamPerformance extends Page
     public function employees(): array
     {
         $range = $this->range();
+        $period = $this->normalizeManagerPeriod($this->period);
 
-        return collect(app(DashboardMetricsService::class)->employeePerformance(
+        $employees = collect(app(DashboardMetricsService::class)->employeePerformance(
             $range['start'],
             $range['end'],
             role: UserRole::Employee->value,
-        ))
-            ->sortBy([
-                ['overall_percentage', 'desc'],
-                ['employee_name', 'asc'],
-            ])
-            ->values()
-            ->all();
+            period: $period,
+        ))->all();
+
+        usort($employees, function (array $left, array $right): int {
+            $leftPct = $left['overall_percentage'];
+            $rightPct = $right['overall_percentage'];
+
+            if ($leftPct === null && $rightPct === null) {
+                return strcmp((string) $left['employee_name'], (string) $right['employee_name']);
+            }
+            if ($leftPct === null) {
+                return 1;
+            }
+            if ($rightPct === null) {
+                return -1;
+            }
+
+            $compare = $rightPct <=> $leftPct;
+
+            return $compare !== 0
+                ? $compare
+                : strcmp((string) $left['employee_name'], (string) $right['employee_name']);
+        });
+
+        return array_values($employees);
     }
 
     public function selectedEmployeeName(): ?string
@@ -329,14 +348,49 @@ class TeamPerformance extends Page
         return IndianCurrency::format($amount);
     }
 
-    public function formatPct(float $percentage): string
+    public function formatPct(?float $percentage, float|int|null $target = null): string
     {
+        if ($target !== null && (float) $target <= 0) {
+            return 'N/A';
+        }
+
+        if ($percentage === null) {
+            return 'N/A';
+        }
+
         return number_format($percentage, 0).'%';
     }
 
-    public function barWidth(float $percentage): float
+    public function barWidth(?float $percentage, float|int|null $target = null): float
     {
+        if ($target !== null && (float) $target <= 0) {
+            return 0;
+        }
+
+        if ($percentage === null) {
+            return 0;
+        }
+
         return min(max($percentage, 0), 100);
+    }
+
+    public function metricHasTarget(array $employee, string $metric): bool
+    {
+        $key = match ($metric) {
+            'sales' => 'sales_target',
+            'collection' => 'collection_target',
+            'field_activity' => 'field_activity_target',
+            default => 'sales_target',
+        };
+
+        return (float) ($employee[$key] ?? 0) > 0;
+    }
+
+    public function overallHasTarget(array $employee): bool
+    {
+        return $this->metricHasTarget($employee, 'sales')
+            || $this->metricHasTarget($employee, 'collection')
+            || $this->metricHasTarget($employee, 'field_activity');
     }
 
     public function formatDate(?string $date): string
@@ -361,10 +415,14 @@ class TeamPerformance extends Page
      */
     public static function whatsappShareMessage(array $row, string $periodLabel): string
     {
-        $salesPct = number_format((float) ($row['sales_percentage'] ?? 0), 1);
-        $collectionPct = number_format((float) ($row['collection_percentage'] ?? 0), 1);
-        $fieldPct = number_format((float) ($row['field_activity_percentage'] ?? 0), 1);
-        $overallPct = number_format((float) ($row['overall_percentage'] ?? 0), 1);
+        $salesPct = self::formatSharePct($row['sales_percentage'] ?? null, $row['sales_target'] ?? 0);
+        $collectionPct = self::formatSharePct($row['collection_percentage'] ?? null, $row['collection_target'] ?? 0);
+        $fieldPct = self::formatSharePct($row['field_activity_percentage'] ?? null, $row['field_activity_target'] ?? 0);
+        $overallPct = self::formatSharePct($row['overall_percentage'] ?? null, (
+            ((float) ($row['sales_target'] ?? 0) > 0)
+            || ((float) ($row['collection_target'] ?? 0) > 0)
+            || ((float) ($row['field_activity_target'] ?? 0) > 0)
+        ) ? 1 : 0);
 
         return implode("\n", [
             'ParamGold Team Performance',
@@ -375,19 +433,19 @@ class TeamPerformance extends Page
             'Sales',
             'Target: '.IndianCurrency::format($row['sales_target'] ?? 0),
             'Achieved: '.IndianCurrency::format($row['sales_achieved'] ?? 0),
-            'Achievement: '.$salesPct.'%',
+            'Achievement: '.$salesPct,
             '',
             'Collection',
             'Target: '.IndianCurrency::format($row['collection_target'] ?? 0),
             'Achieved: '.IndianCurrency::format($row['collection_achieved'] ?? 0),
-            'Achievement: '.$collectionPct.'%',
+            'Achievement: '.$collectionPct,
             '',
             'Field Activity',
             'Target: '.(int) ($row['field_activity_target'] ?? 0),
             'Achieved: '.(int) ($row['field_activity_achieved'] ?? 0),
-            'Achievement: '.$fieldPct.'%',
+            'Achievement: '.$fieldPct,
             '',
-            'Overall Performance: '.$overallPct.'%',
+            'Overall Performance: '.$overallPct,
         ]);
     }
 
@@ -397,5 +455,14 @@ class TeamPerformance extends Page
     public static function whatsappShareUrl(array $row, string $periodLabel): string
     {
         return 'https://wa.me/?text='.rawurlencode(self::whatsappShareMessage($row, $periodLabel));
+    }
+
+    private static function formatSharePct(mixed $percentage, mixed $target): string
+    {
+        if ((float) $target <= 0 || $percentage === null) {
+            return 'N/A';
+        }
+
+        return number_format((float) $percentage, 1).'%';
     }
 }

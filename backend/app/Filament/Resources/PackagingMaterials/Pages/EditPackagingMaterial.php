@@ -54,10 +54,11 @@ class EditPackagingMaterial extends EditRecord
             : (float) $record->purchase_rate;
         $value = $openingLedger !== null
             ? (float) $openingLedger->transaction_value
-            : round($qty * $rate, 2);
+            : PackagingMaterialForm::openingStockValue($qty, $rate);
 
         $data['opening_stock_quantity'] = $qty;
         $data['opening_stock_value'] = $value;
+        $data['opening_effective_rate'] = $rate > 0 ? $rate : 0;
         $data['opening_date'] = $openingLedger?->transaction_date?->toDateString()
             ?? ($qty > 0 && $record->created_at !== null
                 ? $record->created_at->timezone('Asia/Kolkata')->toDateString()
@@ -86,6 +87,10 @@ class EditPackagingMaterial extends EditRecord
 
     protected function beforeSave(): void
     {
+        $qty = round((float) ($this->data['opening_stock_quantity'] ?? 0), 3);
+        $rate = round((float) ($this->data['opening_effective_rate'] ?? 0), 4);
+        $this->data['opening_stock_value'] = PackagingMaterialForm::openingStockValue($qty, $rate);
+
         $this->applyPendingOpeningStock(function (array $opening, User $user): void {
             app(MaterialOpeningStockSyncService::class)->syncPackagingMaterial(
                 $this->getRecord(),

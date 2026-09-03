@@ -8,6 +8,7 @@ use App\Models\Collection;
 use App\Models\DealerVisit;
 use App\Models\Employee;
 use App\Models\FieldActivity;
+use App\Models\MonthlyTarget;
 use App\Models\Order;
 use App\Models\TaDaClaim;
 use App\Models\WeeklyTarget;
@@ -223,39 +224,21 @@ class DashboardMetricsService
         ?int $employeeId,
         Carbon $start,
         Carbon $end,
+        ?string $period = null,
     ): array {
-        $targetQuery = WeeklyTarget::query()
-            ->where('status', 'active')
-            ->whereDate('week_start_date', '<=', $end->toDateString())
-            ->whereDate('week_end_date', '>=', $start->toDateString());
-
-        if ($employeeId !== null) {
-            $targetQuery->where('employee_id', $employeeId);
-        }
-
-        $targets = $targetQuery->get();
-
-        $salesTarget = 0.0;
-        $collectionTarget = 0.0;
-        $fieldActivityTarget = 0.0;
-
-        foreach ($targets as $target) {
-            $ratio = $this->targetOverlapRatio($target, $start, $end);
-            $salesTarget += (float) $target->sales_target * $ratio;
-            $collectionTarget += (float) $target->collection_target * $ratio;
-            $fieldActivityTarget += (float) $target->field_activity_target * $ratio;
-        }
-
-        $salesTarget = round($salesTarget, 2);
-        $collectionTarget = round($collectionTarget, 2);
-        $fieldActivityTarget = (int) round($fieldActivityTarget);
+        $assigned = $this->assignedTargetsForPeriod($employeeId, $start, $end, $period);
+        $salesTarget = $assigned['sales_target'];
+        $collectionTarget = $assigned['collection_target'];
+        $fieldActivityTarget = $assigned['field_activity_target'];
 
         if ($employeeId !== null) {
             $salesAchieved = $this->salesAchievedForPeriod($employeeId, $start, $end);
             $collectionAchieved = $this->collectionAchievedForPeriod($employeeId, $start, $end);
             $fieldActivityAchieved = $this->fieldActivityAchievedForPeriod($employeeId, $start, $end);
         } else {
-            $employeeIds = $targets->pluck('employee_id')->unique();
+            $employeeIds = Employee::query()
+                ->where('status', true)
+                ->pluck('id');
             $salesAchieved = round($employeeIds->sum(
                 fn (int $id): float => $this->salesAchievedForPeriod($id, $start, $end)
             ), 2);
@@ -435,6 +418,7 @@ class DashboardMetricsService
         ?string $search = null,
         ?int $reportingManagerId = null,
         ?array $roles = null,
+        ?string $period = null,
     ): array {
         $employees = Employee::query()
             ->with([
@@ -463,8 +447,8 @@ class DashboardMetricsService
             ->orderBy('full_name')
             ->get();
 
-        return $employees->map(function (Employee $employee) use ($start, $end): array {
-            return $this->employeePerformanceRow($employee, $start, $end);
+        return $employees->map(function (Employee $employee) use ($start, $end, $period): array {
+            return $this->employeePerformanceRow($employee, $start, $end, $period);
         })->values()->all();
     }
 
@@ -475,12 +459,13 @@ class DashboardMetricsService
         Employee $employee,
         ?Carbon $start = null,
         ?Carbon $end = null,
+        ?string $period = null,
     ): array {
         $start ??= Carbon::now(self::BUSINESS_TIMEZONE)->startOfMonth();
         $end ??= Carbon::now(self::BUSINESS_TIMEZONE)->endOfMonth();
 
         $orderScope = Order::query()->where('sales_employee_id', $employee->id);
-        $targets = $this->targetSummaryForPeriod($employee->id, $start, $end);
+        $targets = $this->targetSummaryForPeriod($employee->id, $start, $end, $period);
         $orders = $this->orderSummary($orderScope, $start, $end);
         $totalOrderAmount = round((float) (clone $orderScope)
             ->whereBetween('order_date', [$start->toDateString(), $end->toDateString()])
@@ -523,11 +508,7 @@ class DashboardMetricsService
             'field_activity_achieved' => $targets['field_activity_achieved'],
             'field_activity_remaining' => $targets['field_activity_remaining'],
             'field_activity_percentage' => $targets['field_activity_percentage'],
-            'overall_percentage' => $this->overallPercentage(
-                (float) $targets['sales_percentage'],
-                (float) $targets['collection_percentage'],
-                (float) $targets['field_activity_percentage'],
-            ),
+            'overall_percentage' => $this->overallPercentageFromTargets($targets),
             'total_order_amount' => $totalOrderAmount,
             'total_orders' => $orders['total_orders'],
             'pending_orders' => $orders['pending_orders'],
@@ -550,6 +531,7 @@ class DashboardMetricsService
         ?Carbon $end = null,
         ?int $employeeId = null,
         ?int $reportingManagerId = null,
+        ?string $period = null,
     ): array {
         $start ??= Carbon::now(self::BUSINESS_TIMEZONE)->startOfMonth();
         $end ??= Carbon::now(self::BUSINESS_TIMEZONE)->endOfMonth();
@@ -560,6 +542,7 @@ class DashboardMetricsService
             $employeeId,
             role: UserRole::Employee->value,
             reportingManagerId: $reportingManagerId,
+            period: $period,
         );
 
         return $this->aggregateTeamPerformance($employees);
@@ -632,43 +615,142 @@ class DashboardMetricsService
     }
 
     /**
-     * Share of a weekly/monthly target that falls inside the selected period.
-     * A month-long target overlapping "this week" is scaled to those weekdays,
-     * so Sales and Collection targets change with the filter.
+     * Average only metrics that have an assigned target. Null when every target is 0.
+     *
+     * @param  array<string, mixed>  $targets
      */
-    private function targetOverlapRatio(WeeklyTarget $target, Carbon $periodStart, Carbon $periodEnd): float
+    public function overallPercentageFromTargets(array $targets): ?float
     {
-        if ($target->week_start_date === null || $target->week_end_date === null) {
-            return 0.0;
+        $parts = [];
+
+        if ((float) ($targets['sales_target'] ?? 0) > 0) {
+            $parts[] = (float) $targets['sales_percentage'];
+        }
+        if ((float) ($targets['collection_target'] ?? 0) > 0) {
+            $parts[] = (float) $targets['collection_percentage'];
+        }
+        if ((float) ($targets['field_activity_target'] ?? 0) > 0) {
+            $parts[] = (float) $targets['field_activity_percentage'];
         }
 
-        $targetStart = Carbon::parse(
-            $target->week_start_date->toDateString(),
-            self::BUSINESS_TIMEZONE,
-        )->startOfDay();
-        $targetEnd = Carbon::parse(
-            $target->week_end_date->toDateString(),
-            self::BUSINESS_TIMEZONE,
-        )->startOfDay();
-
-        if ($targetStart->gt($targetEnd)) {
-            return 0.0;
+        if ($parts === []) {
+            return null;
         }
 
-        $overlapStart = $targetStart->copy()->max($periodStart->copy()->startOfDay());
-        $overlapEnd = $targetEnd->copy()->min($periodEnd->copy()->startOfDay());
+        return round(array_sum($parts) / count($parts), 2);
+    }
 
-        if ($overlapStart->gt($overlapEnd)) {
-            return 0.0;
+    /**
+     * Full assigned target amounts for the selected filter. Never prorated.
+     *
+     * @return array{sales_target: float, collection_target: float, field_activity_target: int}
+     */
+    private function assignedTargetsForPeriod(
+        ?int $employeeId,
+        Carbon $start,
+        Carbon $end,
+        ?string $period = null,
+    ): array {
+        $window = $this->targetMatchWindow($period, $start, $end);
+        $windowStart = $window['start']->toDateString();
+        $windowEnd = $window['end']->toDateString();
+
+        $monthlyQuery = MonthlyTarget::query()
+            ->where('status', 'active')
+            ->whereDate('month_start_date', '>=', $windowStart)
+            ->whereDate('month_start_date', '<=', $windowEnd);
+
+        if ($employeeId !== null) {
+            $monthlyQuery->where('employee_id', $employeeId);
         }
 
-        $targetDays = (int) $targetStart->diffInDays($targetEnd) + 1;
-        $overlapDays = (int) $overlapStart->diffInDays($overlapEnd) + 1;
+        $monthlies = $monthlyQuery->get()->filter(function (MonthlyTarget $monthly) use ($windowStart, $windowEnd): bool {
+            $monthStart = $monthly->month_start_date?->toDateString();
+            $monthEnd = $monthly->monthEndDate()->toDateString();
 
-        if ($targetDays <= 0) {
-            return 0.0;
+            return $monthStart !== null
+                && $this->dateRangeContained($monthStart, $monthEnd, $windowStart, $windowEnd);
+        });
+
+        $weeklyQuery = WeeklyTarget::query()
+            ->where('status', 'active')
+            ->whereDate('week_start_date', '>=', $windowStart)
+            ->whereDate('week_end_date', '<=', $windowEnd);
+
+        if ($employeeId !== null) {
+            $weeklyQuery->where('employee_id', $employeeId);
         }
 
-        return min(1.0, $overlapDays / $targetDays);
+        $includedMonthlyIds = $monthlies->pluck('id')->all();
+        $weeklies = $weeklyQuery->get()->reject(function (WeeklyTarget $weekly) use ($includedMonthlyIds): bool {
+            return $weekly->monthly_target_id !== null
+                && in_array((int) $weekly->monthly_target_id, $includedMonthlyIds, true);
+        });
+
+        if ($window['prefer_monthly'] && $monthlies->isNotEmpty()) {
+            return [
+                'sales_target' => round((float) $monthlies->sum('sales_target'), 2),
+                'collection_target' => round((float) $monthlies->sum('collection_target'), 2),
+                'field_activity_target' => (int) $monthlies->sum('field_activity_target'),
+            ];
+        }
+
+        return [
+            'sales_target' => round((float) $weeklies->sum('sales_target') + (float) $monthlies->sum('sales_target'), 2),
+            'collection_target' => round((float) $weeklies->sum('collection_target') + (float) $monthlies->sum('collection_target'), 2),
+            'field_activity_target' => (int) $weeklies->sum('field_activity_target') + (int) $monthlies->sum('field_activity_target'),
+        ];
+    }
+
+    /**
+     * @return array{start: Carbon, end: Carbon, prefer_monthly: bool}
+     */
+    private function targetMatchWindow(?string $period, Carbon $start, Carbon $end): array
+    {
+        $normalized = match ($period) {
+            'weekly', 'week' => 'week',
+            'last_week' => 'last_week',
+            'monthly', 'month' => 'month',
+            'last_month' => 'last_month',
+            'today' => 'today',
+            'custom' => 'custom',
+            default => null,
+        };
+
+        if (in_array($normalized, ['week', 'last_week'], true)) {
+            $weekStart = $start->copy()->timezone(self::BUSINESS_TIMEZONE)->startOfWeek(Carbon::MONDAY)->startOfDay();
+
+            return [
+                'start' => $weekStart,
+                'end' => $weekStart->copy()->endOfWeek(Carbon::SUNDAY)->startOfDay(),
+                'prefer_monthly' => false,
+            ];
+        }
+
+        if (in_array($normalized, ['month', 'last_month'], true)) {
+            $monthStart = $start->copy()->timezone(self::BUSINESS_TIMEZONE)->startOfMonth()->startOfDay();
+
+            return [
+                'start' => $monthStart,
+                'end' => $monthStart->copy()->endOfMonth()->startOfDay(),
+                'prefer_monthly' => true,
+            ];
+        }
+
+        $windowStart = $start->copy()->timezone(self::BUSINESS_TIMEZONE)->startOfDay();
+        $windowEnd = $end->copy()->timezone(self::BUSINESS_TIMEZONE)->startOfDay();
+        $isFullMonth = $windowStart->isSameDay($windowStart->copy()->startOfMonth())
+            && $windowEnd->isSameDay($windowStart->copy()->endOfMonth()->startOfDay());
+
+        return [
+            'start' => $windowStart,
+            'end' => $windowEnd,
+            'prefer_monthly' => $isFullMonth,
+        ];
+    }
+
+    private function dateRangeContained(string $innerStart, string $innerEnd, string $outerStart, string $outerEnd): bool
+    {
+        return $innerStart >= $outerStart && $innerEnd <= $outerEnd;
     }
 }

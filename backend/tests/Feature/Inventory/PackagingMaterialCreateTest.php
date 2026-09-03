@@ -4,6 +4,8 @@ use App\Enums\StockItemType;
 use App\Enums\StockTransactionType;
 use App\Enums\UserRole;
 use App\Filament\Resources\PackagingMaterials\Pages\CreatePackagingMaterial;
+use App\Filament\Resources\PackagingMaterials\Pages\EditPackagingMaterial;
+use App\Filament\Resources\PackagingMaterials\Schemas\PackagingMaterialForm;
 use App\Models\PackagingMaterial;
 use App\Models\PackagingMaterialInward;
 use App\Models\StockLedger;
@@ -180,4 +182,90 @@ it('renders the simplified Opening Stock section on the Create Packaging Materia
         ->assertSee('Cancel')
         ->assertDontSee('Save Draft')
         ->assertDontSee('Post Inward');
+});
+
+it('calculates opening stock value as quantity times effective rate on create', function (): void {
+    expect(PackagingMaterialForm::openingStockValue(900, 5.20))->toBe(4680.0)
+        ->and(PackagingMaterialForm::openingStockValue(0, 5.20))->toBe(0.0);
+
+    $this->actingAs($this->director);
+
+    $name = 'Rate Carton '.uniqid();
+
+    Livewire::test(CreatePackagingMaterial::class)
+        ->fillForm([
+            'packaging_name' => $name,
+            'unit' => 'Nos',
+            'minimum_stock' => 0,
+            'status' => true,
+            'opening_stock_quantity' => 900,
+            'opening_effective_rate' => 5.20,
+            'opening_date' => now('Asia/Kolkata')->toDateString(),
+        ])
+        ->assertSet('data.opening_stock_value', 4680)
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $material = PackagingMaterial::query()->where('packaging_name', $name)->first();
+
+    expect($material)->not->toBeNull()
+        ->and((float) $material->opening_stock)->toBe(900.0)
+        ->and((float) $material->current_stock)->toBe(900.0)
+        ->and((float) $material->current_stock_value)->toBe(4680.0)
+        ->and((float) $material->purchase_rate)->toBe(5.2)
+        ->and((float) $material->average_rate)->toBe(5.2);
+
+    $ledger = StockLedger::query()
+        ->where('packaging_material_id', $material->id)
+        ->where('transaction_type', StockTransactionType::OpeningStock->value)
+        ->first();
+
+    expect($ledger)->not->toBeNull()
+        ->and((float) $ledger->quantity_in)->toBe(900.0)
+        ->and((float) $ledger->transaction_value)->toBe(4680.0)
+        ->and((float) $ledger->rate)->toBe(5.2);
+});
+
+it('recalculates opening stock value from effective rate on edit', function (): void {
+    $material = app(PackagingMaterialCreateService::class)->create(
+        materialData: [
+            'packaging_name' => 'Edit Rate Pack '.uniqid(),
+            'unit' => 'Nos',
+            'minimum_stock' => 0,
+            'status' => true,
+        ],
+        opening: [
+            'quantity' => 100,
+            'value' => 2000,
+            'date' => now('Asia/Kolkata')->toDateString(),
+        ],
+        user: $this->director,
+    );
+
+    $this->actingAs($this->director);
+
+    Livewire::test(EditPackagingMaterial::class, ['record' => $material->getKey()])
+        ->fillForm([
+            'opening_stock_quantity' => 900,
+            'opening_effective_rate' => 5.20,
+            'opening_date' => now('Asia/Kolkata')->toDateString(),
+        ])
+        ->assertSet('data.opening_stock_value', 4680)
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $material->refresh();
+
+    expect((float) $material->opening_stock)->toBe(900.0)
+        ->and((float) $material->current_stock)->toBe(900.0)
+        ->and((float) $material->current_stock_value)->toBe(4680.0)
+        ->and((float) $material->purchase_rate)->toBe(5.2);
+
+    $ledger = StockLedger::query()
+        ->where('packaging_material_id', $material->id)
+        ->where('transaction_type', StockTransactionType::OpeningStock->value)
+        ->first();
+
+    expect((float) $ledger->transaction_value)->toBe(4680.0)
+        ->and((float) $ledger->rate)->toBe(5.2);
 });

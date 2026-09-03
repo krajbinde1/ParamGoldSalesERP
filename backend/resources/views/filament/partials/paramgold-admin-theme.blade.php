@@ -69,16 +69,209 @@
         box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
     }
 
-    .paramgold-admin-shell .fi-ta-header-cell {
-        font-weight: 600;
+    .paramgold-admin-shell .fi-page-main {
+        gap: 0.875rem;
+    }
+
+    /*
+     * Admin list / table standard - Dealer List is the reference.
+     * Scoped to Filament tables (.fi-ta) so custom report/review tables are unchanged.
+     */
+    .paramgold-admin-shell .fi-header:not(.pg-order-view-header) {
+        align-items: center;
+        gap: 0.75rem;
+        margin-bottom: 0.125rem;
+    }
+
+    .paramgold-admin-shell .fi-header:not(.pg-order-view-header) .fi-header-heading {
+        font-size: 1.375rem;
+        font-weight: 700;
+        line-height: 1.3;
+        letter-spacing: -0.02em;
+    }
+
+    .paramgold-admin-shell .fi-header-actions-ctn {
+        gap: 0.5rem;
     }
 
     .paramgold-admin-shell .fi-ta-ctn {
         overflow-x: auto;
+        border-radius: 0.75rem;
     }
 
-    .paramgold-admin-shell .fi-page-main {
-        gap: 0.875rem;
+    .paramgold-admin-shell .fi-ta .fi-ta-ctn {
+        overflow: hidden;
+        border-radius: 0.75rem;
+        box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-header-toolbar {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        gap: 0.5rem 0.75rem;
+        padding: 0.625rem 0.85rem;
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-header-toolbar > div:last-child {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.5rem;
+        margin-left: auto;
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-search-field {
+        width: 15.5rem;
+        max-width: 100%;
+        flex: 0 0 auto;
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-search-field .fi-input-wrp,
+    .paramgold-admin-shell .fi-ta .fi-ta-search-field .fi-input-wrapper {
+        min-height: 2.25rem;
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-filters-dropdown,
+    .paramgold-admin-shell .fi-ta .fi-ta-col-manager-dropdown {
+        flex: 0 0 auto;
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-content {
+        overflow-x: auto;
+        overflow-y: visible;
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-table:not(.erp-mat-table):not(.erp-cost-table) {
+        width: max-content;
+        min-width: 100%;
+        table-layout: auto;
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-header-cell {
+        font-size: 0.75rem;
+        font-weight: 600;
+        line-height: 1.25;
+        letter-spacing: 0.01em;
+        height: 2.5rem;
+        padding: 0.5rem 0.75rem;
+        white-space: nowrap;
+        vertical-align: middle;
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-cell {
+        font-size: 0.8125rem;
+        line-height: 1.3;
+        min-height: 2.75rem;
+        padding: 0.45rem 0.75rem;
+        white-space: nowrap;
+        vertical-align: middle;
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-header-cell:not(.fi-growable),
+    .paramgold-admin-shell .fi-ta .fi-ta-cell:not(.fi-growable) {
+        width: 1%;
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-header-cell.fi-growable,
+    .paramgold-admin-shell .fi-ta .fi-ta-cell.fi-growable {
+        width: auto;
+        min-width: 8rem;
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-table:not(.fi-ta-table-stacked-on-mobile) > thead > tr > .fi-ta-header-cell:nth-last-child(2):not(.fi-ta-actions-header-cell),
+    .paramgold-admin-shell .fi-ta .fi-ta-table:not(.fi-ta-table-stacked-on-mobile) > tbody > tr.fi-ta-row > .fi-ta-cell:nth-last-child(2):not(:has(.fi-ta-actions)) {
+        width: auto;
+        min-width: 6rem;
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-actions-header-cell,
+    .paramgold-admin-shell .fi-ta .fi-ta-cell:has(.fi-ta-actions) {
+        width: 1%;
+        white-space: nowrap;
+        padding-left: 0.5rem;
+        padding-right: 0.75rem;
+        text-align: end;
+    }
+
+    @media (min-width: 768px) {
+        .paramgold-admin-shell .fi-ta .fi-ta-table:not(.fi-ta-table-stacked-on-mobile) .fi-ta-actions-header-cell,
+        .paramgold-admin-shell .fi-ta .fi-ta-table:not(.fi-ta-table-stacked-on-mobile) .fi-ta-cell:has(.fi-ta-actions) {
+            position: sticky;
+            right: 0;
+            z-index: 2;
+            background-color: rgb(255 255 255);
+            box-shadow: -6px 0 8px -8px rgba(15, 23, 42, 0.18);
+        }
+
+        .dark .paramgold-admin-shell .fi-ta .fi-ta-table:not(.fi-ta-table-stacked-on-mobile) .fi-ta-actions-header-cell,
+        .dark .paramgold-admin-shell .fi-ta .fi-ta-table:not(.fi-ta-table-stacked-on-mobile) .fi-ta-cell:has(.fi-ta-actions) {
+            background-color: rgb(15 23 42);
+        }
+
+        .paramgold-admin-shell .fi-ta .fi-ta-row:hover > .fi-ta-cell:has(.fi-ta-actions) {
+            background-color: rgb(248 250 252);
+        }
+
+        .dark .paramgold-admin-shell .fi-ta .fi-ta-row:hover > .fi-ta-cell:has(.fi-ta-actions) {
+            background-color: rgb(30 41 59);
+        }
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-cell .fi-ta-actions {
+        display: inline-flex;
+        flex-wrap: nowrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.25rem;
+        width: max-content;
+        max-width: none;
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-cell .fi-ta-actions .fi-ac-btn,
+    .paramgold-admin-shell .fi-ta .fi-ta-cell .fi-ta-actions .fi-link,
+    .paramgold-admin-shell .fi-ta .fi-ta-cell .fi-ta-actions .fi-btn,
+    .paramgold-admin-shell .fi-ta .fi-ta-cell .fi-ta-actions a,
+    .paramgold-admin-shell .fi-ta .fi-ta-cell .fi-ta-actions button {
+        white-space: nowrap;
+        flex: 0 0 auto;
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-pagination {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: space-between;
+        gap: 0.5rem 0.75rem;
+        padding: 0.5rem 0.85rem;
+        border-top: 1px solid rgb(226 232 240);
+    }
+
+    .dark .paramgold-admin-shell .fi-ta .fi-pagination {
+        border-top-color: rgb(51 65 85);
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-pagination-overview {
+        font-size: 0.75rem;
+        color: rgb(100 116 139);
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-table-stacked-on-mobile .fi-ta-header-cell,
+    .paramgold-admin-shell .fi-ta .fi-ta-table-stacked-on-mobile .fi-ta-cell {
+        width: auto;
+        height: auto;
+        max-height: none;
+        white-space: normal;
+    }
+
+    .paramgold-admin-shell .fi-ta .fi-ta-cell-vendor-name,
+    .paramgold-admin-shell .fi-ta .fi-ta-cell-remark,
+    .paramgold-admin-shell .fi-ta .fi-ta-header-cell-vendor-name,
+    .paramgold-admin-shell .fi-ta .fi-ta-header-cell-remark {
+        white-space: normal;
+        max-width: 12.5rem;
+        height: auto;
     }
 
     .paramgold-welcome-card {
@@ -269,66 +462,4 @@
         }
     }
 
-    /*
-     * Payment Requests list — same compact table density as Orders / Collections.
-     * Vendor name absorbs leftover width so other columns and Action stay tight.
-     */
-    .pg-payment-requests-page .fi-page-main {
-        gap: 0.875rem;
-    }
-
-    .pg-payment-requests-page .fi-ta-ctn {
-        overflow-x: auto;
-        border-radius: 0.75rem;
-    }
-
-    .pg-payment-requests-page .fi-ta-table {
-        width: 100%;
-        table-layout: auto;
-    }
-
-    .pg-payment-requests-page .fi-ta-header-cell,
-    .pg-payment-requests-page .fi-ta-cell {
-        padding-top: 0.5rem;
-        padding-bottom: 0.5rem;
-        padding-left: 0.65rem;
-        padding-right: 0.65rem;
-        white-space: nowrap;
-        vertical-align: middle;
-    }
-
-    .pg-payment-requests-page .fi-ta-cell-vendor-name,
-    .pg-payment-requests-page .fi-ta-cell-remark,
-    .pg-payment-requests-page .fi-ta-header-cell-vendor-name,
-    .pg-payment-requests-page .fi-ta-header-cell-remark {
-        white-space: normal;
-        max-width: 12.5rem;
-    }
-
-    .pg-payment-requests-page .fi-ta-header-cell.fi-align-end,
-    .pg-payment-requests-page .fi-ta-cell:has(.fi-ta-actions) {
-        width: 1%;
-        white-space: nowrap;
-        padding-left: 0.5rem;
-        padding-right: 0.75rem;
-    }
-
-    .pg-payment-requests-page .fi-ta-actions {
-        display: inline-flex;
-        flex-wrap: nowrap;
-        align-items: center;
-        justify-content: flex-end;
-        gap: 0.25rem;
-        width: max-content;
-        max-width: none;
-    }
-
-    .pg-payment-requests-page .fi-ta-actions .fi-ac-btn,
-    .pg-payment-requests-page .fi-ta-actions .fi-link,
-    .pg-payment-requests-page .fi-ta-actions .fi-btn,
-    .pg-payment-requests-page .fi-ta-actions a,
-    .pg-payment-requests-page .fi-ta-actions button {
-        white-space: nowrap;
-        flex: 0 0 auto;
-    }
 </style>

@@ -138,7 +138,7 @@ class ManagerEmployeePerformanceDetail extends Page implements HasTable
         $start = Carbon::now('Asia/Kolkata')->startOfMonth();
         $end = Carbon::now('Asia/Kolkata')->endOfMonth();
 
-        $this->performance = $metrics->employeePerformanceRow($this->employee, $start, $end);
+        $this->performance = $metrics->employeePerformanceRow($this->employee, $start, $end, 'month');
     }
 
     public function formatCurrency(float $amount): string

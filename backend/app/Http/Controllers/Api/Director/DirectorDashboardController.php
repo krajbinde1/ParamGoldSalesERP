@@ -66,6 +66,7 @@ class DirectorDashboardController extends Controller
             null,
             null,
             $salesRoles,
+            $validated['period'] ?? 'month',
         );
 
         // Summary targets/achievement match the filtered sales-team rows for the selected period.

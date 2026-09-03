@@ -102,6 +102,7 @@ class ManagerDashboardController extends Controller
                 $range['end'],
                 role: UserRole::Employee->value,
                 reportingManagerId: $request->user()->employee_id,
+                period: $validated['period'] ?? 'month',
             ),
             'pending_order_approvals' => (clone $teamOrderScope)
                 ->where('status', Order::STATUS_PENDING_APPROVAL)

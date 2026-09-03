@@ -1169,6 +1169,7 @@ it('shows employee-wise team performance on a dedicated page with period filters
         $employee,
         Carbon::parse('2026-08-01', AttendanceCalendar::TIMEZONE)->startOfMonth(),
         Carbon::parse('2026-08-21', AttendanceCalendar::TIMEZONE)->endOfMonth(),
+        'month',
     );
 
     expect($row['sales_target'])->toBe(100000.0)
@@ -1181,6 +1182,26 @@ it('shows employee-wise team performance on a dedicated page with period filters
         ->and($row['field_activity_achieved'])->toBe(4)
         ->and($row['field_activity_percentage'])->toBe(80.0)
         ->and($row['overall_percentage'])->toBe(80.0);
+
+    $weekRange = app(DashboardMetricsService::class)->resolveDateRange('week');
+    $weekRow = app(DashboardMetricsService::class)->employeePerformanceRow(
+        $employee,
+        $weekRange['start'],
+        $weekRange['end'],
+        'week',
+    );
+
+    expect($weekRow['sales_target'])->toBe(0.0)
+        ->and($weekRow['sales_achieved'])->toBe(80000.0)
+        ->and($weekRow['collection_target'])->toBe(0.0)
+        ->and($weekRow['collection_achieved'])->toBe(40000.0)
+        ->and($weekRow['field_activity_target'])->toBe(0)
+        ->and($weekRow['field_activity_achieved'])->toBe(4)
+        ->and($weekRow['overall_percentage'])->toBeNull()
+        ->and(TeamPerformance::whatsappShareMessage($weekRow, 'This Week'))
+        ->toContain('Achievement: N/A')
+        ->toContain('Overall Performance: N/A')
+        ->toContain('Achieved: '.IndianCurrency::format(80000));
 
     $monthStart = Carbon::parse('2026-08-01', AttendanceCalendar::TIMEZONE)->startOfMonth();
     $monthEnd = Carbon::parse('2026-08-21', AttendanceCalendar::TIMEZONE)->endOfMonth();
@@ -1246,6 +1267,8 @@ it('shows employee-wise team performance on a dedicated page with period filters
         ->assertSee('Custom Date Range')
         ->assertSee('17 Aug 2026 – 21 Aug 2026')
         ->assertSee('Ravi Team Perf')
+        ->assertSee('N/A')
+        ->assertSee('Target ₹0')
         ->assertSee('Sales')
         ->assertSee('Collection')
         ->assertSee('Field Activity')

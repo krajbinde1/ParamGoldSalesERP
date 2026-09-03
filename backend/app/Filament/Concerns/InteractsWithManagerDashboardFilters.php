@@ -160,6 +160,7 @@ trait InteractsWithManagerDashboardFilters
             'summary' => $metrics->teamPerformanceSummary(
                 $range['start'],
                 $range['end'],
+                period: $this->normalizeManagerPeriod($period),
             ),
             'range' => $range,
         ];
@@ -187,12 +188,14 @@ trait InteractsWithManagerDashboardFilters
             $range['end'],
             $resolvedEmployeeId,
             role: UserRole::Employee->value,
+            period: $this->normalizeManagerPeriod($period),
         );
 
         $summary = $metrics->teamPerformanceSummary(
             $range['start'],
             $range['end'],
             $resolvedEmployeeId,
+            period: $this->normalizeManagerPeriod($period),
         );
 
         return [

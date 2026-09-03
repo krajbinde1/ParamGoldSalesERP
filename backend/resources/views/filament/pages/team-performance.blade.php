@@ -38,19 +38,25 @@
             @forelse ($this->employees() as $employee)
                 @php
                     $employeeId = (int) $employee['employee_id'];
-                    $salesPct = (float) $employee['sales_percentage'];
-                    $collectionPct = (float) $employee['collection_percentage'];
-                    $fieldPct = (float) $employee['field_activity_percentage'];
-                    $overallPct = (float) $employee['overall_percentage'];
-                    $overallClass = $overallPct >= 80
-                        ? 'pg-team-card__overall--good'
-                        : ($overallPct < 50 ? 'pg-team-card__overall--warn' : '');
+                    $salesTarget = (float) $employee['sales_target'];
+                    $collectionTarget = (float) $employee['collection_target'];
+                    $fieldTarget = (float) $employee['field_activity_target'];
+                    $salesPct = $employee['sales_percentage'];
+                    $collectionPct = $employee['collection_percentage'];
+                    $fieldPct = $employee['field_activity_percentage'];
+                    $overallPct = $employee['overall_percentage'];
+                    $overallHasTarget = $this->overallHasTarget($employee);
+                    $overallClass = ! $overallHasTarget
+                        ? ''
+                        : ((float) $overallPct >= 80
+                            ? 'pg-team-card__overall--good'
+                            : ((float) $overallPct < 50 ? 'pg-team-card__overall--warn' : ''));
                 @endphp
                 <article class="pg-team-card" wire:key="team-emp-{{ $employeeId }}">
                     <div class="pg-team-card__head">
                         <span class="pg-team-card__name">{{ $employee['employee_name'] }}</span>
                         <span class="pg-team-card__overall {{ $overallClass }}">
-                            Overall {{ $this->formatPct($overallPct) }}
+                            Overall {{ $this->formatPct(is_numeric($overallPct) ? (float) $overallPct : null, $overallHasTarget ? 1 : 0) }}
                         </span>
                         <a
                             href="{{ $this->whatsappUrl($employee) }}"
@@ -72,14 +78,14 @@
                         >
                             <div class="pg-team-metric__row">
                                 <span class="pg-team-metric__label">Sales</span>
-                                <span class="pg-team-metric__pct">{{ $this->formatPct($salesPct) }}</span>
+                                <span class="pg-team-metric__pct">{{ $this->formatPct(is_numeric($salesPct) ? (float) $salesPct : null, $salesTarget) }}</span>
                             </div>
                             <p class="pg-team-metric__values">
-                                Target {{ $this->formatMoney((float) $employee['sales_target']) }}
+                                Target {{ $this->formatMoney($salesTarget) }}
                                 · Achieved {{ $this->formatMoney((float) $employee['sales_achieved']) }}
                             </p>
                             <div class="pg-progress__track" aria-hidden="true">
-                                <div class="pg-progress__bar" style="width: {{ $this->barWidth($salesPct) }}%;"></div>
+                                <div class="pg-progress__bar" style="width: {{ $this->barWidth(is_numeric($salesPct) ? (float) $salesPct : null, $salesTarget) }}%;"></div>
                             </div>
                         </button>
 
@@ -91,14 +97,14 @@
                         >
                             <div class="pg-team-metric__row">
                                 <span class="pg-team-metric__label">Collection</span>
-                                <span class="pg-team-metric__pct">{{ $this->formatPct($collectionPct) }}</span>
+                                <span class="pg-team-metric__pct">{{ $this->formatPct(is_numeric($collectionPct) ? (float) $collectionPct : null, $collectionTarget) }}</span>
                             </div>
                             <p class="pg-team-metric__values">
-                                Target {{ $this->formatMoney((float) $employee['collection_target']) }}
+                                Target {{ $this->formatMoney($collectionTarget) }}
                                 · Achieved {{ $this->formatMoney((float) $employee['collection_achieved']) }}
                             </p>
                             <div class="pg-progress__track" aria-hidden="true">
-                                <div class="pg-progress__bar pg-progress__bar--blue" style="width: {{ $this->barWidth($collectionPct) }}%;"></div>
+                                <div class="pg-progress__bar pg-progress__bar--blue" style="width: {{ $this->barWidth(is_numeric($collectionPct) ? (float) $collectionPct : null, $collectionTarget) }}%;"></div>
                             </div>
                         </button>
 
@@ -110,14 +116,14 @@
                         >
                             <div class="pg-team-metric__row">
                                 <span class="pg-team-metric__label">Field Activity</span>
-                                <span class="pg-team-metric__pct">{{ $this->formatPct($fieldPct) }}</span>
+                                <span class="pg-team-metric__pct">{{ $this->formatPct(is_numeric($fieldPct) ? (float) $fieldPct : null, $fieldTarget) }}</span>
                             </div>
                             <p class="pg-team-metric__values">
                                 Target {{ (int) $employee['field_activity_target'] }}
                                 · Achieved {{ (int) $employee['field_activity_achieved'] }}
                             </p>
                             <div class="pg-progress__track" aria-hidden="true">
-                                <div class="pg-progress__bar pg-progress__bar--field" style="width: {{ $this->barWidth($fieldPct) }}%;"></div>
+                                <div class="pg-progress__bar pg-progress__bar--field" style="width: {{ $this->barWidth(is_numeric($fieldPct) ? (float) $fieldPct : null, $fieldTarget) }}%;"></div>
                             </div>
                         </button>
                     </div>
