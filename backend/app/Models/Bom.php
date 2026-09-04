@@ -6,6 +6,8 @@ use App\Enums\BomOutputType;
 use App\Enums\BomStatus;
 use App\Models\Concerns\EnforcesSafeDelete;
 use App\Services\Inventory\BOMCalculationService;
+use App\Services\Inventory\InventoryCodeGenerator;
+use App\Support\IndianCurrency;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -13,6 +15,7 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class Bom extends Model
 {
     use EnforcesSafeDelete;
+
     protected $attributes = [
         'status' => 'active',
         'output_type' => 'finished_product',
@@ -27,7 +30,7 @@ class Bom extends Model
     {
         static::creating(function (Bom $bom): void {
             if (! filled($bom->bom_number)) {
-                $bom->bom_number = app(\App\Services\Inventory\InventoryCodeGenerator::class)
+                $bom->bom_number = app(InventoryCodeGenerator::class)
                     ->nextBomNumber();
             }
         });
@@ -117,6 +120,13 @@ class Bom extends Model
         $qty = rtrim(rtrim(number_format((float) $this->batch_quantity, 3, '.', ''), '0'), '.');
 
         return trim($qty.' '.((string) $this->batch_unit));
+    }
+
+    public function estimatedCostPerUnitLabel(): string
+    {
+        $value = $this->formulaSummary()['estimated_cost_per_finished_unit'] ?? null;
+
+        return $value === null ? '—' : IndianCurrency::formatExact($value);
     }
 
     /** @var array<string, mixed>|null */

@@ -5,21 +5,27 @@ use App\Enums\BomStatus;
 use App\Enums\ProductionBatchStatus;
 use App\Enums\StockAdjustmentType;
 use App\Enums\StockItemType;
+use App\Enums\StockTransactionType;
 use App\Enums\UserRole;
+use App\Filament\Resources\Boms\Pages\ListBoms;
 use App\Models\Bom;
 use App\Models\BomItem;
 use App\Models\PackagingMaterial;
 use App\Models\Product;
 use App\Models\ProductionBatch;
 use App\Models\RawMaterial;
+use App\Models\StockLedger;
 use App\Models\User;
 use App\Services\Inventory\BatchReversalService;
 use App\Services\Inventory\BOMCalculationService;
+use App\Services\Inventory\FinishedProductPostingService;
+use App\Services\Inventory\InventoryReportService;
 use App\Services\Inventory\InventoryService;
 use App\Services\Inventory\ProductionCostingService;
 use App\Services\Inventory\ProductionService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use Livewire\Livewire;
 
 function inventoryDirector(): User
 {
@@ -303,9 +309,9 @@ it('rolls back production stock changes when an exception is thrown inside the t
                 'production_date' => now()->toDateString(),
             ], $supervisor);
 
-            throw new \RuntimeException('Forced failure after posting');
+            throw new RuntimeException('Forced failure after posting');
         });
-    } catch (\RuntimeException) {
+    } catch (RuntimeException) {
         // expected
     }
 
@@ -441,9 +447,9 @@ it('posts finished product stock ledger and weighted average cost on completion'
         ->and((float) $product->average_production_cost)->toBe(75.0)
         ->and((float) $product->current_stock_value)->toBe(1500.0);
 
-    $fgLedger = \App\Models\StockLedger::query()
+    $fgLedger = StockLedger::query()
         ->where('item_type', StockItemType::FinishedProduct)
-        ->where('transaction_type', \App\Enums\StockTransactionType::ProductionOutput)
+        ->where('transaction_type', StockTransactionType::ProductionOutput)
         ->where('reference_id', $batch->id)
         ->first();
 
@@ -453,7 +459,7 @@ it('posts finished product stock ledger and weighted average cost on completion'
         ->and((float) $fgLedger->transaction_value)->toBe(1300.0)
         ->and((float) $fgLedger->inward_value)->toBe(1300.0)
         ->and($fgLedger->remarks)->toBe('Production Batch '.$batch->batch_number)
-        ->and(\App\Enums\StockTransactionType::ProductionOutput->label())->toBe('Finished Product Production');
+        ->and(StockTransactionType::ProductionOutput->label())->toBe('Finished Product Production');
 });
 
 it('shows finished products and finished product value on inventory stock report', function () {
@@ -468,8 +474,8 @@ it('shows finished products and finished product value on inventory stock report
         'labour_cost' => 0,
     ], $supervisor);
 
-    $report = app(\App\Services\Inventory\InventoryReportService::class)->build([
-        'inventory_type' => \App\Services\Inventory\InventoryReportService::TYPE_FINISHED_PRODUCT,
+    $report = app(InventoryReportService::class)->build([
+        'inventory_type' => InventoryReportService::TYPE_FINISHED_PRODUCT,
     ]);
 
     $labels = collect($report->summaryCards)->pluck('label')->all();
@@ -496,12 +502,12 @@ it('backfills finished product stock for completed batches without re-consuming 
     $packAfterPost = (float) $fixture['pack']->fresh()->current_stock;
 
     // Simulate legacy completed batch: FG ledger + product stock removed, flags cleared.
-    \App\Models\StockLedger::query()
+    StockLedger::query()
         ->where('item_type', StockItemType::FinishedProduct)
         ->where('reference_id', $batch->id)
         ->delete();
 
-    \App\Models\Product::query()->whereKey($fixture['product']->id)->update([
+    Product::query()->whereKey($fixture['product']->id)->update([
         'current_finished_stock' => 0,
         'weighted_average_cost' => 0,
         'latest_production_cost' => 0,
@@ -516,7 +522,7 @@ it('backfills finished product stock for completed batches without re-consuming 
 
     expect((float) $fixture['product']->fresh()->current_finished_stock)->toBe(0.0);
 
-    $result = app(\App\Services\Inventory\FinishedProductPostingService::class)
+    $result = app(FinishedProductPostingService::class)
         ->backfillMissing($batch->fresh(), $supervisor);
 
     expect($result['status'])->toBe('posted')
@@ -525,7 +531,7 @@ it('backfills finished product stock for completed batches without re-consuming 
         ->and((float) $fixture['pack']->fresh()->current_stock)->toBe($packAfterPost)
         ->and($batch->fresh()->isFinishedProductStockPosted())->toBeTrue();
 
-    $again = app(\App\Services\Inventory\FinishedProductPostingService::class)
+    $again = app(FinishedProductPostingService::class)
         ->backfillMissing($batch->fresh(), $supervisor);
 
     expect($again['status'])->toBe('already_posted')
@@ -723,6 +729,34 @@ it('summarizes bom costs without combining incompatible units', function () {
         ->and($summary['estimated_cost_per_finished_unit'])->toBe(510.0)
         ->and($summary)->not->toHaveKey('total_raw_material_quantity')
         ->and($summary)->not->toHaveKey('completion_percentage');
+});
+
+it('shows estimated cost per unit on the bom list from the current formula and material rates', function () {
+    $fixture = seedManufacturingFixture();
+    $fixture['bom']->update(['batch_quantity' => 1, 'batch_unit' => 'Nos']);
+
+    Livewire::actingAs(inventoryDirector())
+        ->test(ListBoms::class)
+        ->assertSuccessful()
+        ->assertSee('Estimated Cost / Unit')
+        ->assertSee('Formula For Quantity')
+        ->assertSee('₹110.00');
+
+    $fixture['raw']->update(['average_rate' => 200]);
+
+    Livewire::actingAs(inventoryDirector())
+        ->test(ListBoms::class)
+        ->assertSuccessful()
+        ->assertSee('₹210.00');
+});
+
+it('hides estimated bom cost on the list from users who cannot view production costs', function () {
+    seedManufacturingFixture();
+
+    Livewire::actingAs(inventorySupervisor())
+        ->test(ListBoms::class)
+        ->assertSuccessful()
+        ->assertDontSee('Estimated Cost / Unit');
 });
 
 it('allows saving inactive bom with non-Nos batch unit', function () {

@@ -93,16 +93,19 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
                     ->columns(2)
                     ->schema([
                         Select::make('output_type')
-                            ->label('Output Type')
+                            ->label('Production Stage')
                             ->options(BomOutputType::options())
                             ->required()
                             ->live()
+                            ->helperText(fn ($get): string => ($get('output_type') ?? BomOutputType::FinishedProduct->value) === BomOutputType::SemiFinished->value
+                                ? 'Manufacture bulk / semi-finished from the shared raw-material recipe.'
+                                : 'Pack a finished SKU. This consumes bulk stock for the selected packing size.')
                             ->afterStateUpdated(function (Set $set): void {
                                 $set('product_id', null);
                                 $set('semi_finished_id', null);
                             }),
                         Select::make('product_id')
-                            ->label('Finished Product')
+                            ->label('Finished Product / SKU')
                             ->options(fn (): array => Product::query()
                                 ->where('status', true)
                                 ->orderBy('product_name')
@@ -124,7 +127,7 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
                                 );
                             }),
                         Select::make('semi_finished_id')
-                            ->label('Semi-Finished Material')
+                            ->label('Bulk / Semi-Finished')
                             ->options(fn (): array => SemiFinishedMaterial::query()
                                 ->where('status', true)
                                 ->orderBy('material_name')
@@ -159,7 +162,11 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
                             ->label('Production Quantity')
                             ->numeric()
                             ->minValue(0.001)
-                            ->required(),
+                            ->required()
+                            ->suffix(fn (): string => $this->productionUnit ?: '')
+                            ->helperText(fn ($get): string => ($get('output_type') ?? BomOutputType::FinishedProduct->value) === BomOutputType::SemiFinished->value
+                                ? 'Bulk output quantity in the manufacturing BOM unit (e.g. Kg).'
+                                : 'Number of finished packs for this SKU. Bulk is consumed from the packing BOM (e.g. 2 KG bulk per 2 KG bag).'),
                         TextInput::make('labour_cost')
                             ->label('Labour Cost')
                             ->prefix('₹')
@@ -208,6 +215,7 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
             ]);
 
             $this->activeBomLabel = (string) $preview['bom']->bom_number;
+            $this->productionUnit = (string) ($preview['bom']->batch_unit ?: '');
             $set('active_bom_label', $this->activeBomLabel);
         } catch (ValidationException) {
             $this->activeBomLabel = null;
@@ -269,9 +277,10 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
             $this->productLabel = $outputType === BomOutputType::SemiFinished->value
                 ? trim(($semiFinished?->material_code ?? '').' — '.($semiFinished?->material_name ?? 'Semi-Finished'))
                 : $product->displayLabel();
-            $this->productionUnit = $outputType === BomOutputType::SemiFinished->value
-                ? (string) ($semiFinished?->unit ?: 'Nos')
-                : (string) ($product->production_unit ?: $product->uom ?: 'Nos');
+            $this->productionUnit = (string) ($bom->batch_unit
+                ?: ($outputType === BomOutputType::SemiFinished->value
+                    ? ($semiFinished?->unit ?: 'Kg')
+                    : ($product->production_unit ?: $product->uom ?: 'Nos')));
             $this->productionDateLabel = (string) $data['production_date'];
             $this->productionQuantityPreview = $quantity;
 

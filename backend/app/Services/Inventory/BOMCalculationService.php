@@ -16,6 +16,9 @@ use Illuminate\Validation\ValidationException;
 
 final class BOMCalculationService
 {
+    /** @var array<int, true> */
+    private array $computingSfFormulaRate = [];
+
     public function __construct(
         private readonly InventoryUnitConversion $unitConversion = new InventoryUnitConversion,
     ) {}
@@ -195,7 +198,7 @@ final class BOMCalculationService
 
             $inventoryUnit = $this->resolveInventoryUnitForRow($itemType, $rawId, $packId, $sfId, $item);
             $lineCost = 0.0;
-            $rate = $this->resolveAverageRate($itemType, $rawId, $packId, $sfId);
+            $rate = $this->resolveAverageRate($itemType, $rawId, $packId, $sfId, $item instanceof BomItem ? $item : null);
 
             if ($qty > 0 && $unit !== '' && $inventoryUnit !== null) {
                 try {
@@ -354,10 +357,41 @@ final class BOMCalculationService
             }
 
             $normalizedBatchUnit = $this->unitConversion->normalize($batchUnit);
-            if (! in_array($normalizedBatchUnit, [InventoryUnit::Nos->value, InventoryUnit::Piece->value], true)) {
-                throw ValidationException::withMessages([
-                    'batch_unit' => 'Batch Unit must be Nos or Piece for quantity-wise BOMs before activating.',
-                ]);
+            if ($outputType === BomOutputType::FinishedProduct->value) {
+                if (! in_array($normalizedBatchUnit, [InventoryUnit::Nos->value, InventoryUnit::Piece->value], true)) {
+                    throw ValidationException::withMessages([
+                        'batch_unit' => 'Packing BOMs (finished products) must use Nos or Piece. Each packing size is one SKU; put bulk quantity (e.g. 2 KG) on the Bulk / Semi-Finished formula line.',
+                    ]);
+                }
+            } else {
+                $allowedManufacturingUnits = [
+                    InventoryUnit::Kg->value,
+                    InventoryUnit::Litre->value,
+                    InventoryUnit::Nos->value,
+                    InventoryUnit::Piece->value,
+                ];
+                if (! in_array($normalizedBatchUnit, $allowedManufacturingUnits, true)) {
+                    throw ValidationException::withMessages([
+                        'batch_unit' => 'Manufacturing BOMs must use Kg, Litre, Nos, or Piece.',
+                    ]);
+                }
+
+                $isCountUnit = in_array($normalizedBatchUnit, [
+                    InventoryUnit::Nos->value,
+                    InventoryUnit::Piece->value,
+                ], true);
+                $sfUnit = filled($semiFinishedId)
+                    ? SemiFinishedMaterial::query()->whereKey($semiFinishedId)->value('unit')
+                    : null;
+                if (
+                    ! $isCountUnit
+                    && filled($sfUnit)
+                    && ! $this->unitConversion->areCompatible($normalizedBatchUnit, (string) $sfUnit)
+                ) {
+                    throw ValidationException::withMessages([
+                        'batch_unit' => 'Manufacturing BOM formula unit must match the bulk / semi-finished stock unit ('.$sfUnit.').',
+                    ]);
+                }
             }
 
             if ($normalizedItems === []) {
@@ -637,18 +671,30 @@ final class BOMCalculationService
         return null;
     }
 
-    private function resolveAverageRate(string $itemType, ?int $rawId, ?int $packId, ?int $sfId = null): float
+    private function resolveAverageRate(string $itemType, ?int $rawId, ?int $packId, ?int $sfId = null, ?BomItem $item = null): float
     {
         if ($itemType === BomItemType::RawMaterial->value && $rawId !== null) {
+            if ($item?->relationLoaded('rawMaterial')) {
+                return (float) ($item->rawMaterial?->average_rate ?? 0);
+            }
+
             return (float) (RawMaterial::query()->whereKey($rawId)->value('average_rate') ?? 0);
         }
 
         if ($itemType === BomItemType::PackagingMaterial->value && $packId !== null) {
+            if ($item?->relationLoaded('packagingMaterial')) {
+                return (float) ($item->packagingMaterial?->average_rate ?? 0);
+            }
+
             return (float) (PackagingMaterial::query()->whereKey($packId)->value('average_rate') ?? 0);
         }
 
         if ($itemType === BomItemType::SemiFinished->value && $sfId !== null) {
-            return (float) (SemiFinishedMaterial::query()->whereKey($sfId)->value('average_production_cost') ?? 0);
+            $material = $item?->relationLoaded('semiFinished')
+                ? $item->semiFinished
+                : SemiFinishedMaterial::query()->find($sfId);
+
+            return $this->semiFinishedEstimatedRate((int) $sfId, $material);
         }
 
         return 0.0;
@@ -695,9 +741,64 @@ final class BOMCalculationService
         return [
             'name' => (string) ($material?->material_name ?? 'Unknown semi-finished material'),
             'stock' => (float) ($material?->current_stock ?? 0),
-            'rate' => (float) ($material?->average_production_cost ?? 0),
+            'rate' => $material !== null
+                ? $this->semiFinishedEstimatedRate((int) $material->id, $material)
+                : 0.0,
             'minimum' => (float) ($material?->minimum_stock ?? 0),
             'unit' => (string) ($material?->unit ?? $item->unit),
         ];
+    }
+
+    /**
+     * Prefer live WAVG from produced bulk; otherwise the manufacturing BOM formula cost per stock unit.
+     */
+    private function semiFinishedEstimatedRate(int $sfId, ?SemiFinishedMaterial $material): float
+    {
+        $wavg = (float) ($material?->average_production_cost ?? 0);
+        if ($wavg > 0.00001) {
+            return $wavg;
+        }
+
+        return $this->manufacturingFormulaCostPerInventoryUnit($sfId, $material);
+    }
+
+    private function manufacturingFormulaCostPerInventoryUnit(int $sfId, ?SemiFinishedMaterial $material): float
+    {
+        if (isset($this->computingSfFormulaRate[$sfId])) {
+            return 0.0;
+        }
+
+        $this->computingSfFormulaRate[$sfId] = true;
+
+        try {
+            $mfgBom = $this->getActiveBomForSemiFinished($sfId);
+            if ($mfgBom === null) {
+                return 0.0;
+            }
+
+            $formulaQty = (float) $mfgBom->batch_quantity;
+            if ($formulaQty <= 0) {
+                return 0.0;
+            }
+
+            $summary = $this->summarizeBom($mfgBom, $mfgBom->items);
+            $costPerFormulaUnit = (float) $summary['estimated_total_bom_cost'] / $formulaQty;
+            $formulaUnit = (string) $mfgBom->batch_unit;
+            $inventoryUnit = (string) ($material?->unit ?: $formulaUnit);
+
+            if ($formulaUnit === '' || $inventoryUnit === '') {
+                return round($costPerFormulaUnit, 4);
+            }
+
+            try {
+                $converted = $this->unitConversion->convert(1, $inventoryUnit, $formulaUnit);
+
+                return round($costPerFormulaUnit * (float) $converted['quantity'], 4);
+            } catch (ValidationException) {
+                return round($costPerFormulaUnit, 4);
+            }
+        } finally {
+            unset($this->computingSfFormulaRate[$sfId]);
+        }
     }
 }

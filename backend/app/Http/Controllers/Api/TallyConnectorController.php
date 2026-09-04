@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\TallyOutboundVoucher;
 use App\Services\TallySync\TallyConnectorService;
+use App\Services\TallySync\TallyLiveBalanceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -75,6 +76,36 @@ final class TallyConnectorController extends Controller
         return response()->json([
             'message' => 'Voucher marked as failed.',
             'data' => $this->format($voucher),
+        ]);
+    }
+
+    public function liveBalancesPoll(TallyLiveBalanceService $live): JsonResponse
+    {
+        return response()->json($live->connectorPoll());
+    }
+
+    public function liveBalances(Request $request, TallyLiveBalanceService $live): JsonResponse
+    {
+        $validated = $request->validate([
+            'connector_id' => ['nullable', 'string', 'max:100'],
+            'tally_online' => ['required', 'boolean'],
+            'balances' => ['nullable', 'array', 'max:5000'],
+            'balances.*.tally_ledger_name' => ['required_with:balances', 'string', 'max:255'],
+            'balances.*.closing_balance' => ['required_with:balances', 'numeric'],
+            'balances.*.closing_balance_type' => ['nullable', 'string', 'in:debit,credit'],
+        ]);
+
+        $result = $live->ingest(
+            $this->connectorId($request, $validated['connector_id'] ?? null),
+            (bool) $validated['tally_online'],
+            $validated['balances'] ?? [],
+        );
+
+        return response()->json([
+            'message' => $result['tally_online']
+                ? 'Live Tally balances stored.'
+                : 'Tally offline heartbeat stored.',
+            'data' => $result,
         ]);
     }
 

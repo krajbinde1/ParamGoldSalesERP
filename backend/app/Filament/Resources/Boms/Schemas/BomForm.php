@@ -41,18 +41,23 @@ class BomForm
                             ->readOnly()
                             ->dehydrated(false),
                         Select::make('output_type')
-                            ->label('Output Type')
+                            ->label('BOM Stage')
                             ->options(BomOutputType::options())
                             ->default(BomOutputType::FinishedProduct->value)
                             ->required()
                             ->live()
-                            ->afterStateUpdated(function (Set $set): void {
+                            ->helperText(fn (Get $get): string => BomOutputType::tryFrom((string) ($get('output_type') ?: BomOutputType::FinishedProduct->value))?->helperText()
+                                ?? BomOutputType::FinishedProduct->helperText())
+                            ->afterStateUpdated(function ($state, Set $set): void {
                                 $set('product_id', null);
                                 $set('semi_finished_id', null);
+                                $set('batch_unit', $state === BomOutputType::SemiFinished->value
+                                    ? InventoryUnit::Kg->value
+                                    : InventoryUnit::Nos->value);
                             }),
                         Select::make('product_id')
-                            ->label('Output Item (Sales Product)')
-                            ->helperText('Select a product from Sales Operations → Products.')
+                            ->label('Finished Product / SKU')
+                            ->helperText('Each packing size is a separate product (e.g. Nutricombi Drip Mix 2 KG, 5 KG, 10 KG).')
                             ->relationship(
                                 name: 'product',
                                 titleAttribute: 'product_name',
@@ -71,7 +76,8 @@ class BomForm
                             ->required(fn (Get $get): bool => $get('output_type') === BomOutputType::FinishedProduct->value
                                 || blank($get('output_type'))),
                         Select::make('semi_finished_id')
-                            ->label('Output Item (Semi-Finished)')
+                            ->label('Bulk / Semi-Finished Output')
+                            ->helperText('Create this bulk item once. Packing BOMs will consume it by packing size.')
                             ->relationship(
                                 name: 'semiFinished',
                                 titleAttribute: 'material_name',
@@ -97,24 +103,35 @@ class BomForm
                             ->default(now())
                             ->required(),
                         TextInput::make('batch_quantity')
-                            ->label('Formula For Quantity')
+                            ->label(fn (Get $get): string => InventoryUnit::formulaFieldLabel($get('batch_unit')))
                             ->numeric()
                             ->minValue(0.0001)
                             ->required()
                             ->live()
-                            ->helperText('Number of output units this BOM is defined for (e.g. 100 Nos).'),
+                            ->helperText(fn (Get $get): string => InventoryUnit::formulaFieldHelper(
+                                $get('output_type'),
+                                $get('batch_unit'),
+                            )),
                         Select::make('batch_unit')
                             ->label('Batch Unit')
                             ->options(InventoryUnit::batchUnitOptions())
-                            ->default(InventoryUnit::Nos->value)
+                            ->default(fn (Get $get): string => $get('output_type') === BomOutputType::SemiFinished->value
+                                ? InventoryUnit::Kg->value
+                                : InventoryUnit::Nos->value)
                             ->required()
-                            ->live(),
+                            ->live()
+                            ->helperText(fn (Get $get): string => $get('output_type') === BomOutputType::SemiFinished->value
+                                ? 'Use Kg or Litre for bulk manufacturing.'
+                                : 'Use Nos or Piece for packed SKUs. Bulk weight belongs on the formula line, not here.'),
                         Textarea::make('notes')
                             ->rows(2)
                             ->columnSpanFull(),
                     ])
                     ->columns(2),
                 Section::make('BOM items')
+                    ->description(fn (Get $get): string => $get('output_type') === BomOutputType::SemiFinished->value
+                        ? 'Add raw materials for the shared bulk recipe. Do not add packing sizes here.'
+                        : 'Add bulk/semi-finished consumed by this packing size, plus this SKU’s packing materials. Do not duplicate the raw-material formula.')
                     ->columnSpanFull()
                     ->schema([
                         Repeater::make('items')
@@ -168,11 +185,12 @@ class BomForm
                                         $set('unit', self::defaultFormulationUnit($inventoryUnit));
                                     }),
                                 Select::make('semi_finished_id')
-                                    ->label('Material')
+                                    ->label('Bulk / Semi-Finished')
                                     ->relationship('semiFinished', 'material_name', fn (Builder $query) => $query->where('status', true))
                                     ->searchable()
                                     ->preload()
                                     ->live()
+                                    ->helperText('The shared bulk this packing size consumes (e.g. 2 KG of Drip Mix Bulk for the 2 KG SKU).')
                                     ->visible(fn (Get $get): bool => $get('item_type') === BomItemType::SemiFinished->value)
                                     ->required(fn (Get $get): bool => $get('item_type') === BomItemType::SemiFinished->value)
                                     ->afterStateUpdated(function ($state, Set $set): void {
@@ -305,10 +323,10 @@ class BomForm
         if ($showCosts) {
             $html .= '<div><div style="font-size:0.75rem;opacity:0.7;">Estimated Raw Material Cost</div><div style="font-weight:600;">'
                 .'₹'.e(number_format((float) $summary['estimated_raw_material_cost'], 2)).'</div></div>'
-                .'<div><div style="font-size:0.75rem;opacity:0.7;">Estimated Packaging Cost</div><div style="font-weight:600;">'
-                .'₹'.e(number_format((float) $summary['estimated_packaging_cost'], 2)).'</div></div>'
-                .'<div><div style="font-size:0.75rem;opacity:0.7;">Estimated Semi-Finished Cost</div><div style="font-weight:600;">'
+                .'<div><div style="font-size:0.75rem;opacity:0.7;">Estimated Bulk / Semi-Finished Cost</div><div style="font-weight:600;">'
                 .'₹'.e(number_format((float) ($summary['estimated_semi_finished_cost'] ?? 0), 2)).'</div></div>'
+                .'<div><div style="font-size:0.75rem;opacity:0.7;">Estimated Packing Material Cost</div><div style="font-weight:600;">'
+                .'₹'.e(number_format((float) $summary['estimated_packaging_cost'], 2)).'</div></div>'
                 .'<div><div style="font-size:0.75rem;opacity:0.7;">Estimated Total BOM Cost</div><div style="font-weight:600;">'
                 .'₹'.e(number_format((float) $summary['estimated_total_bom_cost'], 2)).'</div></div>'
                 .'<div><div style="font-size:0.75rem;opacity:0.7;">Estimated Cost Per Unit</div><div style="font-weight:600;">'

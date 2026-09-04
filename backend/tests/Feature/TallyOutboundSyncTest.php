@@ -148,7 +148,7 @@ it('queues one sales voucher when an order is marked billed', function (): void 
         ->and($voucher->payload['party']['firm_name'])->toBe('Shree Ganesh Traders')
         ->and($voucher->payload['order']['bill_number'])->toBe('BILL-TALLY-1')
         ->and($voucher->payload['order']['grand_total'])->toEqual(11800.0)
-        ->and(DealerTallyEntry::query()->where('source_id', $order->id)->count())->toBe(0);
+        ->and(DealerTallyEntry::query()->where('source_id', $order->id)->count())->toBe(1);
 
     $order->update(['grand_total' => 99999]);
     app(TallyOutboundEnqueueService::class)->queueBilledOrder($order->fresh());

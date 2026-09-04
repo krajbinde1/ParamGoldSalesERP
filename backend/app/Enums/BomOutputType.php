@@ -10,8 +10,16 @@ enum BomOutputType: string
     public function label(): string
     {
         return match ($this) {
-            self::FinishedProduct => 'Finished Product',
-            self::SemiFinished => 'Semi-Finished',
+            self::FinishedProduct => 'Packing (Finished Product)',
+            self::SemiFinished => 'Manufacturing (Bulk / Semi-Finished)',
+        };
+    }
+
+    public function helperText(): string
+    {
+        return match ($this) {
+            self::FinishedProduct => 'One packing size / SKU. Consume bulk/semi-finished plus this size’s packing materials. Do not copy the raw-material recipe here.',
+            self::SemiFinished => 'Shared manufacturing formula. Raw materials go into bulk once; packing sizes consume that bulk.',
         };
     }
 

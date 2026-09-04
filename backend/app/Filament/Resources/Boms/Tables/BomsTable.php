@@ -2,7 +2,9 @@
 
 namespace App\Filament\Resources\Boms\Tables;
 
+use App\Enums\BomOutputType;
 use App\Enums\BomStatus;
+use App\Filament\Actions\SafeDeleteActions;
 use App\Filament\Resources\Boms\BomResource;
 use App\Models\Bom;
 use Filament\Actions\BulkActionGroup;
@@ -22,9 +24,16 @@ class BomsTable
                     ->label('BOM Number')
                     ->searchable()
                     ->sortable(),
+                TextColumn::make('output_type')
+                    ->label('BOM Stage')
+                    ->badge()
+                    ->formatStateUsing(fn ($state): string => $state instanceof BomOutputType
+                        ? $state->label()
+                        : (string) $state)
+                    ->sortable(),
                 TextColumn::make('product.product_name')
-                    ->label('Product')
-                    ->formatStateUsing(fn ($state, Bom $record): string => $record->product?->displayLabel() ?? (string) $state)
+                    ->label('Output')
+                    ->state(fn (Bom $record): string => $record->outputName())
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('status')
@@ -39,6 +48,11 @@ class BomsTable
                     ->label('Formula For Quantity')
                     ->formatStateUsing(fn ($state, Bom $record): string => $record->formulaQuantityLabel())
                     ->sortable(),
+                TextColumn::make('estimated_cost_per_unit')
+                    ->label('Estimated Cost / Unit')
+                    ->state(fn (Bom $record): string => $record->estimatedCostPerUnitLabel())
+                    ->alignEnd()
+                    ->visible(fn (): bool => auth()->user()?->canViewProductionCosts() ?? false),
                 TextColumn::make('items_count')
                     ->label('Items')
                     ->sortable(),
@@ -50,8 +64,11 @@ class BomsTable
             ->filters([
                 SelectFilter::make('status')
                     ->options(BomStatus::options()),
+                SelectFilter::make('output_type')
+                    ->label('BOM Stage')
+                    ->options(BomOutputType::options()),
                 SelectFilter::make('product_id')
-                    ->label('Product')
+                    ->label('Finished Product')
                     ->relationship('product', 'product_name')
                     ->searchable()
                     ->preload(false),
@@ -63,7 +80,7 @@ class BomsTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    \App\Filament\Actions\SafeDeleteActions::deleteBulkAction()
+                    SafeDeleteActions::deleteBulkAction()
                         ->authorize(fn (): bool => BomResource::canDeleteAny()),
                 ]),
             ])

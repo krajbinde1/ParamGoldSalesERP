@@ -73,6 +73,27 @@ class ErpClient:
             message = f"{message} (see Tally response)"
         return self._post(f"vouchers/{voucher_id}/failed", {"error": message[:2000]})
 
+    def live_balance_poll(self) -> dict[str, Any]:
+        try:
+            response = self.session.get(self._url("live-balances"), timeout=self.timeout)
+        except requests.RequestException as exc:
+            raise ErpApiError(f"ERP live-balance poll failed: {exc}") from exc
+
+        if response.status_code != 200:
+            raise ErpApiError(self._error_message(response), response.status_code)
+
+        return self._json(response)
+
+    def post_live_balances(self, tally_online: bool, balances: list[dict[str, Any]]) -> dict[str, Any]:
+        return self._post(
+            "live-balances",
+            {
+                "connector_id": self.connector_id,
+                "tally_online": tally_online,
+                "balances": balances,
+            },
+        )
+
     def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
         try:
             response = self.session.post(self._url(path), json=body, timeout=self.timeout)

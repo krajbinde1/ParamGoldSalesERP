@@ -52,14 +52,56 @@ def main() -> int:
     try:
         if args.once:
             process_pending(erp, tally, settings)
+            sync_live_balances(erp, tally)
             return 0
 
         while True:
             process_pending(erp, tally, settings)
+            sync_live_balances(erp, tally)
             time.sleep(settings.poll_interval_seconds)
     except KeyboardInterrupt:
         print("Connector stopped.", flush=True)
         return 0
+
+
+def sync_live_balances(erp: ErpClient, tally: TallyClient) -> None:
+    force_sync = False
+    try:
+        poll = erp.live_balance_poll()
+        force_sync = bool(poll.get("force_sync"))
+    except ErpApiError as exc:
+        log("Failed", f"Live Tally poll: {exc}")
+
+    if force_sync:
+        log("Pending", "Admin requested live Tally balance sync")
+
+    try:
+        tally.ping()
+    except TallyError as exc:
+        log("Failed", f"Live Tally balances: {exc}")
+        try:
+            erp.post_live_balances(False, [])
+        except ErpApiError as report_exc:
+            log("Failed", f"Could not report Tally offline to ERP: {report_exc}")
+        return
+
+    try:
+        balances = tally.ledger_closing_balances()
+        result = erp.post_live_balances(True, balances)
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        log(
+            "Synced",
+            "Live Tally balances  "
+            f"ledgers={len(balances)} matched={data.get('matched', 0)} unmatched={data.get('unmatched', 0)}",
+        )
+    except TallyError as exc:
+        log("Failed", f"Live Tally balances: {exc}")
+        try:
+            erp.post_live_balances(False, [])
+        except ErpApiError as report_exc:
+            log("Failed", f"Could not report Tally offline to ERP: {report_exc}")
+    except ErpApiError as exc:
+        log("Failed", f"Could not store live Tally balances: {exc}")
 
 
 def process_pending(erp: ErpClient, tally: TallyClient, settings: Settings) -> None:

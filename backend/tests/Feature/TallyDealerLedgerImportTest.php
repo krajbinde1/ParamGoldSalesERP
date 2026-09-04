@@ -10,11 +10,13 @@ use App\Models\DealerTallyEntry;
 use App\Models\DealerTallyImport;
 use App\Models\DealerTallyLedger;
 use App\Models\Order;
+use App\Models\TallyLiveSyncState;
 use App\Models\User;
 use App\Services\Dealers\DealerLedgerService;
 use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Services\TallyLedger\TallyLedgerExcelParser;
 use App\Services\TallyLedger\TallyLedgerImportService;
+use App\Services\TallySync\TallyLiveBalanceService;
 use App\Support\IndianCurrency;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -388,7 +390,7 @@ it('sets opening to zero when the tally file has no opening balance row', functi
         ->and($statement['summary']['opening_balance_label'])->toBe('₹0.00')
         ->and($statement['summary']['current_outstanding_signed'])->toBe(15000.0)
         ->and($statement['summary']['current_outstanding_label'])->toBe('₹15,000.00 Dr')
-        ->and($statement['verification']['balance_matched'])->toBeTrue()
+        ->and($statement['verification']['balance_matched'])->toBeNull()
         ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2);
 });
 
@@ -423,7 +425,7 @@ it('sets opening to zero when the tally file shows opening balance of zero', fun
         ->and($fresh->tallyLedger->opening_balance_explicit)->toBeTrue()
         ->and($statement['summary']['opening_balance'])->toBe(0.0)
         ->and($statement['summary']['current_outstanding_signed'])->toBe(15000.0)
-        ->and($statement['verification']['balance_matched'])->toBeTrue()
+        ->and($statement['verification']['balance_matched'])->toBeNull()
         ->and($result['imported_count'])->toBe(1)
         ->and(collect($statement['ledger'])->where('is_opening', true))->toHaveCount(1)
         ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->where('particulars', 'like', '%Opening%')->count())->toBe(0);
@@ -530,7 +532,7 @@ it('replaces the existing opening on re-import and keeps only the tally opening'
         ->and($statement['summary']['opening_balance_label'])->toBe('₹80,267.37 Dr')
         ->and($statement['summary']['current_outstanding_signed'])->toBe(628945.37)
         ->and($statement['summary']['current_outstanding_label'])->toBe('₹6,28,945.37 Dr')
-        ->and($statement['verification']['balance_matched'])->toBeTrue()
+        ->and($statement['verification']['balance_matched'])->toBeNull()
         ->and($openingRows)->toHaveCount(1)
         ->and($openingRows[0]['debit'])->toBe(80267.37)
         ->and($openingRows[0]['credit'])->toBe(0.0)
@@ -587,7 +589,7 @@ it('preserves imported tally credit opening on re-import of a ledger-imported de
         ->and($statement['summary']['opening_balance_type'])->toBe('credit')
         ->and($statement['summary']['opening_balance_label'])->toBe('₹4,500.00 Cr')
         ->and($statement['summary']['current_outstanding_signed'])->toBe(500.0)
-        ->and($statement['verification']['balance_matched'])->toBeTrue()
+        ->and($statement['verification']['balance_matched'])->toBeNull()
         ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(1);
 });
 
@@ -719,13 +721,50 @@ it('shows the tally ledger on the dealer ledger page instead of billed orders', 
     Livewire::actingAs($admin)
         ->test(ViewDealerLedger::class, ['record' => $dealer->getRouteKey()])
         ->assertSuccessful()
-        ->assertSee('₹65,000.00 Dr')
+        ->assertSee('₹1,15,000.00 Dr')
         ->assertSee('₹50,000.00 Dr')
         ->assertSee('Total')
         ->assertSee('₹75,000.00')
         ->assertSee('₹10,000.00')
         ->assertSee('Closing Balance')
-        ->assertDontSee('Sales Invoice / Order Bill');
+        ->assertSee('Tally Offline')
+        ->assertSee('Live Tally Balance:')
+        ->assertSee('ERP Current Outstanding:')
+        ->assertSee('Last Tally Sync:')
+        ->assertDontSee('Live Tally Balance Mismatch')
+        ->assertDontSee('Sales Invoice / Order Bill')
+        ->assertActionVisible('syncLiveTally')
+        ->callAction('syncLiveTally')
+        ->assertNotified();
+
+    expect(TallyLiveSyncState::current()->sync_requested_at)->not->toBeNull();
+});
+
+it('shows live tally matched on the dealer ledger page after a connector snapshot', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100201');
+    $dealer = ledgerDealer($employee, [
+        'firm_name' => 'Live Match Page Dealer',
+        'opening_balance' => 0,
+    ]);
+    $admin = tallyImportAdmin();
+
+    app(TallyLiveBalanceService::class)->ingest('office-pc-1', true, [[
+        'tally_ledger_name' => $dealer->firm_name,
+        'closing_balance' => 0,
+        'closing_balance_type' => 'debit',
+    ]]);
+
+    Livewire::actingAs($admin)
+        ->test(ViewDealerLedger::class, ['record' => $dealer->getRouteKey()])
+        ->assertSuccessful()
+        ->assertSee('Live Tally Matched')
+        ->assertSee('Live Tally Balance:')
+        ->assertSee('ERP Current Outstanding:')
+        ->assertSee('Difference:')
+        ->assertSee('Status:')
+        ->assertSee('Matched')
+        ->assertDontSee('Live Tally Balance Mismatch')
+        ->assertDontSee('Tally Offline');
 });
 
 it('lets admin open the tally import page for a selected dealer', function (): void {

@@ -101,8 +101,15 @@ class BomResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         $query = parent::getEloquentQuery()
-            ->with(['product:id,product_code,product_name'])
+            ->with([
+                'product:id,product_code,product_name',
+                'semiFinished:id,material_code,material_name',
+            ])
             ->withCount('items');
+
+        if (auth()->user()?->canViewProductionCosts()) {
+            $query->with(['items.rawMaterial', 'items.packagingMaterial', 'items.semiFinished']);
+        }
 
         $user = auth()->user();
 

@@ -3,7 +3,9 @@
 namespace App\Filament\Resources\Boms\Schemas;
 
 use App\Enums\BomItemType;
+use App\Enums\BomOutputType;
 use App\Enums\BomStatus;
+use App\Enums\InventoryUnit;
 use App\Models\Bom;
 use App\Models\BomItem;
 use Filament\Infolists\Components\RepeatableEntry;
@@ -23,16 +25,20 @@ class BomInfolist
                     ->columns(2)
                     ->schema([
                         TextEntry::make('bom_number')->label('BOM Number'),
+                        TextEntry::make('output_type')
+                            ->label('BOM Stage')
+                            ->badge()
+                            ->formatStateUsing(fn (BomOutputType $state): string => $state->label()),
                         TextEntry::make('product.product_name')
-                            ->label('Product')
-                            ->formatStateUsing(fn ($state, Bom $record): string => $record->product?->displayLabel() ?? (string) $state),
+                            ->label('Output')
+                            ->state(fn (Bom $record): string => $record->outputName()),
                         TextEntry::make('status')
                             ->badge()
                             ->formatStateUsing(fn (BomStatus $state): string => $state->label())
                             ->color(fn (BomStatus $state): string => $state->color()),
                         TextEntry::make('effective_date')->date(),
                         TextEntry::make('batch_quantity')
-                            ->label('Formula For Quantity')
+                            ->label(fn (?Bom $record): string => InventoryUnit::formulaFieldLabel($record?->batch_unit))
                             ->numeric(3),
                         TextEntry::make('batch_unit')->label('Batch Unit'),
                         TextEntry::make('notes')->columnSpanFull()->placeholder('-'),
@@ -95,8 +101,12 @@ class BomInfolist
                             ->label('Estimated Raw Material Cost')
                             ->state(fn (Bom $record): string => '₹'.number_format((float) ($record->formulaSummary()['estimated_raw_material_cost'] ?? 0), 2))
                             ->visible($showCosts),
+                        TextEntry::make('estimated_semi_finished_cost')
+                            ->label('Estimated Bulk Material Cost')
+                            ->state(fn (Bom $record): string => '₹'.number_format((float) ($record->formulaSummary()['estimated_semi_finished_cost'] ?? 0), 2))
+                            ->visible($showCosts),
                         TextEntry::make('estimated_packaging_cost')
-                            ->label('Estimated Packaging Cost')
+                            ->label('Estimated Packing Material Cost')
                             ->state(fn (Bom $record): string => '₹'.number_format((float) ($record->formulaSummary()['estimated_packaging_cost'] ?? 0), 2))
                             ->visible($showCosts),
                         TextEntry::make('estimated_total_bom_cost')

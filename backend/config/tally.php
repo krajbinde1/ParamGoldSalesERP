@@ -18,4 +18,8 @@ return [
         'pending_limit_max' => 50,
     ],
 
+    'live_balance' => [
+        'offline_after_seconds' => (int) env('TALLY_LIVE_OFFLINE_AFTER', 120),
+    ],
+
 ];

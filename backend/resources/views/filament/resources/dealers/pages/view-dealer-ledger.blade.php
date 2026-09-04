@@ -52,8 +52,20 @@
             line-height: 1.45;
         }
         .pg-dealer-ledger-note.is-info { background: #F8FAFC; border: 1px solid #E2E8F0; color: #475569; }
-        .pg-dealer-ledger-note.is-ok { background: #ECFDF5; border: 1px solid #A7F3D0; color: #065F46; font-weight: 650; }
+        .pg-dealer-ledger-note.is-ok { background: #ECFDF5; border: 1px solid #A7F3D0; color: #065F46; }
         .pg-dealer-ledger-note.is-warn { background: #FFFBEB; border: 1px solid #FDE68A; color: #92400E; }
+        .pg-dealer-ledger-note.is-offline { background: #F8FAFC; border: 1px solid #CBD5E1; color: #475569; }
+        .pg-dealer-ledger-compare {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 0.35rem 1.25rem;
+            margin-top: 0.65rem;
+            font-weight: 500;
+        }
+        @media (min-width: 768px) {
+            .pg-dealer-ledger-compare { grid-template-columns: 1fr 1fr; }
+        }
+        .pg-dealer-ledger-compare div span { font-weight: 650; }
         .pg-dealer-ledger-table-wrap {
             overflow-x: auto;
             border: 1px solid #E2E8F0;
@@ -109,18 +121,32 @@
             Opening Balance is <strong>{{ IndianCurrency::formatExact(0) }}</strong> until a Tally Excel is imported.
             The previous ERP dealer opening balance is not used.
         </p>
-    @elseif ($verification['balance_matched'] === true)
-        <p class="pg-dealer-ledger-note is-ok">✓ Tally Balance Matched</p>
-    @elseif ($verification['balance_matched'] === false)
-        <div class="pg-dealer-ledger-note is-warn">
-            <strong>⚠ Tally Balance Mismatch</strong>
-            <div style="margin-top:6px;">
-                Tally Closing Balance: {{ $verification['tally_closing_label'] ?: '—' }}
-                · ERP Calculated Balance: {{ $verification['erp_closing_label'] }}
-                · Difference: {{ $verification['difference_label'] ?: '—' }}
-            </div>
-        </div>
     @endif
+
+    @php
+        $verifyStatus = $verification['status'] ?? null;
+        $verifyTone = match ($verifyStatus) {
+            'matched' => 'is-ok',
+            'mismatch' => 'is-warn',
+            'offline' => 'is-offline',
+            default => 'is-info',
+        };
+        $verifyHeading = match ($verifyStatus) {
+            'matched' => 'Live Tally Matched',
+            'mismatch' => 'Live Tally Balance Mismatch',
+            default => $verification['status_label'] ?? 'Live Tally',
+        };
+    @endphp
+    <div class="pg-dealer-ledger-note {{ $verifyTone }}">
+        <strong>{{ $verifyHeading }}</strong>
+        <div class="pg-dealer-ledger-compare">
+            <div><span>Live Tally Balance:</span> {{ $verification['live_tally_label'] ?: '—' }}</div>
+            <div><span>ERP Current Outstanding:</span> {{ $verification['erp_outstanding_label'] ?? $verification['erp_closing_label'] ?? '—' }}</div>
+            <div><span>Difference:</span> {{ $verification['difference_label'] ?: '—' }}</div>
+            <div><span>Status:</span> {{ $verification['status_short'] ?? $verification['status_label'] ?? '—' }}</div>
+            <div><span>Last Tally Sync:</span> {{ $verification['last_synced_label'] ?: '—' }}</div>
+        </div>
+    </div>
 
     <div class="pg-dealer-ledger-summary">
         <div class="pg-dealer-ledger-card">

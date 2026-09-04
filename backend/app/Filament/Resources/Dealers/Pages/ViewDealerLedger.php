@@ -6,6 +6,7 @@ use App\Filament\Resources\Dealers\DealerResource;
 use App\Models\Dealer;
 use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Services\TallyLedger\TallyLedgerImportService;
+use App\Services\TallySync\TallyLiveBalanceService;
 use Filament\Actions\Action;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
@@ -40,6 +41,27 @@ class ViewDealerLedger extends ViewRecord
         $canImport = (auth()->user()?->isAdminUser() ?? false) || (auth()->user()?->isDirectorUser() ?? false);
 
         return [
+            Action::make('syncLiveTally')
+                ->label('Sync Live Tally Now')
+                ->icon('heroicon-o-signal')
+                ->visible(fn (): bool => auth()->user()?->isAdminUser() ?? false)
+                ->action(function (): void {
+                    $state = app(TallyLiveBalanceService::class)->requestSync();
+                    $online = $state->tallyIsOnline();
+                    $notification = Notification::make()
+                        ->title($online ? 'Live Tally sync requested' : 'Tally connector is offline')
+                        ->body($online
+                            ? 'The office Tally connector will push current closing balances on its next poll. Ledger transactions are not changed.'
+                            : 'Start the Tally connector on the Tally PC. ERP will not call Tally from this page.');
+
+                    if ($online) {
+                        $notification->success()->send();
+
+                        return;
+                    }
+
+                    $notification->warning()->send();
+                }),
             Action::make('importTallyLedger')
                 ->label('Import Tally Ledger')
                 ->icon('heroicon-o-arrow-up-tray')

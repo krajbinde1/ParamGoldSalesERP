@@ -4,6 +4,7 @@ namespace App\Services\TallyLedger;
 
 use App\Models\Dealer;
 use App\Models\DealerTallyEntry;
+use App\Services\TallySync\TallyLiveBalanceService;
 use App\Support\IndianCurrency;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
@@ -19,6 +20,7 @@ final class TallyDealerLedgerService
      */
     public function statement(Dealer $dealer): array
     {
+        $dealer->load('tallyLedger');
         $account = $dealer->tallyLedger;
         $openingAmount = round((float) ($account?->opening_balance ?? 0), 2);
         $openingType = $account?->opening_balance_type ?: DealerTallyBalance::DEBIT;
@@ -73,52 +75,28 @@ final class TallyDealerLedgerService
             ];
         }
 
-        $tallyClosingAmount = $account?->tally_closing_balance !== null
-            ? round((float) $account->tally_closing_balance, 2)
-            : null;
-        $tallyClosingType = $account?->tally_closing_balance_type;
-        $matched = $tallyClosingAmount !== null && $tallyClosingType !== null
-            && DealerTallyBalance::matches(
-                DealerTallyBalance::amountFromSigned($running),
-                DealerTallyBalance::typeFromSigned($running),
-                $tallyClosingAmount,
-                $tallyClosingType,
-            );
-
-        $tallySigned = $tallyClosingAmount !== null && $tallyClosingType !== null
-            ? DealerTallyBalance::signed($tallyClosingAmount, $tallyClosingType)
-            : null;
+        $summary = [
+            'opening_balance' => $openingAmount,
+            'opening_balance_type' => $openingType,
+            'opening_balance_explicit' => (bool) ($account?->opening_balance_explicit ?? false),
+            'opening_balance_label' => IndianCurrency::formatDrCr($openingSigned),
+            'total_debit' => round($totalDebit, 2),
+            'total_credit' => round($totalCredit, 2),
+            'current_outstanding_signed' => $running,
+            'current_outstanding' => DealerTallyBalance::amountFromSigned($running),
+            'current_outstanding_type' => DealerTallyBalance::typeFromSigned($running),
+            'current_outstanding_label' => IndianCurrency::formatDrCr($running),
+            'has_tally_ledger' => $account !== null,
+            'financial_start_date' => $startDate,
+            'last_imported_at' => $account?->last_imported_at
+                ? Carbon::parse($account->last_imported_at)->timezone('Asia/Kolkata')->format('d M Y • h:i A')
+                : null,
+        ];
 
         return [
-            'summary' => [
-                'opening_balance' => $openingAmount,
-                'opening_balance_type' => $openingType,
-                'opening_balance_explicit' => (bool) ($account?->opening_balance_explicit ?? false),
-                'opening_balance_label' => IndianCurrency::formatDrCr($openingSigned),
-                'total_debit' => round($totalDebit, 2),
-                'total_credit' => round($totalCredit, 2),
-                'current_outstanding_signed' => $running,
-                'current_outstanding' => DealerTallyBalance::amountFromSigned($running),
-                'current_outstanding_type' => DealerTallyBalance::typeFromSigned($running),
-                'current_outstanding_label' => IndianCurrency::formatDrCr($running),
-                'has_tally_ledger' => $account !== null,
-                'financial_start_date' => $startDate,
-                'last_imported_at' => $account?->last_imported_at
-                    ? Carbon::parse($account->last_imported_at)->timezone('Asia/Kolkata')->format('d M Y • h:i A')
-                    : null,
-            ],
+            'summary' => $summary,
             'ledger' => $entries,
-            'verification' => [
-                'tally_closing_balance' => $tallyClosingAmount,
-                'tally_closing_balance_type' => $tallyClosingType,
-                'tally_closing_label' => $tallySigned === null ? null : IndianCurrency::formatDrCr($tallySigned),
-                'erp_closing_label' => IndianCurrency::formatDrCr($running),
-                'balance_matched' => $tallyClosingAmount === null ? null : $matched,
-                'difference' => $tallySigned === null ? null : round($running - $tallySigned, 2),
-                'difference_label' => $tallySigned === null
-                    ? null
-                    : IndianCurrency::formatDrCr($running - $tallySigned),
-            ],
+            'verification' => app(TallyLiveBalanceService::class)->verification($dealer, $running, $summary),
         ];
     }
 

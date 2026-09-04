@@ -13,7 +13,7 @@ enum BomItemType: string
         return match ($this) {
             self::RawMaterial => 'Raw Material',
             self::PackagingMaterial => 'Packaging Material',
-            self::SemiFinished => 'Semi-Finished',
+            self::SemiFinished => 'Bulk / Semi-Finished',
         };
     }
 

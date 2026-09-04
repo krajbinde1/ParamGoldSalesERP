@@ -20,6 +20,10 @@ class DealerTallyLedger extends Model
         'tally_closing_balance',
         'tally_closing_balance_type',
         'last_imported_at',
+        'live_closing_balance',
+        'live_closing_balance_type',
+        'live_tally_ledger_name',
+        'live_synced_at',
     ];
 
     protected function casts(): array
@@ -30,6 +34,8 @@ class DealerTallyLedger extends Model
             'financial_start_date' => 'date',
             'tally_closing_balance' => 'decimal:2',
             'last_imported_at' => 'datetime',
+            'live_closing_balance' => 'decimal:2',
+            'live_synced_at' => 'datetime',
         ];
     }
 

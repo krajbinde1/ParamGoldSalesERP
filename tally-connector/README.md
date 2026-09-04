@@ -69,4 +69,12 @@ Press **Ctrl+C** to stop the continuous run.
 - Party ledger name is the **exact** ERP mapping (`tally_dealer_mappings`). If it is missing, the voucher is failed. No ledger is created or guessed.
 - `REMOTEID` = ERP unique reference (`ERP-SO-{order_id}` / `ERP-COL-{collection_id}`) so Tally will not create a second voucher.
 
-Cash vs Bank is taken from collection `payment_mode` (`Cash` → `TALLY_CASH_LEDGER`, anything else → `TALLY_BANK_LEDGER`).
+## Live closing balances
+
+On every poll the connector also exports current ledger **ClosingBalance** values from Tally and posts them to ERP. ERP matches Tally ledger names to dealers (`tally_dealer_mappings`, then unique firm name) and stores the snapshot only. It does **not** change dealer ledger transactions.
+
+If Tally is closed, the connector reports offline so Dealer Ledger shows **Tally Offline / Last synced at …** instead of a false mismatch.
+
+Admin **Sync Live Tally Now** asks the connector to push balances on the next poll. ERP never calls Tally from the browser.
+
+Keep this program running with Tally Prime open for live match status.

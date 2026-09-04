@@ -134,7 +134,20 @@ final class TallyLedgerImportService
                 ->delete();
             DealerTallyImport::query()->where('dealer_id', $dealer->id)->delete();
             if (! DealerTallyEntry::query()->where('dealer_id', $dealer->id)->exists()) {
-                DealerTallyLedger::query()->where('dealer_id', $dealer->id)->delete();
+                $account = DealerTallyLedger::query()->where('dealer_id', $dealer->id)->first();
+                if ($account?->live_synced_at !== null) {
+                    $account->fill([
+                        'opening_balance' => 0,
+                        'opening_balance_type' => DealerTallyBalance::DEBIT,
+                        'opening_balance_explicit' => false,
+                        'tally_closing_balance' => null,
+                        'tally_closing_balance_type' => null,
+                        'last_imported_at' => null,
+                    ]);
+                    $account->save();
+                } else {
+                    DealerTallyLedger::query()->where('dealer_id', $dealer->id)->delete();
+                }
             }
         });
 
