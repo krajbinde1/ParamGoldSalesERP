@@ -282,19 +282,15 @@ it('reconciles existing duplicate sales order and tally sales rows so outstandin
         ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(194498.0);
 
     $reconciled = app(DealerSalesLedgerReconciler::class)->reconcileExistingDuplicates($dealer);
-    $entry = DealerTallyEntry::query()->where('dealer_id', $dealer->id)->first();
 
-    expect($reconciled)->toBe(1)
-        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(1)
-        ->and($entry?->source)->toBe(DealerTallyEntry::SOURCE_SALES_ORDER)
-        ->and((int) $entry?->source_id)->toBe($order->id)
-        ->and($entry?->voucher_no)->toBe('PG/26-27/0465')
-        ->and($entry?->particulars)->toBe('Sales @5%')
-        ->and($entry?->tally_reconciled_at)->not->toBeNull()
-        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(97249.0);
+    expect($reconciled)->toBe(0)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2)
+        ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)->where('source_id', $order->id)->exists())->toBeTrue()
+        ->and(DealerTallyEntry::query()->where('source', TallyLedgerConfig::SOURCE)->where('voucher_no', 'PG/26-27/0465')->exists())->toBeTrue()
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(194498.0);
 });
 
-it('attaches a later dispatched sales order to an already imported tally sales bill', function (): void {
+it('does not claim an imported tally sales bill as a later ERP order just because the debit amount matches', function (): void {
     $employee = ledgerEmployee(UserRole::Employee, '9811199008');
     $dealer = ledgerDealer($employee, ['firm_name' => 'Tally First Dealer']);
     $admin = tallyImportAdmin();
@@ -322,14 +318,23 @@ it('attaches a later dispatched sales order to an already imported tally sales b
         'dispatched_at' => '2026-08-24 16:00:00',
     ]);
 
-    $entry = DealerTallyEntry::query()->where('dealer_id', $dealer->id)->first();
+    $entry = DealerTallyEntry::query()->where('dealer_id', $dealer->id)->where('source', TallyLedgerConfig::SOURCE)->first();
+    $erp = DealerTallyEntry::query()
+        ->where('dealer_id', $dealer->id)
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $order->id)
+        ->first();
 
-    expect(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(1)
-        ->and($entry?->source)->toBe(DealerTallyEntry::SOURCE_SALES_ORDER)
-        ->and((int) $entry?->source_id)->toBe($order->id)
+    expect(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2)
+        ->and($entry?->source)->toBe(TallyLedgerConfig::SOURCE)
+        ->and($entry?->source_id)->toBeNull()
         ->and($entry?->voucher_no)->toBe('PG/26-27/0465')
-        ->and($entry?->tally_reconciled_at)->not->toBeNull()
-        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(97249.0);
+        ->and((float) $entry?->debit)->toBe(97249.0)
+        ->and($erp)->not->toBeNull()
+        ->and((float) $erp?->debit)->toBe(97249.0)
+        ->and($erp?->voucher_no)->toBe('PG-20260824-0016')
+        ->and($erp?->tally_reconciled_at)->toBeNull()
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(194498.0);
 });
 
 it('matches the sales order whose date is uniquely closest to the tally bill', function (): void {
@@ -420,7 +425,7 @@ it('posts billed and dispatched sales order debits on the order date linked to t
         ->and($dispatchedEntry?->entry_date?->toDateString())->toBe('2026-08-31')
         ->and((float) $dispatchedEntry?->debit)->toBe(84525.0)
         ->and($dispatchedEntry?->voucher_no)->toBe('PG-20260831-0001')
-        ->and($dispatchedEntry?->particulars)->toBe('Sales Order PG-0001')
+        ->and($dispatchedEntry?->particulars)->toBe('Sales Order PG-20260831-0001')
         ->and($dispatchedEntry?->source)->toBe(DealerTallyEntry::SOURCE_SALES_ORDER)
         ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(96525.0);
 
@@ -549,7 +554,7 @@ it('does not treat a different-amount ledger row as this order even when source_
         ->and($posted?->id)->not->toBe($largeEntry->id)
         ->and((float) $posted?->debit)->toBe(84525.0)
         ->and($posted?->entry_date?->toDateString())->toBe('2026-08-31')
-        ->and($posted?->particulars)->toBe('Sales Order PG-0001')
+        ->and($posted?->particulars)->toBe('Sales Order PG-20260831-0001')
         ->and((float) $largeAfter?->debit)->toBe(2271675.0)
         ->and($largeAfter?->voucher_no)->toBe('PG-0015')
         ->and((int) $largeAfter?->source_id)->toBe($large->id)
@@ -776,8 +781,127 @@ it('diagnoses and posts only PG-0001 from the backfill command without bulk writ
 
     expect($erp)->not->toBeNull()
         ->and($erp?->entry_date?->toDateString())->toBe('2026-08-31')
-        ->and($erp?->particulars)->toBe('Sales Order PG-0001')
+        ->and($erp?->particulars)->toBe('Sales Order PG-20260831-0001')
         ->and((float) $stolen?->debit)->toBe(2271675.0)
         ->and($stolen?->voucher_no)->toBe('PG-0015')
         ->and($otherEntry)->toBeNull();
+});
+
+it('does not treat a historical same-amount tally debit as already posted for a later erp order', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811199018');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Amrut Fertilizers Purna']);
+
+    $tally = DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'import_id' => null,
+        'entry_date' => '2026-07-27',
+        'particulars' => 'Sales @5%',
+        'voucher_type' => 'Sales',
+        'voucher_no' => 'PG/26-27/0311',
+        'tally_voucher_no' => 'PG/26-27/0311',
+        'tally_voucher_type' => 'Sales',
+        'tally_entry_date' => '2026-07-27',
+        'debit' => 84525,
+        'credit' => 0,
+        'source' => TallyLedgerConfig::SOURCE,
+        'fingerprint' => DealerTallyEntry::makeFingerprint(
+            dealerId: (int) $dealer->id,
+            date: '2026-07-27',
+            voucherType: 'Sales',
+            voucherNo: 'PG/26-27/0311',
+            debit: 84525,
+            credit: 0,
+            particulars: 'Sales @5%',
+        ),
+        'source_row' => 8,
+    ]);
+
+    $order = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 84525,
+        'order_no' => 'PG-20260831-0001',
+        'order_date' => '2026-08-31',
+        'dispatch_date' => '2026-08-31',
+        'dispatched_at' => '2026-08-31 16:00:00',
+    ]);
+
+    $erp = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $order->id)
+        ->first();
+    $tallyAfter = $tally->fresh();
+
+    expect($erp)->not->toBeNull()
+        ->and($erp?->id)->not->toBe($tally->id)
+        ->and($erp?->entry_date?->toDateString())->toBe('2026-08-31')
+        ->and((float) $erp?->debit)->toBe(84525.0)
+        ->and($erp?->particulars)->toBe('Sales Order PG-20260831-0001')
+        ->and($erp?->voucher_no)->toBe('PG-20260831-0001')
+        ->and($tallyAfter?->entry_date?->toDateString())->toBe('2026-07-27')
+        ->and((float) $tallyAfter?->debit)->toBe(84525.0)
+        ->and($tallyAfter?->source)->toBe(TallyLedgerConfig::SOURCE)
+        ->and($tallyAfter?->source_id)->toBeNull()
+        ->and($tallyAfter?->voucher_no)->toBe('PG/26-27/0311')
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2);
+});
+
+it('releases a claimed historical tally debit of the same amount and posts the erp sales order', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811199019');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Amrut Fertilizers Purna']);
+
+    $order = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 84525,
+        'order_no' => 'PG-20260831-0001',
+        'order_date' => '2026-08-31',
+        'dispatch_date' => '2026-08-31',
+        'dispatched_at' => '2026-08-31 16:00:00',
+    ]);
+
+    DealerTallyEntry::query()->where('source_id', $order->id)->delete();
+
+    $tally = DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'import_id' => null,
+        'entry_date' => '2026-07-27',
+        'particulars' => 'Sales @5%',
+        'voucher_type' => 'Sales',
+        'voucher_no' => 'PG/26-27/0311',
+        'tally_voucher_no' => 'PG/26-27/0311',
+        'tally_voucher_type' => 'Sales',
+        'tally_entry_date' => '2026-07-27',
+        'tally_reconciled_at' => now('Asia/Kolkata'),
+        'debit' => 84525,
+        'credit' => 0,
+        'source' => DealerTallyEntry::SOURCE_SALES_ORDER,
+        'source_id' => $order->id,
+        'fingerprint' => DealerTallyEntry::makeSourceFingerprint(
+            DealerTallyEntry::SOURCE_SALES_ORDER,
+            (int) $order->id,
+        ),
+        'source_row' => 8,
+    ]);
+
+    $diagnosis = app(DealerLedgerPostingService::class)->diagnoseSalesOrder($order->fresh());
+    $this->artisan('ledger:backfill-erp-entries', ['--order' => (string) $order->id])
+        ->assertSuccessful();
+
+    $erp = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $order->id)
+        ->whereRaw('ABS(COALESCE(debit, 0) - 84525) < 0.005')
+        ->whereDate('entry_date', '2026-08-31')
+        ->first();
+    $tallyAfter = $tally->fresh();
+
+    expect($diagnosis['action'])->toBe('post')
+        ->and($diagnosis['skip_reason'])->toContain('incorrectly linked')
+        ->and($erp)->not->toBeNull()
+        ->and($erp?->id)->not->toBe($tally->id)
+        ->and($erp?->particulars)->toBe('Sales Order PG-20260831-0001')
+        ->and((float) $erp?->debit)->toBe(84525.0)
+        ->and($tallyAfter?->entry_date?->toDateString())->toBe('2026-07-27')
+        ->and((float) $tallyAfter?->debit)->toBe(84525.0)
+        ->and($tallyAfter?->voucher_no)->toBe('PG/26-27/0311')
+        ->and($tallyAfter?->source_id)->not->toBe($order->id);
 });

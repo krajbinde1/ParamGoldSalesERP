@@ -104,7 +104,8 @@ final class DealerSalesLedgerReconciler
     }
 
     /**
-     * Unique unreconciled Tally sales debit that can be attached to this dispatched order.
+     * Unreconciled Tally sales debit that names this ERP order in voucher/reference.
+     * Same dealer + same debit amount is never enough on its own.
      */
     public function findMatchingTallySalesEntry(Order $order): ?DealerTallyEntry
     {
@@ -118,7 +119,10 @@ final class DealerSalesLedgerReconciler
         }
 
         $candidates = $this->unreconciledTallySalesEntries((int) $order->dealer_id, $debit)
-            ->filter(fn (DealerTallyEntry $entry): bool => ! $this->refersToDifferentOrder($entry, $order))
+            ->filter(function (DealerTallyEntry $entry) use ($order): bool {
+                return $this->refersToThisOrder($entry, $order)
+                    && ! $this->refersToDifferentOrder($entry, $order);
+            })
             ->values();
         if ($candidates->isEmpty()) {
             return null;
@@ -155,7 +159,11 @@ final class DealerSalesLedgerReconciler
             return null;
         }
 
-        return $matches->first();
+        $owner = $matches->first();
+
+        return $owner instanceof Order && $this->refersToThisOrder($entry, $owner)
+            ? $owner
+            : null;
     }
 
     private function amountsMatch(DealerTallyEntry $entry, float $debit, float $credit): bool
@@ -212,6 +220,46 @@ final class DealerSalesLedgerReconciler
     }
 
     /**
+     * True when voucher / particulars name this ERP sales order
+     * (PG-20260831-0001 or short PG-0001). Same dealer + same debit is not enough.
+     */
+    public function refersToThisOrder(DealerTallyEntry $entry, Order $order): bool
+    {
+        if ($this->refersToDifferentOrder($entry, $order)) {
+            return false;
+        }
+
+        $full = strtoupper(trim((string) $order->order_no));
+        $short = strtoupper(trim((string) $order->shortOrderNo()));
+        $normalizedFull = $this->normalizeVoucherNo($full);
+        $normalizedShort = $this->normalizeVoucherNo($short);
+        $vouchers = [
+            $this->normalizeVoucherNo((string) $entry->voucher_no),
+            $this->normalizeVoucherNo((string) $entry->tally_voucher_no),
+        ];
+
+        foreach ([$normalizedFull, $normalizedShort] as $token) {
+            if ($token !== '' && in_array($token, $vouchers, true)) {
+                return true;
+            }
+        }
+
+        $haystack = strtoupper(trim(implode(' ', array_filter([
+            (string) $entry->voucher_no,
+            (string) $entry->tally_voucher_no,
+            (string) $entry->particulars,
+        ]))));
+
+        if ($full !== '' && str_contains($haystack, $full)) {
+            return true;
+        }
+
+        return $short !== ''
+            && $short !== $full
+            && preg_match('/\b'.preg_quote($short, '/').'\b/', $haystack) === 1;
+    }
+
+    /**
      * @param  array<string, mixed>  $transaction
      */
     public function reconcileSalesOrderWithTally(
@@ -243,7 +291,8 @@ final class DealerSalesLedgerReconciler
     public function attachSalesOrderToTallyEntry(DealerTallyEntry $tallyEntry, Order $order): ?DealerTallyEntry
     {
         if (! $this->amountsMatch($tallyEntry, round((float) $order->grand_total, 2), 0.0)
-            || $this->refersToDifferentOrder($tallyEntry, $order)) {
+            || $this->refersToDifferentOrder($tallyEntry, $order)
+            || ! $this->refersToThisOrder($tallyEntry, $order)) {
             return null;
         }
 
@@ -308,6 +357,14 @@ final class DealerSalesLedgerReconciler
         }
 
         if ($this->amountsMatch($entry, round((float) $order->grand_total, 2), 0.0)) {
+            // Same amount is not enough. A historical Tally debit must not stand in
+            // for this ERP order unless voucher/reference actually names it.
+            if ($this->isTallyIdentity($entry)
+                && ! $this->refersToThisOrder($entry, $order)
+                && $entry->entry_date?->toDateString() !== $order->dealerLedgerEntryDate()) {
+                return true;
+            }
+
             return false;
         }
 
@@ -471,6 +528,13 @@ final class DealerSalesLedgerReconciler
         $count = 0;
 
         foreach ($pairs as [$orderEntry, $tallyEntry]) {
+            $order = $orderEntry->source_id !== null
+                ? Order::query()->find($orderEntry->source_id)
+                : null;
+            if (! $order instanceof Order || ! $this->refersToThisOrder($tallyEntry, $order)) {
+                continue;
+            }
+
             $this->reconcileSalesOrderWithTally($orderEntry, [
                 'date' => $tallyEntry->entry_date?->toDateString(),
                 'particulars' => $tallyEntry->particulars,
@@ -665,6 +729,15 @@ final class DealerSalesLedgerReconciler
         return $order !== null
             && (int) $order->dealer_id === (int) $entry->dealer_id
             && abs(round((float) $order->grand_total, 2) - round((float) $entry->debit, 2)) < 0.005;
+    }
+
+    private function isTallyIdentity(DealerTallyEntry $entry): bool
+    {
+        return $entry->source === TallyLedgerConfig::SOURCE
+            || $entry->import_id !== null
+            || filled($entry->tally_voucher_no)
+            || $entry->tally_reconciled_at !== null
+            || $entry->tally_entry_date !== null;
     }
 
     private function isSalesDebit(float $debit, float $credit, string $voucherType, string $particulars): bool

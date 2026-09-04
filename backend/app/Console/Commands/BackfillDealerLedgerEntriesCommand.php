@@ -121,7 +121,7 @@ class BackfillDealerLedgerEntriesCommand extends Command
                 'POSTED ledger #%d | %s | Sales Order %s | debit %s | dealer_id %s | source=%s source_id=%s',
                 $posted->id,
                 $posted->entry_date?->toDateString() ?? 'null',
-                $order->shortOrderNo(),
+                $order->order_no,
                 number_format((float) $posted->debit, 2, '.', ''),
                 $posted->dealer_id,
                 $posted->source,
@@ -142,6 +142,14 @@ class BackfillDealerLedgerEntriesCommand extends Command
     private function findOrders(string $orderNo, ?Dealer $expectedDealer): EloquentCollection
     {
         $needle = strtoupper(trim($orderNo));
+
+        if (preg_match('/^\d+$/', $needle) === 1) {
+            $byId = Order::query()->withTrashed()->with('dealer')->find((int) $needle);
+            if ($byId instanceof Order) {
+                return new EloquentCollection([$byId]);
+            }
+        }
+
         $suffix = preg_replace('/^[A-Z]+-/', '', $needle) ?? $needle;
 
         $matched = Order::query()

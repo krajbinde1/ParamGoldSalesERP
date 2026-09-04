@@ -38,7 +38,7 @@ final class DealerLedgerPostingService
             date: $order->dealerLedgerEntryDate(),
             debit: $amount,
             credit: 0.0,
-            particulars: 'Sales Order '.$order->shortOrderNo(),
+            particulars: 'Sales Order '.$order->order_no,
             voucherType: 'Sales',
             voucherNo: (string) $order->order_no,
         );
@@ -195,14 +195,14 @@ final class DealerLedgerPostingService
             $reason = 'grand_total is '.$amount.'; debit not posted';
         } elseif ($linked->contains(fn (DealerTallyEntry $entry): bool => $this->salesReconciler->entryRepresentsOrder($entry, $order))) {
             $action = 'already_posted';
-            $reason = 'already posted (amount matches an existing ledger row for this order)';
+            $reason = 'already posted (source=sales_order and source_id/fingerprint match this order)';
         } elseif ($linked->contains(fn (DealerTallyEntry $entry): bool => $this->salesReconciler->entryIsForeignToOrder($entry, $order))) {
             $action = 'post';
             $reason = 'existing ledger row is incorrectly linked to this order id (amount/voucher do not match). Will release that mapping and create a new '.$amount.' debit. Will not change the foreign row debit/date/voucher.';
         } else {
             $tally = $this->salesReconciler->findMatchingTallySalesEntry($order);
             if ($tally !== null) {
-                $reason = 'will attach unique unmatched Tally sales #'.$tally->id.' debit='.number_format((float) $tally->debit, 2, '.', '').' voucher='.($tally->voucher_no ?: '—');
+                $reason = 'will attach Tally sales #'.$tally->id.' because voucher/reference names this ERP order';
             }
         }
 
