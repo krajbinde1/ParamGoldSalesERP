@@ -737,6 +737,7 @@ it('shows estimated cost per unit on the bom list from the current formula and m
 
     Livewire::actingAs(inventoryDirector())
         ->test(ListBoms::class)
+        ->set('activeTab', 'packing')
         ->assertSuccessful()
         ->assertSee('Estimated Cost / Unit')
         ->assertSee('Formula For Quantity')
@@ -746,6 +747,7 @@ it('shows estimated cost per unit on the bom list from the current formula and m
 
     Livewire::actingAs(inventoryDirector())
         ->test(ListBoms::class)
+        ->set('activeTab', 'packing')
         ->assertSuccessful()
         ->assertSee('₹210.00');
 });

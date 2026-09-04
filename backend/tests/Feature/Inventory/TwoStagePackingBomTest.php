@@ -252,13 +252,46 @@ it('shows packing sku estimated cost on the bom list without a stored cost field
     Livewire::actingAs($admin)
         ->test(ListBoms::class)
         ->assertSuccessful()
-        ->assertSee('Packing (Finished Product)')
-        ->assertSee('Manufacturing (Bulk / Semi-Finished)')
-        ->assertSee('Nutricombi Drip Mix 2 KG')
+        ->assertSee('Manufacturing / Semi-Finished')
+        ->assertSee('Packing / Finished Product')
         ->assertSee('Nutricombi Drip Mix Bulk')
+        ->assertDontSee('Nutricombi Drip Mix 2 KG')
+        ->set('activeTab', 'packing')
+        ->assertSee('Nutricombi Drip Mix 2 KG')
+        ->assertDontSee('Nutricombi Drip Mix Bulk')
         ->assertSee('₹105.00')
         ->assertSee('₹258.00')
         ->assertSee('₹512.00');
+});
+
+it('separates manufacturing and packing boms with list tabs', function () {
+    $fixture = twoStageNutricombiFixture();
+    $admin = User::query()->create([
+        'name' => 'Two Stage Tabs Director',
+        'email' => 'twostage.tabs.'.uniqid().'@example.com',
+        'password' => 'password',
+        'role' => UserRole::Director->value,
+        'job_role' => 'Director',
+    ]);
+
+    Livewire::actingAs($admin)
+        ->test(ListBoms::class)
+        ->assertSuccessful()
+        ->assertSee('Manufacturing / Semi-Finished')
+        ->assertSee('Packing / Finished Product')
+        ->assertCanSeeTableRecords([$fixture['mfgBom']])
+        ->assertCanNotSeeTableRecords([
+            $fixture['packingBoms'][2],
+            $fixture['packingBoms'][5],
+            $fixture['packingBoms'][10],
+        ])
+        ->set('activeTab', 'packing')
+        ->assertCanSeeTableRecords([
+            $fixture['packingBoms'][2],
+            $fixture['packingBoms'][5],
+            $fixture['packingBoms'][10],
+        ])
+        ->assertCanNotSeeTableRecords([$fixture['mfgBom']]);
 });
 
 it('labels the bom formula field from the selected batch unit', function () {
