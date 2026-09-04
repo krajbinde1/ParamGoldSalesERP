@@ -77,13 +77,13 @@
      * Admin list / table standard - Dealer List is the reference.
      * Scoped to Filament tables (.fi-ta) so custom report/review tables are unchanged.
      */
-    .paramgold-admin-shell .fi-header:not(.pg-order-view-header) {
+    .paramgold-admin-shell .fi-header:not(.pg-order-view-header):not(.pg-bom-view-header) {
         align-items: center;
         gap: 0.75rem;
         margin-bottom: 0.125rem;
     }
 
-    .paramgold-admin-shell .fi-header:not(.pg-order-view-header) .fi-header-heading {
+    .paramgold-admin-shell .fi-header:not(.pg-order-view-header):not(.pg-bom-view-header) .fi-header-heading {
         font-size: 1.375rem;
         font-weight: 700;
         line-height: 1.3;

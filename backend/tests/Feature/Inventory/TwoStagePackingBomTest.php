@@ -340,10 +340,53 @@ it('shows formula for kg on a manufacturing bom view and edit page', function ()
     Livewire::actingAs($admin)
         ->test(ViewBom::class, ['record' => $fixture['mfgBom']->getKey()])
         ->assertSuccessful()
-        ->assertSee('Formula For Kg');
+        ->assertSee('Formula For')
+        ->assertSee('Formula Quantity')
+        ->assertSee('100 Kg')
+        ->assertSee('Item Type')
+        ->assertSee('Required Qty')
+        ->assertSee('Inventory Equivalent')
+        ->assertSee('Estimated Total BOM Cost')
+        ->assertSee('Estimated Cost / Unit')
+        ->assertSee('₹5,000.00')
+        ->assertSee('₹50.00')
+        ->assertSee('Edit');
 
     Livewire::actingAs($admin)
         ->test(EditBom::class, ['record' => $fixture['packingBoms'][2]->getKey()])
         ->assertSuccessful()
         ->assertSee('Formula For Quantity');
+
+    Livewire::actingAs($admin)
+        ->test(ViewBom::class, ['record' => $fixture['packingBoms'][2]->getKey()])
+        ->assertSuccessful()
+        ->assertSee('Packing (Finished Product)')
+        ->assertSee('Nutricombi Drip Mix 2 KG')
+        ->assertSee('Formula For')
+        ->assertSee('Quantity')
+        ->assertSee('1 Nos')
+        ->assertSee('Bulk / Semi-Finished')
+        ->assertSee('Packaging Material')
+        ->assertSee('₹105.00');
+});
+
+it('hides estimated costs on the bom view from users who cannot view production costs', function () {
+    $fixture = twoStageNutricombiFixture();
+    $supervisor = User::query()->create([
+        'name' => 'Two Stage View Supervisor',
+        'email' => 'twostage.view.sup.'.uniqid().'@example.com',
+        'password' => 'password',
+        'role' => UserRole::ProductionSupervisor->value,
+        'job_role' => 'Production Supervisor',
+    ]);
+
+    Livewire::actingAs($supervisor)
+        ->test(ViewBom::class, ['record' => $fixture['mfgBom']->getKey()])
+        ->assertSuccessful()
+        ->assertSee('BOM Items')
+        ->assertSee('BOM Summary')
+        ->assertSee('Formula For')
+        ->assertDontSee('Estimated Total BOM Cost')
+        ->assertDontSee('Estimated Cost / Unit')
+        ->assertDontSee('Estimated Raw Material Cost');
 });
