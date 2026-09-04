@@ -108,6 +108,11 @@ class Order extends Model
         ];
     }
 
+    public function isBilledReceivable(): bool
+    {
+        return in_array(strtolower(trim((string) $this->status)), self::billedReceivableStatuses(), true);
+    }
+
     /**
      * Dealer ledger debit date for a billed/dispatched sales order.
      * Uses the sales order date, not dispatch day, so month-boundary orders stay on the invoice date.

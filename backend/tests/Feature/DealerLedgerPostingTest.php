@@ -663,3 +663,121 @@ it('does not attach a unique tally sales bill whose voucher is a different order
         ->and((float) $tally?->debit)->toBe(84525.0)
         ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2);
 });
+
+it('does not overwrite a mislinked PG-0015 row whose voucher is a full ERP order number', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811199016');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Amrut Fertilizers Purna']);
+
+    $large = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 2271675,
+        'order_no' => 'PG-20260820-0015',
+        'order_date' => '2026-08-20',
+        'dispatch_date' => '2026-08-20',
+        'dispatched_at' => '2026-08-20 10:00:00',
+    ]);
+    $missing = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 84525,
+        'order_no' => 'PG-20260831-0001',
+        'order_date' => '2026-08-31',
+        'dispatch_date' => '2026-08-31',
+        'dispatched_at' => '2026-08-31 16:00:00',
+    ]);
+
+    DealerTallyEntry::query()->where('source_id', $missing->id)->delete();
+    $largeEntry = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $large->id)
+        ->first();
+    $largeEntry->fill([
+        'source_id' => $missing->id,
+        'fingerprint' => DealerTallyEntry::makeSourceFingerprint(
+            DealerTallyEntry::SOURCE_SALES_ORDER,
+            (int) $missing->id,
+        ),
+        'voucher_no' => 'PG-20260820-0015',
+        'tally_voucher_no' => null,
+        'tally_reconciled_at' => null,
+        'debit' => 2271675,
+    ])->save();
+
+    $diagnosis = app(DealerLedgerPostingService::class)->diagnoseSalesOrder($missing->fresh());
+    $posted = app(DealerLedgerPostingService::class)->syncDispatchedOrder($missing->fresh());
+    $largeAfter = $largeEntry->fresh();
+
+    expect($diagnosis['action'])->toBe('post')
+        ->and($diagnosis['skip_reason'])->toContain('incorrectly linked')
+        ->and($posted)->not->toBeNull()
+        ->and((float) $posted?->debit)->toBe(84525.0)
+        ->and($posted?->entry_date?->toDateString())->toBe('2026-08-31')
+        ->and((float) $largeAfter?->debit)->toBe(2271675.0)
+        ->and($largeAfter?->voucher_no)->toBe('PG-20260820-0015');
+});
+
+it('diagnoses and posts only PG-0001 from the backfill command without bulk writing', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811199017');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Amrut Fertilizers Purna']);
+
+    $other = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 12000,
+        'order_no' => 'PG-20260801-0099',
+        'order_date' => '2026-08-01',
+        'dispatch_date' => '2026-08-01',
+        'dispatched_at' => '2026-08-01 10:00:00',
+    ]);
+    $missing = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 84525,
+        'order_no' => 'PG-20260831-0001',
+        'order_date' => '2026-08-31',
+        'dispatch_date' => '2026-08-31',
+        'dispatched_at' => '2026-08-31 16:00:00',
+    ]);
+
+    DealerTallyEntry::query()->where('source_id', $other->id)->delete();
+    DealerTallyEntry::query()->where('source_id', $missing->id)->delete();
+    DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'entry_date' => '2026-08-24',
+        'particulars' => 'Sales @5%',
+        'voucher_type' => 'Sales',
+        'voucher_no' => 'PG-0015',
+        'tally_voucher_no' => 'PG-0015',
+        'tally_reconciled_at' => now('Asia/Kolkata'),
+        'debit' => 2271675,
+        'credit' => 0,
+        'source' => DealerTallyEntry::SOURCE_SALES_ORDER,
+        'source_id' => $missing->id,
+        'fingerprint' => DealerTallyEntry::makeSourceFingerprint(
+            DealerTallyEntry::SOURCE_SALES_ORDER,
+            (int) $missing->id,
+        ),
+        'source_row' => 4,
+    ]);
+
+    $this->artisan('ledger:backfill-erp-entries', ['--order' => 'PG-0001'])
+        ->expectsOutputToContain('incorrectly linked')
+        ->assertSuccessful();
+
+    $erp = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $missing->id)
+        ->whereRaw('ABS(COALESCE(debit, 0) - 84525) < 0.005')
+        ->first();
+    $stolen = DealerTallyEntry::query()
+        ->where('dealer_id', $dealer->id)
+        ->whereRaw('ABS(COALESCE(debit, 0) - 2271675) < 0.005')
+        ->first();
+    $otherEntry = DealerTallyEntry::query()
+        ->where('source_id', $other->id)
+        ->first();
+
+    expect($erp)->not->toBeNull()
+        ->and($erp?->entry_date?->toDateString())->toBe('2026-08-31')
+        ->and($erp?->particulars)->toBe('Sales Order PG-0001')
+        ->and((float) $stolen?->debit)->toBe(2271675.0)
+        ->and($stolen?->voucher_no)->toBe('PG-0015')
+        ->and($otherEntry)->toBeNull();
+});

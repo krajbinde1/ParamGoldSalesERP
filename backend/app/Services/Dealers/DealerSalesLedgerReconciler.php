@@ -140,9 +140,13 @@ final class DealerSalesLedgerReconciler
             return null;
         }
 
+        $statusList = implode(',', array_fill(0, count(Order::billedReceivableStatuses()), '?'));
         $matches = Order::query()
             ->where('dealer_id', $entry->dealer_id)
-            ->whereIn('status', Order::billedReceivableStatuses())
+            ->whereRaw(
+                'LOWER(TRIM(status)) in ('.$statusList.')',
+                Order::billedReceivableStatuses(),
+            )
             ->whereKeyNot($exceptOrderId)
             ->whereRaw('ABS(COALESCE(grand_total, 0) - ?) < 0.005', [$debit])
             ->get();
@@ -161,7 +165,7 @@ final class DealerSalesLedgerReconciler
     }
 
     /**
-     * Voucher / particulars name a different short sales order (PG-0015) than $order (PG-0001).
+     * Voucher / particulars name a different sales order (PG-0015) than $order (PG-0001).
      * Full ERP numbers like PG-20260831-0001 must not be split into a fake PG-20260831 token.
      */
     public function refersToDifferentOrder(DealerTallyEntry $entry, Order $order): bool
@@ -172,19 +176,32 @@ final class DealerSalesLedgerReconciler
             (string) $entry->particulars,
         ]))));
 
-        if ($haystack === '' || preg_match_all('/\bPG-\d+\b/', $haystack, $matches) === 0) {
+        if ($haystack === '') {
             return false;
         }
 
-        $short = strtoupper((string) $order->shortOrderNo());
         $full = strtoupper((string) $order->order_no);
-        $sequence = preg_match('/^PG-\d{8}-(\d+)$/', $full, $parts) === 1
-            ? $parts[1]
-            : null;
-        $own = array_unique(array_filter([$short, $full, $sequence !== null ? 'PG-'.$sequence : null]));
+        $ownShort = array_values(array_unique(array_filter([
+            strtoupper((string) $order->shortOrderNo()),
+            preg_match('/^PG-\d{8}-(\d+)$/', $full, $parts) === 1 ? 'PG-'.$parts[1] : null,
+        ])));
+        $ownFull = $full !== '' ? [$full] : [];
 
-        foreach ($matches[0] as $token) {
-            if (in_array($token, $own, true) || preg_match('/^PG-\d{8}$/', $token) === 1) {
+        if (preg_match_all('/\bPG-\d{8}-\d+\b/', $haystack, $fullMatches) > 0) {
+            foreach ($fullMatches[0] as $token) {
+                if (! in_array($token, $ownFull, true)) {
+                    return true;
+                }
+            }
+        }
+
+        $withoutFull = preg_replace('/\bPG-\d{8}-\d+\b/', ' ', $haystack) ?? $haystack;
+        if (preg_match_all('/\bPG-\d+\b/', $withoutFull, $shortMatches) === 0) {
+            return false;
+        }
+
+        foreach ($shortMatches[0] as $token) {
+            if (preg_match('/^PG-\d{8}$/', $token) === 1 || in_array($token, $ownShort, true) || $token === $full) {
                 continue;
             }
 
@@ -290,8 +307,27 @@ final class DealerSalesLedgerReconciler
             return true;
         }
 
-        return $this->isReconciled($entry)
-            && ! $this->amountsMatch($entry, round((float) $order->grand_total, 2), 0.0);
+        if ($this->amountsMatch($entry, round((float) $order->grand_total, 2), 0.0)) {
+            return false;
+        }
+
+        // Amount differs: never overwrite a Tally bill or a voucher that is not this order.
+        // Unreconciled ERP-only rows (grand total edited) still update in place.
+        if ($this->isReconciled($entry)
+            || $entry->import_id !== null
+            || $entry->source === TallyLedgerConfig::SOURCE) {
+            return true;
+        }
+
+        $voucher = strtoupper(trim((string) ($entry->voucher_no ?? '')));
+        if ($voucher === '') {
+            return false;
+        }
+
+        $orderNo = strtoupper((string) $order->order_no);
+        $short = strtoupper((string) $order->shortOrderNo());
+
+        return $voucher !== $orderNo && $voucher !== $short;
     }
 
     /**
@@ -340,18 +376,23 @@ final class DealerSalesLedgerReconciler
         }
 
         $voucherNo = (string) ($entry->tally_voucher_no ?: $entry->voucher_no ?: '');
+        $fingerprint = DealerTallyEntry::makeFingerprint(
+            dealerId: (int) $entry->dealer_id,
+            date: $entry->entry_date?->toDateString() ?? Carbon::now('Asia/Kolkata')->toDateString(),
+            voucherType: (string) ($entry->tally_voucher_type ?: $entry->voucher_type ?: ''),
+            voucherNo: $voucherNo,
+            debit: (float) $entry->debit,
+            credit: (float) $entry->credit,
+            particulars: (string) ($entry->particulars ?? ''),
+        );
+        if (DealerTallyEntry::query()->whereKeyNot($entry->id)->where('fingerprint', $fingerprint)->exists()) {
+            $fingerprint = hash('sha256', $fingerprint.'|released|'.$entry->id);
+        }
+
         $entry->fill([
             'source' => TallyLedgerConfig::SOURCE,
             'source_id' => null,
-            'fingerprint' => DealerTallyEntry::makeFingerprint(
-                dealerId: (int) $entry->dealer_id,
-                date: $entry->entry_date?->toDateString() ?? Carbon::now('Asia/Kolkata')->toDateString(),
-                voucherType: (string) ($entry->tally_voucher_type ?: $entry->voucher_type ?: ''),
-                voucherNo: $voucherNo,
-                debit: (float) $entry->debit,
-                credit: (float) $entry->credit,
-                particulars: (string) ($entry->particulars ?? ''),
-            ),
+            'fingerprint' => $fingerprint,
             'tally_voucher_type' => $entry->tally_voucher_type ?: $entry->voucher_type,
             'tally_voucher_no' => $entry->tally_voucher_no ?: ($voucherNo !== '' ? $voucherNo : null),
             'tally_entry_date' => $entry->tally_entry_date?->toDateString()

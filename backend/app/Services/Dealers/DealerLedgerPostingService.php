@@ -3,8 +3,10 @@
 namespace App\Services\Dealers;
 
 use App\Models\Collection;
+use App\Models\Dealer;
 use App\Models\DealerTallyEntry;
 use App\Models\Order;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -16,7 +18,7 @@ final class DealerLedgerPostingService
 
     public function syncDispatchedOrder(Order $order): ?DealerTallyEntry
     {
-        if ($order->dealer_id === null || ! in_array($order->status, Order::billedReceivableStatuses(), true)) {
+        if ($order->dealer_id === null || ! $order->isBilledReceivable()) {
             $this->removeUnreconciledSalesOrderLedgerEntry($order);
 
             return null;
@@ -92,8 +94,9 @@ final class DealerLedgerPostingService
         $orders = 0;
         $collections = 0;
 
+        $statusList = implode(',', array_fill(0, count(Order::billedReceivableStatuses()), '?'));
         Order::query()
-            ->whereIn('status', Order::billedReceivableStatuses())
+            ->whereRaw('LOWER(TRIM(status)) in ('.$statusList.')', Order::billedReceivableStatuses())
             ->orderBy('id')
             ->each(function (Order $order) use (&$orders): void {
                 if ($this->syncDispatchedOrder($order) !== null) {
@@ -114,6 +117,114 @@ final class DealerLedgerPostingService
             'orders' => $orders,
             'collections' => $collections,
             'sales_reconciled' => $this->salesReconciler->reconcileExistingDuplicates(),
+        ];
+    }
+
+    /**
+     * Explain why a sales order would be skipped or posted. Does not write.
+     *
+     * @return array{
+     *     order_id: int,
+     *     order_no: string,
+     *     short_order_no: string,
+     *     dealer_id: int|null,
+     *     dealer_name: string,
+     *     status: string,
+     *     grand_total: float,
+     *     order_date: string|null,
+     *     created_at: string|null,
+     *     in_backfill_query: string,
+     *     existing_ledger_match: string,
+     *     skip_reason: string,
+     *     action: string
+     * }
+     */
+    public function diagnoseSalesOrder(Order $order, ?Dealer $expectedDealer = null): array
+    {
+        $order->loadMissing('dealer');
+        $fingerprint = DealerTallyEntry::makeSourceFingerprint(
+            DealerTallyEntry::SOURCE_SALES_ORDER,
+            (int) $order->id,
+        );
+        $linked = DealerTallyEntry::query()
+            ->where(function ($query) use ($fingerprint, $order): void {
+                $query->where('fingerprint', $fingerprint)
+                    ->orWhere('source_id', $order->id);
+            })
+            ->orderBy('id')
+            ->get();
+
+        $match = $linked->isEmpty()
+            ? 'none'
+            : $linked->map(function (DealerTallyEntry $entry) use ($order): string {
+                $represents = $this->salesReconciler->entryRepresentsOrder($entry, $order);
+                $foreign = $this->salesReconciler->entryIsForeignToOrder($entry, $order);
+                $label = $represents ? 'REPRESENTS_ORDER' : ($foreign ? 'FOREIGN_CLAIM' : 'LINKED');
+
+                return sprintf(
+                    '#%d dealer_id=%s date=%s debit=%s voucher=%s tally_voucher=%s source=%s source_id=%s %s',
+                    $entry->id,
+                    $entry->dealer_id,
+                    $entry->entry_date?->toDateString() ?? 'null',
+                    number_format((float) $entry->debit, 2, '.', ''),
+                    $entry->voucher_no ?: '—',
+                    $entry->tally_voucher_no ?: '—',
+                    $entry->source,
+                    $entry->source_id ?? 'null',
+                    $label,
+                );
+            })->implode(' ; ');
+
+        $inQuery = ! $order->trashed() && $order->isBilledReceivable() ? 'yes' : 'no';
+        $amount = round((float) $order->grand_total, 2);
+        $dealerName = $order->dealer?->firm_name ?: '—';
+        $action = 'post';
+        $reason = 'will create Sales Order '.$order->shortOrderNo().' debit '.$amount;
+
+        if ($order->trashed()) {
+            $action = 'skip';
+            $reason = 'soft-deleted; backfill query does not select this order';
+        } elseif ($order->dealer_id === null) {
+            $action = 'skip';
+            $reason = 'dealer_id is null';
+        } elseif (! $order->isBilledReceivable()) {
+            $action = 'skip';
+            $reason = 'status ['.$order->status.'] is not billed/dispatched/delivered; backfill query does not select this order';
+        } elseif ($amount <= 0.0) {
+            $action = 'skip';
+            $reason = 'grand_total is '.$amount.'; debit not posted';
+        } elseif ($linked->contains(fn (DealerTallyEntry $entry): bool => $this->salesReconciler->entryRepresentsOrder($entry, $order))) {
+            $action = 'already_posted';
+            $reason = 'already posted (amount matches an existing ledger row for this order)';
+        } elseif ($linked->contains(fn (DealerTallyEntry $entry): bool => $this->salesReconciler->entryIsForeignToOrder($entry, $order))) {
+            $action = 'post';
+            $reason = 'existing ledger row is incorrectly linked to this order id (amount/voucher do not match). Will release that mapping and create a new '.$amount.' debit. Will not change the foreign row debit/date/voucher.';
+        } else {
+            $tally = $this->salesReconciler->findMatchingTallySalesEntry($order);
+            if ($tally !== null) {
+                $reason = 'will attach unique unmatched Tally sales #'.$tally->id.' debit='.number_format((float) $tally->debit, 2, '.', '').' voucher='.($tally->voucher_no ?: '—');
+            }
+        }
+
+        if ($expectedDealer !== null && $order->dealer_id !== null
+            && (int) $order->dealer_id !== (int) $expectedDealer->id) {
+            $reason .= ' | dealer mismatch: order dealer_id='.$order->dealer_id.' ('.$dealerName.') vs ledger dealer_id='.$expectedDealer->id.' ('.$expectedDealer->firm_name.')';
+        }
+
+        return [
+            'order_id' => (int) $order->id,
+            'order_no' => (string) $order->order_no,
+            'short_order_no' => $order->shortOrderNo(),
+            'dealer_id' => $order->dealer_id !== null ? (int) $order->dealer_id : null,
+            'dealer_name' => $dealerName,
+            'status' => (string) $order->status,
+            'grand_total' => $amount,
+            'order_date' => $order->order_date?->toDateString(),
+            'created_at' => $order->created_at?->timezone('Asia/Kolkata')->toDateTimeString(),
+            'in_backfill_query' => $inQuery,
+            'existing_ledger_match' => $match,
+            'skip_reason' => $reason,
+            'action' => $action,
         ];
     }
 
@@ -171,17 +282,16 @@ final class DealerLedgerPostingService
             $fingerprint,
         ): ?DealerTallyEntry {
             $existing = $this->lockedExistingErpEntry($source, $sourceId, $fingerprint);
+            $order = $source === DealerTallyEntry::SOURCE_SALES_ORDER
+                ? Order::query()->find($sourceId)
+                : null;
 
-            if ($source === DealerTallyEntry::SOURCE_SALES_ORDER) {
-                $order = Order::query()->find($sourceId);
-
-                if ($existing !== null && $order instanceof Order
-                    && $this->salesReconciler->entryIsForeignToOrder($existing, $order)) {
+            if ($existing !== null && $order instanceof Order) {
+                $represents = $this->salesReconciler->entryRepresentsOrder($existing, $order);
+                $foreign = $this->salesReconciler->entryIsForeignToOrder($existing, $order);
+                if (! $represents && ($foreign || $this->salesReconciler->isReconciled($existing))) {
                     $this->salesReconciler->releaseOrderClaim($existing, $order);
-                    $existing = $this->lockedExistingErpEntry($source, $sourceId, $fingerprint);
-                    if ($existing !== null && $this->salesReconciler->entryIsForeignToOrder($existing, $order)) {
-                        $existing = null;
-                    }
+                    $existing = null;
                 }
             }
 
@@ -215,15 +325,12 @@ final class DealerLedgerPostingService
                 return $existing;
             }
 
-            if ($source === DealerTallyEntry::SOURCE_SALES_ORDER) {
-                $order = Order::query()->find($sourceId);
-                if ($order instanceof Order) {
-                    $tallySales = $this->salesReconciler->findMatchingTallySalesEntry($order);
-                    if ($tallySales !== null) {
-                        $attached = $this->salesReconciler->attachSalesOrderToTallyEntry($tallySales, $order);
-                        if ($attached !== null) {
-                            return $attached;
-                        }
+            if ($order instanceof Order) {
+                $tallySales = $this->salesReconciler->findMatchingTallySalesEntry($order);
+                if ($tallySales !== null) {
+                    $attached = $this->salesReconciler->attachSalesOrderToTallyEntry($tallySales, $order);
+                    if ($attached !== null) {
+                        return $attached;
                     }
                 }
             }
@@ -236,7 +343,7 @@ final class DealerLedgerPostingService
                 return null;
             }
 
-            return DealerTallyEntry::query()->create([
+            $payload = [
                 'dealer_id' => $dealerId,
                 'import_id' => null,
                 'entry_date' => $date,
@@ -249,7 +356,30 @@ final class DealerLedgerPostingService
                 'source_id' => $sourceId,
                 'fingerprint' => $fingerprint,
                 'source_row' => null,
-            ]);
+            ];
+
+            try {
+                return DealerTallyEntry::query()->create($payload);
+            } catch (UniqueConstraintViolationException $exception) {
+                $conflict = DealerTallyEntry::query()
+                    ->where('fingerprint', $fingerprint)
+                    ->lockForUpdate()
+                    ->first();
+                if ($conflict !== null && $order instanceof Order) {
+                    if ($this->salesReconciler->entryRepresentsOrder($conflict, $order)) {
+                        return $conflict;
+                    }
+                    if ($this->salesReconciler->entryIsForeignToOrder($conflict, $order)
+                        || ((int) $conflict->source_id === (int) $order->id)) {
+                        $this->salesReconciler->releaseOrderClaim($conflict, $order);
+                        $payload['fingerprint'] = $fingerprint;
+
+                        return DealerTallyEntry::query()->create($payload);
+                    }
+                }
+
+                throw $exception;
+            }
         });
     }
 
