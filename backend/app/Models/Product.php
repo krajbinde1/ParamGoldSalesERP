@@ -2,9 +2,12 @@
 
 namespace App\Models;
 
+use App\Enums\BomOutputType;
+use App\Enums\BomStatus;
 use App\Enums\StockItemType;
 use App\Enums\StockTransactionType;
 use App\Models\Concerns\EnforcesSafeDelete;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
@@ -136,7 +139,9 @@ class Product extends Model
 
     public function activeBom(): HasOne
     {
-        return $this->hasOne(Bom::class)->where('status', 'active');
+        return $this->hasOne(Bom::class)
+            ->where('output_type', BomOutputType::FinishedProduct)
+            ->where('status', BomStatus::Active);
     }
 
     public function productionBatches(): HasMany
@@ -182,8 +187,8 @@ class Product extends Model
      * Includes manufacturing-enabled masters and any product that already holds FG stock
      * (e.g. produced before manufacturing_enabled was flipped on).
      *
-     * @param  \Illuminate\Database\Eloquent\Builder<static>  $query
-     * @return \Illuminate\Database\Eloquent\Builder<static>
+     * @param  Builder<static>  $query
+     * @return Builder<static>
      */
     public function scopeInFinishedInventory($query)
     {
@@ -196,8 +201,8 @@ class Product extends Model
     /**
      * Sales products eligible for Set Opening Stock (no opening balance posted yet).
      *
-     * @param  \Illuminate\Database\Eloquent\Builder<static>  $query
-     * @return \Illuminate\Database\Eloquent\Builder<static>
+     * @param  Builder<static>  $query
+     * @return Builder<static>
      */
     public function scopeAvailableForFinishedProductLink($query)
     {

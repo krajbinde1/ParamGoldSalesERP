@@ -2,7 +2,10 @@
 
 namespace App\Filament\Resources\Products\Tables;
 
+use App\Filament\Actions\SafeDeleteActions;
+use App\Filament\Resources\Boms\BomResource;
 use App\Models\Product;
+use App\Services\SafeDelete\SafeDeleteGuard;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\EditAction;
 use Filament\Actions\ForceDeleteBulkAction;
@@ -14,12 +17,15 @@ use Filament\Tables\Filters\SelectFilter;
 use Filament\Tables\Filters\TernaryFilter;
 use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
+use Illuminate\Database\Eloquent\Builder;
+use Illuminate\Database\Eloquent\Collection;
 
 class ProductsTable
 {
     public static function configure(Table $table): Table
     {
         return $table
+            ->modifyQueryUsing(fn (Builder $query): Builder => $query->with('activeBom'))
             ->columns([
                 TextColumn::make('product_code')
                     ->label('Code')
@@ -33,6 +39,26 @@ class ProductsTable
                 TextColumn::make('nos_per_case')
                     ->label('Nos/Case')
                     ->sortable(),
+                TextColumn::make('active_packing_bom_status')
+                    ->label('BOM Status')
+                    ->badge()
+                    ->state(fn (Product $record): string => $record->activeBom !== null
+                        ? 'BOM Set'
+                        : 'BOM Not Set')
+                    ->color(fn (string $state): string => $state === 'BOM Set' ? 'success' : 'warning')
+                    ->url(function (Product $record): ?string {
+                        $bom = $record->activeBom;
+                        if ($bom === null) {
+                            return null;
+                        }
+
+                        $user = auth()->user();
+                        if ($user === null || ! $user->can('view', $bom)) {
+                            return null;
+                        }
+
+                        return BomResource::getUrl('view', ['record' => $bom]);
+                    }),
                 TextColumn::make('gst_percentage')
                     ->label('GST')
                     ->suffix('%')
@@ -72,12 +98,12 @@ class ProductsTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([
-                    \App\Filament\Actions\SafeDeleteActions::deleteBulkAction()
+                    SafeDeleteActions::deleteBulkAction()
                         ->authorize(fn (): bool => auth()->user()?->can('deleteAny', Product::class) ?? false),
                     ForceDeleteBulkAction::make()
                         ->authorize(fn (): bool => auth()->user()?->can('forceDeleteAny', Product::class) ?? false)
-                        ->using(function (ForceDeleteBulkAction $action, \Illuminate\Database\Eloquent\Collection $records): void {
-                            $guard = app(\App\Services\SafeDelete\SafeDeleteGuard::class);
+                        ->using(function (ForceDeleteBulkAction $action, Collection $records): void {
+                            $guard = app(SafeDeleteGuard::class);
                             $records->each(function (Product $record) use ($action, $guard): void {
                                 try {
                                     $guard->assertCanDelete($record);
