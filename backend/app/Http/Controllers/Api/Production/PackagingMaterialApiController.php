@@ -59,6 +59,7 @@ class PackagingMaterialApiController extends Controller
             'id' => $material->id,
             'material_code' => $material->packaging_code,
             'material_name' => $material->packaging_name,
+            'packaging_type' => $material->packagingTypeLabel(),
             'category' => $material->category,
             'unit' => $material->unit,
             'current_stock' => (float) $material->current_stock,

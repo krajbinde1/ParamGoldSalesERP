@@ -1,10 +1,13 @@
 <?php
 
+use App\Enums\PackagingType;
 use App\Enums\StockItemType;
 use App\Enums\StockTransactionType;
 use App\Enums\UserRole;
 use App\Filament\Resources\PackagingMaterials\Pages\CreatePackagingMaterial;
 use App\Filament\Resources\PackagingMaterials\Pages\EditPackagingMaterial;
+use App\Filament\Resources\PackagingMaterials\Pages\ListPackagingMaterials;
+use App\Filament\Resources\PackagingMaterials\Pages\ViewPackagingMaterial;
 use App\Filament\Resources\PackagingMaterials\Schemas\PackagingMaterialForm;
 use App\Models\PackagingMaterial;
 use App\Models\PackagingMaterialInward;
@@ -168,6 +171,7 @@ it('renders the simplified Opening Stock section on the Create Packaging Materia
     Livewire::test(CreatePackagingMaterial::class)
         ->assertSuccessful()
         ->assertSee('Material Details')
+        ->assertSee('Packaging Type')
         ->assertSee('Opening Stock')
         ->assertSee('Opening Stock Quantity')
         ->assertSee('Opening Stock Value')
@@ -268,4 +272,41 @@ it('recalculates opening stock value from effective rate on edit', function (): 
 
     expect((float) $ledger->transaction_value)->toBe(4680.0)
         ->and((float) $ledger->rate)->toBe(5.2);
+});
+
+it('stores packaging type on create and shows it on list and view', function (): void {
+    $this->actingAs($this->director);
+
+    $name = 'BOROFIT 1 KG '.uniqid();
+
+    Livewire::test(CreatePackagingMaterial::class)
+        ->fillForm([
+            'packaging_name' => $name,
+            'packaging_type' => PackagingType::Pouch->value,
+            'unit' => 'Nos',
+            'minimum_stock' => 0,
+            'status' => true,
+            'opening_stock_quantity' => 0,
+            'opening_effective_rate' => 0,
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $material = PackagingMaterial::query()->where('packaging_name', $name)->first();
+
+    expect($material)->not->toBeNull()
+        ->and($material->packaging_type)->toBe(PackagingType::Pouch)
+        ->and($material->bomSelectionLabel())->toBe($name.' — Pouch');
+
+    Livewire::test(ListPackagingMaterials::class)
+        ->assertSuccessful()
+        ->assertSee('Packaging Type')
+        ->assertSee('Pouch')
+        ->assertSee($name);
+
+    Livewire::test(ViewPackagingMaterial::class, ['record' => $material->getKey()])
+        ->assertSuccessful()
+        ->assertSee('Packaging Type')
+        ->assertSee('Pouch')
+        ->assertSee($name);
 });

@@ -134,6 +134,11 @@ class BomForm
                         : 'Add bulk/semi-finished consumed by this packing size, plus this SKU’s packing materials. Do not duplicate the raw-material formula.')
                     ->columnSpanFull()
                     ->schema([
+                        Placeholder::make('manufacturing_formula_match')
+                            ->hiddenLabel()
+                            ->visible(fn (Get $get): bool => $get('output_type') === BomOutputType::SemiFinished->value)
+                            ->content(fn (Get $get): HtmlString => self::renderManufacturingQuantityMatch($get))
+                            ->columnSpanFull(),
                         Repeater::make('items')
                             ->relationship()
                             ->reorderable()
@@ -172,8 +177,11 @@ class BomForm
                                     }),
                                 Select::make('packaging_material_id')
                                     ->label('Material')
-                                    ->relationship('packagingMaterial', 'packaging_name', fn (Builder $query) => $query->where('status', true))
-                                    ->searchable()
+                                    ->relationship('packagingMaterial', 'packaging_name', fn (Builder $query) => $query->where('status', true)->orderBy('packaging_name'))
+                                    ->getOptionLabelFromRecordUsing(
+                                        fn (PackagingMaterial $record): string => $record->bomSelectionLabel()
+                                    )
+                                    ->searchable(['packaging_name', 'packaging_code', 'packaging_type'])
                                     ->preload()
                                     ->live()
                                     ->visible(fn (Get $get): bool => $get('item_type') === BomItemType::PackagingMaterial->value)
@@ -337,6 +345,45 @@ class BomForm
         }
 
         $html .= '</div>';
+
+        return new HtmlString($html);
+    }
+
+    public static function renderManufacturingQuantityMatch(Get $get): HtmlString
+    {
+        $match = app(BOMCalculationService::class)->manufacturingFormulaQuantityMatch(
+            [
+                'output_type' => $get('output_type'),
+                'batch_quantity' => $get('batch_quantity'),
+                'batch_unit' => $get('batch_unit'),
+            ],
+            is_array($get('items')) ? $get('items') : [],
+        );
+
+        if ($match === null) {
+            return new HtmlString('');
+        }
+
+        $matched = $match['matched'];
+        $unit = $match['unit_label'];
+        $border = $matched ? '#99F6E4' : '#FDE68A';
+        $background = $matched ? '#F0FDFA' : '#FFFBEB';
+        $accent = $matched ? '#0F766E' : '#B45309';
+        $remainingText = $matched
+            ? 'Matched'
+            : $match['remaining_label'].' '.$unit;
+
+        $html = '<div style="display:flex;flex-wrap:wrap;gap:0.75rem 1.5rem;align-items:baseline;padding:0.7rem 0.9rem;border:1px solid '.$border.';border-radius:0.65rem;background:'.$background.';">'
+            .'<div><span style="font-size:0.75rem;color:#64748B;font-weight:700;letter-spacing:0.03em;text-transform:uppercase;">Formula Quantity</span>'
+            .'<div style="font-weight:700;color:#0F172A;font-variant-numeric:tabular-nums;">'
+            .e($match['formula_qty_label'].' '.$unit).'</div></div>'
+            .'<div><span style="font-size:0.75rem;color:#64748B;font-weight:700;letter-spacing:0.03em;text-transform:uppercase;">Added Quantity</span>'
+            .'<div style="font-weight:700;color:#0F172A;font-variant-numeric:tabular-nums;">'
+            .e($match['added_qty_label'].' '.$unit).'</div></div>'
+            .'<div><span style="font-size:0.75rem;color:#64748B;font-weight:700;letter-spacing:0.03em;text-transform:uppercase;">Remaining</span>'
+            .'<div style="font-weight:800;color:'.$accent.';font-variant-numeric:tabular-nums;">'
+            .e($remainingText).'</div></div>'
+            .'</div>';
 
         return new HtmlString($html);
     }

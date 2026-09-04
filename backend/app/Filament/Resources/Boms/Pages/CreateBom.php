@@ -2,13 +2,15 @@
 
 namespace App\Filament\Resources\Boms\Pages;
 
-use App\Enums\BomStatus;
 use App\Filament\Resources\Boms\BomResource;
+use App\Filament\Resources\Boms\Pages\Concerns\AssertsBomFormulaOnSave;
 use App\Services\Inventory\BOMCalculationService;
 use Filament\Resources\Pages\CreateRecord;
 
 class CreateBom extends CreateRecord
 {
+    use AssertsBomFormulaOnSave;
+
     protected static string $resource = BomResource::class;
 
     protected function getRedirectUrl(): string
@@ -33,13 +35,7 @@ class CreateBom extends CreateRecord
 
     protected function beforeCreate(): void
     {
-        $state = $this->data;
-
-        app(BOMCalculationService::class)->assertBomFormulaForSave(
-            $state,
-            $state['items'] ?? [],
-            $state['status'] ?? BomStatus::Inactive->value,
-        );
+        $this->assertBomFormulaFromFormState();
     }
 
     protected function afterCreate(): void

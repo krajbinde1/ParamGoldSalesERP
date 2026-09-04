@@ -478,7 +478,116 @@ final class BOMCalculationService
             $this->unitConversion->convert((float) $row['qty'], (string) $row['unit'], $inventoryUnit);
         }
 
+        $this->assertManufacturingFormulaQuantityMatches($header, $items);
+
         return $this->summarizeBom($header, $items);
+    }
+
+    /**
+     * Manufacturing (bulk / semi-finished) BOMs: raw + bulk ingredient quantity
+     * converted to the formula unit must equal Formula Quantity exactly.
+     * Packaging materials are excluded. Returns null when this rule does not apply.
+     *
+     * @param  Bom|array<string, mixed>  $header
+     * @param  iterable<int|string, BomItem|array<string, mixed>>  $items
+     * @return array{
+     *   applies: bool,
+     *   matched: bool,
+     *   formula_qty: float,
+     *   added_qty: float,
+     *   remaining: float,
+     *   difference: float,
+     *   unit: string,
+     *   unit_label: string,
+     *   formula_qty_label: string,
+     *   added_qty_label: string,
+     *   remaining_label: string,
+     *   difference_label: string,
+     *   message: string
+     * }|null
+     */
+    public function manufacturingFormulaQuantityMatch(Bom|array $header, iterable $items): ?array
+    {
+        if ($header instanceof Bom) {
+            $outputType = $header->output_type instanceof BomOutputType
+                ? $header->output_type->value
+                : (string) ($header->output_type ?? '');
+            $formulaQty = (float) $header->batch_quantity;
+            $batchUnit = (string) $header->batch_unit;
+        } else {
+            $rawOutput = $header['output_type'] ?? '';
+            $outputType = $rawOutput instanceof BomOutputType ? $rawOutput->value : (string) $rawOutput;
+            $formulaQty = (float) ($header['batch_quantity'] ?? 0);
+            $batchUnit = (string) ($header['batch_unit'] ?? '');
+        }
+
+        if ($outputType !== BomOutputType::SemiFinished->value) {
+            return null;
+        }
+
+        $formulaUnit = $this->unitConversion->normalize($batchUnit);
+        $family = $this->unitConversion->family($formulaUnit);
+        if (! in_array($family, [
+            InventoryUnitConversion::FAMILY_WEIGHT,
+            InventoryUnitConversion::FAMILY_VOLUME,
+        ], true)) {
+            return null;
+        }
+
+        $added = 0.0;
+        foreach ($items as $item) {
+            $converted = $this->productionIngredientQtyInFormulaUnit($item, $formulaUnit);
+            if ($converted !== null) {
+                $added += $converted;
+            }
+        }
+
+        $formulaQty = round($formulaQty, 4);
+        $added = round($added, 4);
+        $remaining = round($formulaQty - $added, 4);
+        $difference = round(abs($remaining), 4);
+        $matched = $difference < 0.0001;
+        $unitLabel = InventoryUnit::tryFromMixed($formulaUnit)?->formulaShortName() ?? $formulaUnit;
+        $formulaLabel = $this->formatFormulaMatchQuantity($formulaQty);
+        $addedLabel = $this->formatFormulaMatchQuantity($added);
+        $remainingLabel = $this->formatFormulaMatchQuantity($remaining);
+        $differenceLabel = $this->formatFormulaMatchQuantity($difference);
+
+        return [
+            'applies' => true,
+            'matched' => $matched,
+            'formula_qty' => $formulaQty,
+            'added_qty' => $added,
+            'remaining' => $remaining,
+            'difference' => $difference,
+            'unit' => $formulaUnit,
+            'unit_label' => $unitLabel,
+            'formula_qty_label' => $formulaLabel,
+            'added_qty_label' => $addedLabel,
+            'remaining_label' => $remainingLabel,
+            'difference_label' => $differenceLabel,
+            'message' => sprintf(
+                'Formula quantity mismatch. Required: %s %s | Added: %s %s | Difference: %s %s',
+                $formulaLabel,
+                $unitLabel,
+                $addedLabel,
+                $unitLabel,
+                $differenceLabel,
+                $unitLabel,
+            ),
+        ];
+    }
+
+    public function assertManufacturingFormulaQuantityMatches(Bom|array $header, iterable $items): void
+    {
+        $match = $this->manufacturingFormulaQuantityMatch($header, $items);
+        if ($match === null || $match['matched']) {
+            return;
+        }
+
+        throw ValidationException::withMessages([
+            'items' => $match['message'],
+        ]);
     }
 
     /**
@@ -705,6 +814,54 @@ final class BOMCalculationService
         $formatted = rtrim(rtrim(number_format($quantity, 4, '.', ''), '0'), '.');
 
         return $formatted === '' ? '0' : $formatted;
+    }
+
+    /**
+     * Display helper for manufacturing formula match (200, 197.60, 2.40).
+     */
+    public function formatFormulaMatchQuantity(float $quantity): string
+    {
+        $formatted = number_format(round($quantity, 2), 2, '.', '');
+
+        if (str_ends_with($formatted, '.00')) {
+            return substr($formatted, 0, -3);
+        }
+
+        return $formatted;
+    }
+
+    /**
+     * Convert a raw / bulk ingredient to the manufacturing formula unit.
+     * Uses inventory equivalent first, then formula unit. Packaging is ignored.
+     */
+    private function productionIngredientQtyInFormulaUnit(BomItem|array $item, string $formulaUnit): ?float
+    {
+        [$itemType, $qty, $unit, $rawId, $packId, $sfId] = $this->normalizeItemRow($item);
+
+        if (! in_array($itemType, [
+            BomItemType::RawMaterial->value,
+            BomItemType::SemiFinished->value,
+        ], true)) {
+            return null;
+        }
+
+        if ($qty <= 0 || $unit === '') {
+            return 0.0;
+        }
+
+        $inventoryUnit = $this->resolveInventoryUnitForRow($itemType, $rawId, $packId, $sfId, $item);
+
+        try {
+            if ($inventoryUnit !== null && $inventoryUnit !== '') {
+                $inventoryQty = (float) $this->unitConversion->convert($qty, $unit, $inventoryUnit)['quantity'];
+
+                return (float) $this->unitConversion->convert($inventoryQty, $inventoryUnit, $formulaUnit)['quantity'];
+            }
+
+            return (float) $this->unitConversion->convert($qty, $unit, $formulaUnit)['quantity'];
+        } catch (ValidationException) {
+            return null;
+        }
     }
 
     /**

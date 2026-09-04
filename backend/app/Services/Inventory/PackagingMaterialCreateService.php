@@ -2,6 +2,7 @@
 
 namespace App\Services\Inventory;
 
+use App\Enums\PackagingType;
 use App\Enums\StockTransactionType;
 use App\Models\PackagingMaterial;
 use App\Models\User;
@@ -63,6 +64,8 @@ final class PackagingMaterialCreateService
 
             $material = PackagingMaterial::query()->create([
                 'packaging_name' => $materialData['packaging_name'],
+                'packaging_type' => PackagingType::tryFromMixed($materialData['packaging_type'] ?? null)?->value
+                    ?? PackagingType::Other->value,
                 'category' => filled($materialData['category'] ?? null) ? $materialData['category'] : 'Other',
                 'unit' => $materialData['unit'],
                 'minimum_stock' => (float) ($materialData['minimum_stock'] ?? 0),

@@ -2,15 +2,17 @@
 
 namespace App\Filament\Resources\Boms\Pages;
 
-use App\Enums\BomStatus;
 use App\Filament\Actions\SafeDeleteActions;
 use App\Filament\Resources\Boms\BomResource;
+use App\Filament\Resources\Boms\Pages\Concerns\AssertsBomFormulaOnSave;
 use App\Services\Inventory\BOMCalculationService;
 use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\EditRecord;
 
 class EditBom extends EditRecord
 {
+    use AssertsBomFormulaOnSave;
+
     protected static string $resource = BomResource::class;
 
     protected function getHeaderActions(): array
@@ -45,13 +47,7 @@ class EditBom extends EditRecord
 
     protected function beforeSave(): void
     {
-        $state = $this->data;
-
-        app(BOMCalculationService::class)->assertBomFormulaForSave(
-            $state,
-            $state['items'] ?? [],
-            $state['status'] ?? BomStatus::Inactive->value,
-        );
+        $this->assertBomFormulaFromFormState();
     }
 
     protected function afterSave(): void

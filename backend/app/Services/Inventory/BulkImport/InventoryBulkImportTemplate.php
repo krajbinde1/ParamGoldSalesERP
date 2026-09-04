@@ -13,9 +13,13 @@ final class InventoryBulkImportTemplate
     public static function mandatoryColumns(InventoryBulkImportType $type): array
     {
         return match ($type) {
-            InventoryBulkImportType::RawMaterial,
+            InventoryBulkImportType::RawMaterial => [
+                'material_name',
+                'unit',
+            ],
             InventoryBulkImportType::PackagingMaterial => [
                 'material_name',
+                'packaging_type',
                 'unit',
             ],
             InventoryBulkImportType::SemiFinished => [
@@ -58,6 +62,7 @@ final class InventoryBulkImportTemplate
             ],
             InventoryBulkImportType::PackagingMaterial => [
                 'material_name',
+                'packaging_type',
                 'unit',
                 'minimum_stock',
                 'opening_quantity',
@@ -117,6 +122,7 @@ final class InventoryBulkImportTemplate
             ],
             InventoryBulkImportType::PackagingMaterial => [
                 'material_name' => 'Material Name *',
+                'packaging_type' => 'Packaging Type *',
                 'unit' => 'Unit *',
                 'minimum_stock' => 'Minimum Stock',
                 'opening_quantity' => 'Opening Stock Quantity',
@@ -178,6 +184,7 @@ final class InventoryBulkImportTemplate
             ],
             InventoryBulkImportType::PackagingMaterial => [
                 'Carton Box Sample',
+                'Box',
                 InventoryUnit::Nos->value,
                 '50',
                 '200',
@@ -229,6 +236,8 @@ final class InventoryBulkImportTemplate
             'material_name' => 'material_name',
             'materialname' => 'material_name',
             'name' => 'material_name',
+            'packaging_type' => 'packaging_type',
+            'packagingtype' => 'packaging_type',
             'unit' => 'unit',
             'uom' => 'unit',
             'minimum_stock' => 'minimum_stock',
@@ -288,6 +297,12 @@ final class InventoryBulkImportTemplate
             $aliases['finishedproductname'] = 'product_name';
         }
 
+        // Packaging Type is packaging-master specific.
+        if ($type === InventoryBulkImportType::PackagingMaterial) {
+            $aliases['type'] = 'packaging_type';
+            $aliases['packaging_type'] = 'packaging_type';
+        }
+
         return $aliases;
     }
 
@@ -318,6 +333,7 @@ final class InventoryBulkImportTemplate
             InventoryBulkImportType::PackagingMaterial => [
                 'packaging_code',
                 'packaging_name',
+                'packaging_type',
                 'unit',
                 'active',
             ],
@@ -368,6 +384,7 @@ final class InventoryBulkImportTemplate
             InventoryBulkImportType::PackagingMaterial => [
                 'packaging_code' => 'Packaging Code',
                 'packaging_name' => 'Packaging Name',
+                'packaging_type' => 'Packaging Type',
                 'unit' => 'Unit',
                 'active' => 'Active',
             ],

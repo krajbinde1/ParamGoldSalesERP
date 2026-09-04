@@ -33,8 +33,8 @@
             <x-filament::breadcrumbs :breadcrumbs="$breadcrumbs" />
         @endif
 
-        <h1 class="pg-bom-view-header__title">{{ $record->bom_number ?: 'Bill of Material' }}</h1>
-        <p class="pg-bom-view-header__product">{{ $record->outputName() }}</p>
+        <h1 class="pg-bom-view-header__title">{{ $record->outputName() }}</h1>
+        <p class="pg-bom-view-header__code">{{ $record->bom_number ?: '—' }}</p>
 
         <div class="pg-bom-view-header__meta">
             <span class="pg-bom-view-header__badge" style="{{ $stageStyles }}">

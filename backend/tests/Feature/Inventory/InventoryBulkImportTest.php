@@ -69,6 +69,11 @@ it('generates templates with sample rows for all inventory import modules', func
     $rmColumns = InventoryBulkImportTemplate::allColumns(InventoryBulkImportType::RawMaterial);
     expect($rmColumns)->not->toContain('material_code');
 
+    $pmColumns = InventoryBulkImportTemplate::allColumns(InventoryBulkImportType::PackagingMaterial);
+    expect($pmColumns)->toContain('packaging_type')
+        ->and(InventoryBulkImportTemplate::mandatoryColumns(InventoryBulkImportType::PackagingMaterial))
+        ->toContain('packaging_type');
+
     $bomColumns = InventoryBulkImportTemplate::allColumns(InventoryBulkImportType::Bom);
     expect($bomColumns)->toContain('finished_product_code')
         ->and($bomColumns)->toContain('material_code')
@@ -142,6 +147,7 @@ it('previews and imports raw materials with auto-generated codes and mapping exp
 it('imports packaging and semi-finished masters via shared create services with existing prefixes', function (): void {
     $packPath = inventoryImportCsv(InventoryBulkImportType::PackagingMaterial, [[
         'material_name' => 'Carton Import',
+        'packaging_type' => 'Box',
         'unit' => 'Nos',
         'opening_quantity' => '20',
         'opening_value' => '400',
@@ -167,8 +173,52 @@ it('imports packaging and semi-finished masters via shared create services with 
         ->and($sfResult->imported)->toBe(1)
         ->and($pack)->not->toBeNull()
         ->and($pack->packaging_code)->toStartWith('PK')
+        ->and($pack->packaging_type->value)->toBe('Box')
         ->and($sf)->not->toBeNull()
         ->and($sf->material_code)->toStartWith('SFM');
+});
+
+it('imports the same packaging material name with different packaging types', function (): void {
+    $path = inventoryImportCsv(InventoryBulkImportType::PackagingMaterial, [
+        [
+            'material_name' => 'BOROFIT 1 KG',
+            'packaging_type' => 'Pouch',
+            'unit' => 'Nos',
+            'opening_quantity' => '0',
+            'opening_value' => '0',
+            'active' => 'Yes',
+        ],
+        [
+            'material_name' => 'BOROFIT 1 KG',
+            'packaging_type' => 'Box',
+            'unit' => 'Nos',
+            'opening_quantity' => '0',
+            'opening_value' => '0',
+            'active' => 'Yes',
+        ],
+        [
+            'material_name' => 'BOROFIT 1 KG',
+            'packaging_type' => 'Sticker',
+            'unit' => 'Nos',
+            'opening_quantity' => '0',
+            'opening_value' => '0',
+            'active' => 'Yes',
+        ],
+    ]);
+
+    $result = $this->manager->import($path, InventoryBulkImportType::PackagingMaterial, $this->director);
+    $materials = PackagingMaterial::query()->where('packaging_name', 'BOROFIT 1 KG')->orderBy('packaging_type')->get();
+
+    expect($result->imported)->toBe(3)
+        ->and($materials)->toHaveCount(3)
+        ->and($materials->map->bomSelectionLabel()->all())->toBe([
+            'BOROFIT 1 KG — Box',
+            'BOROFIT 1 KG — Pouch',
+            'BOROFIT 1 KG — Sticker',
+        ]);
+
+    $mappingExport = new InventoryCodeMappingExport(InventoryBulkImportType::PackagingMaterial, $result->mappings);
+    expect($mappingExport->headings())->toContain('Packaging Type');
 });
 
 it('links finished product to existing product without creating a duplicate and assigns FP code', function (): void {

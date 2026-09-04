@@ -47,12 +47,13 @@
         letter-spacing: -0.02em;
     }
 
-    .pg-bom-view-header__product {
+    .pg-bom-view-header__code {
         margin: 0.2rem 0 0;
-        font-size: 0.9375rem;
-        font-weight: 600;
+        font-size: 0.8125rem;
+        font-weight: 500;
         line-height: 1.35;
-        color: #334155;
+        color: #64748B;
+        letter-spacing: 0.01em;
     }
 
     .pg-bom-view-header__meta {
@@ -346,6 +347,10 @@
     .dark .pg-bom-items__name,
     .dark .pg-bom-kpi__value {
         color: #F8FAFC;
+    }
+
+    .dark .pg-bom-view-header__code {
+        color: #94A3B8;
     }
 
     .dark .pg-bom-card,

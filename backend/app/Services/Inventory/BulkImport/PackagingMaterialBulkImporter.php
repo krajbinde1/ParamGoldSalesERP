@@ -3,6 +3,7 @@
 namespace App\Services\Inventory\BulkImport;
 
 use App\Enums\InventoryBulkImportType;
+use App\Enums\PackagingType;
 use App\Models\PackagingMaterial;
 use App\Models\User;
 use App\Services\Inventory\PackagingMaterialCreateService;
@@ -25,21 +26,30 @@ final class PackagingMaterialBulkImporter extends AbstractMaterialBulkImporter
 
     protected function validateRow(array $data, array &$seenNames): ?string
     {
-        $missing = $this->missingRequired(['material_name', 'unit'], $data);
+        $missing = $this->missingRequired(['material_name', 'packaging_type', 'unit'], $data);
         if ($missing !== []) {
             return 'Missing mandatory field: '.implode(', ', $missing).'.';
         }
 
         $name = $this->stringValue($data['material_name']);
         $nameKey = $this->normalizeNameKey($name);
-
-        if (isset($seenNames[$nameKey])) {
-            return 'Duplicate material name in Excel.';
+        $packagingType = PackagingType::tryFromMixed($data['packaging_type'] ?? null);
+        if ($packagingType === null) {
+            return 'Packaging Type must be one of: '.implode(', ', array_keys(PackagingType::options())).'.';
         }
-        $seenNames[$nameKey] = true;
 
-        if (PackagingMaterial::query()->whereRaw('LOWER(packaging_name) = ?', [$nameKey])->exists()) {
-            return 'Material name already exists in database.';
+        $duplicateKey = $nameKey.'|'.$packagingType->value;
+
+        if (isset($seenNames[$duplicateKey])) {
+            return 'Duplicate material name and packaging type in Excel.';
+        }
+        $seenNames[$duplicateKey] = true;
+
+        if (PackagingMaterial::query()
+            ->whereRaw('LOWER(packaging_name) = ?', [$nameKey])
+            ->where('packaging_type', $packagingType->value)
+            ->exists()) {
+            return 'Material name and packaging type already exist in database.';
         }
 
         if ($this->resolveInventoryUnit($data['unit'] ?? null) === null) {
@@ -81,6 +91,8 @@ final class PackagingMaterialBulkImporter extends AbstractMaterialBulkImporter
         $material = $this->createService->create(
             materialData: [
                 'packaging_name' => $this->stringValue($data['material_name']),
+                'packaging_type' => PackagingType::tryFromMixed($data['packaging_type'] ?? null)?->value
+                    ?? PackagingType::Other->value,
                 'unit' => $this->resolveInventoryUnit($data['unit']),
                 'minimum_stock' => $this->parseDecimal($data['minimum_stock'] ?? null, 0.0) ?? 0,
                 'batch_tracking_enabled' => $this->parseYesNo($data['batch_tracking'] ?? null, false) ?? false,
@@ -102,6 +114,7 @@ final class PackagingMaterialBulkImporter extends AbstractMaterialBulkImporter
             'mapping' => [
                 'packaging_code' => $material->packaging_code,
                 'packaging_name' => $material->packaging_name,
+                'packaging_type' => $material->packagingTypeLabel(),
                 'unit' => $material->unit,
                 'active' => $material->status ? 'Yes' : 'No',
                 'opening_quantity' => $opening['quantity'],

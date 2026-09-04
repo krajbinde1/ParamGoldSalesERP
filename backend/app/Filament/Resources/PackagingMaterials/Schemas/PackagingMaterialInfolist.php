@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\PackagingMaterials\Schemas;
 
+use App\Enums\PackagingType;
 use App\Enums\StockTransactionType;
 use App\Filament\Resources\PackagingMaterials\PackagingMaterialResource;
 use App\Models\PackagingMaterial;
@@ -22,6 +23,12 @@ class PackagingMaterialInfolist
                     ->schema([
                         TextEntry::make('packaging_code')->label('Code'),
                         TextEntry::make('packaging_name')->label('Packaging Material Name'),
+                        TextEntry::make('packaging_type')
+                            ->label('Packaging Type')
+                            ->badge()
+                            ->formatStateUsing(fn ($state): string => $state instanceof PackagingType
+                                ? $state->label()
+                                : (string) ($state ?: '—')),
                         TextEntry::make('unit')->label('Unit'),
                         TextEntry::make('minimum_stock')->label('Minimum Stock')->numeric(3),
                         IconEntry::make('batch_tracking_enabled')->label('Batch Tracking')->boolean(),

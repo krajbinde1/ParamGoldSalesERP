@@ -2,7 +2,9 @@
 
 namespace App\Models;
 
+use App\Enums\PackagingType;
 use App\Models\Concerns\EnforcesSafeDelete;
+use App\Services\Inventory\InventoryCodeGenerator;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -10,8 +12,10 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 class PackagingMaterial extends Model
 {
     use EnforcesSafeDelete;
+
     protected $attributes = [
         'category' => 'Other',
+        'packaging_type' => 'Other',
         'opening_stock' => 0,
         'current_stock' => 0,
         'minimum_stock' => 0,
@@ -27,7 +31,7 @@ class PackagingMaterial extends Model
     {
         static::creating(function (PackagingMaterial $material): void {
             if (! filled($material->packaging_code)) {
-                $material->packaging_code = app(\App\Services\Inventory\InventoryCodeGenerator::class)
+                $material->packaging_code = app(InventoryCodeGenerator::class)
                     ->nextPackagingMaterialCode();
             }
 
@@ -43,6 +47,7 @@ class PackagingMaterial extends Model
     protected $fillable = [
         'packaging_code',
         'packaging_name',
+        'packaging_type',
         'category',
         'unit',
         'opening_stock',
@@ -61,6 +66,7 @@ class PackagingMaterial extends Model
     protected function casts(): array
     {
         return [
+            'packaging_type' => PackagingType::class,
             'opening_stock' => 'decimal:3',
             'current_stock' => 'decimal:3',
             'minimum_stock' => 'decimal:3',
@@ -81,6 +87,34 @@ class PackagingMaterial extends Model
     public function stockLedgers(): HasMany
     {
         return $this->hasMany(StockLedger::class);
+    }
+
+    public function packagingTypeLabel(): string
+    {
+        $type = $this->packaging_type instanceof PackagingType
+            ? $this->packaging_type
+            : PackagingType::tryFromMixed($this->packaging_type);
+
+        return $type?->label() ?? '—';
+    }
+
+    /**
+     * Label used in BOM packaging-material selection.
+     */
+    public function bomSelectionLabel(): string
+    {
+        $name = trim((string) $this->packaging_name);
+        $type = $this->packagingTypeLabel();
+
+        if ($name === '') {
+            return $type !== '—' ? $type : 'Packaging Material';
+        }
+
+        if ($type === '—') {
+            return $name;
+        }
+
+        return $name.' — '.$type;
     }
 
     public function isLowStock(): bool

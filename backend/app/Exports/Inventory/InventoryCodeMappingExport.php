@@ -98,6 +98,7 @@ final class InventoryCodeMappingExport implements FromArray, WithHeadings, WithT
                 ->map(fn (PackagingMaterial $m): array => [
                     'packaging_code' => $m->packaging_code,
                     'packaging_name' => $m->packaging_name,
+                    'packaging_type' => $m->packagingTypeLabel(),
                     'unit' => $m->unit,
                     'active' => $m->status ? 'Yes' : 'No',
                 ])

@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\PackagingMaterials\Tables;
 
 use App\Enums\InventoryUnit;
+use App\Enums\PackagingType;
 use App\Filament\Actions\SafeDeleteActions;
 use App\Filament\Resources\PackagingMaterials\PackagingMaterialResource;
 use App\Filament\Support\MaterialMasterStockColumns;
@@ -28,6 +29,14 @@ class PackagingMaterialsTable
                     ->sortable(),
                 TextColumn::make('packaging_name')
                     ->label('Packaging Material Name')
+                    ->searchable()
+                    ->sortable(),
+                TextColumn::make('packaging_type')
+                    ->label('Packaging Type')
+                    ->badge()
+                    ->formatStateUsing(fn ($state): string => $state instanceof PackagingType
+                        ? $state->label()
+                        : (string) $state)
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('unit')
@@ -56,6 +65,9 @@ class PackagingMaterialsTable
                     ->sortable(),
             ])
             ->filters([
+                SelectFilter::make('packaging_type')
+                    ->label('Packaging Type')
+                    ->options(PackagingType::options()),
                 SelectFilter::make('unit')
                     ->options(InventoryUnit::options()),
                 TernaryFilter::make('status')

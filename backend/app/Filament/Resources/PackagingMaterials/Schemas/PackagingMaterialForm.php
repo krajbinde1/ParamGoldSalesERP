@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\PackagingMaterials\Schemas;
 
 use App\Enums\InventoryUnit;
+use App\Enums\PackagingType;
 use App\Filament\Resources\PackagingMaterials\PackagingMaterialResource;
 use App\Models\PackagingMaterial;
 use Filament\Forms\Components\DatePicker;
@@ -11,6 +12,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
@@ -21,7 +23,7 @@ class PackagingMaterialForm
     /**
      * Shared material master fields (Create + Edit).
      *
-     * @return list<\Filament\Schemas\Components\Component|\Filament\Forms\Components\Component>
+     * @return list<Component|\Filament\Forms\Components\Component>
      */
     public static function materialDetailsComponents(): array
     {
@@ -38,6 +40,12 @@ class PackagingMaterialForm
                         ->label('Material Name')
                         ->required()
                         ->maxLength(255),
+                    Select::make('packaging_type')
+                        ->label('Packaging Type')
+                        ->options(PackagingType::options())
+                        ->default(PackagingType::Other->value)
+                        ->required()
+                        ->searchable(),
                     Select::make('unit')
                         ->label('Unit')
                         ->options(InventoryUnit::options())
@@ -83,7 +91,7 @@ class PackagingMaterialForm
     /**
      * Opening stock fields — editable on Create and Edit.
      *
-     * @return list<\Filament\Schemas\Components\Component|\Filament\Forms\Components\Component>
+     * @return list<Component|\Filament\Forms\Components\Component>
      */
     public static function openingStockComponents(bool $readOnly = false): array
     {
@@ -215,7 +223,7 @@ class PackagingMaterialForm
     }
 
     /**
-     * @return list<\Filament\Schemas\Components\Component|\Filament\Forms\Components\Component>
+     * @return list<Component|\Filament\Forms\Components\Component>
      */
     public static function currentStockComponents(): array
     {
