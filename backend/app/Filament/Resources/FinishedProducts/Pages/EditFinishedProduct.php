@@ -88,6 +88,15 @@ class EditFinishedProduct extends EditRecord
             ?? ($qty > 0 && $record->created_at !== null
                 ? $record->created_at->timezone('Asia/Kolkata')->toDateString()
                 : null);
+        $data['minimum_finished_stock_cases'] = FinishedProductOpeningStockCalculator::casesFromQty(
+            (float) $record->minimum_finished_stock,
+            $nosPerCase,
+        );
+        $data['current_finished_stock'] = (float) $record->current_finished_stock;
+        $data['current_finished_stock_cases'] = FinishedProductOpeningStockCalculator::casesFromQty(
+            (float) $record->current_finished_stock,
+            $nosPerCase,
+        );
 
         return $data;
     }
@@ -100,6 +109,12 @@ class EditFinishedProduct extends EditRecord
     {
         /** @var Product $record */
         $record = $this->getRecord();
+
+        $data['minimum_finished_stock'] = FinishedProductOpeningStockCalculator::openingQtyNos(
+            (float) ($data['minimum_finished_stock_cases'] ?? 0),
+            (int) ($this->data['nos_per_case'] ?? $record->nos_per_case ?? 0),
+        );
+        unset($data['minimum_finished_stock_cases'], $data['current_finished_stock_cases']);
 
         unset(
             $data['product_code'],

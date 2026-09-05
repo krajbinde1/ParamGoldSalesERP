@@ -374,7 +374,7 @@ it('does not re-post opening stock ledger when editing inventory details', funct
     Livewire::test(EditFinishedProduct::class, ['record' => $product->getKey()])
         ->assertSuccessful()
         ->fillForm([
-            'minimum_finished_stock' => 8,
+            'minimum_finished_stock_cases' => 8,
             'remarks' => 'Updated details only',
         ])
         ->call('save')
@@ -462,7 +462,7 @@ it('posts opening stock from cases using active bom estimated cost and includes 
         ->fillForm([
             'linked_product_id' => $sales->id,
             'unit' => 'Nos',
-            'minimum_finished_stock' => 0,
+            'minimum_finished_stock_cases' => 0,
             'opening_stock_cases' => 10,
             'opening_date' => now('Asia/Kolkata')->toDateString(),
         ])

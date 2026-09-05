@@ -77,6 +77,9 @@ class FinishedProductForm
                                     $set('product_name', null);
                                     $set('unit', null);
                                     $set('nos_per_case', null);
+                                    $set('minimum_finished_stock_cases', 0);
+                                    $set('current_finished_stock', 0);
+                                    $set('current_finished_stock_cases', 0);
                                     $set('opening_average_cost', 0);
                                     self::recalculateOpeningDerivedFields($get, $set);
 
@@ -91,7 +94,11 @@ class FinishedProductForm
                                 $set('product_code', $product->product_code);
                                 $set('product_name', $product->product_name);
                                 $set('unit', $product->production_unit ?: $product->uom);
-                                $set('minimum_finished_stock', $product->minimum_finished_stock ?? 0);
+                                $set('minimum_finished_stock_cases', FinishedProductOpeningStockCalculator::casesFromQty(
+                                    (float) ($product->minimum_finished_stock ?? 0),
+                                    (int) ($product->nos_per_case ?: 0),
+                                ));
+                                $set('current_finished_stock', (float) $product->current_finished_stock);
                                 $set('nos_per_case', app(FinishedProductOpeningStockCalculator::class)->nosPerCase($product));
                                 $set('opening_average_cost', app(FinishedProductOpeningStockCalculator::class)->averageCostPerNos($product) ?? 0);
                                 self::recalculateOpeningDerivedFields($get, $set);
@@ -114,12 +121,13 @@ class FinishedProductForm
                     ->live()
                     ->disabled($unitLocked)
                     ->dehydrated(fn (): bool => ! $unitLocked),
-                TextInput::make('minimum_finished_stock')
+                TextInput::make('minimum_finished_stock_cases')
                     ->label('Minimum Stock Level')
                     ->numeric()
                     ->minValue(0)
                     ->default(0)
-                    ->required(),
+                    ->required()
+                    ->suffix('Cases'),
                 Toggle::make('batch_tracking_enabled')
                     ->label('Batch Tracking')
                     ->default(true)
@@ -306,10 +314,12 @@ class FinishedProductForm
                                 return '—';
                             }
 
-                            $qty = number_format((float) $record->current_finished_stock, 3, '.', '');
-                            $unit = $record->production_unit ?: $record->uom ?: ($record->finishedProduct?->unit ?? '');
+                            $cases = FinishedProductOpeningStockCalculator::casesFromQty(
+                                (float) $record->current_finished_stock,
+                                (int) ($record->nos_per_case ?: 0),
+                            );
 
-                            return filled($unit) ? $qty.' '.$unit : $qty;
+                            return number_format($cases, 3, '.', '').' Cases';
                         }),
                     Placeholder::make('stock_value_display')
                         ->label('Stock Value')
@@ -334,5 +344,17 @@ class FinishedProductForm
 
         $set('opening_stock_quantity', $qty);
         $set('opening_stock_value', FinishedProductOpeningStockCalculator::openingStockValue($qty, $averageCost));
+        self::recalculateCurrentStockCases($get, $set);
+    }
+
+    public static function recalculateCurrentStockCases(Get $get, Set $set): void
+    {
+        $set(
+            'current_finished_stock_cases',
+            FinishedProductOpeningStockCalculator::casesFromQty(
+                (float) ($get('current_finished_stock') ?? 0),
+                (int) ($get('nos_per_case') ?? 0),
+            ),
+        );
     }
 }

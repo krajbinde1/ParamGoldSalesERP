@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Products\Schemas;
 use App\Enums\InventoryUnit;
 use App\Filament\Resources\FinishedProducts\Schemas\FinishedProductForm;
 use App\Models\Product;
+use Filament\Forms\Components\Hidden;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -56,6 +57,7 @@ class ProductForm
                             ->live(debounce: 300)
                             ->afterStateUpdated(function (Get $get, Set $set): void {
                                 FinishedProductForm::recalculateOpeningDerivedFields($get, $set);
+                                FinishedProductForm::recalculateCurrentStockCases($get, $set);
                             }),
                         Select::make('gst_percentage')
                             ->label('GST %')
@@ -96,17 +98,23 @@ class ProductForm
                     ->description('Current finished stock and weighted average cost are calculated from inventory transactions. Manufacturing is treated as enabled automatically when this product has an Active BOM.')
                     ->columns(2)
                     ->schema([
-                        TextInput::make('minimum_finished_stock')
+                        TextInput::make('minimum_finished_stock_cases')
                             ->label('Minimum Finished Stock')
                             ->numeric()
                             ->minValue(0)
+                            ->default(0)
+                            ->suffix('Cases'),
+                        Hidden::make('current_finished_stock')
+                            ->dehydrated(false)
                             ->default(0),
-                        TextInput::make('current_finished_stock')
+                        TextInput::make('current_finished_stock_cases')
                             ->label('Current Finished Stock')
                             ->numeric()
-                            ->disabled()
+                            ->readOnly()
                             ->dehydrated(false)
-                            ->helperText('Calculated automatically from inventory transactions.'),
+                            ->default(0)
+                            ->suffix('Cases')
+                            ->helperText('Current Stock Nos ÷ Nos Per Case. Calculated automatically from inventory transactions.'),
                         TextInput::make('shelf_life_days')
                             ->label('Shelf Life (Days)')
                             ->numeric()

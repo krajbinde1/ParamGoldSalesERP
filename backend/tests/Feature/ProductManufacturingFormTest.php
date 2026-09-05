@@ -88,10 +88,11 @@ it('shows the simplified manufacturing fields and hides removed product manufact
         ->assertDontSee('Production Unit')
         ->assertDontSee('Standard Batch Size')
         ->assertDontSee('Standard Production Cost')
+        ->assertSee('Cases')
         ->assertFormSet([
-            'minimum_finished_stock' => 0,
+            'minimum_finished_stock_cases' => 0,
             'batch_tracking_enabled' => true,
-            'current_finished_stock' => 0,
+            'current_finished_stock_cases' => 0,
             'weighted_average_cost' => 0,
         ]);
 });
@@ -105,7 +106,7 @@ it('creates a product without a manufacturing enabled toggle and leaves manufact
             'nos_per_case' => 10,
             'gst_percentage' => '18',
             'dealer_price' => 100,
-            'minimum_finished_stock' => 5,
+            'minimum_finished_stock_cases' => 5,
             'shelf_life_days' => 180,
         ])
         ->call('create')
@@ -115,7 +116,7 @@ it('creates a product without a manufacturing enabled toggle and leaves manufact
 
     expect($product)->not->toBeNull()
         ->and($product->manufacturing_enabled)->toBeFalse()
-        ->and((float) $product->minimum_finished_stock)->toBe(5.0)
+        ->and((float) $product->minimum_finished_stock)->toBe(50.0)
         ->and((int) $product->shelf_life_days)->toBe(180)
         ->and($product->batch_tracking_enabled)->toBeTrue()
         ->and((float) $product->current_finished_stock)->toBe(0.0)
@@ -150,7 +151,7 @@ it('keeps manufacturing enabled on product edit when an active bom already exist
         ->assertDontSee('Standard Batch Size')
         ->assertDontSee('Standard Production Cost')
         ->fillForm([
-            'minimum_finished_stock' => 8,
+            'minimum_finished_stock_cases' => 8,
         ])
         ->call('save')
         ->assertHasNoFormErrors();
@@ -158,7 +159,7 @@ it('keeps manufacturing enabled on product edit when an active bom already exist
     $product->refresh();
 
     expect($product->manufacturing_enabled)->toBeTrue()
-        ->and((float) $product->minimum_finished_stock)->toBe(8.0);
+        ->and((float) $product->minimum_finished_stock)->toBe(80.0);
 });
 
 it('does not show removed manufacturing fields on the product view page', function (): void {

@@ -6,6 +6,7 @@ use App\Enums\StockTransactionType;
 use App\Filament\Resources\FinishedProducts\FinishedProductResource;
 use App\Models\Product;
 use App\Models\StockLedger;
+use App\Services\Inventory\FinishedProductOpeningStockCalculator;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
@@ -33,7 +34,14 @@ class FinishedProductInfolist
                                 ?: $record->uom
                                 ?: ($record->finishedProduct?->unit ?? '')
                             )),
-                        TextEntry::make('minimum_finished_stock')->label('Minimum Stock')->numeric(3),
+                        TextEntry::make('minimum_finished_stock_cases')
+                            ->label('Minimum Stock')
+                            ->state(fn (Product $record): float => FinishedProductOpeningStockCalculator::casesFromQty(
+                                (float) $record->minimum_finished_stock,
+                                (int) ($record->nos_per_case ?: 0),
+                            ))
+                            ->numeric(3)
+                            ->suffix(' Cases'),
                         IconEntry::make('batch_tracking_enabled')->label('Batch Tracking')->boolean(),
                         IconEntry::make('expiry_tracking_enabled')->label('Expiry Tracking')->boolean(),
                         IconEntry::make('status')->label('Active')->boolean(),
@@ -74,7 +82,14 @@ class FinishedProductInfolist
                 Section::make('Available Stock')
                     ->columns(3)
                     ->schema([
-                        TextEntry::make('current_finished_stock')->label('Available Stock')->numeric(3),
+                        TextEntry::make('current_finished_stock_cases')
+                            ->label('Available Stock')
+                            ->state(fn (Product $record): float => FinishedProductOpeningStockCalculator::casesFromQty(
+                                (float) $record->current_finished_stock,
+                                (int) ($record->nos_per_case ?: 0),
+                            ))
+                            ->numeric(3)
+                            ->suffix(' Cases'),
                         TextEntry::make('current_stock_value')
                             ->label('Stock Value')
                             ->state(fn (Product $record): float => $record->current_stock_value)

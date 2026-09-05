@@ -2,6 +2,8 @@
 
 namespace App\Filament\Resources\Products\Schemas;
 
+use App\Models\Product;
+use App\Services\Inventory\FinishedProductOpeningStockCalculator;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
@@ -38,8 +40,23 @@ class ProductInfolist
                 Section::make('Manufacturing')
                     ->columns(2)
                     ->schema([
-                        TextEntry::make('current_finished_stock')->label('Current Finished Stock')->numeric(3),
-                        TextEntry::make('minimum_finished_stock')->label('Minimum Finished Stock')->numeric(3)->placeholder('-'),
+                        TextEntry::make('current_finished_stock_cases')
+                            ->label('Current Finished Stock')
+                            ->state(fn (Product $record): float => FinishedProductOpeningStockCalculator::casesFromQty(
+                                (float) $record->current_finished_stock,
+                                (int) ($record->nos_per_case ?: 0),
+                            ))
+                            ->numeric(3)
+                            ->suffix(' Cases'),
+                        TextEntry::make('minimum_finished_stock_cases')
+                            ->label('Minimum Finished Stock')
+                            ->state(fn (Product $record): float => FinishedProductOpeningStockCalculator::casesFromQty(
+                                (float) $record->minimum_finished_stock,
+                                (int) ($record->nos_per_case ?: 0),
+                            ))
+                            ->numeric(3)
+                            ->suffix(' Cases')
+                            ->placeholder('-'),
                         TextEntry::make('shelf_life_days')->label('Shelf Life (Days)')->placeholder('-'),
                         IconEntry::make('batch_tracking_enabled')->label('Batch Tracking')->boolean(),
                         TextEntry::make('weighted_average_cost')->label('Weighted Average Cost')->money('INR'),

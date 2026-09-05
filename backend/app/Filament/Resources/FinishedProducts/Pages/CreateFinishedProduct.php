@@ -91,6 +91,19 @@ class CreateFinishedProduct extends CreateRecord
             ];
         }
 
+        $nosPerCase = (int) ($data['nos_per_case'] ?? 0);
+        if ($nosPerCase <= 0 && $linkedProductId !== null) {
+            $linked = Product::query()->find($linkedProductId);
+            if ($linked !== null) {
+                $nosPerCase = app(FinishedProductOpeningStockCalculator::class)->nosPerCase($linked);
+            }
+        }
+
+        $data['minimum_finished_stock'] = FinishedProductOpeningStockCalculator::openingQtyNos(
+            (float) ($data['minimum_finished_stock_cases'] ?? 0),
+            $nosPerCase,
+        );
+
         unset(
             $data['opening_stock_quantity'],
             $data['opening_stock_value'],
@@ -102,6 +115,8 @@ class CreateFinishedProduct extends CreateRecord
             $data['product_code'],
             $data['product_name'],
             $data['current_finished_stock'],
+            $data['current_finished_stock_cases'],
+            $data['minimum_finished_stock_cases'],
             $data['weighted_average_cost'],
             $data['opening_finished_stock'],
         );

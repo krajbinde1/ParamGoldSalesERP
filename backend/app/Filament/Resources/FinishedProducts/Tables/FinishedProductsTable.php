@@ -8,6 +8,7 @@ use App\Filament\Pages\StockItemLedger;
 use App\Filament\Resources\FinishedProducts\FinishedProductResource;
 use App\Filament\Support\MaterialMasterStockColumns;
 use App\Models\Product;
+use App\Services\Inventory\FinishedProductOpeningStockCalculator;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\EditAction;
@@ -47,7 +48,12 @@ class FinishedProductsTable
                         $record->isLowFinishedStock() => 'warning',
                         default => 'success',
                     },
-                ),
+                )
+                    ->state(fn (Product $record): float => FinishedProductOpeningStockCalculator::casesFromQty(
+                        (float) $record->current_finished_stock,
+                        (int) ($record->nos_per_case ?: 0),
+                    ))
+                    ->suffix(' Cases'),
                 MaterialMasterStockColumns::stockValue(
                     'current_stock_value',
                     fn (): bool => FinishedProductResource::canViewCosts(),
@@ -65,7 +71,12 @@ class FinishedProductsTable
                     ->visible(fn (): bool => FinishedProductResource::canViewCosts()),
                 TextColumn::make('minimum_finished_stock')
                     ->label('Min Stock')
+                    ->state(fn (Product $record): float => FinishedProductOpeningStockCalculator::casesFromQty(
+                        (float) $record->minimum_finished_stock,
+                        (int) ($record->nos_per_case ?: 0),
+                    ))
                     ->numeric(3)
+                    ->suffix(' Cases')
                     ->sortable(),
                 TextColumn::make('opening_finished_stock')
                     ->label('Opening Stock')

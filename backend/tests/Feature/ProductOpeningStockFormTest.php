@@ -183,4 +183,12 @@ it('posts opening stock from sales product edit using active bom estimated cost'
         ->and($ledger)->toHaveCount(1)
         ->and((float) $ledger->first()->quantity_in)->toBe(200.0)
         ->and((float) $ledger->first()->transaction_value)->toBe(5000.0);
+
+    Livewire::actingAs($this->director)
+        ->test(EditProduct::class, ['record' => $product->getRouteKey()])
+        ->assertFormSet([
+            'current_finished_stock_cases' => 10,
+            'opening_stock_cases' => 10,
+        ])
+        ->assertSee('Cases');
 });

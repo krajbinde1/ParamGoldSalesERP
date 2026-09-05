@@ -35,12 +35,20 @@ class CreateProduct extends CreateRecord
             $data['manufacturing_enabled'] = true;
         }
 
+        $data['minimum_finished_stock'] = FinishedProductOpeningStockCalculator::openingQtyNos(
+            (float) ($data['minimum_finished_stock_cases'] ?? 0),
+            (int) ($data['nos_per_case'] ?? 0),
+        );
+
         unset(
             $data['opening_stock_cases'],
             $data['opening_stock_quantity'],
             $data['opening_stock_value'],
             $data['opening_date'],
             $data['opening_average_cost'],
+            $data['minimum_finished_stock_cases'],
+            $data['current_finished_stock_cases'],
+            $data['current_finished_stock'],
         );
 
         return $data;
