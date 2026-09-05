@@ -3,12 +3,14 @@
 namespace App\Filament\Resources\Products\Schemas;
 
 use App\Enums\InventoryUnit;
+use App\Filament\Resources\FinishedProducts\Schemas\FinishedProductForm;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 
 class ProductForm
@@ -49,7 +51,11 @@ class ProductForm
                             ->minValue(1)
                             ->default(1)
                             ->required()
-                            ->integer(),
+                            ->integer()
+                            ->live(debounce: 300)
+                            ->afterStateUpdated(function (Get $get, Set $set): void {
+                                FinishedProductForm::recalculateOpeningDerivedFields($get, $set);
+                            }),
                         Select::make('gst_percentage')
                             ->label('GST %')
                             ->options(self::gstOptions())
@@ -70,6 +76,10 @@ class ProductForm
                             ->default(true)
                             ->inline(false),
                     ]),
+                ...FinishedProductForm::openingStockComponents(
+                    readOnly: false,
+                    includeNosPerCase: false,
+                ),
                 Section::make('Pricing and inventory')
                     ->columns(2)
                     ->schema([

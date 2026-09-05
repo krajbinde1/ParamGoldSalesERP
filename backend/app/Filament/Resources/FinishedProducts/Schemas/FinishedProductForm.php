@@ -155,6 +155,7 @@ class FinishedProductForm
     public static function openingStockComponents(
         bool $readOnly = false,
         array|int|string|null $columnSpan = null,
+        bool $includeNosPerCase = true,
     ): array {
         $description = $readOnly
             ? 'As entered at create/import. Opening stock is not changed on Edit (no duplicate Opening Stock ledger). Use Production Entry or Stock Adjustment for later inventory changes.'
@@ -198,13 +199,17 @@ class FinishedProductForm
                             }
                         },
                     ]),
-                TextInput::make('nos_per_case')
-                    ->label('Nos Per Case')
-                    ->numeric()
-                    ->readOnly()
-                    ->dehydrated(false)
-                    ->placeholder('—')
-                    ->helperText('From Sales Product master.'),
+                ...($includeNosPerCase
+                    ? [
+                        TextInput::make('nos_per_case')
+                            ->label('Nos Per Case')
+                            ->numeric()
+                            ->readOnly()
+                            ->dehydrated(false)
+                            ->placeholder('—')
+                            ->helperText('From Sales Product master.'),
+                    ]
+                    : []),
                 TextInput::make('opening_stock_quantity')
                     ->label('Opening Qty (Nos)')
                     ->numeric()
@@ -320,7 +325,7 @@ class FinishedProductForm
         ];
     }
 
-    private static function recalculateOpeningDerivedFields(Get $get, Set $set): void
+    public static function recalculateOpeningDerivedFields(Get $get, Set $set): void
     {
         $cases = (float) ($get('opening_stock_cases') ?? 0);
         $nosPerCase = (int) ($get('nos_per_case') ?? 0);
