@@ -14,6 +14,7 @@ use App\Filament\Resources\FinishedProducts\Pages\ListFinishedProducts;
 use App\Filament\Resources\PackagingMaterialInwards\Pages\ListPackagingMaterialInwards;
 use App\Filament\Resources\PackagingMaterials\Pages\ListPackagingMaterials;
 use App\Filament\Resources\ProductionBatches\Pages\ListProductionBatches;
+use App\Filament\Resources\Purchases\Pages\ListPurchases;
 use App\Filament\Resources\RawMaterialInwards\Pages\ListRawMaterialInwards;
 use App\Filament\Resources\RawMaterials\Pages\ListRawMaterials;
 use App\Filament\Resources\SemiFinishedMaterials\Pages\ListSemiFinishedMaterials;
@@ -42,6 +43,7 @@ it('boots Inventory & Manufacturing menu pages without error', function (string 
     'finished goods inventory' => ListFinishedProducts::class,
     'raw material inwards' => ListRawMaterialInwards::class,
     'packaging material inwards' => ListPackagingMaterialInwards::class,
+    'purchases' => ListPurchases::class,
     'boms' => ListBoms::class,
     'production batches' => ListProductionBatches::class,
     'stock adjustments' => ListStockAdjustments::class,

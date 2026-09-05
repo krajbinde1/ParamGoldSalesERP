@@ -256,6 +256,21 @@ class User extends Authenticatable implements FilamentUser
         return $this->usesAdminDirectorDashboard() || $this->isAdminUser();
     }
 
+    public function canCreatePurchase(): bool
+    {
+        return $this->canCreateRawMaterialInward();
+    }
+
+    public function canUpdatePurchase(): bool
+    {
+        return $this->usesAdminDirectorDashboard() || $this->isAdminUser();
+    }
+
+    public function canCancelPurchase(): bool
+    {
+        return $this->usesAdminDirectorDashboard() || $this->isAdminUser();
+    }
+
     public function canCreateRawMaterialInward(): bool
     {
         return $this->canActAsProductionSupervisor()

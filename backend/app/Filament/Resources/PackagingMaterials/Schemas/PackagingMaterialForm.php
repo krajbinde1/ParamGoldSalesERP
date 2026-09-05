@@ -6,6 +6,7 @@ use App\Enums\InventoryUnit;
 use App\Enums\PackagingType;
 use App\Filament\Resources\PackagingMaterials\PackagingMaterialResource;
 use App\Models\PackagingMaterial;
+use App\Services\Inventory\WeightedAverageCosting;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
@@ -97,7 +98,7 @@ class PackagingMaterialForm
     {
         $description = $readOnly
             ? 'As entered at create. Opening stock is not changed on Edit (no duplicate Opening Stock ledger). Use Packaging Material Inward or Stock Adjustment for later inventory changes.'
-            : 'Optional. Quantity greater than zero posts or updates Opening Stock. Opening Stock Value is Quantity × Effective Rate. Available Stock always follows live inventory after inward, outward, production, consumption, and adjustment. After other stock movements, opening quantity and value cannot be changed here.';
+            : 'Optional. Quantity greater than zero posts or updates Opening Stock. Opening Stock Value is Quantity × Effective Rate. Available Stock = Opening Stock + Purchase Inward + Other Inward − Consumption − Other Outward. Stock Value and material cost follow those live movements, including purchase inward.';
 
         $recalculateValue = function (Get $get, Set $set): void {
             $set('opening_stock_value', self::openingStockValue(
@@ -229,8 +230,8 @@ class PackagingMaterialForm
     {
         return [
             Section::make('Available Stock')
-                ->description('Live quantity and value after inward, outward, production, consumption, and adjustments.')
-                ->columns(2)
+                ->description('Live quantity, GST-exclusive weighted average rate, and stock value after inward, outward, production, consumption, and adjustments.')
+                ->columns(3)
                 ->schema([
                     Placeholder::make('available_stock_display')
                         ->label('Available Stock')
@@ -242,6 +243,19 @@ class PackagingMaterialForm
                             $qty = number_format((float) $record->current_stock, 3, '.', '');
 
                             return filled($record->unit) ? $qty.' '.$record->unit : $qty;
+                        }),
+                    Placeholder::make('average_stock_rate_display')
+                        ->label('Average Stock Rate')
+                        ->visible(fn (): bool => PackagingMaterialResource::canViewPurchaseRates())
+                        ->content(function (?PackagingMaterial $record): string {
+                            if ($record === null) {
+                                return '—';
+                            }
+
+                            return app(WeightedAverageCosting::class)->formatRate(
+                                (float) $record->average_rate,
+                                $record->unit,
+                            );
                         }),
                     Placeholder::make('stock_value_display')
                         ->label('Stock Value')

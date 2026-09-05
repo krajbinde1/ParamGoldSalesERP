@@ -7,6 +7,7 @@ use App\Enums\StockTransactionType;
 use App\Filament\Resources\PackagingMaterials\PackagingMaterialResource;
 use App\Models\PackagingMaterial;
 use App\Models\StockLedger;
+use App\Services\Inventory\WeightedAverageCosting;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
@@ -37,7 +38,7 @@ class PackagingMaterialInfolist
                         TextEntry::make('remarks')->label('Remarks')->placeholder('—')->columnSpanFull(),
                     ]),
                 Section::make('Opening Stock')
-                    ->description('Snapshot entered at create or edit. Available Stock and Stock Value follow live inventory after inward, outward, production, consumption, and adjustment.')
+                    ->description('Snapshot entered at create or edit. Available Stock = Opening Stock + Purchase Inward + Other Inward − Consumption − Other Outward. Stock Value follows those live movements.')
                     ->columns(2)
                     ->schema([
                         TextEntry::make('opening_stock')
@@ -54,12 +55,19 @@ class PackagingMaterialInfolist
                             ->state(fn (PackagingMaterial $record): string => self::openingDate($record) ?? '—'),
                     ]),
                 Section::make('Available Stock')
-                    ->description('Live quantity and value after inward, outward, production, consumption, and adjustments.')
-                    ->columns(2)
+                    ->description('Live quantity, GST-exclusive weighted average rate, and stock value after inward, outward, production, consumption, and adjustments.')
+                    ->columns(3)
                     ->schema([
                         TextEntry::make('current_stock')
                             ->label('Available Stock')
                             ->numeric(3),
+                        TextEntry::make('average_rate')
+                            ->label('Average Stock Rate')
+                            ->state(fn (PackagingMaterial $record): string => app(WeightedAverageCosting::class)->formatRate(
+                                (float) $record->average_rate,
+                                $record->unit,
+                            ))
+                            ->visible(fn (): bool => PackagingMaterialResource::canViewPurchaseRates()),
                         TextEntry::make('current_stock_value')
                             ->label('Stock Value')
                             ->money('INR')

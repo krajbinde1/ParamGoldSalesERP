@@ -48,4 +48,21 @@ final class MaterialMasterStockColumns
 
         return $column;
     }
+
+    /**
+     * @param  Closure(): bool  $visible
+     * @param  Closure(Model): string  $unitUsing
+     */
+    public static function averageStockRate(
+        string $attribute,
+        Closure $visible,
+        Closure $unitUsing,
+    ): TextColumn {
+        return TextColumn::make($attribute)
+            ->label('Average Stock Rate')
+            ->money('INR')
+            ->suffix(fn (Model $record): string => filled($unitUsing($record)) ? '/'.$unitUsing($record) : '')
+            ->visible($visible)
+            ->sortable();
+    }
 }

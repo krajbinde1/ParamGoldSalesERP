@@ -174,12 +174,14 @@ it('lists available stock and live stock value for all four material masters aft
     Livewire::test(ListRawMaterials::class)
         ->assertSuccessful()
         ->assertSee('Available Stock')
+        ->assertSee('Average Stock Rate')
         ->assertSee('Stock Value')
         ->assertSee($raw->material_name);
 
     Livewire::test(ListPackagingMaterials::class)
         ->assertSuccessful()
         ->assertSee('Available Stock')
+        ->assertSee('Average Stock Rate')
         ->assertSee('Stock Value')
         ->assertSee($packaging->packaging_name);
 
@@ -198,11 +200,13 @@ it('lists available stock and live stock value for all four material masters aft
     Livewire::test(ViewRawMaterial::class, ['record' => $raw->getKey()])
         ->assertSuccessful()
         ->assertSee('Available Stock')
+        ->assertSee('Average Stock Rate')
         ->assertSee('Stock Value');
 
     Livewire::test(ViewPackagingMaterial::class, ['record' => $packaging->getKey()])
         ->assertSuccessful()
         ->assertSee('Available Stock')
+        ->assertSee('Average Stock Rate')
         ->assertSee('Stock Value');
 
     Livewire::test(ViewSemiFinishedMaterial::class, ['record' => $sf->getKey()])

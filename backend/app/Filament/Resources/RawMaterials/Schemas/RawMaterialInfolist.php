@@ -7,6 +7,7 @@ use App\Filament\Resources\RawMaterials\RawMaterialResource;
 use App\Models\RawMaterial;
 use App\Models\StockLedger;
 use App\Services\Inventory\MaterialEffectiveRate;
+use App\Services\Inventory\WeightedAverageCosting;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
@@ -31,7 +32,7 @@ class RawMaterialInfolist
                         TextEntry::make('remarks')->label('Remarks')->placeholder('—')->columnSpanFull(),
                     ]),
                 Section::make('Opening Stock')
-                    ->description('Snapshot entered at create or edit. Available Stock and Stock Value follow live inventory after inward, outward, production, consumption, and adjustment.')
+                    ->description('Snapshot entered at create or edit. Available Stock = Opening Stock + Purchase Inward + Other Inward − Consumption − Other Outward. Stock Value follows those live movements.')
                     ->columns(2)
                     ->schema([
                         TextEntry::make('opening_stock')
@@ -54,23 +55,22 @@ class RawMaterialInfolist
                             ->state(fn (RawMaterial $record): string => self::openingDate($record) ?? '—'),
                     ]),
                 Section::make('Available Stock')
-                    ->description('Live quantity and value after inward, outward, production, consumption, and adjustments.')
-                    ->columns(2)
+                    ->description('Live quantity, GST-exclusive weighted average rate, and stock value after inward, outward, production, consumption, and adjustments.')
+                    ->columns(3)
                     ->schema([
                         TextEntry::make('current_stock')
                             ->label('Available Stock')
                             ->numeric(3),
+                        TextEntry::make('average_rate')
+                            ->label('Average Stock Rate')
+                            ->state(fn (RawMaterial $record): string => app(WeightedAverageCosting::class)->formatRate(
+                                (float) $record->average_rate,
+                                $record->unit,
+                            ))
+                            ->visible(fn (): bool => RawMaterialResource::canViewPurchaseRates()),
                         TextEntry::make('current_stock_value')
                             ->label('Stock Value')
                             ->money('INR')
-                            ->visible(fn (): bool => RawMaterialResource::canViewPurchaseRates()),
-                        TextEntry::make('available_effective_rate_display')
-                            ->label('Effective Rate')
-                            ->state(fn (RawMaterial $record): string => app(MaterialEffectiveRate::class)->format(
-                                (float) $record->current_stock_value,
-                                (float) $record->current_stock,
-                                $record->unit,
-                            ))
                             ->visible(fn (): bool => RawMaterialResource::canViewPurchaseRates()),
                     ]),
                 Section::make('System')

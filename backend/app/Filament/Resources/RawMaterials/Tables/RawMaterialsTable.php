@@ -42,6 +42,11 @@ class RawMaterialsTable
                         default => 'success',
                     },
                 ),
+                MaterialMasterStockColumns::averageStockRate(
+                    'average_rate',
+                    fn (): bool => RawMaterialResource::canViewPurchaseRates(),
+                    fn (RawMaterial $record): string => (string) $record->unit,
+                ),
                 MaterialMasterStockColumns::stockValue(
                     'current_stock_value',
                     fn (): bool => RawMaterialResource::canViewPurchaseRates(),

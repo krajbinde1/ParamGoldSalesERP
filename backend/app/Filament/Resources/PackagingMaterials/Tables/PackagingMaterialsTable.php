@@ -51,6 +51,11 @@ class PackagingMaterialsTable
                         default => 'success',
                     },
                 ),
+                MaterialMasterStockColumns::averageStockRate(
+                    'average_rate',
+                    fn (): bool => PackagingMaterialResource::canViewPurchaseRates(),
+                    fn (PackagingMaterial $record): string => (string) $record->unit,
+                ),
                 MaterialMasterStockColumns::stockValue(
                     'current_stock_value',
                     fn (): bool => PackagingMaterialResource::canViewPurchaseRates(),

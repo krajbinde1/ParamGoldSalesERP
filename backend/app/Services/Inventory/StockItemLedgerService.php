@@ -6,12 +6,14 @@ use App\Enums\StockItemType;
 use App\Enums\StockTransactionType;
 use App\Filament\Resources\PackagingMaterialInwards\PackagingMaterialInwardResource;
 use App\Filament\Resources\ProductionBatches\ProductionBatchResource;
+use App\Filament\Resources\Purchases\PurchaseResource;
 use App\Filament\Resources\RawMaterialInwards\RawMaterialInwardResource;
 use App\Filament\Resources\StockAdjustments\StockAdjustmentResource;
 use App\Models\PackagingMaterial;
 use App\Models\PackagingMaterialInward;
 use App\Models\Product;
 use App\Models\ProductionBatch;
+use App\Models\Purchase;
 use App\Models\RawMaterial;
 use App\Models\RawMaterialInward;
 use App\Models\SemiFinishedMaterial;
@@ -478,7 +480,7 @@ final class StockItemLedgerService
         $invoice = $ledger->supplier_invoice_number;
 
         $ref = $ledger->relationLoaded('reference') ? $ledger->reference : null;
-        if ($ref instanceof RawMaterialInward || $ref instanceof PackagingMaterialInward) {
+        if ($ref instanceof RawMaterialInward || $ref instanceof PackagingMaterialInward || $ref instanceof Purchase) {
             $supplier = $ref->displaySupplierName();
             $invoice = $invoice ?: $ref->supplier_invoice_number;
         } elseif ($ledger->reference_type && $ledger->reference_id) {
@@ -490,6 +492,10 @@ final class StockItemLedgerService
                 $inward = PackagingMaterialInward::query()->find($ledger->reference_id);
                 $supplier = $inward?->displaySupplierName();
                 $invoice = $invoice ?: $inward?->supplier_invoice_number;
+            } elseif ($ledger->reference_type === Purchase::class) {
+                $purchase = Purchase::query()->find($ledger->reference_id);
+                $supplier = $purchase?->displaySupplierName();
+                $invoice = $invoice ?: $purchase?->supplier_invoice_number;
             }
         }
 
@@ -568,6 +574,7 @@ final class StockItemLedgerService
             return match ($ledger->reference_type) {
                 RawMaterialInward::class => RawMaterialInwardResource::getUrl('view', ['record' => $ledger->reference_id]),
                 PackagingMaterialInward::class => PackagingMaterialInwardResource::getUrl('view', ['record' => $ledger->reference_id]),
+                Purchase::class => PurchaseResource::getUrl('view', ['record' => $ledger->reference_id]),
                 ProductionBatch::class => ProductionBatchResource::getUrl('view', ['record' => $ledger->reference_id]),
                 StockAdjustment::class => StockAdjustmentResource::getUrl('view', ['record' => $ledger->reference_id]),
                 default => null,
@@ -591,6 +598,7 @@ final class StockItemLedgerService
         $kind = match ($ledger->reference_type) {
             RawMaterialInward::class => 'raw_material_inward',
             PackagingMaterialInward::class => 'packaging_material_inward',
+            Purchase::class => 'purchase',
             ProductionBatch::class => 'production_batch',
             StockAdjustment::class => 'stock_adjustment',
             default => null,

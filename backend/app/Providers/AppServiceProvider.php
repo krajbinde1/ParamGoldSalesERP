@@ -17,6 +17,7 @@ use App\Models\PackagingMaterialInward;
 use App\Models\PaymentRequest;
 use App\Models\Product;
 use App\Models\ProductionBatch;
+use App\Models\Purchase;
 use App\Models\RawMaterial;
 use App\Models\RawMaterialInward;
 use App\Models\SemiFinishedMaterial;
@@ -84,6 +85,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(RawMaterialInward::class, RawMaterialInwardPolicy::class);
         Gate::policy(PackagingMaterialInward::class, PackagingMaterialInwardPolicy::class);
         Gate::policy(PackagingMaterial::class, PackagingMaterialPolicy::class);
+        Gate::policy(Purchase::class, \App\Policies\PurchasePolicy::class);
         Gate::policy(SemiFinishedMaterial::class, SemiFinishedMaterialPolicy::class);
         Gate::policy(Bom::class, BomPolicy::class);
         Gate::policy(ProductionBatch::class, ProductionBatchPolicy::class);

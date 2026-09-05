@@ -44,9 +44,8 @@ final class StockLedgerService
         }
 
         $stockAfter = max(0, $stockAfter);
-        $material->current_stock = $stockAfter;
-        $material->current_stock_value = round($stockAfter * (float) $material->average_rate, 2);
-        $material->save();
+        $averageBefore = (float) $material->average_rate;
+        $this->applyWeightedAverageStock($material, $stockAfter, $meta);
 
         $snapshots = $this->buildValueSnapshots(
             stockBefore: $stockBefore,
@@ -54,7 +53,7 @@ final class StockLedgerService
             quantityIn: $quantityIn,
             quantityOut: $quantityOut,
             rate: $rate,
-            fallbackAverageBefore: (float) $material->average_rate,
+            fallbackAverageBefore: $averageBefore,
             meta: $meta,
         );
 
@@ -105,9 +104,8 @@ final class StockLedgerService
         }
 
         $stockAfter = max(0, $stockAfter);
-        $material->current_stock = $stockAfter;
-        $material->current_stock_value = round($stockAfter * (float) $material->average_rate, 2);
-        $material->save();
+        $averageBefore = (float) $material->average_rate;
+        $this->applyWeightedAverageStock($material, $stockAfter, $meta);
 
         $snapshots = $this->buildValueSnapshots(
             stockBefore: $stockBefore,
@@ -115,7 +113,7 @@ final class StockLedgerService
             quantityIn: $quantityIn,
             quantityOut: $quantityOut,
             rate: $rate,
-            fallbackAverageBefore: (float) $material->average_rate,
+            fallbackAverageBefore: $averageBefore,
             meta: $meta,
         );
 
@@ -397,6 +395,25 @@ final class StockLedgerService
      *     outward_value: float
      * }
      */
+    /**
+     * Apply live quantity, GST-exclusive weighted average rate, and stock value.
+     *
+     * @param  array<string, mixed>  $meta
+     */
+    private function applyWeightedAverageStock(
+        RawMaterial|PackagingMaterial $material,
+        float $stockAfter,
+        array $meta,
+    ): void {
+        if (array_key_exists('new_average_rate', $meta) && $meta['new_average_rate'] !== null) {
+            $material->average_rate = round((float) $meta['new_average_rate'], 4);
+        }
+
+        $material->current_stock = $stockAfter;
+        $material->current_stock_value = round($stockAfter * (float) $material->average_rate, 2);
+        $material->save();
+    }
+
     private function buildValueSnapshots(
         float $stockBefore,
         float $stockAfter,

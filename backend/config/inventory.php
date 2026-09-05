@@ -72,6 +72,7 @@ return [
     'packaging_material_inward_prefix' => 'PMI',
     'raw_material_batch_prefix' => 'RMB',
     'inward_return_prefix' => 'IRR',
+    'purchase_prefix' => 'PUR',
 
     /*
     |--------------------------------------------------------------------------

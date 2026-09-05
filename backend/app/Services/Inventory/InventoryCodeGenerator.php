@@ -77,6 +77,11 @@ final class InventoryCodeGenerator
         return $this->next((string) config('inventory.bom_number_prefix', 'BOM'));
     }
 
+    public function nextPurchaseNumber(): string
+    {
+        return $this->next((string) config('inventory.purchase_prefix', 'PUR'));
+    }
+
     private function fallbackMaxPlusOne(string $prefix, int $pad): string
     {
         $map = [
@@ -85,6 +90,7 @@ final class InventoryCodeGenerator
             (string) config('inventory.semi_finished_code_prefix', 'SFM') => ['semi_finished_materials', 'material_code', false],
             (string) config('inventory.finished_product_code_prefix', 'FP') => ['finished_products', 'finished_product_code', false],
             (string) config('inventory.bom_number_prefix', 'BOM') => ['boms', 'bom_number', false],
+            (string) config('inventory.purchase_prefix', 'PUR') => ['purchases', 'purchase_number', false],
         ];
 
         [$table, $column, $withTrashed] = $map[$prefix] ?? [null, null, false];

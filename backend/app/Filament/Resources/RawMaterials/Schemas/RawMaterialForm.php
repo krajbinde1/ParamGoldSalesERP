@@ -6,6 +6,7 @@ use App\Enums\InventoryUnit;
 use App\Filament\Resources\RawMaterials\RawMaterialResource;
 use App\Models\RawMaterial;
 use App\Services\Inventory\MaterialEffectiveRate;
+use App\Services\Inventory\WeightedAverageCosting;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
@@ -84,7 +85,7 @@ class RawMaterialForm
     {
         $description = $readOnly
             ? 'As entered at create. Opening stock is not changed on Edit (no duplicate Opening Stock ledger). Use Raw Material Inward or Stock Adjustment for later inventory changes.'
-            : 'Optional. Quantity greater than zero posts or updates Opening Stock. Available Stock and Stock Value always follow live inventory after inward, outward, production, consumption, and adjustment — they are not frozen at this opening. After other stock movements, opening quantity and value cannot be changed here.';
+            : 'Optional. Quantity greater than zero posts or updates Opening Stock. Available Stock = Opening Stock + Purchase Inward + Other Inward − Consumption − Other Outward. Stock Value and material cost follow those live movements, including purchase inward.';
 
         return [
             Section::make('Opening Stock')
@@ -189,8 +190,8 @@ class RawMaterialForm
     {
         return [
             Section::make('Available Stock')
-                ->description('Live quantity and value after inward, outward, production, consumption, and adjustments.')
-                ->columns(2)
+                ->description('Live quantity, GST-exclusive weighted average rate, and stock value after inward, outward, production, consumption, and adjustments.')
+                ->columns(3)
                 ->schema([
                     Placeholder::make('available_stock_display')
                         ->label('Available Stock')
@@ -203,6 +204,19 @@ class RawMaterialForm
 
                             return filled($record->unit) ? $qty.' '.$record->unit : $qty;
                         }),
+                    Placeholder::make('average_stock_rate_display')
+                        ->label('Average Stock Rate')
+                        ->visible(fn (): bool => RawMaterialResource::canViewPurchaseRates())
+                        ->content(function (?RawMaterial $record): string {
+                            if ($record === null) {
+                                return '—';
+                            }
+
+                            return app(WeightedAverageCosting::class)->formatRate(
+                                (float) $record->average_rate,
+                                $record->unit,
+                            );
+                        }),
                     Placeholder::make('stock_value_display')
                         ->label('Stock Value')
                         ->visible(fn (): bool => RawMaterialResource::canViewPurchaseRates())
@@ -212,22 +226,6 @@ class RawMaterialForm
                             }
 
                             return '₹'.number_format((float) $record->current_stock_value, 2, '.', ',');
-                        }),
-                    Placeholder::make('available_effective_rate_display')
-                        ->label('Effective Rate')
-                        ->visible(fn (): bool => RawMaterialResource::canViewPurchaseRates())
-                        ->content(function (?RawMaterial $record): HtmlString {
-                            if ($record === null) {
-                                return new HtmlString('—');
-                            }
-
-                            return new HtmlString(
-                                '<span class="tabular-nums font-semibold">'.e(app(MaterialEffectiveRate::class)->format(
-                                    (float) $record->current_stock_value,
-                                    (float) $record->current_stock,
-                                    $record->unit,
-                                )).'</span>'
-                            );
                         }),
                 ]),
         ];
