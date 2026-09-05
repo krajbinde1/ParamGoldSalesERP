@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Products\Pages;
 
 use App\Filament\Resources\Products\Actions\DownloadProductImportTemplateAction;
+use App\Filament\Resources\Products\Actions\DownloadProductListExcelAction;
 use App\Filament\Resources\Products\ProductResource;
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
@@ -15,6 +16,7 @@ class ListProducts extends ListRecords
     protected function getHeaderActions(): array
     {
         return [
+            DownloadProductListExcelAction::make(),
             DownloadProductImportTemplateAction::make()
                 ->visible(fn (): bool => ProductResource::canCreate()),
             Action::make('bulkUploadProducts')
