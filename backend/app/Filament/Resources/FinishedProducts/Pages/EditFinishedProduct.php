@@ -4,6 +4,7 @@ namespace App\Filament\Resources\FinishedProducts\Pages;
 
 use App\Enums\StockTransactionType;
 use App\Filament\Actions\SafeDeleteActions;
+use App\Filament\Concerns\RedirectsToPreviousPageAfterSave;
 use App\Filament\Concerns\SyncsMaterialOpeningStockOnEdit;
 use App\Filament\Resources\FinishedProducts\FinishedProductResource;
 use App\Filament\Resources\FinishedProducts\Schemas\FinishedProductForm;
@@ -16,6 +17,7 @@ use Filament\Schemas\Schema;
 
 class EditFinishedProduct extends EditRecord
 {
+    use RedirectsToPreviousPageAfterSave;
     use SyncsMaterialOpeningStockOnEdit;
 
     protected static string $resource = FinishedProductResource::class;

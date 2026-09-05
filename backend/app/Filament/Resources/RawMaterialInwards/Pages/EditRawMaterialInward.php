@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\RawMaterialInwards\Pages;
 
+use App\Filament\Concerns\RedirectsToPreviousPageAfterSave;
 use App\Filament\Resources\RawMaterialInwards\RawMaterialInwardResource;
 use App\Filament\Resources\RawMaterialInwards\Schemas\RawMaterialInwardForm;
 use App\Models\RawMaterialInward;
@@ -16,6 +17,8 @@ use Illuminate\Validation\ValidationException;
 
 class EditRawMaterialInward extends EditRecord
 {
+    use RedirectsToPreviousPageAfterSave;
+
     protected static string $resource = RawMaterialInwardResource::class;
 
     public function mount(int|string $record): void
@@ -133,8 +136,4 @@ class EditRawMaterialInward extends EditRecord
         return 'Raw Material Inward updated successfully.';
     }
 
-    protected function getRedirectUrl(): string
-    {
-        return RawMaterialInwardResource::getUrl('view', ['record' => $this->getRecord()]);
-    }
 }

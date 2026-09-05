@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\PackagingMaterialInwards\Pages;
 
+use App\Filament\Concerns\RedirectsToPreviousPageAfterSave;
 use App\Filament\Resources\PackagingMaterialInwards\PackagingMaterialInwardResource;
 use Filament\Resources\Pages\EditRecord;
 
@@ -10,6 +11,8 @@ use Filament\Resources\Pages\EditRecord;
  */
 class EditPackagingMaterialInward extends EditRecord
 {
+    use RedirectsToPreviousPageAfterSave;
+
     protected static string $resource = PackagingMaterialInwardResource::class;
 
     public function mount(int|string $record): void

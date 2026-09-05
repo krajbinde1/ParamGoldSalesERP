@@ -2,10 +2,13 @@
 
 namespace App\Models;
 
+use App\Enums\BomOutputType;
+use App\Enums\BomStatus;
 use App\Models\Concerns\EnforcesSafeDelete;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class SemiFinishedMaterial extends Model
 {
@@ -68,6 +71,13 @@ class SemiFinishedMaterial extends Model
     public function boms(): HasMany
     {
         return $this->hasMany(Bom::class, 'semi_finished_id');
+    }
+
+    public function activeBom(): HasOne
+    {
+        return $this->hasOne(Bom::class, 'semi_finished_id')
+            ->where('output_type', BomOutputType::SemiFinished)
+            ->where('status', BomStatus::Active);
     }
 
     public function isLowStock(): bool

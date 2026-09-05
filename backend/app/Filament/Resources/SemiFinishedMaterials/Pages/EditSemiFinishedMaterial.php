@@ -4,6 +4,7 @@ namespace App\Filament\Resources\SemiFinishedMaterials\Pages;
 
 use App\Enums\StockTransactionType;
 use App\Filament\Actions\SafeDeleteActions;
+use App\Filament\Concerns\RedirectsToPreviousPageAfterSave;
 use App\Filament\Concerns\SyncsMaterialOpeningStockOnEdit;
 use App\Filament\Resources\SemiFinishedMaterials\Schemas\SemiFinishedMaterialForm;
 use App\Filament\Resources\SemiFinishedMaterials\SemiFinishedMaterialResource;
@@ -16,6 +17,7 @@ use Filament\Schemas\Schema;
 
 class EditSemiFinishedMaterial extends EditRecord
 {
+    use RedirectsToPreviousPageAfterSave;
     use SyncsMaterialOpeningStockOnEdit;
 
     protected static string $resource = SemiFinishedMaterialResource::class;

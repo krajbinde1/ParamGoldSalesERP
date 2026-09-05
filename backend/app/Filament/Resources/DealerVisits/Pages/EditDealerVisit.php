@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\DealerVisits\Pages;
 
+use App\Filament\Concerns\RedirectsToPreviousPageAfterSave;
 use App\Filament\Resources\DealerVisits\DealerVisitResource;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\ForceDeleteAction;
@@ -11,6 +12,8 @@ use Filament\Resources\Pages\EditRecord;
 
 class EditDealerVisit extends EditRecord
 {
+    use RedirectsToPreviousPageAfterSave;
+
     protected static string $resource = DealerVisitResource::class;
 
     protected function getHeaderActions(): array

@@ -52,13 +52,17 @@ class ProductForm
                             ->integer(),
                         Select::make('gst_percentage')
                             ->label('GST %')
-                            ->options([
-                                '0' => '0%',
-                                '5' => '5%',
-                                '12' => '12%',
-                                '18' => '18%',
-                                '28' => '28%',
-                            ])
+                            ->options(self::gstOptions())
+                            ->formatStateUsing(fn (mixed $state): ?string => self::normalizeGstKey($state))
+                            ->afterStateHydrated(function (Select $component, mixed $state): void {
+                                $normalized = self::normalizeGstKey($state);
+                                if ($normalized !== null) {
+                                    $component->state($normalized);
+                                }
+                            })
+                            ->dehydrateStateUsing(fn (mixed $state): mixed => filled($state)
+                                ? (int) $state
+                                : $state)
                             ->default('0')
                             ->required(),
                         Toggle::make('status')
@@ -191,5 +195,28 @@ class ProductForm
                             ]),
                     ]),
             ]);
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    public static function gstOptions(): array
+    {
+        return [
+            '0' => '0%',
+            '5' => '5%',
+            '12' => '12%',
+            '18' => '18%',
+            '28' => '28%',
+        ];
+    }
+
+    public static function normalizeGstKey(mixed $state): ?string
+    {
+        if ($state === null || $state === '') {
+            return null;
+        }
+
+        return (string) (int) round((float) $state);
     }
 }

@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Employees\Pages;
 use App\Actions\Employees\DeleteEmployeeWithUserAccount;
 use App\Actions\Employees\UpdateEmployeeWithUserAccount;
 use App\Filament\Actions\SafeDeleteActions;
+use App\Filament\Concerns\RedirectsToPreviousPageAfterSave;
 use App\Filament\Resources\Employees\Actions\ReassignDealersAction;
 use App\Filament\Resources\Employees\Actions\ResetEmployeePasswordAction;
 use App\Filament\Resources\Employees\EmployeeResource;
@@ -20,12 +21,15 @@ use Illuminate\Database\Eloquent\Model;
 
 class EditEmployee extends EditRecord
 {
+    use RedirectsToPreviousPageAfterSave;
+
     protected static string $resource = EmployeeResource::class;
 
     protected function mutateFormDataBeforeFill(array $data): array
     {
         $user = $this->getRecord()->user;
-        $data['role'] = $user?->role ?? \App\Enums\UserRole::Employee->value;
+        $role = $user?->role ?? \App\Enums\UserRole::Employee->value;
+        $data['role'] = $role instanceof \BackedEnum ? $role->value : $role;
         $data['login_id'] = $data['mobile'] ?? $user?->login_id;
 
         return $data;

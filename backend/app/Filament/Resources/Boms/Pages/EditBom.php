@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Boms\Pages;
 
 use App\Filament\Actions\SafeDeleteActions;
+use App\Filament\Concerns\RedirectsToPreviousPageAfterSave;
 use App\Filament\Resources\Boms\BomResource;
 use App\Filament\Resources\Boms\Pages\Concerns\AssertsBomFormulaOnSave;
 use App\Services\Inventory\BOMCalculationService;
@@ -12,6 +13,7 @@ use Filament\Resources\Pages\EditRecord;
 class EditBom extends EditRecord
 {
     use AssertsBomFormulaOnSave;
+    use RedirectsToPreviousPageAfterSave;
 
     protected static string $resource = BomResource::class;
 
@@ -24,11 +26,6 @@ class EditBom extends EditRecord
             SafeDeleteActions::deleteAction()
                 ->authorize(fn (): bool => BomResource::canDelete($this->getRecord())),
         ];
-    }
-
-    protected function getRedirectUrl(): string
-    {
-        return $this->previousUrl ?? BomResource::getUrl('index');
     }
 
     protected function getSavedNotificationTitle(): ?string

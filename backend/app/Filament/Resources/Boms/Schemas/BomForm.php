@@ -6,6 +6,7 @@ use App\Enums\BomItemType;
 use App\Enums\BomOutputType;
 use App\Enums\BomStatus;
 use App\Enums\InventoryUnit;
+use App\Models\Bom;
 use App\Models\PackagingMaterial;
 use App\Models\Product;
 use App\Models\RawMaterial;
@@ -61,9 +62,10 @@ class BomForm
                             ->relationship(
                                 name: 'product',
                                 titleAttribute: 'product_name',
-                                modifyQueryUsing: fn (Builder $query) => $query
-                                    ->where('status', true)
-                                    ->orderBy('product_name'),
+                                modifyQueryUsing: fn (Builder $query): Builder => self::availableFinishedProductsQuery(
+                                    $query,
+                                    self::currentBomForeignKey('product_id'),
+                                ),
                             )
                             ->getOptionLabelFromRecordUsing(
                                 fn (Product $record): string => (string) ($record->product_name ?? $record->name ?? '')
@@ -81,9 +83,10 @@ class BomForm
                             ->relationship(
                                 name: 'semiFinished',
                                 titleAttribute: 'material_name',
-                                modifyQueryUsing: fn (Builder $query) => $query
-                                    ->where('status', true)
-                                    ->orderBy('material_name'),
+                                modifyQueryUsing: fn (Builder $query): Builder => self::availableSemiFinishedQuery(
+                                    $query,
+                                    self::currentBomForeignKey('semi_finished_id'),
+                                ),
                             )
                             ->getOptionLabelFromRecordUsing(
                                 fn (SemiFinishedMaterial $record): string => trim($record->material_code.' — '.$record->material_name)
@@ -386,5 +389,47 @@ class BomForm
             .'</div>';
 
         return new HtmlString($html);
+    }
+
+    public static function availableFinishedProductsQuery(Builder $query, mixed $keepId = null): Builder
+    {
+        return $query
+            ->where('status', true)
+            ->where(function (Builder $inner) use ($keepId): void {
+                $inner->whereDoesntHave('activeBom');
+                if (filled($keepId)) {
+                    $inner->orWhere('id', $keepId);
+                }
+            })
+            ->orderBy('product_name');
+    }
+
+    public static function availableSemiFinishedQuery(Builder $query, mixed $keepId = null): Builder
+    {
+        return $query
+            ->where('status', true)
+            ->where(function (Builder $inner) use ($keepId): void {
+                $inner->whereDoesntHave('activeBom');
+                if (filled($keepId)) {
+                    $inner->orWhere('id', $keepId);
+                }
+            })
+            ->orderBy('material_name');
+    }
+
+    public static function currentBomForeignKey(string $column): mixed
+    {
+        $livewire = \Livewire\Livewire::current();
+        if (! is_object($livewire) || ! method_exists($livewire, 'getRecord')) {
+            return null;
+        }
+
+        try {
+            $record = $livewire->getRecord();
+        } catch (\Throwable) {
+            return null;
+        }
+
+        return $record instanceof Bom ? $record->{$column} : null;
     }
 }

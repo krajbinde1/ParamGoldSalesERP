@@ -2,12 +2,15 @@
 
 namespace App\Filament\Resources\Vehicles\Pages;
 
+use App\Filament\Concerns\RedirectsToPreviousPageAfterSave;
 use App\Filament\Resources\Vehicles\VehicleResource;
 use Filament\Actions\DeleteAction;
 use Filament\Resources\Pages\EditRecord;
 
 class EditVehicle extends EditRecord
 {
+    use RedirectsToPreviousPageAfterSave;
+
     protected static string $resource = VehicleResource::class;
 
     protected function getHeaderActions(): array

@@ -48,6 +48,9 @@ use App\Policies\StockAdjustmentPolicy;
 use App\Policies\StockLedgerPolicy;
 use App\Policies\TaDaClaimPolicy;
 use App\Services\Dashboard\DirectorDashboardDataService;
+use App\Support\FilamentEditReturnUrl;
+use Filament\Actions\EditAction;
+use Filament\Tables\Table;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
@@ -91,5 +94,17 @@ class AppServiceProvider extends ServiceProvider
         Collection::observe(CollectionObserver::class);
         CreditNote::observe(CreditNoteObserver::class);
         PaymentRequest::observe(PaymentRequestObserver::class);
+
+        EditAction::configureUsing(function (EditAction $action): void {
+            $action->url(fn (EditAction $action): ?string => FilamentEditReturnUrl::urlForEditAction($action));
+        });
+
+        Table::configureUsing(function (Table $table): void {
+            $table
+                ->persistFiltersInSession()
+                ->persistSearchInSession()
+                ->persistColumnSearchesInSession()
+                ->persistSortInSession();
+        });
     }
 }

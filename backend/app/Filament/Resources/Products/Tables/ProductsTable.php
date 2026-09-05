@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Products\Tables;
 
 use App\Filament\Actions\SafeDeleteActions;
 use App\Filament\Resources\Boms\BomResource;
+use App\Filament\Resources\Products\Schemas\ProductForm;
 use App\Models\Product;
 use App\Services\SafeDelete\SafeDeleteGuard;
 use Filament\Actions\BulkActionGroup;
@@ -19,6 +20,7 @@ use Filament\Tables\Filters\TrashedFilter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\HtmlString;
 
 class ProductsTable
 {
@@ -26,6 +28,10 @@ class ProductsTable
     {
         return $table
             ->modifyQueryUsing(fn (Builder $query): Builder => $query->with('activeBom'))
+            ->persistFiltersInSession()
+            ->persistSearchInSession()
+            ->persistColumnSearchesInSession()
+            ->persistSortInSession()
             ->columns([
                 TextColumn::make('product_code')
                     ->label('Code')
@@ -40,7 +46,16 @@ class ProductsTable
                     ->label('Nos/Case')
                     ->sortable(),
                 TextColumn::make('active_packing_bom_status')
-                    ->label('BOM Status')
+                    ->label(fn (): HtmlString => new HtmlString(
+                        '<span class="inline-flex items-center gap-1.5">'
+                        .'<span>BOM Status</span>'
+                        .'<select wire:model.live="tableFilters.bom_status.value" class="fi-input fi-select-input text-xs" aria-label="Filter by BOM Status">'
+                        .'<option value="">All</option>'
+                        .'<option value="set">BOM Set</option>'
+                        .'<option value="not_set">BOM Not Set</option>'
+                        .'</select>'
+                        .'</span>'
+                    ))
                     ->badge()
                     ->state(fn (Product $record): string => $record->activeBom !== null
                         ? 'BOM Set'
@@ -77,18 +92,27 @@ class ProductsTable
             ->filters([
                 SelectFilter::make('gst_percentage')
                     ->label('GST %')
-                    ->options([
-                        '0' => '0%',
-                        '5' => '5%',
-                        '12' => '12%',
-                        '18' => '18%',
-                        '28' => '28%',
-                    ]),
+                    ->options(ProductForm::gstOptions()),
                 TernaryFilter::make('status')
                     ->label('Status')
-                    ->placeholder('All products')
-                    ->trueLabel('Active products')
-                    ->falseLabel('Inactive products'),
+                    ->placeholder('All')
+                    ->trueLabel('Active')
+                    ->falseLabel('Inactive')
+                    ->default(true),
+                SelectFilter::make('bom_status')
+                    ->label('BOM Status')
+                    ->options([
+                        'set' => 'BOM Set',
+                        'not_set' => 'BOM Not Set',
+                    ])
+                    ->placeholder('All')
+                    ->query(function (Builder $query, array $data): Builder {
+                        return match ($data['value'] ?? null) {
+                            'set' => $query->whereHas('activeBom'),
+                            'not_set' => $query->whereDoesntHave('activeBom'),
+                            default => $query,
+                        };
+                    }),
                 TrashedFilter::make(),
             ])
             ->recordActions([

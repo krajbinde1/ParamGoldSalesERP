@@ -4,6 +4,7 @@ namespace App\Filament\Resources\PackagingMaterials\Pages;
 
 use App\Enums\StockTransactionType;
 use App\Filament\Actions\SafeDeleteActions;
+use App\Filament\Concerns\RedirectsToPreviousPageAfterSave;
 use App\Filament\Concerns\SyncsMaterialOpeningStockOnEdit;
 use App\Filament\Resources\PackagingMaterials\PackagingMaterialResource;
 use App\Filament\Resources\PackagingMaterials\Schemas\PackagingMaterialForm;
@@ -16,6 +17,7 @@ use Filament\Schemas\Schema;
 
 class EditPackagingMaterial extends EditRecord
 {
+    use RedirectsToPreviousPageAfterSave;
     use SyncsMaterialOpeningStockOnEdit;
 
     protected static string $resource = PackagingMaterialResource::class;

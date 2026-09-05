@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Dealers\Pages;
 
 use App\Filament\Actions\SafeDeleteActions;
+use App\Filament\Concerns\RedirectsToPreviousPageAfterSave;
 use App\Filament\Resources\Dealers\DealerResource;
 use App\Support\MaharashtraGeography;
 use Filament\Actions\Action;
@@ -13,6 +14,8 @@ use Filament\Resources\Pages\EditRecord;
 
 class EditDealer extends EditRecord
 {
+    use RedirectsToPreviousPageAfterSave;
+
     protected static string $resource = DealerResource::class;
 
     /**

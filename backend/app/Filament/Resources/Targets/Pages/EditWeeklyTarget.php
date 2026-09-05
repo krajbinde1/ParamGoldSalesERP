@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Targets\Pages;
 
 use App\Actions\Targets\DeleteTarget;
 use App\Actions\Targets\SaveMonthlyTarget;
+use App\Filament\Concerns\RedirectsToPreviousPageAfterSave;
 use App\Filament\Resources\Targets\WeeklyTargetResource;
 use App\Models\MonthlyTarget;
 use App\Models\WeeklyTarget;
@@ -14,6 +15,8 @@ use Illuminate\Database\Eloquent\Model;
 
 class EditWeeklyTarget extends EditRecord
 {
+    use RedirectsToPreviousPageAfterSave;
+
     protected static string $resource = WeeklyTargetResource::class;
 
     private bool $savedMonthly = false;
@@ -57,15 +60,6 @@ class EditWeeklyTarget extends EditRecord
         $data['target_type'] = MonthlyTarget::WEEKLY_TYPE;
 
         return $data;
-    }
-
-    protected function getRedirectUrl(): string
-    {
-        if ($this->savedMonthly) {
-            return WeeklyTargetResource::getUrl('index');
-        }
-
-        return parent::getRedirectUrl();
     }
 
     protected function getSavedNotificationTitle(): ?string

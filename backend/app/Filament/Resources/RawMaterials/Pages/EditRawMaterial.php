@@ -4,6 +4,7 @@ namespace App\Filament\Resources\RawMaterials\Pages;
 
 use App\Enums\StockTransactionType;
 use App\Filament\Actions\SafeDeleteActions;
+use App\Filament\Concerns\RedirectsToPreviousPageAfterSave;
 use App\Filament\Concerns\SyncsMaterialOpeningStockOnEdit;
 use App\Filament\Resources\RawMaterials\RawMaterialResource;
 use App\Filament\Resources\RawMaterials\Schemas\RawMaterialForm;
@@ -16,6 +17,7 @@ use Filament\Schemas\Schema;
 
 class EditRawMaterial extends EditRecord
 {
+    use RedirectsToPreviousPageAfterSave;
     use SyncsMaterialOpeningStockOnEdit;
 
     protected static string $resource = RawMaterialResource::class;

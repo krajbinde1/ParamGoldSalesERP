@@ -4,6 +4,7 @@ namespace App\Filament\Resources\PaymentRequests\Pages;
 
 use App\Actions\PaymentRequests\DeletePaymentRequest;
 use App\Actions\PaymentRequests\StorePaymentRequestSupportingDocuments;
+use App\Filament\Concerns\RedirectsToPreviousPageAfterSave;
 use App\Filament\Resources\PaymentRequests\PaymentRequestResource;
 use App\Models\PaymentRequest;
 use Filament\Actions\DeleteAction;
@@ -13,6 +14,8 @@ use Illuminate\Http\UploadedFile;
 
 class EditPaymentRequest extends EditRecord
 {
+    use RedirectsToPreviousPageAfterSave;
+
     protected static string $resource = PaymentRequestResource::class;
 
     /** @var list<UploadedFile> */
@@ -69,11 +72,6 @@ class EditPaymentRequest extends EditRecord
             actor: auth()->user(),
             files: $this->pendingSupportingDocuments,
         );
-    }
-
-    protected function getRedirectUrl(): string
-    {
-        return $this->getResource()::getUrl('view', ['record' => $this->getRecord()]);
     }
 
     protected function getHeaderActions(): array
