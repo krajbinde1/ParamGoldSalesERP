@@ -85,7 +85,6 @@ it('renders opening stock fields on sales product create even before values are 
         ->assertSee('Opening Stock Value')
         ->assertSee('As On Date')
         ->assertFormSet([
-            'manufacturing_enabled' => false,
             'opening_stock_cases' => 0,
         ]);
 });
@@ -107,7 +106,6 @@ it('renders opening stock fields on sales product edit when manufacturing is off
         ->assertSee('Opening Stock Value')
         ->assertSee('As On Date')
         ->assertFormSet([
-            'manufacturing_enabled' => false,
             'opening_stock_cases' => 0,
             'opening_stock_quantity' => 0,
         ]);

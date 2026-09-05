@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Products\Schemas;
 
 use App\Enums\InventoryUnit;
 use App\Filament\Resources\FinishedProducts\Schemas\FinishedProductForm;
+use App\Models\Product;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -92,67 +93,43 @@ class ProductForm
                             ->required(),
                     ]),
                 Section::make('Manufacturing')
-                    ->description('Enable manufacturing to link this product with a Bill of Materials and produce it through the Inventory & Manufacturing module.')
+                    ->description('Current finished stock and weighted average cost are calculated from inventory transactions. Manufacturing is treated as enabled automatically when this product has an Active BOM.')
                     ->columns(2)
                     ->schema([
-                        Toggle::make('manufacturing_enabled')
-                            ->label('Manufacturing Enabled')
-                            ->live()
-                            ->inline(false)
-                            ->columnSpanFull(),
-                        Select::make('production_unit')
-                            ->label('Production Unit')
-                            ->options(InventoryUnit::options())
-                            ->searchable()
-                            ->visible(fn (Get $get): bool => (bool) $get('manufacturing_enabled')),
-                        TextInput::make('standard_batch_size')
-                            ->label('Standard Batch Size')
-                            ->numeric()
-                            ->minValue(0)
-                            ->visible(fn (Get $get): bool => (bool) $get('manufacturing_enabled')),
                         TextInput::make('minimum_finished_stock')
                             ->label('Minimum Finished Stock')
                             ->numeric()
                             ->minValue(0)
-                            ->default(0)
-                            ->visible(fn (Get $get): bool => (bool) $get('manufacturing_enabled')),
+                            ->default(0),
                         TextInput::make('current_finished_stock')
                             ->label('Current Finished Stock')
                             ->numeric()
                             ->disabled()
                             ->dehydrated(false)
-                            ->visible(fn (Get $get): bool => (bool) $get('manufacturing_enabled'))
-                            ->helperText('Managed automatically by the production and stock adjustment workflows.'),
+                            ->helperText('Calculated automatically from inventory transactions.'),
                         TextInput::make('shelf_life_days')
                             ->label('Shelf Life (Days)')
                             ->numeric()
                             ->minValue(0)
-                            ->integer()
-                            ->visible(fn (Get $get): bool => (bool) $get('manufacturing_enabled')),
+                            ->integer(),
                         Toggle::make('batch_tracking_enabled')
                             ->label('Batch Tracking')
                             ->default(true)
-                            ->inline(false)
-                            ->visible(fn (Get $get): bool => (bool) $get('manufacturing_enabled')),
-                        TextInput::make('standard_production_cost')
-                            ->label('Standard Production Cost')
-                            ->prefix('₹')
-                            ->numeric()
-                            ->minValue(0)
-                            ->default(0)
-                            ->visible(fn (Get $get): bool => (bool) $get('manufacturing_enabled')),
+                            ->inline(false),
                         TextInput::make('weighted_average_cost')
                             ->label('Weighted Average Cost')
                             ->prefix('₹')
                             ->numeric()
                             ->disabled()
                             ->dehydrated(false)
-                            ->visible(fn (Get $get): bool => (bool) $get('manufacturing_enabled'))
-                            ->helperText('Recalculated automatically after every completed production batch.'),
+                            ->helperText('Calculated automatically from inventory transactions.'),
                     ]),
                 Section::make('Pack sizes / packing variants')
                     ->description('Define pack-wise manufacturing variants for this product. BOMs and finished goods stock are tracked per variant.')
-                    ->visible(fn (Get $get): bool => (bool) $get('manufacturing_enabled'))
+                    ->visible(fn (?Product $record): bool => $record !== null && (
+                        (bool) $record->manufacturing_enabled
+                        || $record->activeBom()->exists()
+                    ))
                     ->schema([
                         Repeater::make('variants')
                             ->relationship()

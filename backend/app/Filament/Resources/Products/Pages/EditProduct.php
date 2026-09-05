@@ -95,7 +95,7 @@ class EditProduct extends EditRecord
     {
         $cases = (float) ($this->data['opening_stock_cases'] ?? 0);
 
-        if ($cases > 0) {
+        if ($cases > 0 || $this->getRecord()->activeBom()->exists()) {
             $data['manufacturing_enabled'] = true;
         }
 

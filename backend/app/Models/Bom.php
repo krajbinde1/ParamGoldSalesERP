@@ -34,6 +34,25 @@ class Bom extends Model
                     ->nextBomNumber();
             }
         });
+
+        static::saved(function (Bom $bom): void {
+            if ($bom->output_type !== BomOutputType::FinishedProduct) {
+                return;
+            }
+
+            if ($bom->status !== BomStatus::Active) {
+                return;
+            }
+
+            if ($bom->product_id === null) {
+                return;
+            }
+
+            Product::query()
+                ->whereKey($bom->product_id)
+                ->where('manufacturing_enabled', false)
+                ->update(['manufacturing_enabled' => true]);
+        });
     }
 
     protected $fillable = [
