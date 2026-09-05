@@ -40,20 +40,35 @@ class FinishedProductInfolist
                         TextEntry::make('remarks')->label('Remarks')->placeholder('—')->columnSpanFull(),
                     ]),
                 Section::make('Opening Stock')
-                    ->description('Snapshot entered at create, edit, or Finished Goods Opening Stock Import. Available Stock and Stock Value follow live inventory after production, consumption, and adjustment.')
+                    ->description('Opening Cases × Nos Per Case, valued at Active BOM Estimated Cost Per Unit. Available Stock includes this opening quantity.')
                     ->columns(2)
                     ->schema([
+                        TextEntry::make('opening_stock_cases_display')
+                            ->label('Opening Stock (Cases)')
+                            ->state(function (Product $record): string {
+                                $qty = (float) $record->opening_finished_stock;
+                                $nos = max(0, (int) ($record->nos_per_case ?: 0));
+                                if ($qty <= 0 || $nos <= 0) {
+                                    return '—';
+                                }
+
+                                $cases = rtrim(rtrim(number_format($qty / $nos, 3, '.', ''), '0'), '.');
+
+                                return $cases.' Cases';
+                            }),
                         TextEntry::make('opening_finished_stock')
-                            ->label('Opening Stock Quantity')
+                            ->label('Opening Qty (Nos)')
                             ->numeric(3),
+                        TextEntry::make('opening_average_cost_display')
+                            ->label('Average Cost/Nos')
+                            ->state(fn (Product $record): string => self::formatRate(self::openingEffectiveRate($record)))
+                            ->visible(fn (): bool => FinishedProductResource::canViewCosts()),
                         TextEntry::make('opening_stock_value_display')
                             ->label('Opening Stock Value')
-                            ->state(fn (Product $record): string => self::formatMoney(self::openingValue($record))),
-                        TextEntry::make('opening_effective_rate_display')
-                            ->label('Effective Rate')
-                            ->state(fn (Product $record): string => self::formatRate(self::openingEffectiveRate($record))),
+                            ->state(fn (Product $record): string => self::formatMoney(self::openingValue($record)))
+                            ->visible(fn (): bool => FinishedProductResource::canViewCosts()),
                         TextEntry::make('opening_date_display')
-                            ->label('Opening Date')
+                            ->label('As On Date')
                             ->state(fn (Product $record): string => self::openingDate($record) ?? '—'),
                     ]),
                 Section::make('Available Stock')

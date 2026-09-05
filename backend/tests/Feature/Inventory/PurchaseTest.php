@@ -6,8 +6,11 @@ use App\Enums\BomStatus;
 use App\Enums\PurchaseMaterialType;
 use App\Enums\PurchaseStatus;
 use App\Enums\StockTransactionType;
+use App\Enums\TransportFreightLedgerType;
 use App\Enums\UserRole;
 use App\Filament\Resources\Purchases\Pages\ListPurchases;
+use App\Filament\Resources\Purchases\Pages\ViewPurchase;
+use App\Filament\Resources\TransportFreightLedgers\Pages\ListTransportFreightLedgers;
 use App\Models\Bom;
 use App\Models\BomItem;
 use App\Models\PackagingMaterial;
@@ -16,6 +19,7 @@ use App\Models\RawMaterial;
 use App\Models\SemiFinishedMaterial;
 use App\Models\StockLedger;
 use App\Models\Supplier;
+use App\Models\TransportFreightLedger;
 use App\Models\User;
 use App\Services\Inventory\BOMCalculationService;
 use App\Services\Inventory\PurchaseService;
@@ -335,7 +339,8 @@ it('lists purchases for inventory users', function (): void {
         ->assertSuccessful()
         ->assertSee('Purchase No.')
         ->assertSee('Material Type')
-        ->assertSee('Grand Total');
+        ->assertSee('Grand Total')
+        ->assertSee('Transport/Freight Cost');
 });
 
 it('lets a production supervisor confirm a draft but not cancel a confirmed purchase', function (): void {
@@ -559,4 +564,259 @@ it('restores weighted average stock value when a confirmed purchase is cancelled
         ->and((float) $inward->rate)->toBe(100.0)
         ->and((float) $reversal->rate)->toBe(100.0)
         ->and(StockLedger::query()->where('reference_id', $purchase->id)->where('transaction_type', StockTransactionType::Purchase)->count())->toBe(1);
+});
+
+it('keeps supplier bill totals unchanged and uses allocated freight in landed stock cost', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $material = purchaseRawMaterial(100, 80);
+
+    $purchase = app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::RawMaterial, [
+            'transport_cost' => 2000,
+            'transporter_name' => 'Blue Dart',
+            'transport_invoice_lr_no' => 'LR-101',
+            'transport_remark' => 'Paid separately',
+        ]),
+        [[
+            'raw_material_id' => $material->id,
+            'quantity' => 100,
+            'purchase_rate' => 100,
+            'gst_percentage' => 18,
+        ]],
+        $director,
+        confirm: true,
+    );
+
+    $material = $material->fresh();
+    $item = $purchase->items()->first();
+    $stockLedger = StockLedger::query()
+        ->where('reference_id', $purchase->id)
+        ->where('transaction_type', StockTransactionType::Purchase)
+        ->first();
+    $freightLedger = TransportFreightLedger::query()
+        ->where('purchase_id', $purchase->id)
+        ->where('transaction_type', TransportFreightLedgerType::Charge)
+        ->first();
+
+    expect((float) $purchase->total_taxable_amount)->toBe(10000.0)
+        ->and((float) $purchase->total_gst)->toBe(1800.0)
+        ->and((float) $purchase->grand_total)->toBe(11800.0)
+        ->and((float) $purchase->transport_cost)->toBe(2000.0)
+        ->and((float) $purchase->total_landed_cost)->toBe(12000.0)
+        ->and((float) $item->purchase_rate)->toBe(100.0)
+        ->and((float) $item->allocated_transport_cost)->toBe(2000.0)
+        ->and((float) $item->effective_unit_rate)->toBe(120.0)
+        ->and((float) $item->landed_cost)->toBe(12000.0)
+        ->and((float) $material->current_stock)->toBe(200.0)
+        ->and((float) $material->average_rate)->toBe(100.0)
+        ->and((float) $material->current_stock_value)->toBe(20000.0)
+        ->and((float) $material->purchase_rate)->toBe(100.0)
+        ->and((float) $stockLedger->quantity_in)->toBe(100.0)
+        ->and((float) $stockLedger->rate)->toBe(120.0)
+        ->and((float) $stockLedger->transaction_value)->toBe(12000.0)
+        ->and($freightLedger)->not->toBeNull()
+        ->and((float) $freightLedger->amount)->toBe(2000.0)
+        ->and($freightLedger->transporter_name)->toBe('Blue Dart')
+        ->and($freightLedger->transport_invoice_lr_no)->toBe('LR-101')
+        ->and($freightLedger->purchase_number)->toBe($purchase->purchase_number)
+        ->and($freightLedger->remarks)->toContain('Paid separately');
+});
+
+it('allocates transport cost across materials by taxable value', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $first = purchaseRawMaterial(0, 0);
+    $second = purchaseRawMaterial(0, 0);
+
+    $purchase = app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::RawMaterial, [
+            'transport_cost' => 1000,
+        ]),
+        [
+            [
+                'raw_material_id' => $first->id,
+                'quantity' => 50,
+                'purchase_rate' => 80,
+                'gst_percentage' => 18,
+            ],
+            [
+                'raw_material_id' => $second->id,
+                'quantity' => 50,
+                'purchase_rate' => 120,
+                'gst_percentage' => 18,
+            ],
+        ],
+        $director,
+        confirm: true,
+    );
+
+    $items = $purchase->items()->orderBy('sort_order')->get();
+    $firstItem = $items[0];
+    $secondItem = $items[1];
+
+    expect((float) $purchase->grand_total)->toBe(11800.0)
+        ->and((float) $purchase->transport_cost)->toBe(1000.0)
+        ->and((float) $purchase->total_landed_cost)->toBe(11000.0)
+        ->and((float) $firstItem->taxable_amount)->toBe(4000.0)
+        ->and((float) $firstItem->allocated_transport_cost)->toBe(400.0)
+        ->and((float) $firstItem->effective_unit_rate)->toBe(88.0)
+        ->and((float) $secondItem->taxable_amount)->toBe(6000.0)
+        ->and((float) $secondItem->allocated_transport_cost)->toBe(600.0)
+        ->and((float) $secondItem->effective_unit_rate)->toBe(132.0)
+        ->and((float) $first->fresh()->average_rate)->toBe(88.0)
+        ->and((float) $second->fresh()->average_rate)->toBe(132.0)
+        ->and(TransportFreightLedger::query()->where('purchase_id', $purchase->id)->count())->toBe(1);
+});
+
+it('does not post a transport ledger when freight is zero', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $material = purchaseRawMaterial(10, 20);
+
+    $purchase = app(PurchaseService::class)->create(
+        purchaseHeader($supplier),
+        [[
+            'raw_material_id' => $material->id,
+            'quantity' => 5,
+            'purchase_rate' => 20,
+            'gst_percentage' => 0,
+        ]],
+        $director,
+        confirm: true,
+    );
+
+    expect((float) $purchase->grand_total)->toBe(100.0)
+        ->and((float) $purchase->transport_cost)->toBe(0.0)
+        ->and(TransportFreightLedger::query()->where('purchase_id', $purchase->id)->count())->toBe(0);
+});
+
+it('reverses allocated freight and transport ledger when a confirmed purchase is cancelled', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $material = purchaseRawMaterial(100, 80);
+
+    $purchase = app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::RawMaterial, [
+            'transport_cost' => 2000,
+            'transporter_name' => 'Xpress',
+        ]),
+        [[
+            'raw_material_id' => $material->id,
+            'quantity' => 100,
+            'purchase_rate' => 100,
+            'gst_percentage' => 18,
+        ]],
+        $director,
+        confirm: true,
+    );
+
+    app(PurchaseService::class)->cancel($purchase, $director, 'Wrong freight');
+    $material = $material->fresh();
+
+    expect((float) $material->current_stock)->toBe(100.0)
+        ->and((float) $material->average_rate)->toBe(80.0)
+        ->and((float) $material->current_stock_value)->toBe(8000.0)
+        ->and(TransportFreightLedger::query()->where('purchase_id', $purchase->id)->where('transaction_type', TransportFreightLedgerType::Charge)->count())->toBe(1)
+        ->and(TransportFreightLedger::query()->where('purchase_id', $purchase->id)->where('transaction_type', TransportFreightLedgerType::Reversal)->count())->toBe(1)
+        ->and((float) app(\App\Services\Inventory\TransportFreightLedgerService::class)->netPostedAmount($purchase))->toBe(0.0)
+        ->and(StockLedger::query()->where('reference_id', $purchase->id)->where('transaction_type', StockTransactionType::Purchase)->count())->toBe(1);
+});
+
+it('reposts freight allocation without duplicating ledgers when a confirmed purchase is edited', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $material = purchaseRawMaterial(100, 80);
+
+    $purchase = app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::RawMaterial, [
+            'transport_cost' => 2000,
+            'transporter_name' => 'Old Carrier',
+        ]),
+        [[
+            'raw_material_id' => $material->id,
+            'quantity' => 100,
+            'purchase_rate' => 100,
+            'gst_percentage' => 0,
+        ]],
+        $director,
+        confirm: true,
+    );
+
+    $updated = app(PurchaseService::class)->update(
+        $purchase,
+        purchaseHeader($supplier, PurchaseMaterialType::RawMaterial, [
+            'supplier_invoice_number' => $purchase->supplier_invoice_number,
+            'transport_cost' => 500,
+            'transporter_name' => 'New Carrier',
+            'transport_invoice_lr_no' => 'LR-9',
+        ]),
+        [[
+            'raw_material_id' => $material->id,
+            'quantity' => 100,
+            'purchase_rate' => 100,
+            'gst_percentage' => 0,
+        ]],
+        $director,
+    );
+
+    $material = $material->fresh();
+    $item = $updated->items()->first();
+    $charges = TransportFreightLedger::query()
+        ->where('purchase_id', $updated->id)
+        ->where('transaction_type', TransportFreightLedgerType::Charge)
+        ->get();
+
+    expect($updated->status)->toBe(PurchaseStatus::Confirmed)
+        ->and((float) $updated->grand_total)->toBe(10000.0)
+        ->and((float) $updated->transport_cost)->toBe(500.0)
+        ->and((float) $item->effective_unit_rate)->toBe(105.0)
+        ->and((float) $material->current_stock)->toBe(200.0)
+        ->and((float) $material->average_rate)->toBe(92.5)
+        ->and($charges)->toHaveCount(2)
+        ->and((float) $charges->last()->amount)->toBe(500.0)
+        ->and($charges->last()->transporter_name)->toBe('New Carrier')
+        ->and(TransportFreightLedger::query()->where('purchase_id', $updated->id)->where('transaction_type', TransportFreightLedgerType::Reversal)->count())->toBe(1)
+        ->and((float) app(\App\Services\Inventory\TransportFreightLedgerService::class)->netPostedAmount($updated))->toBe(500.0)
+        ->and(StockLedger::query()->where('reference_id', $updated->id)->where('transaction_type', StockTransactionType::Purchase)->count())->toBe(2);
+});
+
+it('shows supplier bill and transport cost separately on purchase view and freight ledger', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $material = purchaseRawMaterial(10, 20);
+
+    $purchase = app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::RawMaterial, [
+            'transport_cost' => 150,
+            'transporter_name' => 'SafeMove',
+            'transport_invoice_lr_no' => 'LR-77',
+        ]),
+        [[
+            'raw_material_id' => $material->id,
+            'quantity' => 10,
+            'purchase_rate' => 50,
+            'gst_percentage' => 18,
+        ]],
+        $director,
+        confirm: true,
+    );
+
+    Livewire::actingAs($director)
+        ->test(ViewPurchase::class, ['record' => $purchase->getKey()])
+        ->assertSuccessful()
+        ->assertSee('Material Bill Taxable Amount')
+        ->assertSee('Supplier Bill Grand Total')
+        ->assertSee('Transport/Freight Cost')
+        ->assertSee('Total Landed Cost')
+        ->assertSee('Allocated Transport Cost')
+        ->assertSee('Effective/Landed Rate')
+        ->assertSee('SafeMove');
+
+    Livewire::actingAs($director)
+        ->test(ListTransportFreightLedgers::class)
+        ->assertSuccessful()
+        ->assertSee($purchase->purchase_number)
+        ->assertSee('SafeMove')
+        ->assertSee('LR-77');
 });

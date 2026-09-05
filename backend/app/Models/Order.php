@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -238,6 +239,32 @@ class Order extends Model
     public function dealer(): BelongsTo
     {
         return $this->belongsTo(Dealer::class);
+    }
+
+    public function whatsAppBillMessages(): HasMany
+    {
+        return $this->hasMany(WhatsAppOutboundMessage::class, 'source_id')
+            ->where('source_type', WhatsAppOutboundMessage::SOURCE_BILL)
+            ->orderByDesc('id');
+    }
+
+    public function latestBillWhatsAppMessage(): HasOne
+    {
+        return $this->hasOne(WhatsAppOutboundMessage::class, 'source_id')
+            ->where('source_type', WhatsAppOutboundMessage::SOURCE_BILL)
+            ->latestOfMany('id');
+    }
+
+    public function billWhatsAppStatusLabel(): string
+    {
+        $message = $this->latestBillWhatsAppMessage;
+
+        return $message?->statusLabel() ?? 'Pending';
+    }
+
+    public function billWhatsAppStatusColor(): string
+    {
+        return $this->latestBillWhatsAppMessage?->statusColor() ?? 'gray';
     }
 
     public function salesEmployee(): BelongsTo

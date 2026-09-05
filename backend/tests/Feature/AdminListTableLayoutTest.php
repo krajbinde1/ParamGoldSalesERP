@@ -13,6 +13,7 @@ use App\Filament\Resources\PaymentRequests\Pages\ListPaymentRequests;
 use App\Filament\Resources\RawMaterials\Pages\ListRawMaterials;
 use App\Filament\Resources\SemiFinishedMaterials\Pages\ListSemiFinishedMaterials;
 use App\Filament\Resources\Targets\Pages\ListWeeklyTargets;
+use App\Filament\Resources\WhatsAppOutboundMessages\Pages\ListWhatsAppOutboundMessages;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -55,6 +56,7 @@ it('keeps core admin list pages rendering with the shared table markup', functio
         ListSemiFinishedMaterials::class,
         ListFieldActivities::class,
         ListAttendances::class,
+        ListWhatsAppOutboundMessages::class,
     ] as $page) {
         Livewire::actingAs($admin)
             ->test($page)

@@ -21,6 +21,8 @@ class Purchase extends Model
         'total_taxable_amount' => 0,
         'total_gst' => 0,
         'grand_total' => 0,
+        'transport_cost' => 0,
+        'total_landed_cost' => 0,
         'total_items' => 0,
     ];
 
@@ -39,6 +41,11 @@ class Purchase extends Model
         'total_taxable_amount',
         'total_gst',
         'grand_total',
+        'transport_cost',
+        'transporter_name',
+        'transport_invoice_lr_no',
+        'transport_remark',
+        'total_landed_cost',
         'total_items',
         'created_by',
         'confirmed_by',
@@ -59,6 +66,8 @@ class Purchase extends Model
             'total_taxable_amount' => 'decimal:2',
             'total_gst' => 'decimal:2',
             'grand_total' => 'decimal:2',
+            'transport_cost' => 'decimal:2',
+            'total_landed_cost' => 'decimal:2',
             'confirmed_at' => 'datetime',
             'cancelled_at' => 'datetime',
         ];
@@ -72,6 +81,11 @@ class Purchase extends Model
     public function items(): HasMany
     {
         return $this->hasMany(PurchaseItem::class)->orderBy('sort_order');
+    }
+
+    public function transportLedgers(): HasMany
+    {
+        return $this->hasMany(TransportFreightLedger::class)->orderBy('id');
     }
 
     public function createdBy(): BelongsTo

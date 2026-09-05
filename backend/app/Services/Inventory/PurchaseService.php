@@ -21,6 +21,8 @@ final class PurchaseService
         private readonly StockLedgerService $ledgerService = new StockLedgerService,
         private readonly MaterialInwardCosting $costing = new MaterialInwardCosting,
         private readonly WeightedAverageCosting $weightedAverage = new WeightedAverageCosting,
+        private readonly PurchaseFreightAllocator $freightAllocator = new PurchaseFreightAllocator,
+        private readonly TransportFreightLedgerService $transportLedger = new TransportFreightLedgerService,
         private readonly InventoryCodeGenerator $codes = new InventoryCodeGenerator,
     ) {}
 
@@ -112,7 +114,7 @@ final class PurchaseService
 
             if ($locked->status === PurchaseStatus::Confirmed) {
                 $this->assertCanReverseStock($locked);
-                $this->reverseConfirmedStock($locked, $user, 'Purchase cancel — '.$locked->purchase_number);
+                $this->reverseConfirmedPostings($locked, $user, 'Purchase cancel — '.$locked->purchase_number);
             }
 
             $locked->status = PurchaseStatus::Cancelled;
@@ -132,7 +134,7 @@ final class PurchaseService
     private function updateConfirmedSafely(Purchase $locked, array $header, array $items, User $user): Purchase
     {
         $this->assertCanReverseStock($locked);
-        $this->reverseConfirmedStock($locked, $user, 'Purchase edit reversal — '.$locked->purchase_number);
+        $this->reverseConfirmedPostings($locked, $user, 'Purchase edit reversal — '.$locked->purchase_number);
 
         $locked->refresh();
         $locked->status = PurchaseStatus::Draft;
@@ -163,11 +165,14 @@ final class PurchaseService
         }
 
         $this->assertHasItems($locked);
+        $this->applyFreightAllocation($locked);
         $items = $locked->items()->get();
 
         foreach ($items as $item) {
             $this->postItem($locked, $item, $user);
         }
+
+        $this->transportLedger->postCharge($locked, $user);
 
         $locked->status = PurchaseStatus::Confirmed;
         $locked->confirmed_by = $user->id;
@@ -179,27 +184,23 @@ final class PurchaseService
 
     private function postItem(Purchase $purchase, PurchaseItem $item, User $user): void
     {
-        $calculated = $this->costing->calculateItemAmounts([
-            'inward_quantity' => (float) $item->quantity,
-            'basic_rate' => (float) $item->purchase_rate,
-            'gst_percentage' => (float) $item->gst_percentage,
-        ]);
-
-        $qty = (float) $calculated['accepted_quantity'];
-        $purchaseRate = (float) $item->purchase_rate;
+        $qty = (float) $item->quantity;
+        $landedRate = (float) $item->effective_unit_rate;
+        if ($landedRate <= 0) {
+            $landedRate = (float) $item->purchase_rate;
+        }
 
         if ($purchase->material_type === PurchaseMaterialType::RawMaterial) {
             $material = $this->inventoryService->lockRawMaterial((int) $item->raw_material_id);
-            $this->applyInwardToMaterial($purchase, $item, $user, $material, $qty, $purchaseRate, $calculated);
+            $this->applyInwardToMaterial($purchase, $item, $user, $material, $qty, $landedRate);
         } else {
             $material = $this->inventoryService->lockPackagingMaterial((int) $item->packaging_material_id);
-            $this->applyInwardToMaterial($purchase, $item, $user, $material, $qty, $purchaseRate, $calculated);
+            $this->applyInwardToMaterial($purchase, $item, $user, $material, $qty, $landedRate);
         }
     }
 
     /**
      * @param  RawMaterial|PackagingMaterial  $material
-     * @param  array<string, mixed>  $calculated
      */
     private function applyInwardToMaterial(
         Purchase $purchase,
@@ -207,24 +208,19 @@ final class PurchaseService
         User $user,
         RawMaterial|PackagingMaterial $material,
         float $qty,
-        float $purchaseRate,
-        array $calculated,
+        float $landedRate,
     ): void {
         $oldStock = (float) $material->current_stock;
         $oldAvg = (float) $material->average_rate;
         $stockAfter = round($oldStock + $qty, 3);
         $newAvg = $qty > 0
-            ? $this->weightedAverage->newAverageRate($oldStock, $oldAvg, $qty, $purchaseRate)
+            ? $this->weightedAverage->newAverageRate($oldStock, $oldAvg, $qty, $landedRate)
             : $oldAvg;
         $stockValue = $this->weightedAverage->stockValue($stockAfter, $newAvg);
-        $inwardValue = $this->weightedAverage->stockValue($qty, $purchaseRate);
+        $inwardValue = $this->weightedAverage->stockValue($qty, $landedRate);
+        $purchaseRate = (float) $item->purchase_rate;
 
         $item->fill([
-            'taxable_amount' => $calculated['taxable_amount'],
-            'gst_amount' => $calculated['igst_amount'],
-            'total_amount' => $calculated['total_amount'],
-            'landed_cost' => $calculated['landed_cost'],
-            'effective_unit_rate' => $calculated['effective_unit_rate'],
             'stock_before' => $oldStock,
             'stock_after' => $stockAfter,
             'old_average_rate' => $oldAvg,
@@ -236,12 +232,12 @@ final class PurchaseService
             return;
         }
 
-        $meta = $this->ledgerMeta($purchase, $item, $oldAvg, $newAvg, $purchaseRate, $inwardValue);
+        $meta = $this->ledgerMeta($purchase, $item, $oldAvg, $newAvg, $purchaseRate, $landedRate, $inwardValue);
 
         if ($material instanceof RawMaterial) {
-            $this->ledgerService->postRawMaterialMovement($material, $qty, 0, $purchaseRate, $meta, $user);
+            $this->ledgerService->postRawMaterialMovement($material, $qty, 0, $landedRate, $meta, $user);
         } else {
-            $this->ledgerService->postPackagingMaterialMovement($material, $qty, 0, $purchaseRate, $meta, $user);
+            $this->ledgerService->postPackagingMaterialMovement($material, $qty, 0, $landedRate, $meta, $user);
         }
 
         $material->refresh();
@@ -249,6 +245,12 @@ final class PurchaseService
         $material->purchase_rate = $purchaseRate > 0 ? $purchaseRate : $material->purchase_rate;
         $material->current_stock_value = $stockValue;
         $material->save();
+    }
+
+    private function reverseConfirmedPostings(Purchase $locked, User $user, string $remarks): void
+    {
+        $this->reverseConfirmedStock($locked, $user, $remarks);
+        $this->transportLedger->reverse($locked, $user, $remarks);
     }
 
     private function reverseConfirmedStock(Purchase $locked, User $user, string $remarks): void
@@ -261,7 +263,10 @@ final class PurchaseService
                 continue;
             }
 
-            $purchaseRate = (float) $item->purchase_rate;
+            $landedRate = (float) $item->effective_unit_rate;
+            if ($landedRate <= 0) {
+                $landedRate = (float) $item->purchase_rate;
+            }
             $restoreAvg = $item->old_average_rate !== null
                 ? (float) $item->old_average_rate
                 : null;
@@ -286,7 +291,7 @@ final class PurchaseService
                 }
                 $meta['old_average_rate'] = (float) $material->average_rate;
                 $meta['new_average_rate'] = $restoreAvg ?? (float) $material->average_rate;
-                $this->ledgerService->postRawMaterialMovement($material, 0, $qty, $purchaseRate, $meta, $user);
+                $this->ledgerService->postRawMaterialMovement($material, 0, $qty, $landedRate, $meta, $user);
             } else {
                 $material = $this->inventoryService->lockPackagingMaterial((int) $item->packaging_material_id);
                 if ((float) $material->current_stock + 0.0001 < $qty) {
@@ -296,7 +301,7 @@ final class PurchaseService
                 }
                 $meta['old_average_rate'] = (float) $material->average_rate;
                 $meta['new_average_rate'] = $restoreAvg ?? (float) $material->average_rate;
-                $this->ledgerService->postPackagingMaterialMovement($material, 0, $qty, $purchaseRate, $meta, $user);
+                $this->ledgerService->postPackagingMaterialMovement($material, 0, $qty, $landedRate, $meta, $user);
             }
 
             $material->refresh();
@@ -362,19 +367,23 @@ final class PurchaseService
                 'gst_percentage' => $item['gst_percentage'] ?? 0,
             ]);
 
+            $qty = (float) $calculated['accepted_quantity'];
+            $taxable = (float) $calculated['taxable_amount'];
+
             PurchaseItem::query()->create([
                 'purchase_id' => $purchase->id,
                 'raw_material_id' => $rawId,
                 'packaging_material_id' => $packId,
                 'unit' => $unit,
-                'quantity' => $calculated['accepted_quantity'],
+                'quantity' => $qty,
                 'purchase_rate' => $calculated['basic_rate'],
-                'taxable_amount' => $calculated['taxable_amount'],
+                'taxable_amount' => $taxable,
                 'gst_percentage' => $calculated['gst_percentage'],
                 'gst_amount' => $calculated['igst_amount'],
                 'total_amount' => $calculated['total_amount'],
-                'landed_cost' => $calculated['landed_cost'],
-                'effective_unit_rate' => $calculated['effective_unit_rate'],
+                'allocated_transport_cost' => 0,
+                'landed_cost' => $taxable,
+                'effective_unit_rate' => $qty > 0 ? round($taxable / $qty, 4) : 0,
                 'batch_lot_no' => filled($item['batch_lot_no'] ?? null) ? trim((string) $item['batch_lot_no']) : null,
                 'remarks' => $item['remarks'] ?? null,
                 'sort_order' => $index,
@@ -391,6 +400,29 @@ final class PurchaseService
         $purchase->total_taxable_amount = round($items->sum('taxable_amount'), 2);
         $purchase->total_gst = round($items->sum('gst_amount'), 2);
         $purchase->grand_total = round($items->sum('total_amount'), 2);
+        $purchase->save();
+
+        $this->applyFreightAllocation($purchase);
+    }
+
+    private function applyFreightAllocation(Purchase $purchase): void
+    {
+        $items = $purchase->items()->orderBy('sort_order')->get();
+        $freight = round((float) $purchase->transport_cost, 2);
+        $taxables = $items->map(fn (PurchaseItem $item): float => (float) $item->taxable_amount)->all();
+        $allocated = $this->freightAllocator->allocate($freight, array_values($taxables));
+
+        foreach ($items->values() as $index => $item) {
+            $qty = (float) $item->quantity;
+            $taxable = (float) $item->taxable_amount;
+            $alloc = (float) ($allocated[$index] ?? 0);
+            $item->allocated_transport_cost = $alloc;
+            $item->landed_cost = $this->freightAllocator->landedCost($taxable, $alloc);
+            $item->effective_unit_rate = $this->freightAllocator->effectiveLandedRate($qty, $taxable, $alloc);
+            $item->save();
+        }
+
+        $purchase->total_landed_cost = round((float) $purchase->total_taxable_amount + $freight, 2);
         $purchase->save();
     }
 
@@ -430,6 +462,17 @@ final class PurchaseService
             ]);
         }
 
+        $transportCost = round((float) ($header['transport_cost'] ?? 0), 2);
+        if ($transportCost < 0 || ! is_finite($transportCost)) {
+            throw ValidationException::withMessages([
+                'transport_cost' => 'Transport/Freight Cost cannot be negative.',
+            ]);
+        }
+
+        $transporterName = trim((string) ($header['transporter_name'] ?? ''));
+        $transportLr = trim((string) ($header['transport_invoice_lr_no'] ?? ''));
+        $transportRemark = trim((string) ($header['transport_remark'] ?? ''));
+
         return [
             'purchase_date' => $header['purchase_date'] ?? now('Asia/Kolkata')->toDateString(),
             'supplier_id' => $supplierId > 0 ? $supplierId : null,
@@ -439,6 +482,10 @@ final class PurchaseService
             'material_type' => $type,
             'remarks' => $header['remarks'] ?? null,
             'invoice_path' => $header['invoice_path'] ?? null,
+            'transport_cost' => $transportCost,
+            'transporter_name' => $transporterName !== '' ? $transporterName : null,
+            'transport_invoice_lr_no' => $transportLr !== '' ? $transportLr : null,
+            'transport_remark' => $transportRemark !== '' ? $transportRemark : null,
         ];
     }
 
@@ -451,6 +498,7 @@ final class PurchaseService
         float $oldAvg,
         float $newAvg,
         float $purchaseRate,
+        float $landedRate,
         float $inwardValue,
     ): array {
         $supplier = $purchase->displaySupplierName();
@@ -472,6 +520,10 @@ final class PurchaseService
                 $purchase->supplier_invoice_number ? 'Invoice: '.$purchase->supplier_invoice_number : null,
                 'Qty: '.$item->quantity,
                 'Purchase Rate: '.$purchaseRate.' (ex GST)',
+                ((float) $item->allocated_transport_cost) > 0
+                    ? 'Allocated Freight: '.$item->allocated_transport_cost
+                    : null,
+                'Landed Rate: '.$landedRate,
                 'Value: '.$inwardValue,
             ]))),
         ];

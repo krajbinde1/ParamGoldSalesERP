@@ -131,6 +131,15 @@ class OrderPolicy
         return $user->isAdminUser();
     }
 
+    public function resendWhatsAppBill(User $user, Order $order): bool
+    {
+        if (! $user->isAdminUser()) {
+            return false;
+        }
+
+        return filled($order->bill_path) && filled($order->billed_at);
+    }
+
     public function sendForBill(User $user, Order $order): bool
     {
         if (! $order->canBeSentForBilling()) {

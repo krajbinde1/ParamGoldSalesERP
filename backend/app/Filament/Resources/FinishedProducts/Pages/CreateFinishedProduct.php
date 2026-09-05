@@ -4,7 +4,9 @@ namespace App\Filament\Resources\FinishedProducts\Pages;
 
 use App\Filament\Resources\FinishedProducts\FinishedProductResource;
 use App\Filament\Resources\FinishedProducts\Schemas\FinishedProductForm;
+use App\Models\Product;
 use App\Services\Inventory\FinishedProductCreateService;
+use App\Services\Inventory\FinishedProductOpeningStockCalculator;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\CreateRecord;
 use Filament\Schemas\Schema;
@@ -49,16 +51,53 @@ class CreateFinishedProduct extends CreateRecord
      */
     protected function handleRecordCreation(array $data): Model
     {
+        $linkedProductId = isset($data['linked_product_id']) && filled($data['linked_product_id'])
+            ? (int) $data['linked_product_id']
+            : null;
+        $cases = (float) ($data['opening_stock_cases'] ?? 0);
+        $date = isset($data['opening_date']) && filled($data['opening_date'])
+            ? (string) $data['opening_date']
+            : null;
+
         $opening = [
-            'quantity' => $data['opening_stock_quantity'] ?? 0,
-            'value' => $data['opening_stock_value'] ?? 0,
-            'date' => $data['opening_date'] ?? now('Asia/Kolkata')->toDateString(),
+            'quantity' => 0,
+            'value' => 0,
+            'date' => $date,
         ];
+
+        if ($linkedProductId !== null && $cases > 0) {
+            $product = Product::query()->find($linkedProductId);
+            if ($product === null) {
+                $this->addError('data.linked_product_id', 'Selected sales product was not found.');
+
+                throw new Halt;
+            }
+
+            try {
+                $resolved = app(FinishedProductOpeningStockCalculator::class)
+                    ->resolveForSave($product, $cases, $date);
+            } catch (ValidationException $exception) {
+                foreach ($exception->errors() as $field => $messages) {
+                    $this->addError($field, implode(' ', $messages));
+                }
+
+                throw new Halt;
+            }
+
+            $opening = [
+                'quantity' => $resolved['quantity'],
+                'value' => $resolved['value'],
+                'date' => $resolved['date'],
+            ];
+        }
 
         unset(
             $data['opening_stock_quantity'],
             $data['opening_stock_value'],
             $data['opening_date'],
+            $data['opening_stock_cases'],
+            $data['opening_average_cost'],
+            $data['nos_per_case'],
             $data['opening_effective_rate'],
             $data['product_code'],
             $data['product_name'],

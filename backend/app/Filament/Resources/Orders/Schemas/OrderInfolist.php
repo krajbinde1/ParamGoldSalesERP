@@ -307,6 +307,11 @@ class OrderInfolist
                             ->color('primary')
                             ->weight(FontWeight::SemiBold)
                             ->placeholder('—'),
+                        TextEntry::make('whatsapp_bill_status')
+                            ->label('WhatsApp')
+                            ->badge()
+                            ->state(fn (Order $record): string => $record->billWhatsAppStatusLabel())
+                            ->color(fn (Order $record): string => $record->billWhatsAppStatusColor()),
                     ]),
 
                 Section::make('Remarks')

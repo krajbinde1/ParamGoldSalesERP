@@ -67,6 +67,7 @@ class OrderResource extends Resource
 
         return $query->with([
             'editPermissionRequests' => fn ($requests) => $requests->orderByDesc('id'),
+            'latestBillWhatsAppMessage',
         ]);
     }
 

@@ -38,14 +38,36 @@ class PurchaseInfolist
                             ->label('Material Type')
                             ->formatStateUsing(fn ($state) => $state instanceof PurchaseMaterialType ? $state->label() : (string) $state),
                         TextEntry::make('total_quantity')->label('Total Qty')->numeric(3),
-                        TextEntry::make('total_taxable_amount')->label('Taxable Amount')->money('INR')->visible($canViewRates),
-                        TextEntry::make('total_gst')->label('GST')->money('INR')->visible($canViewRates),
-                        TextEntry::make('grand_total')->label('Grand Total')->money('INR')->visible($canViewRates),
                         TextEntry::make('remarks')->label('Remark')->placeholder('—')->columnSpanFull(),
                         TextEntry::make('invoice_path')
                             ->label('Purchase Invoice')
                             ->placeholder('—')
                             ->columnSpanFull(),
+                    ]),
+                Section::make('Supplier Purchase Bill')
+                    ->description('Matches the supplier material invoice. Transport/Freight is not included.')
+                    ->columns(3)
+                    ->visible($canViewRates)
+                    ->schema([
+                        TextEntry::make('total_taxable_amount')->label('Material Bill Taxable Amount')->money('INR'),
+                        TextEntry::make('total_gst')->label('GST')->money('INR'),
+                        TextEntry::make('grand_total')->label('Supplier Bill Grand Total')->money('INR'),
+                    ]),
+                Section::make('Transport / Freight')
+                    ->columns(3)
+                    ->schema([
+                        TextEntry::make('transport_cost')
+                            ->label('Transport/Freight Cost')
+                            ->money('INR')
+                            ->visible($canViewRates),
+                        TextEntry::make('transporter_name')->label('Transporter Name')->placeholder('—'),
+                        TextEntry::make('transport_invoice_lr_no')->label('Transport Invoice/LR No.')->placeholder('—'),
+                        TextEntry::make('transport_remark')->label('Transport Remark')->placeholder('—')->columnSpanFull(),
+                        TextEntry::make('total_landed_cost')
+                            ->label('Total Landed Cost')
+                            ->money('INR')
+                            ->helperText('Material taxable value + transport/freight. GST is excluded.')
+                            ->visible($canViewRates),
                     ]),
                 Section::make('Items')
                     ->schema([
@@ -56,11 +78,14 @@ class PurchaseInfolist
                                     ->state(fn (PurchaseItem $record): string => $record->materialName()),
                                 TextEntry::make('quantity')->numeric(3),
                                 TextEntry::make('unit')->label('UOM'),
-                                TextEntry::make('purchase_rate')->label('Purchase Rate (ex GST)')->money('INR')->visible($canViewRates),
+                                TextEntry::make('purchase_rate')->label('Purchase Rate')->money('INR')->visible($canViewRates),
                                 TextEntry::make('taxable_amount')->label('Taxable')->money('INR')->visible($canViewRates),
                                 TextEntry::make('gst_percentage')->label('GST %')->visible($canViewRates),
                                 TextEntry::make('gst_amount')->label('GST Amount')->money('INR')->visible($canViewRates),
-                                TextEntry::make('total_amount')->label('Total')->money('INR')->visible($canViewRates),
+                                TextEntry::make('total_amount')->label('Supplier Line Total')->money('INR')->visible($canViewRates),
+                                TextEntry::make('allocated_transport_cost')->label('Allocated Transport Cost')->money('INR')->visible($canViewRates),
+                                TextEntry::make('effective_unit_rate')->label('Effective/Landed Rate')->money('INR')->visible($canViewRates),
+                                TextEntry::make('landed_cost')->label('Landed Material Cost')->money('INR')->visible($canViewRates),
                                 TextEntry::make('batch_lot_no')->label('Batch/Lot No.')->placeholder('—'),
                             ])
                             ->columns(4),

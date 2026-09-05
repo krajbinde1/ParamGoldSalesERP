@@ -2,17 +2,21 @@
 
 use App\Actions\Employees\CreateEmployeeWithUserAccount;
 use App\Enums\UserRole;
+use App\Filament\Resources\Orders\Pages\ViewOrder;
+use App\Filament\Resources\WhatsAppOutboundMessages\Pages\ListWhatsAppOutboundMessages;
+use App\Filament\Resources\WhatsAppOutboundMessages\WhatsAppOutboundMessageResource;
 use App\Jobs\SendWhatsAppOutboundMessage;
 use App\Models\Collection;
 use App\Models\Dealer;
-use App\Models\DealerTallyEntry;
 use App\Models\Employee;
 use App\Models\Order;
+use App\Models\User;
 use App\Models\WhatsAppOutboundMessage;
 use App\Services\WhatsApp\WhatsAppOutboundEnqueueService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Livewire\Livewire;
 
 function waEmployee(string $mobile): Employee
 {
@@ -126,10 +130,14 @@ it('queues one bill whatsapp message when an order is marked billed', function (
         ->and($message->payload['bill_number'])->toBe('BILL-WA-1')
         ->and($message->payload['bill_date'])->toBe('2026-08-29')
         ->and($message->payload['grand_total'])->toEqual(11800.0)
+        ->and($message->payload['order_no'])->toBe($order->order_no)
         ->and($message->payload['media_kind'])->toBe('document')
-        ->and($message->payload['body'])->toContain('Shree Ganesh Traders')
-        ->and($message->payload['body'])->toContain('BILL-WA-1')
-        ->and(DealerTallyEntry::query()->where('source_id', $order->id)->count())->toBe(0);
+        ->and($message->send_kind)->toBe(WhatsAppOutboundMessage::SEND_KIND_AUTO)
+        ->and($message->payload['body'])->toContain('Dear Shree Ganesh Traders,')
+        ->and($message->payload['body'])->toContain('Your Sales Invoice for Order #'.$order->order_no)
+        ->and($message->payload['body'])->toContain('Invoice Amount: ₹11,800')
+        ->and($message->payload['body'])->toContain('Please find the invoice attached.')
+        ->and($message->payload['body'])->toContain('ParamGold Agritech Pvt. Ltd.');
 
     Queue::assertPushed(SendWhatsAppOutboundMessage::class, fn (SendWhatsAppOutboundMessage $job): bool => $job->messageId === $message->id);
     Http::assertNothingSent();
@@ -246,7 +254,7 @@ it('sends bill media through the cloud api when credentials are configured', fun
         ->and($message?->error)->toBeNull();
 
     Http::assertSent(fn ($request): bool => str_ends_with($request->url(), '/media'));
-    Http::assertSent(function ($request): bool {
+    Http::assertSent(function ($request) use ($order): bool {
         if (! str_ends_with($request->url(), '/messages')) {
             return false;
         }
@@ -256,7 +264,9 @@ it('sends bill media through the cloud api when credentials are configured', fun
         return ($data['type'] ?? null) === 'document'
             && ($data['to'] ?? null) === '919000000001'
             && str_contains((string) ($data['document']['caption'] ?? ''), 'Cloud Dealer')
-            && str_contains((string) ($data['document']['caption'] ?? ''), 'BILL-CLOUD');
+            && str_contains((string) ($data['document']['caption'] ?? ''), 'Your Sales Invoice for Order #'.$order->order_no)
+            && str_contains((string) ($data['document']['caption'] ?? ''), 'ParamGold Agritech Pvt. Ltd.')
+            && str_contains((string) ($data['document']['caption'] ?? ''), 'Invoice Amount: ₹11,800');
     });
 });
 
@@ -322,4 +332,214 @@ it('stores the exact meta error when send fails', function (): void {
     expect($message?->status)->toBe(WhatsAppOutboundMessage::STATUS_FAILED)
         ->and($message?->error)->toContain('Template name does not exist in the translation')
         ->and($message?->error)->toContain('132001');
+});
+
+function waAdmin(): User
+{
+    return User::query()->create([
+        'name' => 'WA Admin',
+        'email' => 'wa.admin.'.uniqid().'@example.com',
+        'password' => 'password',
+        'role' => UserRole::Director->value,
+        'job_role' => 'Admin',
+    ]);
+}
+
+it('does not auto-resend whatsapp when the billed pdf is replaced later', function (): void {
+    Queue::fake();
+    $employee = waEmployee('9814000009');
+    $dealer = waDealer($employee);
+    $order = waPendingOrder($dealer, $employee);
+    $order->markAsBilled(billPath: waBillFile('original.pdf'), billNumber: 'BILL-ORIG', billDate: '2026-08-29');
+
+    expect(WhatsAppOutboundMessage::query()->where('source_id', $order->id)->where('source_type', WhatsAppOutboundMessage::SOURCE_BILL)->count())->toBe(1);
+
+    Storage::disk('public')->put('order-bills/replaced.pdf', '%PDF-1.4 replaced bill');
+    $order->update(['bill_path' => 'order-bills/replaced.pdf']);
+
+    expect($order->fresh()->status)->toBe(Order::STATUS_BILLED)
+        ->and(WhatsAppOutboundMessage::query()->where('source_id', $order->id)->where('source_type', WhatsAppOutboundMessage::SOURCE_BILL)->count())->toBe(1);
+});
+
+it('queues a separate resend row without duplicating the original billed send', function (): void {
+    Queue::fake();
+    $employee = waEmployee('9814000010');
+    $dealer = waDealer($employee, ['firm_name' => 'Resend Dealer']);
+    $order = waPendingOrder($dealer, $employee);
+    $order->markAsBilled(billPath: waBillFile('resend.pdf'), billNumber: 'BILL-RS', billDate: '2026-08-29');
+
+    $resend = app(WhatsAppOutboundEnqueueService::class)->resendBilledOrder($order->fresh());
+
+    $rows = WhatsAppOutboundMessage::query()
+        ->where('source_id', $order->id)
+        ->where('source_type', WhatsAppOutboundMessage::SOURCE_BILL)
+        ->orderBy('id')
+        ->get();
+
+    expect($rows)->toHaveCount(2)
+        ->and($rows[0]->send_kind)->toBe(WhatsAppOutboundMessage::SEND_KIND_AUTO)
+        ->and($rows[0]->erp_reference)->toBe('WA-BILL-'.$order->id)
+        ->and($resend->send_kind)->toBe(WhatsAppOutboundMessage::SEND_KIND_RESEND)
+        ->and($resend->erp_reference)->toStartWith('WA-BILL-'.$order->id.'-R')
+        ->and($resend->payload['body'])->toContain('Your Sales Invoice for Order #'.$order->order_no)
+        ->and($order->fresh()->billWhatsAppStatusLabel())->toBe('Pending');
+});
+
+it('keeps the sales bill billed when the cloud api send fails', function (): void {
+    Http::fake([
+        'https://graph.facebook.com/v21.0/123456/media' => Http::response([
+            'error' => ['message' => 'Upload failed', 'code' => 100],
+        ], 400),
+    ]);
+    config()->set([
+        'services.whatsapp.enabled' => true,
+        'services.whatsapp.token' => 'test-token',
+        'services.whatsapp.phone_number_id' => '123456',
+        'services.whatsapp.graph_version' => 'v21.0',
+        'services.whatsapp.bill_template' => '',
+        'services.whatsapp.bill_image_template' => '',
+    ]);
+
+    $employee = waEmployee('9814000011');
+    $dealer = waDealer($employee);
+    $order = waPendingOrder($dealer, $employee);
+    $order->markAsBilled(billPath: waBillFile('fail-send.pdf'), billNumber: 'BILL-FAIL', billDate: '2026-08-29');
+
+    $message = WhatsAppOutboundMessage::query()->where('erp_reference', 'WA-BILL-'.$order->id)->first();
+
+    expect($order->fresh()->status)->toBe(Order::STATUS_BILLED)
+        ->and($order->fresh()->bill_path)->toBe('order-bills/fail-send.pdf')
+        ->and($message?->status)->toBe(WhatsAppOutboundMessage::STATUS_FAILED)
+        ->and($order->fresh()->billWhatsAppStatusLabel())->toBe('Failed');
+});
+
+it('marks a sent bill as delivered from the whatsapp webhook and does not downgrade', function (): void {
+    Http::fake([
+        'https://graph.facebook.com/v21.0/123456/media' => Http::response(['id' => 'MEDIA-D'], 200),
+        'https://graph.facebook.com/v21.0/123456/messages' => Http::response([
+            'messages' => [['id' => 'wamid.DELIVER']],
+        ], 200),
+    ]);
+    config()->set([
+        'services.whatsapp.enabled' => true,
+        'services.whatsapp.token' => 'test-token',
+        'services.whatsapp.phone_number_id' => '123456',
+        'services.whatsapp.graph_version' => 'v21.0',
+        'services.whatsapp.bill_template' => '',
+        'services.whatsapp.bill_image_template' => '',
+        'services.whatsapp.webhook_verify_token' => 'verify-secret',
+    ]);
+
+    $employee = waEmployee('9814000012');
+    $dealer = waDealer($employee);
+    $order = waPendingOrder($dealer, $employee);
+    $order->markAsBilled(billPath: waBillFile('deliver.pdf'), billNumber: 'BILL-DEL', billDate: '2026-08-29');
+
+    $message = WhatsAppOutboundMessage::query()->where('erp_reference', 'WA-BILL-'.$order->id)->first();
+    expect($message?->status)->toBe(WhatsAppOutboundMessage::STATUS_SENT)
+        ->and($message?->meta_message_id)->toBe('wamid.DELIVER');
+
+    $this->get('/api/whatsapp/webhook?hub.mode=subscribe&hub.verify_token=verify-secret&hub.challenge=CHALLENGE123')
+        ->assertOk()
+        ->assertSee('CHALLENGE123');
+
+    $this->postJson('/api/whatsapp/webhook', [
+        'object' => 'whatsapp_business_account',
+        'entry' => [[
+            'changes' => [[
+                'value' => [
+                    'statuses' => [[
+                        'id' => 'wamid.DELIVER',
+                        'status' => 'delivered',
+                    ]],
+                ],
+            ]],
+        ]],
+    ])->assertOk()->assertSee('EVENT_RECEIVED');
+
+    expect($message->fresh()->status)->toBe(WhatsAppOutboundMessage::STATUS_DELIVERED)
+        ->and($message->fresh()->delivered_at)->not->toBeNull()
+        ->and($order->fresh()->billWhatsAppStatusLabel())->toBe('Delivered');
+
+    $this->postJson('/api/whatsapp/webhook', [
+        'object' => 'whatsapp_business_account',
+        'entry' => [[
+            'changes' => [[
+                'value' => [
+                    'statuses' => [[
+                        'id' => 'wamid.DELIVER',
+                        'status' => 'sent',
+                    ]],
+                ],
+            ]],
+        ]],
+    ])->assertOk();
+
+    expect($message->fresh()->status)->toBe(WhatsAppOutboundMessage::STATUS_DELIVERED);
+
+    $this->postJson('/api/whatsapp/webhook', [
+        'object' => 'whatsapp_business_account',
+        'entry' => [[
+            'changes' => [[
+                'value' => [
+                    'statuses' => [[
+                        'id' => 'wamid.DELIVER',
+                        'status' => 'failed',
+                        'errors' => [['title' => 'Should not overwrite delivered']],
+                    ]],
+                ],
+            ]],
+        ]],
+    ])->assertOk();
+
+    expect($message->fresh()->status)->toBe(WhatsAppOutboundMessage::STATUS_DELIVERED);
+});
+
+it('shows resend bill on whatsapp for admin billed orders and writes a resend log row', function (): void {
+    Queue::fake();
+    $admin = waAdmin();
+    $employee = waEmployee('9814000013');
+    $dealer = waDealer($employee);
+    $order = waPendingOrder($dealer, $employee);
+    $order->markAsBilled(billPath: waBillFile('ui-resend.pdf'), billNumber: 'BILL-UI', billDate: '2026-08-29');
+
+    Livewire::actingAs($admin)
+        ->test(ViewOrder::class, ['record' => $order->getRouteKey()])
+        ->assertSuccessful()
+        ->assertSee('WhatsApp')
+        ->assertSee('Pending')
+        ->assertActionVisible('resendBillWhatsApp')
+        ->callAction('resendBillWhatsApp')
+        ->assertHasNoActionErrors()
+        ->assertNotified();
+
+    expect(WhatsAppOutboundMessage::query()
+        ->where('source_id', $order->id)
+        ->where('send_kind', WhatsAppOutboundMessage::SEND_KIND_RESEND)
+        ->count())->toBe(1);
+});
+
+it('lets admin and director open the whatsapp log and hides it from employees', function (): void {
+    $admin = waAdmin();
+    $director = User::query()->create([
+        'name' => 'WA Director',
+        'email' => 'wa.director.'.uniqid().'@example.com',
+        'password' => 'password',
+        'role' => UserRole::Director->value,
+        'job_role' => 'Director',
+    ]);
+    $employee = waEmployee('9814000014');
+
+    $this->actingAs($admin);
+    expect(WhatsAppOutboundMessageResource::canAccess())->toBeTrue();
+
+    Livewire::actingAs($admin)
+        ->test(ListWhatsAppOutboundMessages::class)
+        ->assertSuccessful();
+
+    $this->actingAs($director);
+    expect(WhatsAppOutboundMessageResource::canAccess())->toBeTrue();
+
+    $this->actingAs($employee->user);
+    expect(WhatsAppOutboundMessageResource::canAccess())->toBeFalse();
 });

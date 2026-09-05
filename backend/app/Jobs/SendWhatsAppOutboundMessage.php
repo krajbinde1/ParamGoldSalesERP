@@ -40,7 +40,7 @@ class SendWhatsAppOutboundMessage implements ShouldBeUnique, ShouldQueue
     public function failed(?Throwable $exception): void
     {
         $message = WhatsAppOutboundMessage::query()->find($this->messageId);
-        if ($message === null || $message->isSent()) {
+        if ($message === null || $message->wasAcceptedByProvider()) {
             return;
         }
 

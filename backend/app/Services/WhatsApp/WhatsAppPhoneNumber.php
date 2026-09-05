@@ -4,6 +4,18 @@ namespace App\Services\WhatsApp;
 
 final class WhatsAppPhoneNumber
 {
+    public static function fromDealer(?\App\Models\Dealer $dealer): ?string
+    {
+        if ($dealer === null) {
+            return null;
+        }
+
+        $whatsapp = trim((string) ($dealer->getAttribute('whatsapp') ?? ''));
+        $mobile = trim((string) ($dealer->mobile ?? ''));
+
+        return self::toE164($whatsapp !== '' ? $whatsapp : $mobile);
+    }
+
     public static function toE164(?string $raw): ?string
     {
         $digits = preg_replace('/\D+/', '', (string) $raw) ?? '';

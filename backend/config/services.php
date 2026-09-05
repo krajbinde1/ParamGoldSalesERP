@@ -45,6 +45,7 @@ return [
         'bill_template' => env('WHATSAPP_BILL_TEMPLATE'),
         'bill_image_template' => env('WHATSAPP_BILL_IMAGE_TEMPLATE'),
         'collection_template' => env('WHATSAPP_COLLECTION_TEMPLATE'),
+        'webhook_verify_token' => env('WHATSAPP_WEBHOOK_VERIFY_TOKEN'),
     ],
 
 ];

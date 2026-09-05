@@ -9,8 +9,10 @@ namespace App\Services\Inventory;
  * (Current Stock Qty × Current Average Rate + Purchase Qty × Purchase Rate)
  * ÷ (Current Stock Qty + Purchase Qty)
  *
- * Purchase Rate is the basic (ex-GST) rate. GST stays on the purchase document
- * and is never folded into average_rate, stock value, or consumption cost.
+ * Purchase Rate / Effective Landed Rate is GST-exclusive.
+ * Recoverable GST stays on the purchase document and is never folded into
+ * average_rate, stock value, or consumption cost.
+ * Effective Landed Rate may include allocated Transport/Freight Cost.
  */
 final class WeightedAverageCosting
 {

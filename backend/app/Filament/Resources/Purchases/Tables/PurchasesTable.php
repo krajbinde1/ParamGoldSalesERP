@@ -63,9 +63,20 @@ class PurchasesTable
                     ->sortable()
                     ->visible($canViewRates),
                 TextColumn::make('grand_total')
-                    ->label('Grand Total')
+                    ->label('Supplier Bill Grand Total')
                     ->money('INR')
                     ->sortable()
+                    ->visible($canViewRates),
+                TextColumn::make('transport_cost')
+                    ->label('Transport/Freight Cost')
+                    ->money('INR')
+                    ->sortable()
+                    ->visible($canViewRates),
+                TextColumn::make('total_landed_cost')
+                    ->label('Total Landed Cost')
+                    ->money('INR')
+                    ->sortable()
+                    ->toggleable()
                     ->visible($canViewRates),
                 TextColumn::make('status')
                     ->badge()

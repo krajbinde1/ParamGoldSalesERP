@@ -5,7 +5,8 @@ namespace App\Filament\Resources\FinishedProducts\Schemas;
 use App\Enums\InventoryUnit;
 use App\Filament\Resources\FinishedProducts\FinishedProductResource;
 use App\Models\Product;
-use App\Services\Inventory\MaterialInwardCosting;
+use App\Services\Inventory\FinishedProductOpeningStockCalculator;
+use App\Support\IndianCurrency;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Select;
@@ -17,8 +18,6 @@ use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
-use Illuminate\Support\HtmlString;
-use Illuminate\Validation\ValidationException;
 
 class FinishedProductForm
 {
@@ -72,11 +71,14 @@ class FinishedProductForm
                             ->preload()
                             ->required()
                             ->live()
-                            ->afterStateUpdated(function ($state, Set $set): void {
+                            ->afterStateUpdated(function ($state, Get $get, Set $set): void {
                                 if (blank($state)) {
                                     $set('product_code', null);
                                     $set('product_name', null);
                                     $set('unit', null);
+                                    $set('nos_per_case', null);
+                                    $set('opening_average_cost', 0);
+                                    self::recalculateOpeningDerivedFields($get, $set);
 
                                     return;
                                 }
@@ -90,6 +92,9 @@ class FinishedProductForm
                                 $set('product_name', $product->product_name);
                                 $set('unit', $product->production_unit ?: $product->uom);
                                 $set('minimum_finished_stock', $product->minimum_finished_stock ?? 0);
+                                $set('nos_per_case', app(FinishedProductOpeningStockCalculator::class)->nosPerCase($product));
+                                $set('opening_average_cost', app(FinishedProductOpeningStockCalculator::class)->averageCostPerNos($product) ?? 0);
+                                self::recalculateOpeningDerivedFields($get, $set);
                             })
                             ->columnSpanFull(),
                         TextInput::make('product_code')
@@ -153,14 +158,18 @@ class FinishedProductForm
     ): array {
         $description = $readOnly
             ? 'As entered at create/import. Opening stock is not changed on Edit (no duplicate Opening Stock ledger). Use Production Entry or Stock Adjustment for later inventory changes.'
-            : 'Optional. Quantity greater than zero posts or updates Opening Stock. Available Stock and Stock Value always follow live inventory after production, consumption, and adjustment — they are not frozen at this opening. After other stock movements, opening quantity and value cannot be changed here.';
+            : 'Enter Opening Stock (Cases) and As On Date only. Opening Qty (Nos) = Cases × Nos Per Case. Average Cost/Nos comes from the product’s current Active BOM. Opening Stock Value = Qty (Nos) × Average Cost/Nos. An Active BOM is required to save opening stock. Available Stock includes this opening quantity.';
+
+        $recalculate = function (Get $get, Set $set): void {
+            self::recalculateOpeningDerivedFields($get, $set);
+        };
 
         $section = Section::make('Opening Stock')
             ->description($description)
             ->columns(2)
             ->schema([
-                TextInput::make('opening_stock_quantity')
-                    ->label('Opening Stock Quantity')
+                TextInput::make('opening_stock_cases')
+                    ->label('Opening Stock (Cases)')
                     ->numeric()
                     ->minValue(0)
                     ->default(0)
@@ -168,61 +177,67 @@ class FinishedProductForm
                     ->disabled($readOnly)
                     ->dehydrated(fn (): bool => ! $readOnly)
                     ->live(debounce: 300)
-                    ->suffix(fn (Get $get): string => filled($get('unit')) ? (string) $get('unit') : '')
+                    ->afterStateUpdated($recalculate)
+                    ->suffix('Cases')
                     ->helperText(fn (Get $get): ?string => $readOnly
                         ? null
-                        : (filled($get('unit'))
-                            ? null
-                            : 'Select Unit before entering quantity.'))
+                        : ((float) ($get('opening_average_cost') ?? 0) <= 0 && (float) ($get('opening_stock_cases') ?? 0) > 0
+                            ? 'Set an Active BOM for this product before saving opening stock.'
+                            : 'Manual input. Qty, Average Cost/Nos, and Stock Value are calculated.'))
                     ->rules($readOnly ? [] : [
                         fn (Get $get): \Closure => function (string $attribute, mixed $value, \Closure $fail) use ($get): void {
-                            $qty = (float) ($value ?? 0);
-                            if ($qty < 0 || ! is_numeric($value ?? 0)) {
-                                $fail('Opening Stock Quantity must be zero or greater.');
+                            $cases = (float) ($value ?? 0);
+                            if ($cases < 0 || ($value !== null && $value !== '' && ! is_numeric($value))) {
+                                $fail('Opening Stock (Cases) must be zero or greater.');
                             }
-                            if ($qty > 0 && blank($get('unit'))) {
-                                $fail('Select Unit before entering Opening Stock Quantity.');
+                            if ($cases > 0 && (int) ($get('nos_per_case') ?? 0) <= 0) {
+                                $fail('Nos Per Case must be set on the Sales Product before entering opening stock.');
+                            }
+                            if ($cases > 0 && (float) ($get('opening_average_cost') ?? 0) <= 0) {
+                                $fail('Set an Active BOM for this product before saving opening stock.');
                             }
                         },
                     ]),
+                TextInput::make('nos_per_case')
+                    ->label('Nos Per Case')
+                    ->numeric()
+                    ->readOnly()
+                    ->dehydrated(false)
+                    ->placeholder('—')
+                    ->helperText('From Sales Product master.'),
+                TextInput::make('opening_stock_quantity')
+                    ->label('Opening Qty (Nos)')
+                    ->numeric()
+                    ->readOnly()
+                    ->dehydrated(fn (): bool => ! $readOnly)
+                    ->suffix('Nos')
+                    ->helperText('Opening Cases × Nos Per Case')
+                    ->default(0),
+                TextInput::make('opening_average_cost')
+                    ->label('Average Cost/Nos')
+                    ->numeric()
+                    ->prefix('₹')
+                    ->suffix('/Nos')
+                    ->readOnly()
+                    ->dehydrated(false)
+                    ->helperText('Estimated Cost Per Unit from the Active BOM.')
+                    ->default(0),
                 TextInput::make('opening_stock_value')
                     ->label('Opening Stock Value')
                     ->numeric()
-                    ->minValue(0)
-                    ->default(0)
                     ->prefix('₹')
-                    ->live(debounce: 300)
-                    ->disabled($readOnly)
+                    ->readOnly()
                     ->dehydrated(fn (): bool => ! $readOnly)
-                    ->required(fn (Get $get): bool => ! $readOnly && (float) ($get('opening_stock_quantity') ?? 0) > 0)
-                    ->rules($readOnly ? [] : [
-                        fn (Get $get): \Closure => function (string $attribute, mixed $value, \Closure $fail) use ($get): void {
-                            $qty = (float) ($get('opening_stock_quantity') ?? 0);
-                            $stockValue = (float) ($value ?? 0);
-                            if ($stockValue < 0) {
-                                $fail('Opening Stock Value cannot be negative.');
-                            }
-                            if ($qty > 0 && $stockValue <= 0) {
-                                $fail('Opening Stock Value is required when Opening Stock Quantity is greater than zero.');
-                            }
-                            if ($qty <= 0 && $stockValue > 0) {
-                                $fail('Opening Stock Value must be zero when Opening Stock Quantity is zero.');
-                            }
-                        },
-                    ]),
-                Placeholder::make('opening_effective_rate')
-                    ->label('Effective Rate')
-                    ->content(fn (Get $get): HtmlString => new HtmlString(
-                        '<span class="tabular-nums font-semibold">'.e(self::formatEffectiveRate($get)).'</span>'
-                    )),
+                    ->helperText('Opening Qty (Nos) × Average Cost/Nos')
+                    ->default(0),
                 DatePicker::make('opening_date')
-                    ->label('Opening Date')
+                    ->label('As On Date')
                     ->native(false)
                     ->displayFormat('d-m-Y')
                     ->default(fn (): string => now('Asia/Kolkata')->toDateString())
                     ->disabled($readOnly)
                     ->dehydrated(fn (): bool => ! $readOnly)
-                    ->required(fn (Get $get): bool => ! $readOnly && (float) ($get('opening_stock_quantity') ?? 0) > 0),
+                    ->required(fn (Get $get): bool => ! $readOnly && (float) ($get('opening_stock_cases') ?? 0) > 0),
             ]);
 
         if ($columnSpan !== null) {
@@ -299,35 +314,20 @@ class FinishedProductForm
                                 return '—';
                             }
 
-                            return '₹'.number_format((float) $record->current_stock_value, 2, '.', ',');
+                            return IndianCurrency::formatExact((float) $record->current_stock_value);
                         }),
                 ]),
         ];
     }
 
-    private static function formatEffectiveRate(Get $get): string
+    private static function recalculateOpeningDerivedFields(Get $get, Set $set): void
     {
-        $qty = (float) ($get('opening_stock_quantity') ?? 0);
-        $value = (float) ($get('opening_stock_value') ?? 0);
+        $cases = (float) ($get('opening_stock_cases') ?? 0);
+        $nosPerCase = (int) ($get('nos_per_case') ?? 0);
+        $averageCost = (float) ($get('opening_average_cost') ?? 0);
+        $qty = FinishedProductOpeningStockCalculator::openingQtyNos($cases, $nosPerCase);
 
-        if ($qty <= 0 || $value <= 0) {
-            return '—';
-        }
-
-        try {
-            $basicRate = round($value / $qty, 4);
-            $calculated = app(MaterialInwardCosting::class)->calculateItemAmounts([
-                'inward_quantity' => $qty,
-                'basic_rate' => $basicRate,
-                'discount_amount' => 0,
-                'freight_amount' => 0,
-                'other_charges' => 0,
-                'gst_percentage' => 0,
-            ]);
-
-            return '₹'.number_format((float) $calculated['effective_unit_rate'], 4, '.', ',');
-        } catch (ValidationException) {
-            return '—';
-        }
+        $set('opening_stock_quantity', $qty);
+        $set('opening_stock_value', FinishedProductOpeningStockCalculator::openingStockValue($qty, $averageCost));
     }
 }

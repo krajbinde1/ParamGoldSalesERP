@@ -19,6 +19,7 @@ use App\Filament\Resources\RawMaterialInwards\Pages\ListRawMaterialInwards;
 use App\Filament\Resources\RawMaterials\Pages\ListRawMaterials;
 use App\Filament\Resources\SemiFinishedMaterials\Pages\ListSemiFinishedMaterials;
 use App\Filament\Resources\StockAdjustments\Pages\ListStockAdjustments;
+use App\Filament\Resources\TransportFreightLedgers\Pages\ListTransportFreightLedgers;
 use App\Models\User;
 use Livewire\Livewire;
 
@@ -44,6 +45,7 @@ it('boots Inventory & Manufacturing menu pages without error', function (string 
     'raw material inwards' => ListRawMaterialInwards::class,
     'packaging material inwards' => ListPackagingMaterialInwards::class,
     'purchases' => ListPurchases::class,
+    'transport freight charges' => ListTransportFreightLedgers::class,
     'boms' => ListBoms::class,
     'production batches' => ListProductionBatches::class,
     'stock adjustments' => ListStockAdjustments::class,

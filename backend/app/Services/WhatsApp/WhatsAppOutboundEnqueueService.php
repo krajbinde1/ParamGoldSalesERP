@@ -39,7 +39,7 @@ final class WhatsAppOutboundEnqueueService
         }
 
         $order->loadMissing('dealer');
-        $phone = WhatsAppPhoneNumber::toE164($order->dealer?->mobile);
+        $phone = WhatsAppPhoneNumber::fromDealer($order->dealer);
         $error = $this->billError($order, $phone);
         $payload = $this->billPayload($order, $phone);
 
@@ -50,7 +50,35 @@ final class WhatsAppOutboundEnqueueService
             toNumber: $phone,
             payload: $payload,
             enqueueError: $error,
+            sendKind: WhatsAppOutboundMessage::SEND_KIND_AUTO,
         );
+
+        $this->dispatchIfPending($message);
+
+        return $message;
+    }
+
+    public function resendBilledOrder(Order $order): WhatsAppOutboundMessage
+    {
+        $order->loadMissing('dealer');
+        $phone = WhatsAppPhoneNumber::fromDealer($order->dealer);
+        $error = $this->billError($order, $phone);
+        $payload = $this->billPayload($order, $phone);
+        $payload['resend'] = true;
+
+        $message = WhatsAppOutboundMessage::query()->create([
+            'source_type' => WhatsAppOutboundMessage::SOURCE_BILL,
+            'source_id' => (int) $order->id,
+            'send_kind' => WhatsAppOutboundMessage::SEND_KIND_RESEND,
+            'erp_reference' => WhatsAppOutboundMessage::billResendReference((int) $order->id),
+            'to_number' => $phone,
+            'payload' => $payload,
+            'status' => $error === null
+                ? WhatsAppOutboundMessage::STATUS_PENDING
+                : WhatsAppOutboundMessage::STATUS_FAILED,
+            'attempts' => 0,
+            'error' => $error,
+        ]);
 
         $this->dispatchIfPending($message);
 
@@ -70,7 +98,7 @@ final class WhatsAppOutboundEnqueueService
         }
 
         $collection->loadMissing('dealer');
-        $phone = WhatsAppPhoneNumber::toE164($collection->dealer?->mobile);
+        $phone = WhatsAppPhoneNumber::fromDealer($collection->dealer);
         $error = $this->collectionError($collection, $phone);
         $payload = $this->collectionPayload($collection, $phone);
 
@@ -149,10 +177,9 @@ final class WhatsAppOutboundEnqueueService
             'media_kind' => $media['kind'],
             'mime_type' => $media['mime'],
             'filename' => $media['filename'] ?: ($billNumber.'.pdf'),
-            'body' => $this->billBody(
+            'body' => WhatsAppBillCopy::body(
                 (string) ($dealer?->firm_name ?? 'Dealer'),
-                $billNumber,
-                $billDate,
+                (string) $order->order_no,
                 $amount,
             ),
         ];
@@ -207,14 +234,6 @@ final class WhatsAppOutboundEnqueueService
         };
     }
 
-    private function billBody(string $dealerName, string $billNumber, string $billDate, float $amount): string
-    {
-        return 'Dear '.$dealerName.', your bill '.$billNumber
-            .' dated '.$this->displayDate($billDate)
-            .' for '.IndianCurrency::format($amount)
-            .' has been generated. Please find the bill attached.';
-    }
-
     private function collectionBody(string $dealerName, float $amount, string $receiptNo, string $date): string
     {
         return 'Dear '.$dealerName.', we have received payment of '
@@ -243,6 +262,7 @@ final class WhatsAppOutboundEnqueueService
         array $payload,
         ?string $enqueueError,
         bool $refreshIfUnsynced = false,
+        string $sendKind = WhatsAppOutboundMessage::SEND_KIND_AUTO,
     ): WhatsAppOutboundMessage {
         try {
             return DB::transaction(function () use (
@@ -253,10 +273,12 @@ final class WhatsAppOutboundEnqueueService
                 $payload,
                 $enqueueError,
                 $refreshIfUnsynced,
+                $sendKind,
             ): WhatsAppOutboundMessage {
                 $existing = WhatsAppOutboundMessage::query()
                     ->where('source_type', $sourceType)
                     ->where('source_id', $sourceId)
+                    ->where('send_kind', $sendKind)
                     ->lockForUpdate()
                     ->first();
 
@@ -265,7 +287,7 @@ final class WhatsAppOutboundEnqueueService
                     : WhatsAppOutboundMessage::STATUS_FAILED;
 
                 if ($existing !== null) {
-                    if ($existing->isSent() || ! $refreshIfUnsynced || ! $existing->isFailed()) {
+                    if ($existing->wasAcceptedByProvider() || ! $refreshIfUnsynced || ! $existing->isFailed()) {
                         return $existing;
                     }
 
@@ -277,6 +299,7 @@ final class WhatsAppOutboundEnqueueService
                         'meta_message_id' => null,
                         'meta_media_id' => null,
                         'sent_at' => null,
+                        'delivered_at' => null,
                     ]);
                     $existing->save();
 
@@ -286,6 +309,7 @@ final class WhatsAppOutboundEnqueueService
                 return WhatsAppOutboundMessage::query()->create([
                     'source_type' => $sourceType,
                     'source_id' => $sourceId,
+                    'send_kind' => $sendKind,
                     'erp_reference' => $erpReference,
                     'to_number' => $toNumber,
                     'payload' => $payload,
@@ -296,8 +320,7 @@ final class WhatsAppOutboundEnqueueService
             });
         } catch (UniqueConstraintViolationException) {
             return WhatsAppOutboundMessage::query()
-                ->where('source_type', $sourceType)
-                ->where('source_id', $sourceId)
+                ->where('erp_reference', $erpReference)
                 ->firstOrFail();
         }
     }

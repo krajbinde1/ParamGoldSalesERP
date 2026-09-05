@@ -7,8 +7,10 @@ use App\Filament\Resources\Products\Schemas\ProductForm;
 use App\Models\PackagingMaterial;
 use App\Models\RawMaterial;
 use App\Models\Supplier;
+use App\Services\Inventory\PurchaseFreightAllocator;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\FileUpload;
+use Filament\Forms\Components\Placeholder;
 use Filament\Forms\Components\Repeater;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
@@ -118,10 +120,12 @@ class PurchaseForm
                                     ->visible(fn (Get $get): bool => $get('../../material_type') === PurchaseMaterialType::RawMaterial->value
                                         || blank($get('../../material_type')))
                                     ->live()
-                                    ->afterStateUpdated(function ($state, Set $set): void {
+                                    ->afterStateUpdated(function ($state, Set $set, Get $get): void {
                                         $material = RawMaterial::query()->find($state);
                                         $set('unit', $material?->unit);
                                         $set('purchase_rate', $material?->purchase_rate ?: null);
+                                        self::recalculateLine($set, $get);
+                                        self::recalculateFreightAllocation($set, $get);
                                     }),
                                 Select::make('packaging_material_id')
                                     ->label('Material Name')
@@ -138,10 +142,12 @@ class PurchaseForm
                                     ->required(fn (Get $get): bool => $get('../../material_type') === PurchaseMaterialType::PackingMaterial->value)
                                     ->visible(fn (Get $get): bool => $get('../../material_type') === PurchaseMaterialType::PackingMaterial->value)
                                     ->live()
-                                    ->afterStateUpdated(function ($state, Set $set): void {
+                                    ->afterStateUpdated(function ($state, Set $set, Get $get): void {
                                         $material = PackagingMaterial::query()->find($state);
                                         $set('unit', $material?->unit);
                                         $set('purchase_rate', $material?->purchase_rate ?: null);
+                                        self::recalculateLine($set, $get);
+                                        self::recalculateFreightAllocation($set, $get);
                                     }),
                                 TextInput::make('quantity')
                                     ->label('Quantity')
@@ -149,20 +155,26 @@ class PurchaseForm
                                     ->minValue(0.001)
                                     ->required()
                                     ->live(onBlur: true)
-                                    ->afterStateUpdated(fn (Get $get, Set $set) => self::recalculateLine($set, $get)),
+                                    ->afterStateUpdated(function (Get $get, Set $set): void {
+                                        self::recalculateLine($set, $get);
+                                        self::recalculateFreightAllocation($set, $get);
+                                    }),
                                 TextInput::make('unit')
                                     ->label('UOM')
                                     ->readOnly()
                                     ->dehydrated(),
                                 TextInput::make('purchase_rate')
                                     ->label('Purchase Rate')
-                                    ->helperText('Excluding GST. Used for weighted average stock rate.')
+                                    ->helperText('Ex GST. Matches the supplier invoice rate.')
                                     ->numeric()
                                     ->prefix('₹')
                                     ->minValue(0)
                                     ->required()
                                     ->live(onBlur: true)
-                                    ->afterStateUpdated(fn (Get $get, Set $set) => self::recalculateLine($set, $get)),
+                                    ->afterStateUpdated(function (Get $get, Set $set): void {
+                                        self::recalculateLine($set, $get);
+                                        self::recalculateFreightAllocation($set, $get);
+                                    }),
                                 TextInput::make('taxable_amount')
                                     ->label('Taxable Amount')
                                     ->prefix('₹')
@@ -175,17 +187,31 @@ class PurchaseForm
                                     ->default('0')
                                     ->required()
                                     ->live()
-                                    ->afterStateUpdated(fn (Get $get, Set $set) => self::recalculateLine($set, $get)),
+                                    ->afterStateUpdated(function (Get $get, Set $set): void {
+                                        self::recalculateLine($set, $get);
+                                        self::recalculateFreightAllocation($set, $get);
+                                    }),
                                 TextInput::make('gst_amount')
                                     ->label('GST Amount')
                                     ->prefix('₹')
                                     ->readOnly()
                                     ->dehydrated(),
                                 TextInput::make('total_amount')
-                                    ->label('Total Amount')
+                                    ->label('Supplier Line Total')
                                     ->prefix('₹')
                                     ->readOnly()
                                     ->dehydrated(),
+                                TextInput::make('allocated_transport_cost')
+                                    ->label('Allocated Transport Cost')
+                                    ->prefix('₹')
+                                    ->readOnly()
+                                    ->dehydrated(),
+                                TextInput::make('effective_unit_rate')
+                                    ->label('Effective/Landed Rate')
+                                    ->prefix('₹')
+                                    ->readOnly()
+                                    ->dehydrated()
+                                    ->helperText('(Taxable + Allocated Freight) ÷ Qty. Used for stock costing.'),
                                 TextInput::make('batch_lot_no')
                                     ->label('Batch/Lot No.')
                                     ->maxLength(80),
@@ -194,6 +220,53 @@ class PurchaseForm
                                     ->maxLength(255)
                                     ->columnSpan(2),
                             ]),
+                    ]),
+                Section::make('Transport / Freight')
+                    ->description('Not added to the supplier purchase bill. Allocated to materials for stock costing only.')
+                    ->columns(3)
+                    ->schema([
+                        TextInput::make('transport_cost')
+                            ->label('Transport/Freight Cost')
+                            ->numeric()
+                            ->prefix('₹')
+                            ->minValue(0)
+                            ->default(0)
+                            ->live(onBlur: true)
+                            ->afterStateUpdated(fn (Get $get, Set $set) => self::recalculateFreightAllocation($set, $get)),
+                        TextInput::make('transporter_name')
+                            ->label('Transporter Name')
+                            ->maxLength(255),
+                        TextInput::make('transport_invoice_lr_no')
+                            ->label('Transport Invoice/LR No.')
+                            ->maxLength(80),
+                        Textarea::make('transport_remark')
+                            ->label('Transport Remark')
+                            ->rows(2)
+                            ->columnSpanFull(),
+                    ]),
+                Section::make('Cost summary')
+                    ->description('Supplier Bill Grand Total always matches the material invoice. Transport is shown separately.')
+                    ->columns(3)
+                    ->schema([
+                        Placeholder::make('material_bill_taxable_display')
+                            ->label('Material Bill Taxable Amount')
+                            ->content(fn (Get $get): string => self::formatMoney(self::sumItems($get, 'taxable_amount'))),
+                        Placeholder::make('material_bill_gst_display')
+                            ->label('GST')
+                            ->content(fn (Get $get): string => self::formatMoney(self::sumItems($get, 'gst_amount'))),
+                        Placeholder::make('supplier_bill_grand_total_display')
+                            ->label('Supplier Bill Grand Total')
+                            ->content(fn (Get $get): string => self::formatMoney(self::sumItems($get, 'total_amount'))),
+                        Placeholder::make('transport_cost_display')
+                            ->label('Transport/Freight Cost')
+                            ->content(fn (Get $get): string => self::formatMoney((float) ($get('transport_cost') ?? 0))),
+                        Placeholder::make('total_landed_cost_display')
+                            ->label('Total Landed Cost')
+                            ->content(function (Get $get): string {
+                                $landed = round(self::sumItems($get, 'taxable_amount') + (float) ($get('transport_cost') ?? 0), 2);
+
+                                return self::formatMoney($landed);
+                            }),
                     ]),
             ]);
     }
@@ -214,5 +287,58 @@ class PurchaseForm
         $set('taxable_amount', number_format($taxable, 2, '.', ''));
         $set('gst_amount', number_format($gstAmount, 2, '.', ''));
         $set('total_amount', number_format($total, 2, '.', ''));
+    }
+
+    public static function recalculateFreightAllocation(Set $set, Get $get): void
+    {
+        $insideItem = is_array($get('../../items'));
+        $items = $insideItem ? $get('../../items') : $get('items');
+        $freight = (float) ($insideItem ? ($get('../../transport_cost') ?? 0) : ($get('transport_cost') ?? 0));
+
+        if (! is_array($items) || $items === []) {
+            return;
+        }
+
+        $taxables = [];
+        foreach ($items as $item) {
+            $qty = (float) ($item['quantity'] ?? 0);
+            $rate = (float) ($item['purchase_rate'] ?? 0);
+            $taxables[] = round($qty * $rate, 2);
+        }
+
+        $allocated = app(PurchaseFreightAllocator::class)->allocate($freight, $taxables);
+        $prefix = $insideItem ? '../../items' : 'items';
+        $index = 0;
+
+        foreach (array_keys($items) as $key) {
+            $qty = (float) ($items[$key]['quantity'] ?? 0);
+            $taxable = $taxables[$index] ?? 0.0;
+            $alloc = (float) ($allocated[$index] ?? 0);
+            $landedRate = app(PurchaseFreightAllocator::class)->effectiveLandedRate($qty, $taxable, $alloc);
+
+            $set("{$prefix}.{$key}.allocated_transport_cost", number_format($alloc, 2, '.', ''));
+            $set("{$prefix}.{$key}.effective_unit_rate", number_format($landedRate, 4, '.', ''));
+            $index++;
+        }
+    }
+
+    private static function sumItems(Get $get, string $field): float
+    {
+        $items = $get('items');
+        if (! is_array($items)) {
+            return 0.0;
+        }
+
+        $sum = 0.0;
+        foreach ($items as $item) {
+            $sum += (float) ($item[$field] ?? 0);
+        }
+
+        return round($sum, 2);
+    }
+
+    private static function formatMoney(float $amount): string
+    {
+        return '₹'.number_format($amount, 2, '.', ',');
     }
 }

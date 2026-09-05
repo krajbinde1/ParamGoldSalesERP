@@ -9,6 +9,7 @@ use App\Actions\Orders\SendOrderForBilling;
 use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Support\OrderDispatchedEditActions;
 use App\Filament\Support\OrderHoldRevertActions;
+use App\Filament\Support\ResendBillWhatsAppAction;
 use App\Filament\Support\SendForBillForm;
 use App\Models\Order;
 use Filament\Actions\Action;
@@ -175,6 +176,17 @@ class ViewOrder extends ViewRecord
                 ->visible(fn (): bool => (auth()->user()?->canActAsProductionSupervisor() ?? false)
                     && filled($record->bill_path)
                     && filled($record->billUrl())),
+            ResendBillWhatsAppAction::make()
+                ->after(function () use ($record): void {
+                    $record->refresh();
+                    $record->unsetRelation('latestBillWhatsAppMessage');
+                    $record->unsetRelation('whatsAppBillMessages');
+                    $this->refreshFormData([
+                        'bill_path',
+                        'bill_number',
+                        'status',
+                    ]);
+                }),
             Action::make('bill')
                 ->label('Mark as Billed')
                 ->color('warning')

@@ -35,6 +35,8 @@ class EditPurchase extends EditRecord
             'gst_percentage' => (string) (int) (float) $item->gst_percentage,
             'gst_amount' => (float) $item->gst_amount,
             'total_amount' => (float) $item->total_amount,
+            'allocated_transport_cost' => (float) $item->allocated_transport_cost,
+            'effective_unit_rate' => (float) $item->effective_unit_rate,
             'batch_lot_no' => $item->batch_lot_no,
             'remarks' => $item->remarks,
         ])->values()->all();

@@ -1,5 +1,8 @@
 <?php
 
+use App\Enums\BomItemType;
+use App\Enums\BomOutputType;
+use App\Enums\BomStatus;
 use App\Enums\StockTransactionType;
 use App\Enums\UserRole;
 use App\Filament\Resources\FinishedProducts\Pages\EditFinishedProduct;
@@ -14,7 +17,10 @@ use App\Filament\Resources\RawMaterials\Pages\ViewRawMaterial;
 use App\Filament\Resources\SemiFinishedMaterials\Pages\EditSemiFinishedMaterial;
 use App\Filament\Resources\SemiFinishedMaterials\Pages\ListSemiFinishedMaterials;
 use App\Filament\Resources\SemiFinishedMaterials\Pages\ViewSemiFinishedMaterial;
+use App\Models\Bom;
+use App\Models\BomItem;
 use App\Models\Product;
+use App\Models\RawMaterial;
 use App\Models\StockLedger;
 use App\Models\User;
 use App\Services\Inventory\FinishedProductCreateService;
@@ -396,12 +402,35 @@ it('rejects finished goods opening changes after production and keeps live stock
         ->and((float) $product->current_finished_stock)->toBe(115.0)
         ->and((float) $product->current_stock_value)->toBe(2300.0);
 
+    $raw = RawMaterial::query()->create([
+        'material_name' => 'Locked FG RM '.$product->id,
+        'unit' => 'Nos',
+        'purchase_rate' => 20,
+        'average_rate' => 20,
+        'status' => true,
+    ]);
+    $bom = Bom::query()->create([
+        'output_type' => BomOutputType::FinishedProduct,
+        'product_id' => $product->id,
+        'batch_quantity' => 1,
+        'batch_unit' => 'Nos',
+        'effective_date' => now('Asia/Kolkata')->toDateString(),
+        'status' => BomStatus::Active,
+    ]);
+    BomItem::query()->create([
+        'bom_id' => $bom->id,
+        'item_type' => BomItemType::RawMaterial,
+        'raw_material_id' => $raw->id,
+        'required_quantity' => 1,
+        'unit' => 'Nos',
+        'sort_order' => 1,
+    ]);
+
     Livewire::test(EditFinishedProduct::class, ['record' => $product->getKey()])
-        ->assertSee('Opening Stock Quantity')
+        ->assertSee('Opening Stock (Cases)')
         ->assertSee('Available Stock')
         ->fillForm([
-            'opening_stock_quantity' => 50,
-            'opening_stock_value' => 900,
+            'opening_stock_cases' => 50,
         ])
         ->call('save')
         ->assertHasFormErrors(['opening_stock_quantity']);

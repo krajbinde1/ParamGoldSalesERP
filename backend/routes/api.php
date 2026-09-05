@@ -62,8 +62,11 @@ use App\Http\Controllers\Api\Production\StockItemLedgerApiController;
 use App\Http\Controllers\Api\Production\StockLedgerBrowseApiController;
 use App\Http\Controllers\Api\Production\StockReportApiController;
 use App\Http\Controllers\Api\Production\VehicleApiController;
-use App\Http\Controllers\Api\TallyConnectorController;
+use App\Http\Controllers\Api\WhatsAppWebhookController;
 use Illuminate\Support\Facades\Route;
+
+Route::get('whatsapp/webhook', [WhatsAppWebhookController::class, 'verify']);
+Route::post('whatsapp/webhook', [WhatsAppWebhookController::class, 'handle']);
 
 Route::get('app-version', AppVersionController::class);
 

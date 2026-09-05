@@ -8,6 +8,7 @@ use App\Actions\Orders\RejectOrderWithRemarks;
 use App\Actions\Orders\SendOrderForBilling;
 use App\Filament\Support\OrderDispatchedEditActions;
 use App\Filament\Support\OrderHoldRevertActions;
+use App\Filament\Support\ResendBillWhatsAppAction;
 use App\Filament\Support\SendForBillForm;
 use App\Filament\Support\TodayDateFilter;
 use App\Models\Order;
@@ -228,6 +229,7 @@ class OrdersTable
                     ->visible(fn (Order $record): bool => $isProductionSupervisor
                         && filled($record->bill_path)
                         && filled($record->billUrl())),
+                ResendBillWhatsAppAction::make(),
                 Action::make('bill')
                     ->label('Mark as Billed')
                     ->color('warning')

@@ -1,11 +1,16 @@
 <?php
 
+use App\Enums\BomItemType;
+use App\Enums\BomOutputType;
+use App\Enums\BomStatus;
 use App\Enums\StockItemType;
 use App\Enums\StockTransactionType;
 use App\Enums\UserRole;
 use App\Filament\Resources\FinishedProducts\FinishedProductResource;
 use App\Filament\Resources\FinishedProducts\Pages\CreateFinishedProduct;
 use App\Filament\Resources\FinishedProducts\Pages\EditFinishedProduct;
+use App\Models\Bom;
+use App\Models\BomItem;
 use App\Models\FinishedProduct;
 use App\Models\PackagingMaterial;
 use App\Models\Product;
@@ -16,6 +21,7 @@ use App\Models\SemiFinishedMaterial;
 use App\Models\StockLedger;
 use App\Models\User;
 use App\Services\Inventory\FinishedProductCreateService;
+use App\Services\Inventory\FinishedProductOpeningStockCalculator;
 use App\Services\Inventory\InventoryReportService;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -43,6 +49,40 @@ function makeSalesProduct(string $name, array $overrides = []): Product
         'current_finished_stock' => 0,
         'opening_finished_stock' => 0,
     ], $overrides));
+}
+
+function makeFinishedOpeningBom(Product $product, float $costPerNos = 25): Bom
+{
+    $raw = RawMaterial::query()->create([
+        'material_name' => 'FG Opening RM '.$product->id,
+        'category' => 'Fertilizer',
+        'unit' => 'Nos',
+        'opening_stock' => 0,
+        'minimum_stock' => 0,
+        'purchase_rate' => $costPerNos,
+        'average_rate' => $costPerNos,
+        'status' => true,
+    ]);
+
+    $bom = Bom::query()->create([
+        'output_type' => BomOutputType::FinishedProduct,
+        'product_id' => $product->id,
+        'batch_quantity' => 1,
+        'batch_unit' => 'Nos',
+        'effective_date' => now('Asia/Kolkata')->toDateString(),
+        'status' => BomStatus::Active,
+    ]);
+
+    BomItem::query()->create([
+        'bom_id' => $bom->id,
+        'item_type' => BomItemType::RawMaterial,
+        'raw_material_id' => $raw->id,
+        'required_quantity' => 1,
+        'unit' => 'Nos',
+        'sort_order' => 1,
+    ]);
+
+    return $bom->fresh(['items.rawMaterial']);
 }
 
 it('enables inventory on an existing sales product without stock when opening quantity is zero', function (): void {
@@ -387,10 +427,11 @@ it('renders Set Opening Stock with sales product picker only', function (): void
         ->assertSee('Set Opening Stock')
         ->assertSee('Sales Product')
         ->assertSee('Opening Stock')
-        ->assertSee('Opening Stock Quantity')
+        ->assertSee('Opening Stock (Cases)')
+        ->assertSee('Opening Qty (Nos)')
+        ->assertSee('Average Cost/Nos')
         ->assertSee('Opening Stock Value')
-        ->assertSee('Effective Rate')
-        ->assertSee('Opening Date')
+        ->assertSee('As On Date')
         ->assertDontSee('Purchase Rate')
         ->assertDontSee('GST %')
         ->assertDontSee('Create & create another')
@@ -405,4 +446,106 @@ it('lists all sales products in Finished Goods Inventory', function (): void {
     $expected = Product::query()->count();
 
     expect(FinishedProductResource::getEloquentQuery()->count())->toBe($expected);
+});
+
+it('posts opening stock from cases using active bom estimated cost and includes it in available stock', function (): void {
+    $sales = makeSalesProduct('Cases Opening FG', [
+        'uom' => 'Nos',
+        'nos_per_case' => 20,
+        'production_unit' => 'Nos',
+    ]);
+    makeFinishedOpeningBom($sales, 25);
+
+    $this->actingAs($this->director);
+
+    Livewire::test(CreateFinishedProduct::class)
+        ->fillForm([
+            'linked_product_id' => $sales->id,
+            'unit' => 'Nos',
+            'minimum_finished_stock' => 0,
+            'opening_stock_cases' => 10,
+            'opening_date' => now('Asia/Kolkata')->toDateString(),
+        ])
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $sales->refresh();
+    $ledger = StockLedger::query()
+        ->where('product_id', $sales->id)
+        ->where('transaction_type', StockTransactionType::OpeningStock->value)
+        ->get();
+
+    expect((float) $sales->opening_finished_stock)->toBe(200.0)
+        ->and((float) $sales->current_finished_stock)->toBe(200.0)
+        ->and((float) $sales->weighted_average_cost)->toBe(25.0)
+        ->and((float) $sales->current_stock_value)->toBe(5000.0)
+        ->and($ledger)->toHaveCount(1)
+        ->and((float) $ledger->first()->quantity_in)->toBe(200.0)
+        ->and((float) $ledger->first()->transaction_value)->toBe(5000.0);
+});
+
+it('does not save opening stock when the product has no active bom', function (): void {
+    $sales = makeSalesProduct('No Bom Opening FG', [
+        'uom' => 'Nos',
+        'nos_per_case' => 20,
+    ]);
+
+    $this->actingAs($this->director);
+
+    Livewire::test(CreateFinishedProduct::class)
+        ->fillForm([
+            'linked_product_id' => $sales->id,
+            'unit' => 'Nos',
+            'opening_stock_cases' => 10,
+            'opening_date' => now('Asia/Kolkata')->toDateString(),
+        ])
+        ->call('create')
+        ->assertHasFormErrors(['opening_stock_cases']);
+
+    $sales->refresh();
+
+    expect((float) $sales->opening_finished_stock)->toBe(0.0)
+        ->and((float) $sales->current_finished_stock)->toBe(0.0)
+        ->and(StockLedger::query()->where('product_id', $sales->id)->count())->toBe(0);
+});
+
+it('does not duplicate the finished product opening ledger when create is repeated', function (): void {
+    $sales = makeSalesProduct('Dup Opening FG', [
+        'uom' => 'Nos',
+        'nos_per_case' => 20,
+    ]);
+    makeFinishedOpeningBom($sales, 25);
+    $resolved = app(FinishedProductOpeningStockCalculator::class)->resolveForSave(
+        $sales,
+        10,
+        now('Asia/Kolkata')->toDateString(),
+    );
+
+    app(FinishedProductCreateService::class)->create(
+        productData: [
+            'linked_product_id' => $sales->id,
+            'unit' => 'Nos',
+            'minimum_finished_stock' => 0,
+            'status' => true,
+        ],
+        opening: $resolved,
+        user: $this->director,
+    );
+
+    expect(fn () => app(FinishedProductCreateService::class)->create(
+        productData: [
+            'linked_product_id' => $sales->id,
+            'unit' => 'Nos',
+            'minimum_finished_stock' => 0,
+            'status' => true,
+        ],
+        opening: $resolved,
+        user: $this->director,
+    ))->toThrow(ValidationException::class);
+
+    expect(StockLedger::query()
+        ->where('product_id', $sales->id)
+        ->where('transaction_type', StockTransactionType::OpeningStock->value)
+        ->count())->toBe(1)
+        ->and((float) $sales->fresh()->current_finished_stock)->toBe(200.0);
 });

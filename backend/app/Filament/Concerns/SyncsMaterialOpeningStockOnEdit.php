@@ -35,6 +35,8 @@ trait SyncsMaterialOpeningStockOnEdit
             'opening_stock_value',
             'opening_date',
             'opening_effective_rate',
+            'opening_stock_cases',
+            'opening_average_cost',
         ], $extraUnset) as $key) {
             unset($data[$key]);
         }

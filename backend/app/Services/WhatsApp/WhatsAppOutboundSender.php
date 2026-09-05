@@ -185,11 +185,11 @@ final class WhatsAppOutboundSender
      */
     private function fallbackBillCaption(array $payload): string
     {
-        return 'Dear '.(string) ($payload['dealer_name'] ?? 'Dealer')
-            .', your bill '.(string) ($payload['bill_number'] ?? '')
-            .' dated '.(string) ($payload['bill_date'] ?? '')
-            .' for '.(string) ($payload['grand_total_label'] ?? '')
-            .' has been generated.';
+        return WhatsAppBillCopy::body(
+            (string) ($payload['dealer_name'] ?? 'Dealer'),
+            (string) ($payload['order_no'] ?? ''),
+            (float) ($payload['grand_total'] ?? 0),
+        );
     }
 
     /**
