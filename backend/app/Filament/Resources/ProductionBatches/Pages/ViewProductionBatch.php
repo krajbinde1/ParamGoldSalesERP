@@ -10,6 +10,7 @@ use Filament\Actions\Action;
 use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
+use Filament\Support\Enums\Alignment;
 use Filament\Support\Enums\Width;
 use Filament\Support\Icons\Heroicon;
 use Illuminate\Validation\ValidationException;
@@ -19,6 +20,8 @@ class ViewProductionBatch extends ViewRecord
     protected static string $resource = ProductionBatchResource::class;
 
     protected Width|string|null $maxContentWidth = Width::Full;
+
+    protected ?Alignment $headerActionsAlignment = Alignment::End;
 
     public function mount(int|string $record): void
     {

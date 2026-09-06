@@ -103,6 +103,16 @@
         </div>
         <div class="pg-pb-table-wrap">
             <table class="pg-pb-table">
+                <colgroup>
+                    <col class="col-material">
+                    <col class="col-qty">
+                    <col class="col-qty">
+                    <col class="col-uom">
+                    @if ($showCosts)
+                        <col class="col-rate">
+                        <col class="col-cost">
+                    @endif
+                </colgroup>
                 <thead>
                     <tr>
                         <th>Material</th>
@@ -118,7 +128,7 @@
                 <tbody>
                     @forelse ($sheet['materials'] as $row)
                         <tr>
-                            <td>{{ $row['material_name'] }}</td>
+                            <td class="material">{{ $row['material_name'] }}</td>
                             <td class="num">{{ $fmtQty($row['required_qty']) }}</td>
                             <td class="num">{{ $fmtQty($row['actual_qty']) }}</td>
                             <td>{{ $row['uom'] }}</td>
@@ -151,20 +161,30 @@
                 <h2 class="pg-pb-card__title">Finished Product Stock Posting</h2>
             </div>
             <div class="pg-pb-card__body">
-                <dl class="pg-pb-dl">
-                    <dt>Stock Posted</dt>
-                    <dd><span class="pg-pb-badge pg-pb-badge--success">Yes</span></dd>
-                    <dt>Quantity Added</dt>
-                    <dd>{{ $fmtQty($record->actual_output_quantity) }}</dd>
+                <div @class(['pg-pb-summary', 'pg-pb-summary--no-cost' => ! $showCosts])>
+                    <div class="pg-pb-summary__item">
+                        <span class="pg-pb-summary__label">Stock Posted</span>
+                        <span class="pg-pb-summary__value"><span class="pg-pb-badge pg-pb-badge--success">Yes</span></span>
+                    </div>
+                    <div class="pg-pb-summary__item">
+                        <span class="pg-pb-summary__label">Quantity Added</span>
+                        <span class="pg-pb-summary__value">{{ $fmtQty($record->actual_output_quantity) }}</span>
+                    </div>
                     @if ($showCosts)
-                        <dt>Avg Production Cost</dt>
-                        <dd>{{ $fmtMoney($record->cost_per_unit) }}</dd>
+                        <div class="pg-pb-summary__item">
+                            <span class="pg-pb-summary__label">Avg Production Cost</span>
+                            <span class="pg-pb-summary__value">{{ $fmtMoney($record->cost_per_unit) }}</span>
+                        </div>
                     @endif
-                    <dt>Stock Before</dt>
-                    <dd>{{ $record->finished_stock_before !== null ? $fmtQty($record->finished_stock_before) : '—' }}</dd>
-                    <dt>Stock After</dt>
-                    <dd>{{ $record->finished_stock_after !== null ? $fmtQty($record->finished_stock_after) : '—' }}</dd>
-                </dl>
+                    <div class="pg-pb-summary__item">
+                        <span class="pg-pb-summary__label">Stock Before</span>
+                        <span class="pg-pb-summary__value">{{ $record->finished_stock_before !== null ? $fmtQty($record->finished_stock_before) : '—' }}</span>
+                    </div>
+                    <div class="pg-pb-summary__item">
+                        <span class="pg-pb-summary__label">Stock After</span>
+                        <span class="pg-pb-summary__value">{{ $record->finished_stock_after !== null ? $fmtQty($record->finished_stock_after) : '—' }}</span>
+                    </div>
+                </div>
             </div>
         </section>
     @endif
