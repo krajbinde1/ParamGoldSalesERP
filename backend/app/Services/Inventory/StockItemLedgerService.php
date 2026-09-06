@@ -75,7 +75,7 @@ final class StockItemLedgerService
 
         $this->applyExtraFilters($periodQuery, $filters);
 
-        $totalCount = (clone $periodQuery)->count();
+        $hiddenIds = $this->hiddenPurchaseEditLedgerIds($itemType, $itemId, $to);
         $offset = ($page - 1) * $perPage;
 
         $state = [
@@ -92,33 +92,38 @@ final class StockItemLedgerService
             'total_outward_qty' => 0.0,
             'total_outward_value' => 0.0,
         ];
-        $index = 0;
-        $editReversalState = [
-            'inwardStack' => [],
-            'pendingOutQty' => [],
-            'pendingOutValue' => [],
-        ];
+        $visibleIndex = 0;
 
         $this->chronologicalChunk($periodQuery, function (StockLedger $ledger) use (
             &$state,
             &$rows,
             &$totals,
-            &$index,
-            &$editReversalState,
+            &$visibleIndex,
+            $hiddenIds,
             $offset,
             $perPage,
         ): void {
             $applied = $this->applyTransaction($state, $ledger);
             $state = $applied['state'];
 
-            $this->accumulateEffectiveTotals($totals, $editReversalState, $ledger, $applied['row']);
-
-            if ($index >= $offset && count($rows) < $perPage) {
-                $rows[] = $applied['row'];
+            if (isset($hiddenIds[$ledger->id])) {
+                return;
             }
 
-            $index++;
+            $row = $applied['row'];
+            $totals['total_inward_qty'] = round($totals['total_inward_qty'] + (float) ($row['inward_qty'] ?? 0), 3);
+            $totals['total_inward_value'] = round($totals['total_inward_value'] + (float) ($row['inward_value'] ?? 0), 2);
+            $totals['total_outward_qty'] = round($totals['total_outward_qty'] + (float) ($row['outward_qty'] ?? 0), 3);
+            $totals['total_outward_value'] = round($totals['total_outward_value'] + (float) ($row['outward_value'] ?? 0), 2);
+
+            if ($visibleIndex >= $offset && count($rows) < $perPage) {
+                $rows[] = $row;
+            }
+
+            $visibleIndex++;
         });
+
+        $totalCount = $visibleIndex;
 
         $warning = $state['clamped']
             ? 'Stock quantity was clamped at zero for display where calculated balance went negative.'
@@ -209,6 +214,7 @@ final class StockItemLedgerService
 
         $this->applyExtraFilters($periodQuery, $filters);
 
+        $hiddenIds = $this->hiddenPurchaseEditLedgerIds($itemType, $itemId, $to);
         $state = [
             'qty' => $header['opening_qty'],
             'value' => $header['opening_value'],
@@ -219,6 +225,11 @@ final class StockItemLedgerService
         foreach ($this->chronologicalCursor($periodQuery) as $ledger) {
             $applied = $this->applyTransaction($state, $ledger);
             $state = $applied['state'];
+
+            if (isset($hiddenIds[$ledger->id])) {
+                continue;
+            }
+
             yield $applied['row'];
         }
     }
@@ -402,94 +413,51 @@ final class StockItemLedgerService
     }
 
     /**
-     * Closing Balance inward/outward totals exclude purchase-edit reversal pairs.
-     * Running closing quantity still includes those audit rows.
+     * Ledger IDs that must stay in the database for audit/stock math but are
+     * omitted from the normal Item Stock Ledger: purchase-edit reversals and
+     * the superseded purchase inwards they replace.
      *
-     * @param  array{total_inward_qty: float, total_inward_value: float, total_outward_qty: float, total_outward_value: float}  $totals
-     * @param  array{inwardStack: array<string, list<array{qty: float, value: float}>>, pendingOutQty: array<string, float>, pendingOutValue: array<string, float>}  $editState
-     * @param  array<string, mixed>  $row
+     * @return array<int, true>
      */
-    private function accumulateEffectiveTotals(array &$totals, array &$editState, StockLedger $ledger, array $row): void
+    private function hiddenPurchaseEditLedgerIds(StockItemType $itemType, int $itemId, string $to): array
     {
-        $inQty = round((float) ($row['inward_qty'] ?? 0), 3);
-        $inValue = round((float) ($row['inward_value'] ?? 0), 2);
-        $outQty = round((float) ($row['outward_qty'] ?? 0), 3);
-        $outValue = round((float) ($row['outward_value'] ?? 0), 2);
+        $query = $this->baseItemQuery($itemType, $itemId)
+            ->whereDate('transaction_date', '<=', $to)
+            ->where(function ($inner): void {
+                $inner->where('transaction_type', StockTransactionType::Purchase)
+                    ->orWhere('transaction_type', StockTransactionType::PurchaseReturn);
+            });
 
-        if ($ledger->isPurchaseEditReversal()) {
-            $this->offsetPurchaseEditReversal($totals, $editState, $ledger, $outQty, $outValue);
+        $stack = [];
+        $hidden = [];
 
-            return;
-        }
-
-        if ($ledger->transaction_type === StockTransactionType::Purchase && $inQty > 0.0001) {
+        $this->chronologicalChunk($query, function (StockLedger $ledger) use (&$stack, &$hidden): void {
             $key = $this->purchaseEditPairKey($ledger);
-            $pendingQty = round((float) ($editState['pendingOutQty'][$key] ?? 0), 3);
-            $pendingValue = round((float) ($editState['pendingOutValue'][$key] ?? 0), 2);
 
-            if ($pendingQty > 0.0001) {
-                $offsetQty = min($inQty, $pendingQty);
-                $offsetValue = $inQty > 0.0001
-                    ? round($inValue * ($offsetQty / $inQty), 2)
-                    : min($inValue, $pendingValue);
-                $inQty = round($inQty - $offsetQty, 3);
-                $inValue = round(max(0, $inValue - $offsetValue), 2);
-                $editState['pendingOutQty'][$key] = round($pendingQty - $offsetQty, 3);
-                $editState['pendingOutValue'][$key] = round(max(0, $pendingValue - $offsetValue), 2);
+            if ($ledger->isPurchaseEditReversal()) {
+                $hidden[$ledger->id] = true;
+                $remaining = round((float) $ledger->quantity_out, 3);
+
+                while ($remaining > 0.0001 && ! empty($stack[$key])) {
+                    $prior = array_pop($stack[$key]);
+                    $hidden[$prior['id']] = true;
+                    $remaining = round($remaining - (float) $prior['qty'], 3);
+                }
+
+                return;
             }
 
+            if ($ledger->transaction_type !== StockTransactionType::Purchase) {
+                return;
+            }
+
+            $inQty = round((float) $ledger->quantity_in, 3);
             if ($inQty > 0.0001) {
-                $editState['inwardStack'][$key][] = ['qty' => $inQty, 'value' => $inValue];
+                $stack[$key][] = ['id' => $ledger->id, 'qty' => $inQty];
             }
-        }
+        });
 
-        $totals['total_inward_qty'] = round($totals['total_inward_qty'] + $inQty, 3);
-        $totals['total_inward_value'] = round($totals['total_inward_value'] + $inValue, 2);
-        $totals['total_outward_qty'] = round($totals['total_outward_qty'] + $outQty, 3);
-        $totals['total_outward_value'] = round($totals['total_outward_value'] + $outValue, 2);
-    }
-
-    /**
-     * @param  array{total_inward_qty: float, total_inward_value: float, total_outward_qty: float, total_outward_value: float}  $totals
-     * @param  array{inwardStack: array<string, list<array{qty: float, value: float}>>, pendingOutQty: array<string, float>, pendingOutValue: array<string, float>}  $editState
-     */
-    private function offsetPurchaseEditReversal(
-        array &$totals,
-        array &$editState,
-        StockLedger $ledger,
-        float $outQty,
-        float $outValue,
-    ): void {
-        $key = $this->purchaseEditPairKey($ledger);
-        $remainingQty = $outQty;
-        $remainingValue = $outValue;
-
-        while ($remainingQty > 0.0001 && ! empty($editState['inwardStack'][$key])) {
-            $prior = array_pop($editState['inwardStack'][$key]);
-            $offsetQty = min($remainingQty, (float) $prior['qty']);
-            $offsetValue = (float) $prior['qty'] > 0.0001
-                ? round((float) $prior['value'] * ($offsetQty / (float) $prior['qty']), 2)
-                : min($remainingValue, (float) $prior['value']);
-
-            $totals['total_inward_qty'] = round($totals['total_inward_qty'] - $offsetQty, 3);
-            $totals['total_inward_value'] = round(max(0, $totals['total_inward_value'] - $offsetValue), 2);
-
-            $leftoverQty = round((float) $prior['qty'] - $offsetQty, 3);
-            if ($leftoverQty > 0.0001) {
-                $editState['inwardStack'][$key][] = [
-                    'qty' => $leftoverQty,
-                    'value' => round(max(0, (float) $prior['value'] - $offsetValue), 2),
-                ];
-            }
-
-            $remainingQty = round($remainingQty - $offsetQty, 3);
-            $remainingValue = round(max(0, $remainingValue - $offsetValue), 2);
-        }
-
-        if ($remainingQty > 0.0001) {
-            $editState['pendingOutQty'][$key] = round((float) ($editState['pendingOutQty'][$key] ?? 0) + $remainingQty, 3);
-            $editState['pendingOutValue'][$key] = round((float) ($editState['pendingOutValue'][$key] ?? 0) + $remainingValue, 2);
-        }
+        return $hidden;
     }
 
     private function purchaseEditPairKey(StockLedger $ledger): string

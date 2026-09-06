@@ -43,7 +43,10 @@ final class ProductionService
         $actual = (float) ($input['actual_output_quantity'] ?? $planned);
         $this->validateQuantities($planned, $actual);
 
-        $requirements = $this->bomCalculator->explodeRequirements($bom, $planned);
+        $requirements = $this->applyActualUsedQuantities(
+            $this->bomCalculator->explodeRequirements($bom, $planned),
+            $input['materials'] ?? [],
+        );
         $consumptionPreview = array_map(static function (array $row): array {
             return [
                 'item_type' => $row['item_type'],
@@ -62,6 +65,8 @@ final class ProductionService
             'costing' => $costing,
             'has_mandatory_shortage' => collect($requirements)
                 ->contains(fn (array $row): bool => ! $row['is_optional'] && $row['shortage_quantity'] > 0),
+            'has_usage_variance' => collect($requirements)
+                ->contains(fn (array $row): bool => ! $row['is_optional'] && ($row['has_usage_variance'] ?? false)),
         ];
     }
 
@@ -91,8 +96,12 @@ final class ProductionService
             $wastage = max(0, (float) ($input['wastage_quantity'] ?? 0));
             $this->validateQuantities($planned, $actual);
 
-            // Scale consumption from planned quantity (quantity-based BOM).
-            $requirements = $this->bomCalculator->explodeRequirements($bom, $planned);
+            // Scale BOM required qty from planned quantity. Actual Used Qty (not
+            // BOM required) drives consumption, cost, and stock deduction.
+            $requirements = $this->applyActualUsedQuantities(
+                $this->bomCalculator->explodeRequirements($bom, $planned),
+                $input['materials'] ?? [],
+            );
             $this->bomCalculator->assertMandatoryStockAvailable($requirements);
 
             $productionDate = $input['production_date'];
@@ -142,7 +151,7 @@ final class ProductionService
                     continue;
                 }
 
-                $consumedQty = (float) $row['required_quantity'];
+                $consumedQty = $this->actualUsedQuantity($row);
                 if ($consumedQty <= 0) {
                     continue;
                 }
@@ -275,7 +284,8 @@ final class ProductionService
         User $user,
     ): ProductionBatchConsumption {
         $itemType = (string) $row['item_type'];
-        $consumedQty = (float) $row['required_quantity'];
+        $consumedQty = $this->actualUsedQuantity($row);
+        $requiredQty = round((float) ($row['required_quantity'] ?? $consumedQty), 4);
         $inventoryUnit = (string) ($row['inventory_unit'] ?? $row['unit'] ?? '');
 
         if ($itemType === BomItemType::RawMaterial->value) {
@@ -301,10 +311,10 @@ final class ProductionService
                 'material_name' => $material->material_name,
                 'unit' => $inventoryUnit,
                 'inventory_unit' => $inventoryUnit,
-                'formulation_quantity' => $row['formulation_quantity'] ?? $consumedQty,
+                'formulation_quantity' => $row['formulation_quantity'] ?? $requiredQty,
                 'formulation_unit' => $row['formulation_unit'] ?? $inventoryUnit,
-                'required_quantity' => $consumedQty,
-                'standard_quantity' => $consumedQty,
+                'required_quantity' => $requiredQty,
+                'standard_quantity' => $requiredQty,
                 'consumed_quantity' => $consumedQty,
                 'stock_before' => $stockBefore,
                 'stock_after' => (float) $material->fresh()->current_stock,
@@ -338,10 +348,10 @@ final class ProductionService
                 'material_name' => $material->packaging_name,
                 'unit' => $inventoryUnit,
                 'inventory_unit' => $inventoryUnit,
-                'formulation_quantity' => $row['formulation_quantity'] ?? $consumedQty,
+                'formulation_quantity' => $row['formulation_quantity'] ?? $requiredQty,
                 'formulation_unit' => $row['formulation_unit'] ?? $inventoryUnit,
-                'required_quantity' => $consumedQty,
-                'standard_quantity' => $consumedQty,
+                'required_quantity' => $requiredQty,
+                'standard_quantity' => $requiredQty,
                 'consumed_quantity' => $consumedQty,
                 'stock_before' => $stockBefore,
                 'stock_after' => (float) $material->fresh()->current_stock,
@@ -374,10 +384,10 @@ final class ProductionService
             'material_name' => $material->material_name,
             'unit' => $inventoryUnit,
             'inventory_unit' => $inventoryUnit,
-            'formulation_quantity' => $row['formulation_quantity'] ?? $consumedQty,
+            'formulation_quantity' => $row['formulation_quantity'] ?? $requiredQty,
             'formulation_unit' => $row['formulation_unit'] ?? $inventoryUnit,
-            'required_quantity' => $consumedQty,
-            'standard_quantity' => $consumedQty,
+            'required_quantity' => $requiredQty,
+            'standard_quantity' => $requiredQty,
             'consumed_quantity' => $consumedQty,
             'stock_before' => $stockBefore,
             'stock_after' => (float) $material->fresh()->current_stock,
@@ -411,6 +421,104 @@ final class ProductionService
                 $row['formulation_unit'] ?? $inventoryUnit,
             ),
         ];
+    }
+
+    /**
+     * Overlay Actual Used Qty onto exploded BOM rows.
+     * BOM required_quantity is kept for comparison/audit and is never rewritten.
+     *
+     * Default Actual Used Qty = Required Qty when stock is sufficient, otherwise Available Stock.
+     * Material cost, balance after production, and stock shortage use Actual Used Qty.
+     *
+     * @param  list<array<string, mixed>>  $requirements
+     * @param  list<array<string, mixed>>  $overrides
+     * @return list<array<string, mixed>>
+     */
+    public function applyActualUsedQuantities(array $requirements, array $overrides = []): array
+    {
+        $byBomItem = collect($overrides)->keyBy(fn (array $row): string => (string) ($row['bom_item_id'] ?? ''));
+
+        return array_values(array_map(function (array $row) use ($byBomItem): array {
+            $required = round((float) ($row['required_quantity'] ?? 0), 4);
+            $available = round((float) ($row['available_stock'] ?? 0), 4);
+            $rate = (float) ($row['average_rate'] ?? 0);
+            $name = (string) ($row['material_name'] ?? 'material');
+            $unit = (string) ($row['inventory_unit'] ?? $row['unit'] ?? '');
+
+            $override = $byBomItem->get((string) ($row['bom_item_id'] ?? ''), []);
+            $hasOverride = array_key_exists('actual_used_quantity', $override)
+                || array_key_exists('consumed_quantity', $override);
+
+            $actual = $hasOverride
+                ? round((float) ($override['actual_used_quantity'] ?? $override['consumed_quantity'] ?? 0), 4)
+                : self::defaultActualUsedQuantity($required, $available);
+
+            if ($actual < -0.0001) {
+                throw ValidationException::withMessages([
+                    'materials' => "Actual Used Qty cannot be negative for {$name}.",
+                ]);
+            }
+
+            $actual = max(0.0, $actual);
+
+            if ($actual - $available > 0.0001) {
+                throw ValidationException::withMessages([
+                    'materials' => "Actual Used Qty cannot exceed available stock for {$name} (available {$available} {$unit}).",
+                ]);
+            }
+
+            $variance = round(max(0.0, $required - $actual), 4);
+            $stockShort = round(max(0.0, $actual - $available), 4);
+            $minimum = (float) ($row['minimum_stock'] ?? 0);
+
+            $row['actual_used_quantity'] = $actual;
+            $row['consumed_quantity'] = $actual;
+            $row['standard_quantity'] = $required;
+            $row['balance_after'] = round($available - $actual, 6);
+            $row['estimated_value'] = round($actual * $rate, 2);
+            $row['variance_quantity'] = $variance;
+            $row['has_usage_variance'] = $variance > 0.0001;
+            $row['shortage_quantity'] = $stockShort;
+
+            if ($stockShort > 0.0001 && ! ($row['is_optional'] ?? false)) {
+                $row['stock_status'] = 'shortage';
+            } elseif ($variance > 0.0001 && ! ($row['is_optional'] ?? false)) {
+                $row['stock_status'] = 'usage_variance';
+            } elseif ($available <= 0) {
+                $row['stock_status'] = 'out_of_stock';
+            } elseif ($available <= $minimum) {
+                $row['stock_status'] = 'low_stock';
+            } else {
+                $row['stock_status'] = 'available';
+            }
+
+            return $row;
+        }, $requirements));
+    }
+
+    public static function defaultActualUsedQuantity(float $requiredQuantity, float $availableStock): float
+    {
+        if ($requiredQuantity <= 0) {
+            return 0.0;
+        }
+
+        return round(min($requiredQuantity, max(0.0, $availableStock)), 4);
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function actualUsedQuantity(array $row): float
+    {
+        if (array_key_exists('actual_used_quantity', $row)) {
+            return round((float) $row['actual_used_quantity'], 4);
+        }
+
+        if (array_key_exists('consumed_quantity', $row)) {
+            return round((float) $row['consumed_quantity'], 4);
+        }
+
+        return round((float) ($row['required_quantity'] ?? 0), 4);
     }
 
     private function validateQuantities(float $planned, float $actual): void

@@ -248,7 +248,7 @@ it('lets edit post opening stock when the material has none', function (): void 
         ->assertSee('Available Stock')
         ->fillForm([
             'opening_stock_quantity' => 40,
-            'opening_stock_value' => 800,
+            'opening_rate' => 20,
             'opening_date' => now('Asia/Kolkata')->toDateString(),
         ])
         ->call('save')

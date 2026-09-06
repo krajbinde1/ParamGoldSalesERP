@@ -5,7 +5,6 @@ namespace App\Filament\Resources\RawMaterials\Schemas;
 use App\Enums\InventoryUnit;
 use App\Filament\Resources\RawMaterials\RawMaterialResource;
 use App\Models\RawMaterial;
-use App\Services\Inventory\MaterialEffectiveRate;
 use App\Services\Inventory\WeightedAverageCosting;
 use Filament\Forms\Components\DatePicker;
 use Filament\Forms\Components\Placeholder;
@@ -15,8 +14,8 @@ use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
+use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
-use Illuminate\Support\HtmlString;
 
 class RawMaterialForm
 {
@@ -71,13 +70,25 @@ class RawMaterialForm
     }
 
     /**
+     * Opening Stock Value = Opening Stock Quantity × Opening Rate.
+     */
+    public static function openingStockValue(float $quantity, float $openingRate): float
+    {
+        if ($quantity <= 0 || $openingRate <= 0) {
+            return 0.0;
+        }
+
+        return round($quantity * $openingRate, 2);
+    }
+
+    /**
      * Opening stock fields — editable on Create and Edit.
      *
      * Create: posts Opening Stock ledger when quantity > 0.
      * Edit: posts opening if none exists, or updates the opening snapshot when
      * no later inventory movements have been recorded.
      *
-     * Order: Quantity → Value → Effective Rate (read-only) → Opening Date.
+     * Order: Quantity → Opening Rate → Value (read-only) → Opening Date.
      *
      * @return list<\Filament\Schemas\Components\Component|\Filament\Forms\Components\Component>
      */
@@ -85,7 +96,14 @@ class RawMaterialForm
     {
         $description = $readOnly
             ? 'As entered at create. Opening stock is not changed on Edit (no duplicate Opening Stock ledger). Use Raw Material Inward or Stock Adjustment for later inventory changes.'
-            : 'Optional. Quantity greater than zero posts or updates Opening Stock. Available Stock = Opening Stock + Purchase Inward + Other Inward − Consumption − Other Outward. Stock Value and material cost follow those live movements, including purchase inward.';
+            : 'Optional. Quantity greater than zero posts or updates Opening Stock. Opening Stock Value is Quantity × Opening Rate. Opening Rate is the opening inventory rate for stock valuation and weighted average cost. Available Stock = Opening Stock + Purchase Inward + Other Inward − Consumption − Other Outward. Stock Value and material cost follow those live movements, including purchase inward.';
+
+        $recalculateValue = function (Get $get, Set $set): void {
+            $set('opening_stock_value', self::openingStockValue(
+                (float) ($get('opening_stock_quantity') ?? 0),
+                (float) ($get('opening_rate') ?? 0),
+            ));
+        };
 
         return [
             Section::make('Opening Stock')
@@ -101,6 +119,7 @@ class RawMaterialForm
                         ->disabled($readOnly)
                         ->dehydrated(fn (): bool => ! $readOnly)
                         ->live(debounce: 300)
+                        ->afterStateUpdated($recalculateValue)
                         ->suffix(fn (Get $get): string => filled($get('unit')) ? (string) $get('unit') : '')
                         ->helperText(fn (Get $get): ?string => $readOnly
                             ? null
@@ -118,15 +137,39 @@ class RawMaterialForm
                                 }
                             },
                         ]),
+                    TextInput::make('opening_rate')
+                        ->label('Opening Rate')
+                        ->numeric()
+                        ->minValue(0)
+                        ->default(0)
+                        ->prefix('₹')
+                        ->suffix(fn (Get $get): string => filled($get('unit')) ? '/'.(string) $get('unit') : '')
+                        ->live(debounce: 300)
+                        ->afterStateUpdated($recalculateValue)
+                        ->disabled($readOnly)
+                        ->dehydrated(fn (): bool => ! $readOnly)
+                        ->required(fn (Get $get): bool => ! $readOnly && (float) ($get('opening_stock_quantity') ?? 0) > 0)
+                        ->rules($readOnly ? [] : [
+                            fn (Get $get): \Closure => function (string $attribute, mixed $value, \Closure $fail) use ($get): void {
+                                $qty = (float) ($get('opening_stock_quantity') ?? 0);
+                                $rate = (float) ($value ?? 0);
+                                if ($rate < 0) {
+                                    $fail('Opening Rate cannot be negative.');
+                                }
+                                if ($qty > 0 && $rate <= 0) {
+                                    $fail('Opening Rate is required when Opening Stock Quantity is greater than zero.');
+                                }
+                            },
+                        ]),
                     TextInput::make('opening_stock_value')
                         ->label('Opening Stock Value')
                         ->numeric()
                         ->minValue(0)
                         ->default(0)
                         ->prefix('₹')
-                        ->live(debounce: 300)
-                        ->disabled($readOnly)
+                        ->readOnly()
                         ->dehydrated(fn (): bool => ! $readOnly)
+                        ->helperText('Opening Stock Quantity × Opening Rate')
                         ->required(fn (Get $get): bool => ! $readOnly && (float) ($get('opening_stock_quantity') ?? 0) > 0)
                         ->rules($readOnly ? [] : [
                             fn (Get $get): \Closure => function (string $attribute, mixed $value, \Closure $fail) use ($get): void {
@@ -143,11 +186,6 @@ class RawMaterialForm
                                 }
                             },
                         ]),
-                    Placeholder::make('opening_effective_rate')
-                        ->label('Effective Rate')
-                        ->content(fn (Get $get): HtmlString => new HtmlString(
-                            '<span class="tabular-nums font-semibold">'.e(self::formatEffectiveRate($get)).'</span>'
-                        )),
                     DatePicker::make('opening_date')
                         ->label('Opening Date')
                         ->native(false)
@@ -231,16 +269,4 @@ class RawMaterialForm
         ];
     }
 
-    /**
-     * Effective Rate is always ₹/Kg for weight units (Ton stock is converted to Kg
-     * for this display only). Stock quantity and stock value are unchanged.
-     */
-    private static function formatEffectiveRate(Get $get): string
-    {
-        return app(MaterialEffectiveRate::class)->format(
-            (float) ($get('opening_stock_value') ?? 0),
-            (float) ($get('opening_stock_quantity') ?? 0),
-            filled($get('unit')) ? (string) $get('unit') : null,
-        );
-    }
 }

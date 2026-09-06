@@ -254,6 +254,7 @@ class ProductionBatchApiController extends Controller
             'materials.*.semi_finished_id' => ['nullable', 'integer', 'exists:semi_finished_materials,id'],
             'materials.*.conversion_ratio' => ['nullable', 'numeric', 'min:0.000001'],
             'materials.*.consumed_quantity' => ['nullable', 'numeric', 'min:0'],
+            'materials.*.actual_used_quantity' => ['nullable', 'numeric', 'min:0'],
             'materials.*.substitution_reason' => ['nullable', 'string', 'max:100'],
             'materials.*.substitution_remarks' => ['nullable', 'string', 'max:2000'],
         ]);
@@ -341,9 +342,10 @@ class ProductionBatchApiController extends Controller
             ),
             'costing' => $showCosts ? $preview['costing'] : null,
             'has_material_deviation' => false,
-            'has_quantity_variance' => false,
+            'has_quantity_variance' => (bool) ($preview['has_usage_variance'] ?? false),
             'requires_approval' => false,
             'has_mandatory_shortage' => (bool) ($preview['has_mandatory_shortage'] ?? false),
+            'has_usage_variance' => (bool) ($preview['has_usage_variance'] ?? false),
             'can_view_costs' => $showCosts,
             'substitution_reasons' => [],
         ];
@@ -360,11 +362,11 @@ class ProductionBatchApiController extends Controller
             $stockStatus = 'insufficient';
         } elseif ($stockStatus === '' || $stockStatus === 'available') {
             $available = (float) ($line['available_stock'] ?? 0);
-            $required = (float) ($line['required_quantity'] ?? 0);
+            $actualUsed = (float) ($line['actual_used_quantity'] ?? $line['consumed_quantity'] ?? $line['required_quantity'] ?? 0);
             $min = (float) ($line['minimum_stock'] ?? 0);
-            if ($available < $required) {
+            if ($actualUsed - $available > 0.0001) {
                 $stockStatus = 'insufficient';
-            } elseif ($min > 0 && ($available - $required) <= $min) {
+            } elseif ($min > 0 && ($available - $actualUsed) <= $min) {
                 $stockStatus = 'low';
             } else {
                 $stockStatus = 'sufficient';
@@ -374,6 +376,7 @@ class ProductionBatchApiController extends Controller
         $line['stock_status'] = $stockStatus;
         $line['stock_status_label'] = match ($stockStatus) {
             'insufficient', 'out', 'shortage' => 'Insufficient',
+            'usage_variance' => 'Shortage',
             'low', 'low_stock' => 'Low',
             default => 'Sufficient',
         };

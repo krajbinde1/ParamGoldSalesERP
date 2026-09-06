@@ -7,6 +7,7 @@ use App\Filament\Resources\ProductionBatches\ProductionBatchResource;
 use App\Models\Product;
 use App\Models\SemiFinishedMaterial;
 use App\Services\Inventory\InventoryUnitConversion;
+use App\Services\Inventory\ProductionCostingService;
 use App\Services\Inventory\ProductionService;
 use Filament\Actions\Action;
 use Filament\Actions\Concerns\InteractsWithActions;
@@ -53,6 +54,8 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
     public ?array $costing = null;
 
     public bool $hasMandatoryShortage = false;
+
+    public bool $hasUsageVariance = false;
 
     public ?string $activeBomLabel = null;
 
@@ -228,6 +231,7 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
         $this->requirements = [];
         $this->costing = null;
         $this->hasMandatoryShortage = false;
+        $this->hasUsageVariance = false;
         $this->activeBomLabel = null;
         $this->productLabel = null;
         $this->productionUnit = null;
@@ -273,6 +277,7 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
             $this->requirements = $preview['requirements'];
             $this->costing = $preview['costing'];
             $this->hasMandatoryShortage = $preview['has_mandatory_shortage'];
+            $this->hasUsageVariance = (bool) ($preview['has_usage_variance'] ?? false);
             $this->activeBomLabel = (string) $bom->bom_number;
             $this->productLabel = $outputType === BomOutputType::SemiFinished->value
                 ? trim(($semiFinished?->material_code ?? '').' — '.($semiFinished?->material_name ?? 'Semi-Finished'))
@@ -335,10 +340,15 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
     {
         $available = (float) ($row['available_stock'] ?? 0);
         $required = (float) ($row['required_quantity'] ?? 0);
+        $actualUsed = (float) ($row['actual_used_quantity'] ?? $required);
         $minimum = (float) ($row['minimum_stock'] ?? 0);
 
-        if ($available < $required) {
+        if ($actualUsed - $available > 0.0001) {
             return ['key' => 'shortage', 'label' => 'Shortage', 'color' => 'danger'];
+        }
+
+        if ($required - $actualUsed > 0.0001) {
+            return ['key' => 'variance', 'label' => 'Shortage', 'color' => 'warning'];
         }
 
         if ($available <= $minimum) {
@@ -357,6 +367,79 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
             $this->requirements,
             fn (array $row): bool => ! ($row['is_optional'] ?? false) && (float) ($row['shortage_quantity'] ?? 0) > 0,
         ));
+    }
+
+    public function usageVarianceRows(): array
+    {
+        return array_values(array_filter(
+            $this->requirements,
+            fn (array $row): bool => ! ($row['is_optional'] ?? false) && ($row['has_usage_variance'] ?? false),
+        ));
+    }
+
+    /**
+     * Recalculate cost, balance, and shortage when Actual Used Qty is edited.
+     */
+    public function updatedRequirements(mixed $value, string $key): void
+    {
+        if (! str_contains($key, 'actual_used_quantity')) {
+            return;
+        }
+
+        $this->recostReviewFromActualUsed();
+    }
+
+    public function recostReviewFromActualUsed(): void
+    {
+        foreach ($this->requirements as $index => $row) {
+            $required = round((float) ($row['required_quantity'] ?? 0), 4);
+            $available = round((float) ($row['available_stock'] ?? 0), 4);
+            $rate = (float) ($row['average_rate'] ?? 0);
+            $actual = round((float) ($row['actual_used_quantity'] ?? 0), 4);
+
+            if ($actual < 0) {
+                $actual = 0.0;
+            }
+
+            if ($actual - $available > 0.0001) {
+                $actual = max(0.0, $available);
+            }
+
+            $variance = round(max(0.0, $required - $actual), 4);
+
+            $this->requirements[$index]['actual_used_quantity'] = $actual;
+            $this->requirements[$index]['consumed_quantity'] = $actual;
+            $this->requirements[$index]['balance_after'] = round($available - $actual, 6);
+            $this->requirements[$index]['estimated_value'] = round($actual * $rate, 2);
+            $this->requirements[$index]['variance_quantity'] = $variance;
+            $this->requirements[$index]['has_usage_variance'] = $variance > 0.0001;
+            $this->requirements[$index]['shortage_quantity'] = round(max(0.0, $actual - $available), 4);
+        }
+
+        $this->hasMandatoryShortage = collect($this->requirements)->contains(
+            fn (array $row): bool => ! ($row['is_optional'] ?? false) && (float) ($row['shortage_quantity'] ?? 0) > 0.0001,
+        );
+        $this->hasUsageVariance = collect($this->requirements)->contains(
+            fn (array $row): bool => ! ($row['is_optional'] ?? false) && ($row['has_usage_variance'] ?? false),
+        );
+
+        $quantity = (float) ($this->productionQuantityPreview ?? 0);
+        if ($quantity <= 0) {
+            return;
+        }
+
+        $this->costing = app(ProductionCostingService::class)->calculate(
+            array_map(static fn (array $row): array => [
+                'item_type' => $row['item_type'],
+                'consumption_value' => $row['estimated_value'] ?? 0,
+            ], $this->requirements),
+            [
+                'labour_cost' => $this->data['labour_cost'] ?? 0,
+                'transport_cost' => $this->data['transport_cost'] ?? 0,
+                'other_manufacturing_cost' => $this->data['other_manufacturing_cost'] ?? 0,
+            ],
+            $quantity,
+        );
     }
 
     public function reviewProductionAction(): Action
@@ -418,12 +501,14 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
                 ];
             })
             ->action(function (): void {
+                $this->recostReviewFromActualUsed();
+
                 if ($this->requirements === [] || $this->hasMandatoryShortage) {
                     Notification::make()
                         ->danger()
                         ->title('Cannot post production')
                         ->body($this->hasMandatoryShortage
-                            ? 'Insufficient stock for one or more materials.'
+                            ? 'Actual Used Qty cannot exceed available stock for one or more materials.'
                             : 'Review data is missing. Please try again.')
                         ->send();
 
@@ -442,7 +527,7 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
         $materialRows = [];
         $totalMaterialCost = 0.0;
 
-        foreach ($this->requirements as $row) {
+        foreach ($this->requirements as $index => $row) {
             $invUnit = (string) ($row['inventory_unit'] ?? $row['unit'] ?? '');
             $formUnit = (string) ($row['formulation_unit'] ?? $invUnit);
             $status = $this->displayMaterialStatus($row);
@@ -453,14 +538,21 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
             );
             $cost = (float) ($row['estimated_value'] ?? 0);
             $totalMaterialCost += $cost;
+            $requiredQty = (float) ($row['required_quantity'] ?? 0);
+            $actualUsed = (float) ($row['actual_used_quantity'] ?? $requiredQty);
+            $available = (float) ($row['available_stock'] ?? 0);
 
             $materialRows[] = [
+                'index' => $index,
                 'material_name' => $row['material_name'],
-                'required_label' => number_format((float) ($row['formulation_quantity'] ?? $row['required_quantity']), 3)
+                'required_label' => number_format((float) ($row['formulation_quantity'] ?? $requiredQty), 3)
                     .' '.($row['formulation_unit'] ?? $formUnit),
-                'available_label' => number_format((float) ($row['available_stock'] ?? 0), 3).' '.$invUnit,
+                'available_stock' => $available,
+                'available_label' => number_format($available, 3).' '.$invUnit,
+                'inventory_unit' => $invUnit,
+                'has_usage_variance' => (bool) ($row['has_usage_variance'] ?? false),
                 'balance_label' => number_format(
-                    (float) ($row['balance_after'] ?? ((float) ($row['available_stock'] ?? 0) - (float) ($row['required_quantity'] ?? 0))),
+                    (float) ($row['balance_after'] ?? ($available - $actualUsed)),
                     3,
                 ).' '.$invUnit,
                 'average_rate_label' => $rate['label'],
@@ -482,6 +574,18 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
             ];
         }
 
+        $varianceDisplay = [];
+        foreach ($this->usageVarianceRows() as $row) {
+            $invUnit = (string) ($row['inventory_unit'] ?? $row['unit'] ?? '');
+            $varianceDisplay[] = [
+                'material_name' => $row['material_name'],
+                'required_label' => number_format((float) ($row['formulation_quantity'] ?? $row['required_quantity']), 3)
+                    .' '.($row['formulation_unit'] ?? $invUnit),
+                'actual_used_label' => number_format((float) ($row['actual_used_quantity'] ?? 0), 3).' '.$invUnit,
+                'variance_label' => number_format((float) ($row['variance_quantity'] ?? 0), 3).' '.$invUnit,
+            ];
+        }
+
         return [
             'productLabel' => $this->productLabel,
             'activeBomLabel' => $this->activeBomLabel,
@@ -489,9 +593,11 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
             'productionUnit' => $this->productionUnit,
             'productionDate' => $this->productionDateLabel,
             'hasMandatoryShortage' => $this->hasMandatoryShortage,
+            'hasUsageVariance' => $this->hasUsageVariance,
             'materialRows' => $materialRows,
             'totalMaterialCost' => $totalMaterialCost,
             'shortageRows' => $shortageDisplay,
+            'varianceRows' => $varianceDisplay,
             'costing' => $this->costing,
             'showCosts' => $this->canViewProductionCosts(),
             'labourCost' => (float) ($this->data['labour_cost'] ?? 0),
@@ -513,7 +619,7 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
                 continue;
             }
 
-            $qty = (float) ($row['required_quantity'] ?? 0);
+            $qty = (float) ($row['actual_used_quantity'] ?? $row['consumed_quantity'] ?? 0);
             if ($qty <= 0) {
                 continue;
             }
@@ -561,6 +667,10 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
             'transport_cost' => $data['transport_cost'] ?? 0,
             'other_manufacturing_cost' => $data['other_manufacturing_cost'] ?? 0,
             'notes' => $data['notes'] ?? null,
+            'materials' => array_map(static fn (array $row): array => [
+                'bom_item_id' => $row['bom_item_id'] ?? null,
+                'actual_used_quantity' => $row['actual_used_quantity'] ?? $row['consumed_quantity'] ?? 0,
+            ], $this->requirements),
         ];
 
         try {

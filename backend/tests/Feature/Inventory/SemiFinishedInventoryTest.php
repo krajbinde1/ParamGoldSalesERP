@@ -307,14 +307,14 @@ it('prevents negative semi-finished stock on consumption', function () {
         'effective_date' => now()->toDateString(),
         'status' => BomStatus::Active,
     ]);
-    BomItem::query()->create([
+    $bomItemId = BomItem::query()->create([
         'bom_id' => $bom->id,
         'item_type' => BomItemType::SemiFinished,
         'semi_finished_id' => $sf->id,
         'required_quantity' => 2,
         'unit' => 'Kg',
         'sort_order' => 1,
-    ]);
+    ])->id;
 
     expect(fn () => app(ProductionService::class)->completeProduction([
         'product_id' => $product->id,
@@ -322,6 +322,12 @@ it('prevents negative semi-finished stock on consumption', function () {
         'actual_output_quantity' => 1,
         'production_date' => now()->toDateString(),
         'posting_token' => 'neg-sf-'.uniqid(),
+        'materials' => [
+            [
+                'bom_item_id' => $bomItemId,
+                'actual_used_quantity' => 2,
+            ],
+        ],
     ], $user))->toThrow(ValidationException::class);
 });
 

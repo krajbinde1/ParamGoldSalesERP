@@ -60,6 +60,7 @@ class EditRawMaterial extends EditRecord
 
         $data['opening_stock_quantity'] = $qty;
         $data['opening_stock_value'] = $value;
+        $data['opening_rate'] = $rate > 0 ? $rate : 0;
         $data['opening_date'] = $openingLedger?->transaction_date?->toDateString()
             ?? ($qty > 0 && $record->created_at !== null
                 ? $record->created_at->timezone('Asia/Kolkata')->toDateString()
@@ -88,6 +89,10 @@ class EditRawMaterial extends EditRecord
 
     protected function beforeSave(): void
     {
+        $qty = round((float) ($this->data['opening_stock_quantity'] ?? 0), 3);
+        $rate = round((float) ($this->data['opening_rate'] ?? 0), 4);
+        $this->data['opening_stock_value'] = RawMaterialForm::openingStockValue($qty, $rate);
+
         $this->applyPendingOpeningStock(function (array $opening, User $user): void {
             app(MaterialOpeningStockSyncService::class)->syncRawMaterial(
                 $this->getRecord(),

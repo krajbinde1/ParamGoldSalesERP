@@ -43,9 +43,11 @@ class CreateRawMaterial extends CreateRecord
      */
     protected function handleRecordCreation(array $data): Model
     {
+        $qty = round((float) ($data['opening_stock_quantity'] ?? 0), 3);
+        $rate = round((float) ($data['opening_rate'] ?? 0), 4);
         $opening = [
-            'quantity' => $data['opening_stock_quantity'] ?? 0,
-            'value' => $data['opening_stock_value'] ?? 0,
+            'quantity' => $qty,
+            'value' => RawMaterialForm::openingStockValue($qty, $rate),
             'date' => $data['opening_date'] ?? now('Asia/Kolkata')->toDateString(),
         ];
 
@@ -53,6 +55,7 @@ class CreateRawMaterial extends CreateRecord
             $data['opening_stock_quantity'],
             $data['opening_stock_value'],
             $data['opening_date'],
+            $data['opening_rate'],
             $data['opening_effective_rate'],
             // Legacy keys if present from cached Livewire state — never persist.
             $data['opening_quantity'],

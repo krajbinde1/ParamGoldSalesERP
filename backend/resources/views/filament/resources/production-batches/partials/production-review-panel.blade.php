@@ -4,7 +4,9 @@
     $money = static fn (mixed $v, int $d = 2): string => '₹'.number_format((float) $v, $d);
     $dateLabel = filled($productionDate ?? null) ? Carbon::parse($productionDate)->format('d M Y') : '—';
     $qtyLabel = number_format((float) ($productionQuantity ?? 0), 3).(filled($productionUnit ?? null) ? ' '.$productionUnit : '');
-    $materialColCount = $showCosts ? 7 : 5;
+    $materialColCount = $showCosts ? 8 : 6;
+    $hasUsageVariance = $hasUsageVariance ?? false;
+    $varianceRows = $varianceRows ?? [];
 @endphp
 
 {{-- Scoped ERP confirmation styles (modal window class set from CreateProductionEntry) --}}
@@ -98,6 +100,13 @@
     .dark .erp-production-review .erp-summary-value {
         color: rgb(255 255 255);
     }
+
+    .erp-production-review .erp-actual-used-input {
+        width: 7.5rem;
+        max-width: 100%;
+        margin-left: auto;
+        text-align: right;
+    }
 </style>
 
 <div class="erp-production-review space-y-6">
@@ -108,7 +117,7 @@
                 Production cannot continue
             </x-slot>
             <x-slot name="description">
-                The following materials have insufficient stock.
+                Actual Used Qty cannot exceed available stock.
             </x-slot>
 
             <div class="fi-ta-ctn divide-y divide-gray-200 overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:divide-white/10 dark:bg-white/5 dark:ring-white/10">
@@ -129,6 +138,40 @@
                                     <td class="fi-ta-cell px-4 py-2 text-end text-sm tabular-nums">{{ $row['required_label'] }}</td>
                                     <td class="fi-ta-cell px-4 py-2 text-end text-sm tabular-nums">{{ $row['available_label'] }}</td>
                                     <td class="fi-ta-cell px-4 py-2 text-end text-sm tabular-nums font-semibold text-danger-600 dark:text-danger-400">{{ $row['shortage_label'] }}</td>
+                                </tr>
+                            @endforeach
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </x-filament::section>
+    @elseif ($hasUsageVariance)
+        <x-filament::section icon="heroicon-o-exclamation-triangle" icon-color="warning">
+            <x-slot name="heading">
+                BOM usage variance
+            </x-slot>
+            <x-slot name="description">
+                Actual Used Qty is below BOM Required Qty. Production can still be confirmed. Stock will be deducted using Actual Used Qty only.
+            </x-slot>
+
+            <div class="fi-ta-ctn divide-y divide-gray-200 overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:divide-white/10 dark:bg-white/5 dark:ring-white/10">
+                <div class="fi-ta-content relative divide-y divide-gray-200 overflow-x-auto dark:divide-white/10">
+                    <table class="fi-ta-table w-full table-fixed divide-y divide-gray-200 dark:divide-white/10">
+                        <thead class="divide-y divide-gray-200 dark:divide-white/5">
+                            <tr class="bg-warning-50 dark:bg-warning-500/10">
+                                <th class="fi-ta-header-cell px-4 py-2 text-start text-sm font-semibold text-warning-800 dark:text-warning-200">Material</th>
+                                <th class="fi-ta-header-cell px-4 py-2 text-end text-sm font-semibold text-warning-800 dark:text-warning-200">Required Qty</th>
+                                <th class="fi-ta-header-cell px-4 py-2 text-end text-sm font-semibold text-warning-800 dark:text-warning-200">Actual Used Qty</th>
+                                <th class="fi-ta-header-cell px-4 py-2 text-end text-sm font-semibold text-warning-800 dark:text-warning-200">Variance</th>
+                            </tr>
+                        </thead>
+                        <tbody class="divide-y divide-gray-200 whitespace-nowrap dark:divide-white/5">
+                            @foreach ($varianceRows as $i => $row)
+                                <tr @class(['fi-ta-row', 'bg-gray-50 dark:bg-white/5' => $i % 2 === 1])>
+                                    <td class="fi-ta-cell px-4 py-2 text-sm font-medium text-gray-950 dark:text-white">{{ $row['material_name'] }}</td>
+                                    <td class="fi-ta-cell px-4 py-2 text-end text-sm tabular-nums">{{ $row['required_label'] }}</td>
+                                    <td class="fi-ta-cell px-4 py-2 text-end text-sm tabular-nums">{{ $row['actual_used_label'] }}</td>
+                                    <td class="fi-ta-cell px-4 py-2 text-end text-sm tabular-nums font-semibold text-warning-700 dark:text-warning-300">{{ $row['variance_label'] }}</td>
                                 </tr>
                             @endforeach
                         </tbody>
@@ -180,21 +223,23 @@
                     <table class="fi-ta-table erp-mat-table divide-y divide-gray-200 dark:divide-white/10">
                         @if ($showCosts)
                             <colgroup>
-                                <col style="width: 22%">
-                                <col style="width: 12%">
+                                <col style="width: 18%">
                                 <col style="width: 12%">
                                 <col style="width: 14%">
-                                <col style="width: 14%">
-                                <col style="width: 14%">
                                 <col style="width: 12%">
+                                <col style="width: 12%">
+                                <col style="width: 12%">
+                                <col style="width: 10%">
+                                <col style="width: 10%">
                             </colgroup>
                         @else
                             <colgroup>
-                                <col style="width: 28%">
-                                <col style="width: 18%">
-                                <col style="width: 18%">
-                                <col style="width: 20%">
+                                <col style="width: 24%">
+                                <col style="width: 14%">
                                 <col style="width: 16%">
+                                <col style="width: 16%">
+                                <col style="width: 16%">
+                                <col style="width: 14%">
                             </colgroup>
                         @endif
                         <thead class="divide-y divide-gray-200 dark:divide-white/5">
@@ -204,6 +249,9 @@
                                 </th>
                                 <th class="fi-ta-header-cell sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-4 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
                                     Required Qty
+                                </th>
+                                <th class="fi-ta-header-cell sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-4 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
+                                    Actual Used Qty
                                 </th>
                                 <th class="fi-ta-header-cell sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-4 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
                                     Available Stock
@@ -237,6 +285,25 @@
                                     </td>
                                     <td class="fi-ta-cell whitespace-nowrap px-4 py-2 text-end text-sm tabular-nums text-gray-950 dark:text-white">
                                         {{ $row['required_label'] }}
+                                    </td>
+                                    <td class="fi-ta-cell whitespace-nowrap px-4 py-2 text-end">
+                                        @php $rowIndex = $row['index'] ?? $index; @endphp
+                                        <div class="flex items-center justify-end gap-1">
+                                            <input
+                                                type="number"
+                                                min="0"
+                                                max="{{ $row['available_stock'] ?? 0 }}"
+                                                step="0.001"
+                                                wire:model.live.debounce.300="requirements.{{ $rowIndex }}.actual_used_quantity"
+                                                aria-label="Actual Used Qty"
+                                                @class([
+                                                    'fi-input erp-actual-used-input rounded-lg border text-sm tabular-nums shadow-sm focus:ring-1 dark:bg-white/5 dark:text-white',
+                                                    'border-warning-400 focus:border-warning-500 focus:ring-warning-500' => $row['has_usage_variance'] ?? false,
+                                                    'border-gray-300 focus:border-primary-500 focus:ring-primary-500 dark:border-white/10' => ! ($row['has_usage_variance'] ?? false),
+                                                ])
+                                            >
+                                            <span class="text-xs text-gray-500 dark:text-gray-400">{{ $row['inventory_unit'] ?? '' }}</span>
+                                        </div>
                                     </td>
                                     <td class="fi-ta-cell whitespace-nowrap px-4 py-2 text-end text-sm tabular-nums text-gray-950 dark:text-white">
                                         {{ $row['available_label'] }}
@@ -275,7 +342,7 @@
                             <tfoot>
                                 <tr class="fi-ta-summary-row border-t-2 border-gray-300 bg-gray-100 dark:border-white/20 dark:bg-white/10">
                                     <td
-                                        colspan="5"
+                                        colspan="6"
                                         class="fi-ta-cell px-4 py-2.5 text-end text-sm font-semibold text-gray-700 dark:text-gray-200"
                                     >
                                         Total Material Cost

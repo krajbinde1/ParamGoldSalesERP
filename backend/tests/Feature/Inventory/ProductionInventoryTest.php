@@ -8,6 +8,7 @@ use App\Enums\StockItemType;
 use App\Enums\StockTransactionType;
 use App\Enums\UserRole;
 use App\Filament\Resources\Boms\Pages\ListBoms;
+use App\Filament\Resources\ProductionBatches\Pages\CreateProductionEntry;
 use App\Models\Bom;
 use App\Models\BomItem;
 use App\Models\PackagingMaterial;
@@ -198,9 +199,10 @@ it('scales materials using batch_quantity formula for quantity', function () {
         ->and($packRow['required_quantity'])->toBe(250.0);
 });
 
-it('rejects production when mandatory stock is insufficient', function () {
+it('rejects production when actual used qty exceeds available stock', function () {
     $fixture = seedManufacturingFixture(rawStock: 0.5, packStock: 100);
     $supervisor = inventorySupervisor();
+    $rawBomItemId = $fixture['bom']->items()->where('item_type', BomItemType::RawMaterial)->value('id');
 
     expect(fn () => app(ProductionService::class)->completeProduction([
         'product_id' => $fixture['product']->id,
@@ -208,7 +210,104 @@ it('rejects production when mandatory stock is insufficient', function () {
         'actual_output_quantity' => 10,
         'production_date' => now()->toDateString(),
         'labour_cost' => 50,
+        'materials' => [
+            [
+                'bom_item_id' => $rawBomItemId,
+                'actual_used_quantity' => 10,
+            ],
+        ],
     ], $supervisor))->toThrow(ValidationException::class);
+});
+
+it('confirms production using actual used qty when bom required exceeds available stock', function () {
+    $fixture = seedManufacturingFixture(rawStock: 80, packStock: 100);
+    $supervisor = inventorySupervisor();
+
+    $preview = app(ProductionService::class)->preview([
+        'product_id' => $fixture['product']->id,
+        'planned_quantity' => 100,
+        'actual_output_quantity' => 100,
+    ]);
+
+    $rawPreview = collect($preview['requirements'])->firstWhere('item_type', BomItemType::RawMaterial->value);
+    $packPreview = collect($preview['requirements'])->firstWhere('item_type', BomItemType::PackagingMaterial->value);
+
+    expect((float) $rawPreview['required_quantity'])->toBe(100.0)
+        ->and((float) $rawPreview['actual_used_quantity'])->toBe(80.0)
+        ->and((float) $rawPreview['estimated_value'])->toBe(8000.0)
+        ->and((float) $rawPreview['balance_after'])->toBe(0.0)
+        ->and($rawPreview['has_usage_variance'])->toBeTrue()
+        ->and($preview['has_mandatory_shortage'])->toBeFalse()
+        ->and($preview['has_usage_variance'])->toBeTrue()
+        ->and((float) $packPreview['required_quantity'])->toBe(100.0)
+        ->and((float) $packPreview['actual_used_quantity'])->toBe(100.0)
+        ->and((float) $packPreview['estimated_value'])->toBe(1000.0);
+
+    $batch = app(ProductionService::class)->completeProduction([
+        'product_id' => $fixture['product']->id,
+        'planned_quantity' => 100,
+        'actual_output_quantity' => 100,
+        'production_date' => now()->toDateString(),
+        'labour_cost' => 0,
+    ], $supervisor);
+
+    $rawConsumption = $batch->consumptions->firstWhere('item_type', BomItemType::RawMaterial);
+    $packConsumption = $batch->consumptions->firstWhere('item_type', BomItemType::PackagingMaterial);
+
+    expect((float) $fixture['raw']->fresh()->current_stock)->toBe(0.0)
+        ->and((float) $fixture['pack']->fresh()->current_stock)->toBe(0.0)
+        ->and((float) $rawConsumption->required_quantity)->toBe(100.0)
+        ->and((float) $rawConsumption->consumed_quantity)->toBe(80.0)
+        ->and((float) $rawConsumption->consumption_value)->toBe(8000.0)
+        ->and((float) $packConsumption->consumed_quantity)->toBe(100.0)
+        ->and((float) $batch->total_material_cost)->toBe(8000.0)
+        ->and((float) $batch->total_packaging_cost)->toBe(1000.0)
+        ->and((float) $fixture['bom']->fresh()->items()->where('item_type', BomItemType::RawMaterial)->value('required_quantity'))->toBe(1.0);
+});
+
+it('defaults actual used qty on the review screen and keeps required qty read-only', function () {
+    $fixture = seedManufacturingFixture(rawStock: 80, packStock: 100);
+    $this->actingAs(inventorySupervisor());
+
+    $component = Livewire::test(CreateProductionEntry::class)
+        ->fillForm([
+            'product_id' => $fixture['product']->id,
+            'production_quantity' => 100,
+            'production_date' => now('Asia/Kolkata')->toDateString(),
+            'labour_cost' => 0,
+            'transport_cost' => 0,
+            'other_manufacturing_cost' => 0,
+        ]);
+
+    expect($component->instance()->prepareReview())->toBeTrue();
+
+    $requirements = $component->get('requirements');
+    $rawIndex = collect($requirements)->search(
+        fn (array $row): bool => ($row['item_type'] ?? '') === BomItemType::RawMaterial->value,
+    );
+
+    expect((float) $requirements[$rawIndex]['required_quantity'])->toBe(100.0)
+        ->and((float) $requirements[$rawIndex]['actual_used_quantity'])->toBe(80.0)
+        ->and($component->get('hasMandatoryShortage'))->toBeFalse()
+        ->and($component->get('hasUsageVariance'))->toBeTrue();
+
+    $page = $component->instance();
+    $page->requirements[$rawIndex]['actual_used_quantity'] = 50;
+    $page->recostReviewFromActualUsed();
+
+    $rawAfter = $page->requirements[$rawIndex];
+
+    expect((float) $rawAfter['actual_used_quantity'])->toBe(50.0)
+        ->and((float) $rawAfter['required_quantity'])->toBe(100.0)
+        ->and((float) $rawAfter['estimated_value'])->toBe(5000.0)
+        ->and((float) $rawAfter['balance_after'])->toBe(30.0);
+
+    $page->requirements[$rawIndex]['actual_used_quantity'] = 90;
+    $page->recostReviewFromActualUsed();
+
+    $clamped = $page->requirements[$rawIndex];
+
+    expect((float) $clamped['actual_used_quantity'])->toBe(80.0);
 });
 
 it('deducts raw and packaging materials and increases finished stock on production', function () {
@@ -324,12 +423,19 @@ it('rolls back production stock changes when an exception is thrown inside the t
 it('prevents negative stock on production and adjustment', function () {
     $fixture = seedManufacturingFixture(rawStock: 2, packStock: 2);
     $director = inventoryDirector();
+    $rawBomItemId = $fixture['bom']->items()->where('item_type', BomItemType::RawMaterial)->value('id');
 
     expect(fn () => app(ProductionService::class)->completeProduction([
         'product_id' => $fixture['product']->id,
         'planned_quantity' => 10,
         'actual_output_quantity' => 10,
         'production_date' => now()->toDateString(),
+        'materials' => [
+            [
+                'bom_item_id' => $rawBomItemId,
+                'actual_used_quantity' => 10,
+            ],
+        ],
     ], inventorySupervisor()))->toThrow(ValidationException::class);
 
     expect(fn () => app(InventoryService::class)->adjustStock([

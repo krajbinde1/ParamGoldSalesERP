@@ -34,6 +34,7 @@ trait SyncsMaterialOpeningStockOnEdit
             'opening_stock_quantity',
             'opening_stock_value',
             'opening_date',
+            'opening_rate',
             'opening_effective_rate',
             'opening_stock_cases',
             'opening_average_cost',

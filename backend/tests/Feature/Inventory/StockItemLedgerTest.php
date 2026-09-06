@@ -445,7 +445,7 @@ it('recalculates opening and closing when date filters are applied', function ()
         ->and($result->totals['closing_rate'])->toBe(41.6667);
 });
 
-it('nets purchase edit reversals out of closing totals while keeping reversal rows for audit', function (): void {
+it('hides purchase edit reversals and superseded purchases from the item stock ledger', function (): void {
     $material = seedLedgerMaterial(0, 80);
     $material->update(['unit' => 'Ton']);
     $from = now('Asia/Kolkata')->toDateString();
@@ -525,15 +525,30 @@ it('nets purchase edit reversals out of closing totals while keeping reversal ro
 
     $particulars = collect($result->rows)->pluck('particulars')->all();
     $voucherTypes = collect($result->rows)->pluck('voucher_type')->all();
+    $purchaseRows = collect($result->rows)->where('voucher_type', 'Purchase');
 
     expect((float) $result->header['opening_qty'])->toBe(5.7)
         ->and((float) $result->totals['closing_qty'])->toBe(35.3)
         ->and((float) $result->totals['total_inward_qty'])->toBe(29.6)
         ->and((float) $result->totals['total_outward_qty'])->toBe(0.0)
-        ->and($particulars)->toContain('Purchase Edit Reversal')
-        ->and($voucherTypes)->toContain('Purchase Edit Reversal')
-        ->and(collect($result->rows)->where('voucher_type', 'Purchase')->count())->toBe(2)
+        ->and($result->totalTransactionCount)->toBe(1)
+        ->and($particulars)->not->toContain('Purchase Edit Reversal')
+        ->and($voucherTypes)->not->toContain('Purchase Edit Reversal')
+        ->and($voucherTypes)->not->toContain('Purchase Return')
+        ->and($purchaseRows)->toHaveCount(1)
+        ->and((float) $purchaseRows->first()['inward_qty'])->toBe(29.6)
         ->and((float) $material->fresh()->current_stock)->toBe(35.3);
+
+    $streamed = collect(iterator_to_array(app(StockItemLedgerService::class)->streamRows([
+        'item_type' => StockItemType::RawMaterial->value,
+        'item_id' => $material->id,
+        'from' => $from,
+        'to' => $from,
+    ]), false));
+
+    expect($streamed->pluck('particulars')->all())->toContain('Opening Balance')
+        ->and($streamed->pluck('particulars')->all())->not->toContain('Purchase Edit Reversal')
+        ->and($streamed->where('voucher_type', 'Purchase')->count())->toBe(1);
 
     app(PurchaseService::class)->update(
         $purchase->fresh(),
@@ -564,6 +579,8 @@ it('nets purchase edit reversals out of closing totals while keeping reversal ro
 
     expect(StockLedger::query()->where('reference_id', $purchase->id)->where('transaction_type', StockTransactionType::Purchase)->count())->toBe(2)
         ->and(StockLedger::query()->where('reference_id', $purchase->id)->where('transaction_type', StockTransactionType::PurchaseReturn)->count())->toBe(1)
+        ->and(collect($again->rows)->where('voucher_type', 'Purchase')->count())->toBe(1)
+        ->and(collect($again->rows)->pluck('voucher_type')->all())->not->toContain('Purchase Edit Reversal')
         ->and((float) $again->totals['total_inward_qty'])->toBe(29.6)
         ->and((float) $again->totals['closing_qty'])->toBe(35.3);
 });

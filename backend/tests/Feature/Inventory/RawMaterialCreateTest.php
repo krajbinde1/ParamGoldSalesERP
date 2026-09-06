@@ -5,11 +5,11 @@ use App\Enums\UserRole;
 use App\Filament\Resources\RawMaterials\Pages\CreateRawMaterial;
 use App\Filament\Resources\RawMaterials\Pages\EditRawMaterial;
 use App\Filament\Resources\RawMaterials\Pages\ViewRawMaterial;
+use App\Filament\Resources\RawMaterials\Schemas\RawMaterialForm;
 use App\Models\RawMaterial;
 use App\Models\RawMaterialInward;
 use App\Models\StockLedger;
 use App\Models\User;
-use App\Services\Inventory\MaterialEffectiveRate;
 use App\Services\Inventory\RawMaterialCreateService;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -162,9 +162,10 @@ it('renders the simplified Opening Stock section on the Create Raw Material page
         ->assertSee('Material Details')
         ->assertSee('Opening Stock')
         ->assertSee('Opening Stock Quantity')
+        ->assertSee('Opening Rate')
         ->assertSee('Opening Stock Value')
-        ->assertSee('Effective Rate')
         ->assertSee('Opening Date')
+        ->assertDontSee('Effective Rate')
         ->assertDontSee('Purchase Rate')
         ->assertDontSee('GST %')
         ->assertDontSee('Freight')
@@ -176,50 +177,98 @@ it('renders the simplified Opening Stock section on the Create Raw Material page
         ->assertDontSee('Post Inward');
 });
 
-it('shows opening and available effective rate per kg when stock unit is ton', function (): void {
+it('calculates opening stock value as quantity times opening rate on create', function (): void {
+    expect(RawMaterialForm::openingStockValue(1.8, 88500))->toBe(159300.0)
+        ->and(RawMaterialForm::openingStockValue(0, 88500))->toBe(0.0);
+
+    $this->actingAs($this->director);
+
+    $name = 'Rate Ton Alloy '.uniqid();
+
+    Livewire::test(CreateRawMaterial::class)
+        ->fillForm([
+            'material_name' => $name,
+            'unit' => 'Ton',
+            'minimum_stock' => 0,
+            'status' => true,
+            'opening_stock_quantity' => 1.8,
+            'opening_rate' => 88500,
+            'opening_date' => now('Asia/Kolkata')->toDateString(),
+        ])
+        ->assertSet('data.opening_stock_value', 159300)
+        ->call('create')
+        ->assertHasNoFormErrors();
+
+    $material = RawMaterial::query()->where('material_name', $name)->first();
+
+    expect($material)->not->toBeNull()
+        ->and((float) $material->opening_stock)->toBe(1.8)
+        ->and((float) $material->current_stock)->toBe(1.8)
+        ->and((float) $material->current_stock_value)->toBe(159300.0)
+        ->and((float) $material->purchase_rate)->toBe(88500.0)
+        ->and((float) $material->average_rate)->toBe(88500.0);
+
+    $ledger = StockLedger::query()
+        ->where('raw_material_id', $material->id)
+        ->where('transaction_type', StockTransactionType::OpeningStock->value)
+        ->first();
+
+    expect($ledger)->not->toBeNull()
+        ->and((float) $ledger->quantity_in)->toBe(1.8)
+        ->and((float) $ledger->transaction_value)->toBe(159300.0)
+        ->and((float) $ledger->rate)->toBe(88500.0);
+
+    Livewire::test(ViewRawMaterial::class, ['record' => $material->getKey()])
+        ->assertSuccessful()
+        ->assertSee('Opening Rate')
+        ->assertSee('₹88,500.00/Ton')
+        ->assertSee('₹159,300.00')
+        ->assertDontSee('Effective Rate');
+});
+
+it('recalculates opening stock value from opening rate on edit', function (): void {
     $material = app(RawMaterialCreateService::class)->create(
         materialData: [
-            'material_name' => 'Ton Rate Alloy',
-            'unit' => 'Ton',
+            'material_name' => 'Edit Rate Alloy '.uniqid(),
+            'unit' => 'Kg',
             'minimum_stock' => 0,
             'status' => true,
         ],
         opening: [
-            'quantity' => 0.650,
-            'value' => 110175,
+            'quantity' => 100,
+            'value' => 2000,
             'date' => now('Asia/Kolkata')->toDateString(),
         ],
         user: $this->director,
     );
 
-    expect((float) $material->opening_stock)->toBe(0.65)
-        ->and((float) $material->current_stock)->toBe(0.65)
-        ->and((float) $material->current_stock_value)->toBe(110175.0)
-        ->and(app(MaterialEffectiveRate::class)->format(
-            110175,
-            0.650,
-            'Ton',
-        ))->toBe('₹169.50/Kg');
-
     $this->actingAs($this->director);
-
-    Livewire::test(CreateRawMaterial::class)
-        ->fillForm([
-            'unit' => 'Ton',
-            'opening_stock_quantity' => 0.650,
-            'opening_stock_value' => 110175,
-        ])
-        ->assertSee('₹169.50/Kg')
-        ->assertDontSee('₹169,500');
-
-    Livewire::test(ViewRawMaterial::class, ['record' => $material->getKey()])
-        ->assertSuccessful()
-        ->assertSee('₹169.50/Kg')
-        ->assertDontSee('₹169,500')
-        ->assertSee('0.650');
 
     Livewire::test(EditRawMaterial::class, ['record' => $material->getKey()])
         ->assertSuccessful()
-        ->assertSee('₹169.50/Kg')
-        ->assertDontSee('₹169,500');
+        ->assertSee('Opening Rate')
+        ->fillForm([
+            'opening_stock_quantity' => 40,
+            'opening_rate' => 20,
+            'opening_date' => now('Asia/Kolkata')->toDateString(),
+        ])
+        ->assertSet('data.opening_stock_value', 800)
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $material->refresh();
+
+    expect((float) $material->opening_stock)->toBe(40.0)
+        ->and((float) $material->current_stock)->toBe(40.0)
+        ->and((float) $material->current_stock_value)->toBe(800.0)
+        ->and((float) $material->purchase_rate)->toBe(20.0)
+        ->and((float) $material->average_rate)->toBe(20.0);
+
+    $ledger = StockLedger::query()
+        ->where('raw_material_id', $material->id)
+        ->where('transaction_type', StockTransactionType::OpeningStock->value)
+        ->first();
+
+    expect((float) $ledger->transaction_value)->toBe(800.0)
+        ->and((float) $ledger->rate)->toBe(20.0);
 });

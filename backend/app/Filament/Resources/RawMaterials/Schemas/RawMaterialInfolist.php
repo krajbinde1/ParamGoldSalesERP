@@ -6,7 +6,6 @@ use App\Enums\StockTransactionType;
 use App\Filament\Resources\RawMaterials\RawMaterialResource;
 use App\Models\RawMaterial;
 use App\Models\StockLedger;
-use App\Services\Inventory\MaterialEffectiveRate;
 use App\Services\Inventory\WeightedAverageCosting;
 use Filament\Infolists\Components\IconEntry;
 use Filament\Infolists\Components\TextEntry;
@@ -38,18 +37,17 @@ class RawMaterialInfolist
                         TextEntry::make('opening_stock')
                             ->label('Opening Stock Quantity')
                             ->numeric(3),
-                        TextEntry::make('opening_stock_value_display')
-                            ->label('Opening Stock Value')
-                            ->state(fn (RawMaterial $record): string => self::formatMoney(self::openingValue($record))),
-                        TextEntry::make('opening_effective_rate_display')
-                            ->label('Effective Rate')
+                        TextEntry::make('opening_rate_display')
+                            ->label('Opening Rate')
                             ->state(function (RawMaterial $record): string {
-                                return app(MaterialEffectiveRate::class)->format(
-                                    self::openingValue($record),
-                                    (float) $record->opening_stock,
+                                return app(WeightedAverageCosting::class)->formatRate(
+                                    self::openingRate($record),
                                     $record->unit,
                                 );
                             }),
+                        TextEntry::make('opening_stock_value_display')
+                            ->label('Opening Stock Value')
+                            ->state(fn (RawMaterial $record): string => self::formatMoney(self::openingValue($record))),
                         TextEntry::make('opening_date_display')
                             ->label('Opening Date')
                             ->state(fn (RawMaterial $record): string => self::openingDate($record) ?? '—'),
@@ -90,7 +88,7 @@ class RawMaterialInfolist
             ->first();
     }
 
-    private static function openingEffectiveRate(RawMaterial $record): float
+    private static function openingRate(RawMaterial $record): float
     {
         $ledger = self::openingLedger($record);
 
@@ -110,7 +108,7 @@ class RawMaterialInfolist
         }
 
         $qty = (float) $record->opening_stock;
-        $rate = self::openingEffectiveRate($record);
+        $rate = self::openingRate($record);
 
         return round($qty * $rate, 2);
     }
