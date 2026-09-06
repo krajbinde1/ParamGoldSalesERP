@@ -179,8 +179,16 @@ final class StockLedgerService
         }
 
         $stockAfter = max(0, $stockAfter);
-        $product->current_finished_stock = $stockAfter;
-        $product->save();
+        $averageBefore = (float) $product->weighted_average_cost;
+        $this->applyFinishedProductWeightedAverage(
+            $product,
+            $stockBefore,
+            $stockAfter,
+            $quantityIn,
+            $quantityOut,
+            $rate,
+            $meta,
+        );
 
         $snapshots = $this->buildValueSnapshots(
             stockBefore: $stockBefore,
@@ -188,7 +196,7 @@ final class StockLedgerService
             quantityIn: $quantityIn,
             quantityOut: $quantityOut,
             rate: $rate,
-            fallbackAverageBefore: (float) $product->weighted_average_cost,
+            fallbackAverageBefore: $averageBefore,
             meta: $meta,
         );
 
@@ -383,18 +391,45 @@ final class StockLedgerService
     }
 
     /**
-     * Optional value/rate snapshots for new ledger rows only — does not alter qty posting.
+     * Current finished stock and WAC follow this movement (inward blends, outward
+     * at the existing average). Callers may still pass new_average_rate.
      *
      * @param  array<string, mixed>  $meta
-     * @return array{
-     *     opening_value: float,
-     *     closing_value: float,
-     *     average_rate_before: float,
-     *     average_rate_after: float,
-     *     inward_value: float,
-     *     outward_value: float
-     * }
      */
+    private function applyFinishedProductWeightedAverage(
+        Product $product,
+        float $stockBefore,
+        float $stockAfter,
+        float $quantityIn,
+        float $quantityOut,
+        float $rate,
+        array $meta,
+    ): void {
+        $averageBefore = (float) $product->weighted_average_cost;
+        $oldValue = round(max(0, $stockBefore) * max(0, $averageBefore), 2);
+
+        $inwardValue = array_key_exists('inward_value', $meta) && $meta['inward_value'] !== null
+            ? round((float) $meta['inward_value'], 2)
+            : ($quantityIn > 0 ? round($quantityIn * $rate, 2) : 0.0);
+        $outwardValue = array_key_exists('outward_value', $meta) && $meta['outward_value'] !== null
+            ? round((float) $meta['outward_value'], 2)
+            : ($quantityOut > 0 ? round($quantityOut * $averageBefore, 2) : 0.0);
+
+        $newValue = round(max(0, $oldValue + $inwardValue - $outwardValue), 2);
+
+        if ($stockAfter <= 0.0001) {
+            $newAvg = 0.0;
+        } elseif (array_key_exists('new_average_rate', $meta) && $meta['new_average_rate'] !== null) {
+            $newAvg = round((float) $meta['new_average_rate'], 4);
+        } else {
+            $newAvg = round($newValue / $stockAfter, 4);
+        }
+
+        $product->current_finished_stock = $stockAfter;
+        $product->weighted_average_cost = $newAvg;
+        $product->save();
+    }
+
     /**
      * Apply live quantity, GST-exclusive weighted average rate, and stock value.
      *

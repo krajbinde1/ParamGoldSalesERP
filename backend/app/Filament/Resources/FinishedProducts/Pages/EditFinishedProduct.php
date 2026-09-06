@@ -12,6 +12,7 @@ use App\Models\Product;
 use App\Models\User;
 use App\Services\Inventory\FinishedProductCreateService;
 use App\Services\Inventory\FinishedProductOpeningStockCalculator;
+use App\Services\Inventory\FinishedProductStockBalanceService;
 use App\Services\Inventory\MaterialOpeningStockSyncService;
 use Filament\Actions\ViewAction;
 use Filament\Resources\Pages\EditRecord;
@@ -97,6 +98,7 @@ class EditFinishedProduct extends EditRecord
             (float) $record->current_finished_stock,
             $nosPerCase,
         );
+        $data['weighted_average_cost'] = (float) $record->weighted_average_cost;
 
         return $data;
     }
@@ -219,6 +221,8 @@ class EditFinishedProduct extends EditRecord
 
     protected function afterSave(): void
     {
+        $this->refreshFinishedStockFromLedgers();
+
         /** @var Product $record */
         $record = $this->getRecord()->fresh();
         $fp = $record->finishedProduct;
@@ -234,5 +238,22 @@ class EditFinishedProduct extends EditRecord
             'remarks' => $record->remarks,
         ]);
         $fp->save();
+    }
+
+    private function refreshFinishedStockFromLedgers(): void
+    {
+        /** @var Product $record */
+        $record = $this->getRecord();
+        $synced = app(FinishedProductStockBalanceService::class)->syncFromLedgers($record);
+        $fresh = $synced->fresh() ?? $synced;
+        $this->record = $fresh;
+
+        $nosPerCase = app(FinishedProductOpeningStockCalculator::class)->nosPerCase($fresh);
+        $this->data['current_finished_stock'] = (float) $fresh->current_finished_stock;
+        $this->data['current_finished_stock_cases'] = FinishedProductOpeningStockCalculator::casesFromQty(
+            (float) $fresh->current_finished_stock,
+            $nosPerCase,
+        );
+        $this->data['weighted_average_cost'] = (float) $fresh->weighted_average_cost;
     }
 }

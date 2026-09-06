@@ -127,6 +127,7 @@ class ProductForm
                         TextInput::make('weighted_average_cost')
                             ->label('Weighted Average Cost')
                             ->prefix('₹')
+                            ->suffix('/Nos')
                             ->numeric()
                             ->disabled()
                             ->dehydrated(false)

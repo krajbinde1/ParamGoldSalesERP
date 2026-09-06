@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\PurchaseFreightType;
 use App\Enums\PurchaseMaterialType;
 use App\Enums\PurchaseStatus;
 use App\Enums\StockItemType;
@@ -21,6 +22,8 @@ class Purchase extends Model
         'total_taxable_amount' => 0,
         'total_gst' => 0,
         'grand_total' => 0,
+        'freight_type' => 'total_freight',
+        'freight_rate_per_ton' => null,
         'transport_cost' => 0,
         'total_landed_cost' => 0,
         'total_items' => 0,
@@ -41,6 +44,8 @@ class Purchase extends Model
         'total_taxable_amount',
         'total_gst',
         'grand_total',
+        'freight_type',
+        'freight_rate_per_ton',
         'transport_cost',
         'transporter_name',
         'transport_invoice_lr_no',
@@ -66,6 +71,8 @@ class Purchase extends Model
             'total_taxable_amount' => 'decimal:2',
             'total_gst' => 'decimal:2',
             'grand_total' => 'decimal:2',
+            'freight_type' => PurchaseFreightType::class,
+            'freight_rate_per_ton' => 'decimal:4',
             'transport_cost' => 'decimal:2',
             'total_landed_cost' => 'decimal:2',
             'confirmed_at' => 'datetime',

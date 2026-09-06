@@ -13,6 +13,7 @@ use Maatwebsite\Excel\Concerns\WithTitle;
 use Maatwebsite\Excel\Events\AfterSheet;
 use PhpOffice\PhpSpreadsheet\Style\Alignment;
 use PhpOffice\PhpSpreadsheet\Style\NumberFormat;
+use PhpOffice\PhpSpreadsheet\Worksheet\Worksheet;
 
 /**
  * Streams the filtered Unified Inventory Stock Report rows via generator
@@ -24,7 +25,13 @@ final class InventoryReportExport implements FromGenerator, ShouldAutoSize, With
     public function __construct(
         private readonly InventoryReportResult $report,
         private readonly string $generatedAt,
+        private readonly string $appliedFiltersLabel = 'None',
     ) {}
+
+    public function appliedFiltersLabel(): string
+    {
+        return $this->appliedFiltersLabel;
+    }
 
     public function generator(): \Generator
     {
@@ -91,10 +98,7 @@ final class InventoryReportExport implements FromGenerator, ShouldAutoSize, With
 
                 $sheet->setCellValue('A1', $this->report->title);
                 $sheet->setCellValue('A2', 'Generated on: '.$this->generatedAt);
-                $sheet->setCellValue(
-                    'A3',
-                    'Applied filters: '.(implode(' | ', $this->report->appliedFilterLabels) ?: 'None'),
-                );
+                $sheet->setCellValue('A3', 'Applied Filters: '.$this->appliedFiltersLabel);
 
                 $sheet->mergeCells("A1:{$lastColumn}1");
                 $sheet->mergeCells("A2:{$lastColumn}2");
@@ -136,7 +140,7 @@ final class InventoryReportExport implements FromGenerator, ShouldAutoSize, With
      * Bottom totals block: Raw Material / Packaging Material / Semi Finished /
      * Finished Product value + Grand Total, computed from the filtered dataset.
      */
-    protected function writeTotalsBlock(\PhpOffice\PhpSpreadsheet\Worksheet\Worksheet $sheet, int $highestRow, string $lastColumn): void
+    protected function writeTotalsBlock(Worksheet $sheet, int $highestRow, string $lastColumn): void
     {
         $breakdown = $this->report->footerBreakdownTotals();
 

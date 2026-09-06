@@ -1,5 +1,6 @@
 <?php
 
+use App\Enums\PurchaseMaterialType;
 use App\Enums\StockItemType;
 use App\Enums\StockTransactionType;
 use App\Enums\UserRole;
@@ -8,8 +9,11 @@ use App\Filament\Pages\InventoryReports;
 use App\Filament\Pages\StockItemLedger;
 use App\Models\RawMaterial;
 use App\Models\StockLedger;
+use App\Models\Supplier;
 use App\Models\User;
+use App\Services\Inventory\PurchaseService;
 use App\Services\Inventory\StockItemLedgerService;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 use Maatwebsite\Excel\Facades\Excel;
@@ -320,7 +324,7 @@ it('streams export rows including opening and totals', function (): void {
 
     $expectedName = sprintf(
         'Stock_Ledger_%s_%s_to_%s.xlsx',
-        \Illuminate\Support\Str::slug($material->material_code),
+        Str::slug($material->material_code),
         $defaults['from'],
         $defaults['to'],
     );
@@ -439,4 +443,127 @@ it('recalculates opening and closing when date filters are applied', function ()
         ->and($result->totals['closing_qty'])->toBe(120.0)
         ->and($result->totals['closing_value'])->toBe(5000.0)
         ->and($result->totals['closing_rate'])->toBe(41.6667);
+});
+
+it('nets purchase edit reversals out of closing totals while keeping reversal rows for audit', function (): void {
+    $material = seedLedgerMaterial(0, 80);
+    $material->update(['unit' => 'Ton']);
+    $from = now('Asia/Kolkata')->toDateString();
+    $openingDate = now('Asia/Kolkata')->subDay()->toDateString();
+
+    postLedgerRow($material, [
+        'transaction_date' => $openingDate,
+        'transaction_type' => StockTransactionType::OpeningStock->value,
+        'quantity_in' => 5.7,
+        'quantity_out' => 0,
+        'stock_before' => 0,
+        'stock_after' => 5.7,
+        'rate' => 80,
+        'average_rate_before' => 0,
+        'average_rate_after' => 80,
+        'opening_value' => 0,
+        'closing_value' => 456.0,
+        'inward_value' => 456.0,
+        'created_at' => now('Asia/Kolkata')->subDay(),
+    ]);
+    $material->update([
+        'current_stock' => 5.7,
+        'average_rate' => 80,
+        'current_stock_value' => 456.0,
+    ]);
+
+    $supplier = Supplier::query()->create([
+        'supplier_name' => 'Ledger Purchase Supplier '.uniqid(),
+        'status' => true,
+    ]);
+    $invoice = 'INV-LEDGER-'.uniqid();
+
+    $purchase = app(PurchaseService::class)->create(
+        [
+            'purchase_date' => $from,
+            'supplier_id' => $supplier->id,
+            'supplier_invoice_number' => $invoice,
+            'supplier_invoice_date' => $from,
+            'material_type' => PurchaseMaterialType::RawMaterial->value,
+        ],
+        [[
+            'raw_material_id' => $material->id,
+            'quantity' => 29.6,
+            'purchase_rate' => 80,
+            'gst_percentage' => 0,
+        ]],
+        $this->director,
+        confirm: true,
+    );
+
+    app(PurchaseService::class)->update(
+        $purchase,
+        [
+            'purchase_date' => $from,
+            'supplier_id' => $supplier->id,
+            'supplier_invoice_number' => $invoice,
+            'supplier_invoice_date' => $from,
+            'material_type' => PurchaseMaterialType::RawMaterial->value,
+        ],
+        [[
+            'raw_material_id' => $material->id,
+            'quantity' => 29.6,
+            'purchase_rate' => 90,
+            'gst_percentage' => 0,
+        ]],
+        $this->director,
+    );
+
+    $result = app(StockItemLedgerService::class)->build([
+        'item_type' => StockItemType::RawMaterial->value,
+        'item_id' => $material->id,
+        'from' => $from,
+        'to' => $from,
+        'page' => 1,
+        'per_page' => 50,
+    ]);
+
+    $particulars = collect($result->rows)->pluck('particulars')->all();
+    $voucherTypes = collect($result->rows)->pluck('voucher_type')->all();
+
+    expect((float) $result->header['opening_qty'])->toBe(5.7)
+        ->and((float) $result->totals['closing_qty'])->toBe(35.3)
+        ->and((float) $result->totals['total_inward_qty'])->toBe(29.6)
+        ->and((float) $result->totals['total_outward_qty'])->toBe(0.0)
+        ->and($particulars)->toContain('Purchase Edit Reversal')
+        ->and($voucherTypes)->toContain('Purchase Edit Reversal')
+        ->and(collect($result->rows)->where('voucher_type', 'Purchase')->count())->toBe(2)
+        ->and((float) $material->fresh()->current_stock)->toBe(35.3);
+
+    app(PurchaseService::class)->update(
+        $purchase->fresh(),
+        [
+            'purchase_date' => $from,
+            'supplier_id' => $supplier->id,
+            'supplier_invoice_number' => $invoice,
+            'supplier_invoice_date' => $from,
+            'material_type' => PurchaseMaterialType::RawMaterial->value,
+        ],
+        [[
+            'raw_material_id' => $material->id,
+            'quantity' => 29.6,
+            'purchase_rate' => 90,
+            'gst_percentage' => 0,
+        ]],
+        $this->director,
+    );
+
+    $again = app(StockItemLedgerService::class)->build([
+        'item_type' => StockItemType::RawMaterial->value,
+        'item_id' => $material->id,
+        'from' => $from,
+        'to' => $from,
+        'page' => 1,
+        'per_page' => 50,
+    ]);
+
+    expect(StockLedger::query()->where('reference_id', $purchase->id)->where('transaction_type', StockTransactionType::Purchase)->count())->toBe(2)
+        ->and(StockLedger::query()->where('reference_id', $purchase->id)->where('transaction_type', StockTransactionType::PurchaseReturn)->count())->toBe(1)
+        ->and((float) $again->totals['total_inward_qty'])->toBe(29.6)
+        ->and((float) $again->totals['closing_qty'])->toBe(35.3);
 });

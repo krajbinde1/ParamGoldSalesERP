@@ -41,6 +41,15 @@ class StockLedger extends Model
         'created_by',
     ];
 
+    public function isPurchaseEditReversal(): bool
+    {
+        if ($this->transaction_type !== StockTransactionType::PurchaseReturn) {
+            return false;
+        }
+
+        return str_starts_with(trim((string) $this->remarks), 'Purchase edit reversal');
+    }
+
     protected function casts(): array
     {
         return [

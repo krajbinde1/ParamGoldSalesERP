@@ -13,6 +13,7 @@ use Filament\Forms\Components\Select;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
+use Filament\Schemas\Components\Component;
 use Filament\Schemas\Components\Grid;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Components\Utilities\Get;
@@ -23,7 +24,7 @@ class FinishedProductForm
 {
     /**
      * @param  array<string, int>|int|string|null  $columnSpan
-     * @return list<\Filament\Schemas\Components\Component|\Filament\Forms\Components\Component>
+     * @return list<Component|\Filament\Forms\Components\Component>
      */
     public static function productDetailsComponents(
         bool $forEdit = false,
@@ -158,7 +159,7 @@ class FinishedProductForm
 
     /**
      * @param  array<string, int>|int|string|null  $columnSpan
-     * @return list<\Filament\Schemas\Components\Component|\Filament\Forms\Components\Component>
+     * @return list<Component|\Filament\Forms\Components\Component>
      */
     public static function openingStockComponents(
         bool $readOnly = false,
@@ -298,7 +299,7 @@ class FinishedProductForm
     }
 
     /**
-     * @return list<\Filament\Schemas\Components\Component|\Filament\Forms\Components\Component>
+     * @return list<Component|\Filament\Forms\Components\Component>
      */
     public static function currentStockComponents(): array
     {
@@ -330,6 +331,16 @@ class FinishedProductForm
                             }
 
                             return IndianCurrency::formatExact((float) $record->current_stock_value);
+                        }),
+                    Placeholder::make('weighted_average_cost_display')
+                        ->label('Weighted Average Cost')
+                        ->visible(fn (): bool => FinishedProductResource::canViewCosts())
+                        ->content(function (?Product $record): string {
+                            if ($record === null) {
+                                return '—';
+                            }
+
+                            return IndianCurrency::formatExact((float) $record->weighted_average_cost).'/Nos';
                         }),
                 ]),
         ];

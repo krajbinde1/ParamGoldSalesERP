@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Purchases\Schemas;
 
+use App\Enums\PurchaseFreightType;
 use App\Enums\PurchaseMaterialType;
 use App\Enums\PurchaseStatus;
 use App\Filament\Resources\Purchases\PurchaseResource;
@@ -56,8 +57,18 @@ class PurchaseInfolist
                 Section::make('Transport / Freight')
                     ->columns(3)
                     ->schema([
+                        TextEntry::make('freight_type')
+                            ->label('Freight Type')
+                            ->formatStateUsing(fn ($state): string => PurchaseFreightType::fromMixed($state)->label()),
+                        TextEntry::make('freight_rate_per_ton')
+                            ->label('Freight Rate Per Ton')
+                            ->money('INR')
+                            ->placeholder('—')
+                            ->visible(fn (Purchase $record): bool => $record->freight_type === PurchaseFreightType::FreightPerTon && $canViewRates),
                         TextEntry::make('transport_cost')
-                            ->label('Transport/Freight Cost')
+                            ->label(fn (Purchase $record): string => $record->freight_type === PurchaseFreightType::FreightPerTon
+                                ? 'Total Freight Cost'
+                                : 'Transport/Freight Cost')
                             ->money('INR')
                             ->visible($canViewRates),
                         TextEntry::make('transporter_name')->label('Transporter Name')->placeholder('—'),

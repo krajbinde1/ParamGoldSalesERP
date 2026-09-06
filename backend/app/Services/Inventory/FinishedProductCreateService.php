@@ -273,9 +273,10 @@ final class FinishedProductCreateService
 
         $lockedProduct->refresh();
         $lockedProduct->opening_finished_stock = $qty;
-        $lockedProduct->weighted_average_cost = $newAvg;
         $lockedProduct->manufacturing_enabled = true;
         $lockedProduct->save();
+
+        app(FinishedProductStockBalanceService::class)->syncFromLedgers($lockedProduct);
     }
 
     /**

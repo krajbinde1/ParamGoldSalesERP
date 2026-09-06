@@ -59,7 +59,7 @@ class ProductInfolist
                             ->placeholder('-'),
                         TextEntry::make('shelf_life_days')->label('Shelf Life (Days)')->placeholder('-'),
                         IconEntry::make('batch_tracking_enabled')->label('Batch Tracking')->boolean(),
-                        TextEntry::make('weighted_average_cost')->label('Weighted Average Cost')->money('INR'),
+                        TextEntry::make('weighted_average_cost')->label('Weighted Average Cost')->money('INR')->suffix('/Nos'),
                     ]),
             ]);
     }

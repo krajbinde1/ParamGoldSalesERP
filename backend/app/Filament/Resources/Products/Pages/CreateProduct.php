@@ -49,6 +49,7 @@ class CreateProduct extends CreateRecord
             $data['minimum_finished_stock_cases'],
             $data['current_finished_stock_cases'],
             $data['current_finished_stock'],
+            $data['weighted_average_cost'],
         );
 
         return $data;

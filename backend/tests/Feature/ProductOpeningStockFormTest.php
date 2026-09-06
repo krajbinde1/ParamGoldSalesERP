@@ -192,3 +192,65 @@ it('posts opening stock from sales product edit using active bom estimated cost'
         ])
         ->assertSee('Cases');
 });
+
+it('sets current finished stock and wac from opening stock and does not duplicate ledgers on re-save', function (): void {
+    $product = productOpeningMaster([
+        'uom' => 'Piece',
+        'nos_per_case' => 20,
+        'manufacturing_enabled' => false,
+    ]);
+    productOpeningActiveBom($product, 102.50);
+
+    $this->actingAs($this->director);
+
+    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
+        ->assertFormSet([
+            'opening_average_cost' => 102.5,
+        ])
+        ->fillForm([
+            'opening_stock_cases' => 2,
+            'opening_date' => now('Asia/Kolkata')->toDateString(),
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors()
+        ->assertFormSet([
+            'current_finished_stock_cases' => 2,
+            'opening_stock_cases' => 2,
+            'weighted_average_cost' => 102.5,
+        ]);
+
+    $product->refresh();
+    $ledgers = StockLedger::query()
+        ->where('product_id', $product->id)
+        ->where('transaction_type', StockTransactionType::OpeningStock->value)
+        ->get();
+
+    expect((float) $product->opening_finished_stock)->toBe(40.0)
+        ->and((float) $product->current_finished_stock)->toBe(40.0)
+        ->and((float) $product->weighted_average_cost)->toBe(102.5)
+        ->and((float) $product->current_stock_value)->toBe(4100.0)
+        ->and($ledgers)->toHaveCount(1)
+        ->and((float) $ledgers->first()->quantity_in)->toBe(40.0)
+        ->and((float) $ledgers->first()->transaction_value)->toBe(4100.0);
+
+    Livewire::test(EditProduct::class, ['record' => $product->getRouteKey()])
+        ->fillForm([
+            'product_name' => $product->product_name.' Updated',
+        ])
+        ->call('save')
+        ->assertHasNoFormErrors()
+        ->assertFormSet([
+            'current_finished_stock_cases' => 2,
+            'weighted_average_cost' => 102.5,
+        ]);
+
+    $product->refresh();
+
+    expect((float) $product->current_finished_stock)->toBe(40.0)
+        ->and((float) $product->weighted_average_cost)->toBe(102.5)
+        ->and(StockLedger::query()
+            ->where('product_id', $product->id)
+            ->where('transaction_type', StockTransactionType::OpeningStock->value)
+            ->count())->toBe(1)
+        ->and(StockLedger::query()->where('product_id', $product->id)->count())->toBe(1);
+});

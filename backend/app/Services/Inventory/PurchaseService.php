@@ -2,6 +2,7 @@
 
 namespace App\Services\Inventory;
 
+use App\Enums\PurchaseFreightType;
 use App\Enums\PurchaseMaterialType;
 use App\Enums\PurchaseStatus;
 use App\Enums\StockTransactionType;
@@ -16,6 +17,8 @@ use Illuminate\Validation\ValidationException;
 
 final class PurchaseService
 {
+    public const EDIT_REVERSAL_REMARKS_PREFIX = 'Purchase edit reversal';
+
     public function __construct(
         private readonly InventoryService $inventoryService = new InventoryService,
         private readonly StockLedgerService $ledgerService = new StockLedgerService,
@@ -68,6 +71,7 @@ final class PurchaseService
 
             if ($locked->status === PurchaseStatus::Confirmed) {
                 $this->assertCanUpdate($user);
+                $locked->loadMissing('items');
 
                 return $this->updateConfirmedSafely($locked, $header, $items, $user);
             }
@@ -133,8 +137,16 @@ final class PurchaseService
      */
     private function updateConfirmedSafely(Purchase $locked, array $header, array $items, User $user): Purchase
     {
+        if ($this->inventoryPostingUnchanged($locked, $header, $items)) {
+            return $this->updateConfirmedWithoutReposting($locked, $header, $items);
+        }
+
         $this->assertCanReverseStock($locked);
-        $this->reverseConfirmedPostings($locked, $user, 'Purchase edit reversal — '.$locked->purchase_number);
+        $this->reverseConfirmedPostings(
+            $locked,
+            $user,
+            self::EDIT_REVERSAL_REMARKS_PREFIX.' — '.$locked->purchase_number,
+        );
 
         $locked->refresh();
         $locked->status = PurchaseStatus::Draft;
@@ -148,6 +160,106 @@ final class PurchaseService
         $this->recalculateHeaderTotals($locked);
 
         return $this->confirmLocked($locked->fresh(['items']), $user);
+    }
+
+    /**
+     * @param  array<string, mixed>  $header
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function updateConfirmedWithoutReposting(Purchase $locked, array $header, array $items): Purchase
+    {
+        $locked->fill($this->normalizeHeader($header));
+        $locked->save();
+
+        $existing = $locked->items()->orderBy('sort_order')->get();
+        foreach ($items as $index => $item) {
+            $row = $existing[$index] ?? null;
+            if ($row === null) {
+                continue;
+            }
+
+            $row->batch_lot_no = filled($item['batch_lot_no'] ?? null) ? trim((string) $item['batch_lot_no']) : null;
+            $row->remarks = $item['remarks'] ?? null;
+            $row->save();
+        }
+
+        $this->recalculateHeaderTotals($locked->fresh(['items']));
+
+        return $locked->fresh(['items', 'supplier', 'createdBy']);
+    }
+
+    /**
+     * True when a confirmed save would not change posted qty, material, rate, or freight.
+     *
+     * @param  array<string, mixed>  $header
+     * @param  list<array<string, mixed>>  $items
+     */
+    private function inventoryPostingUnchanged(Purchase $locked, array $header, array $items): bool
+    {
+        $normalized = $this->normalizeHeader($header);
+        $existingType = $locked->material_type instanceof PurchaseMaterialType
+            ? $locked->material_type
+            : PurchaseMaterialType::from((string) $locked->material_type);
+
+        if ($normalized['material_type'] !== $existingType) {
+            return false;
+        }
+
+        $incomingFreight = $normalized['freight_type'] instanceof PurchaseFreightType
+            ? $normalized['freight_type']
+            : PurchaseFreightType::fromMixed($normalized['freight_type']);
+        $existingFreight = $locked->freight_type instanceof PurchaseFreightType
+            ? $locked->freight_type
+            : PurchaseFreightType::fromMixed($locked->freight_type);
+
+        if ($incomingFreight !== $existingFreight) {
+            return false;
+        }
+
+        if ($incomingFreight === PurchaseFreightType::FreightPerTon) {
+            if (abs((float) ($normalized['freight_rate_per_ton'] ?? 0) - (float) ($locked->freight_rate_per_ton ?? 0)) > 0.00015) {
+                return false;
+            }
+        } elseif (abs((float) $normalized['transport_cost'] - (float) $locked->transport_cost) > 0.005) {
+            return false;
+        }
+
+        $existing = $locked->items?->values() ?? collect();
+        if ($existing->count() !== count($items)) {
+            return false;
+        }
+
+        foreach ($items as $index => $item) {
+            $row = $existing[$index] ?? null;
+            if ($row === null) {
+                return false;
+            }
+
+            if ((int) ($item['raw_material_id'] ?? 0) !== (int) ($row->raw_material_id ?? 0)) {
+                return false;
+            }
+            if ((int) ($item['packaging_material_id'] ?? 0) !== (int) ($row->packaging_material_id ?? 0)) {
+                return false;
+            }
+
+            $calculated = $this->costing->calculateItemAmounts([
+                'inward_quantity' => $item['quantity'] ?? 0,
+                'basic_rate' => $item['purchase_rate'] ?? 0,
+                'gst_percentage' => $item['gst_percentage'] ?? 0,
+            ]);
+
+            if (abs((float) $calculated['accepted_quantity'] - (float) $row->quantity) > 0.0005) {
+                return false;
+            }
+            if (abs((float) $calculated['basic_rate'] - (float) $row->purchase_rate) > 0.00015) {
+                return false;
+            }
+            if (abs((float) $calculated['gst_percentage'] - (float) $row->gst_percentage) > 0.005) {
+                return false;
+            }
+        }
+
+        return true;
     }
 
     private function confirmLocked(Purchase $locked, User $user): Purchase
@@ -199,9 +311,6 @@ final class PurchaseService
         }
     }
 
-    /**
-     * @param  RawMaterial|PackagingMaterial  $material
-     */
     private function applyInwardToMaterial(
         Purchase $purchase,
         PurchaseItem $item,
@@ -400,6 +509,22 @@ final class PurchaseService
         $purchase->total_taxable_amount = round($items->sum('taxable_amount'), 2);
         $purchase->total_gst = round($items->sum('gst_amount'), 2);
         $purchase->grand_total = round($items->sum('total_amount'), 2);
+
+        if ($purchase->freight_type === PurchaseFreightType::FreightPerTon) {
+            $rate = (float) ($purchase->freight_rate_per_ton ?? 0);
+            $lineItems = $items->map(fn (PurchaseItem $item): array => [
+                'quantity' => (float) $item->quantity,
+                'unit' => $item->unit,
+            ])->values()->all();
+            $tons = $this->freightAllocator->totalQuantityInTons($lineItems);
+            if ($rate > 0 && $tons <= 0) {
+                throw ValidationException::withMessages([
+                    'freight_rate_per_ton' => 'Freight Per Ton requires purchase quantity in Ton, Kg, or Gram.',
+                ]);
+            }
+            $purchase->transport_cost = $this->freightAllocator->totalFreightFromPerTonRate($rate, $lineItems);
+        }
+
         $purchase->save();
 
         $this->applyFreightAllocation($purchase);
@@ -469,6 +594,17 @@ final class PurchaseService
             ]);
         }
 
+        $freightType = PurchaseFreightType::fromMixed($header['freight_type'] ?? null);
+        $freightRatePerTon = null;
+        if ($freightType === PurchaseFreightType::FreightPerTon) {
+            $freightRatePerTon = round((float) ($header['freight_rate_per_ton'] ?? 0), 4);
+            if ($freightRatePerTon < 0 || ! is_finite($freightRatePerTon)) {
+                throw ValidationException::withMessages([
+                    'freight_rate_per_ton' => 'Freight Rate Per Ton cannot be negative.',
+                ]);
+            }
+        }
+
         $transporterName = trim((string) ($header['transporter_name'] ?? ''));
         $transportLr = trim((string) ($header['transport_invoice_lr_no'] ?? ''));
         $transportRemark = trim((string) ($header['transport_remark'] ?? ''));
@@ -482,6 +618,8 @@ final class PurchaseService
             'material_type' => $type,
             'remarks' => $header['remarks'] ?? null,
             'invoice_path' => $header['invoice_path'] ?? null,
+            'freight_type' => $freightType,
+            'freight_rate_per_ton' => $freightRatePerTon,
             'transport_cost' => $transportCost,
             'transporter_name' => $transporterName !== '' ? $transporterName : null,
             'transport_invoice_lr_no' => $transportLr !== '' ? $transportLr : null,

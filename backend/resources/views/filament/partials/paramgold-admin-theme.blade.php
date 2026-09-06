@@ -462,4 +462,145 @@
         }
     }
 
+    /*
+     * Purchase Entry form — consistent field sizing, no squeezed dropdowns,
+     * and a professional responsive Purchase Items layout.
+     */
+    .paramgold-purchase-form .fi-fo-field {
+        min-width: 0;
+        width: 100%;
+    }
+
+    .paramgold-purchase-form .fi-fo-field-label-col {
+        min-height: 2.35rem;
+        display: flex;
+        align-items: flex-end;
+        margin-bottom: 0.3rem;
+    }
+
+    .paramgold-purchase-form .fi-fo-field-label,
+    .paramgold-purchase-form .fi-fo-field-label-content {
+        display: block;
+        width: 100%;
+        min-width: 0;
+        line-height: 1.3;
+        white-space: normal;
+        overflow: visible;
+        word-break: normal;
+        overflow-wrap: break-word;
+        hyphens: none;
+    }
+
+    .paramgold-purchase-form .fi-fo-file-upload .fi-input-wrp,
+    .paramgold-purchase-form .fi-fo-file-upload {
+        height: auto;
+        min-height: 0;
+        min-width: 0;
+    }
+
+    .paramgold-purchase-form .fi-input-wrp,
+    .paramgold-purchase-form .fi-fo-select,
+    .paramgold-purchase-form .fi-fo-date-picker,
+    .paramgold-purchase-form .fi-fo-date-time-picker {
+        min-height: 2.5rem;
+        height: 2.5rem;
+        min-width: 8.5rem;
+        width: 100%;
+        box-sizing: border-box;
+    }
+
+    .paramgold-purchase-form textarea,
+    .paramgold-purchase-form .fi-textarea,
+    .paramgold-purchase-form .fi-fo-textarea .fi-input-wrp {
+        min-height: 4.25rem;
+        height: auto;
+        min-width: 8.5rem;
+    }
+
+    .paramgold-purchase-form .fi-input,
+    .paramgold-purchase-form .fi-select-input,
+    .paramgold-purchase-form .fi-select-input-btn,
+    .paramgold-purchase-form input:not([type="file"]):not([type="checkbox"]):not([type="radio"]),
+    .paramgold-purchase-form select {
+        min-width: 0;
+        width: 100%;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        word-break: normal;
+        overflow-wrap: normal;
+    }
+
+    .paramgold-purchase-form .paramgold-purchase-dropdown,
+    .paramgold-purchase-form .paramgold-purchase-material {
+        min-width: 12rem;
+    }
+
+    .paramgold-purchase-form .paramgold-purchase-material {
+        min-width: 16rem;
+    }
+
+    .paramgold-purchase-header-grid,
+    .paramgold-purchase-item-row {
+        width: 100%;
+    }
+
+    .paramgold-purchase-header-grid .fi-sc,
+    .paramgold-purchase-item-row .fi-sc {
+        align-items: start;
+        column-gap: 0.875rem;
+        row-gap: 0.875rem;
+    }
+
+    .paramgold-purchase-items-section .fi-section-content {
+        overflow-x: visible;
+    }
+
+    .paramgold-purchase-items .fi-fo-repeater-item {
+        padding: 0.85rem 0.9rem 0.65rem;
+    }
+
+    .paramgold-purchase-item-row--primary .paramgold-purchase-material {
+        flex: 1 1 16rem;
+    }
+
+    .paramgold-purchase-summary .fi-fo-placeholder,
+    .paramgold-purchase-summary .fi-fo-field {
+        min-width: 10rem;
+    }
+
+    @media (max-width: 767px) {
+        .paramgold-purchase-form .fi-input-wrp,
+        .paramgold-purchase-form .fi-fo-select,
+        .paramgold-purchase-form .fi-fo-date-picker,
+        .paramgold-purchase-form .fi-fo-date-time-picker,
+        .paramgold-purchase-form .paramgold-purchase-dropdown,
+        .paramgold-purchase-form .paramgold-purchase-material {
+            min-width: 0;
+            width: 100%;
+        }
+
+        .paramgold-purchase-form .fi-fo-field-label-col {
+            min-height: 0;
+            align-items: flex-start;
+        }
+
+        .paramgold-purchase-items .fi-fo-repeater-item {
+            padding: 0.75rem 0.65rem 0.5rem;
+        }
+    }
+
+    @media (min-width: 768px) and (max-width: 1023px) {
+        .paramgold-purchase-form .fi-input-wrp,
+        .paramgold-purchase-form .fi-fo-select,
+        .paramgold-purchase-form .fi-fo-date-picker,
+        .paramgold-purchase-form .fi-fo-date-time-picker {
+            min-width: 9.5rem;
+        }
+
+        .paramgold-purchase-form .paramgold-purchase-material {
+            min-width: 14rem;
+        }
+    }
+
 </style>

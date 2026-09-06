@@ -8,6 +8,7 @@ use App\Filament\Concerns\InventoryFilamentAccess;
 use App\Services\Inventory\InventoryReportResult;
 use App\Services\Inventory\InventoryReportService;
 use BackedEnum;
+use Barryvdh\DomPDF\Facade\Pdf;
 use Filament\Actions\Action;
 use Filament\Forms\Components\Select;
 use Filament\Forms\Components\TextInput;
@@ -27,6 +28,7 @@ use Filament\Tables\Concerns\InteractsWithTable;
 use Filament\Tables\Contracts\HasTable;
 use Filament\Tables\Table;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Http\Response;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\HtmlString;
@@ -191,11 +193,16 @@ class InventoryReports extends Page implements HasForms, HasTable
                     ->icon(Heroicon::OutlinedArrowPath)
                     ->color('gray')
                     ->action(fn () => $this->resetFilters()),
-                Action::make('exportReport')
+                Action::make('exportPdf')
+                    ->label('Export PDF')
+                    ->icon(Heroicon::OutlinedDocumentChartBar)
+                    ->color('gray')
+                    ->action(fn () => $this->exportPdf()),
+                Action::make('exportExcel')
                     ->label('Export Excel')
                     ->icon(Heroicon::OutlinedArrowDownTray)
                     ->color('success')
-                    ->action(fn () => $this->exportReport()),
+                    ->action(fn () => $this->exportExcel()),
             ])
             ->striped()
             ->paginated([10, 25, 50, 100])
@@ -365,22 +372,182 @@ class InventoryReports extends Page implements HasForms, HasTable
         $this->touchGeneratedAt();
     }
 
-    public function exportReport(): BinaryFileResponse
+    public function exportExcel(): BinaryFileResponse
     {
-        $filters = $this->activeFilters();
-        $report = app(InventoryReportService::class)->build($filters);
-
-        if (! $this->canViewCostColumns()) {
-            $report = $this->stripCostColumnsFromReport($report);
-        }
+        $report = $this->exportableReport();
 
         return Excel::download(
             new InventoryReportExport(
                 report: $report,
-                generatedAt: $this->generatedAt ?: now('Asia/Kolkata')->format('d M Y, h:i A'),
+                generatedAt: $this->exportGeneratedAt(),
+                appliedFiltersLabel: $this->exportAppliedFiltersLabel($report),
             ),
-            $report->filenameStem.'_'.now('Asia/Kolkata')->format('Y-m-d').'.xlsx',
+            $this->exportFilename($report, 'xlsx'),
         );
+    }
+
+    /**
+     * Kept for existing callers; same as Export Excel.
+     */
+    public function exportReport(): BinaryFileResponse
+    {
+        return $this->exportExcel();
+    }
+
+    public function exportPdf(): Response
+    {
+        $report = $this->exportableReport();
+        $viewData = $this->exportPdfViewData($report);
+
+        $pdf = Pdf::loadView('filament.pages.inventory-reports-export-pdf', $viewData);
+        $pdf->setPaper('a4', 'landscape');
+        $pdf->setOption('isPhpEnabled', true);
+
+        $binary = $pdf->output();
+        if ($binary === '' || ! str_starts_with($binary, '%PDF')) {
+            abort(500, 'Failed to generate Inventory Stock Report PDF.');
+        }
+
+        return response($binary, 200, [
+            'Content-Type' => 'application/pdf',
+            'Content-Disposition' => 'attachment; filename="'.$this->exportFilename($report, 'pdf').'"',
+        ]);
+    }
+
+    /**
+     * View payload for the Filament Inventory Stock Report PDF export.
+     *
+     * @return array<string, mixed>
+     */
+    public function exportPdfViewData(?InventoryReportResult $report = null): array
+    {
+        $report ??= $this->exportableReport();
+        $columns = $report->columns;
+        $rows = [];
+
+        foreach ($report->exportRows() as $row) {
+            $cells = [];
+
+            foreach ($columns as $index => $column) {
+                $cells[] = [
+                    'value' => $this->formatExportPdfCell($column, $row[$index] ?? null),
+                    'align' => $column['align'] ?? 'left',
+                ];
+            }
+
+            $rows[] = $cells;
+        }
+
+        return [
+            'companyName' => (string) config('app.name', 'Param Gold Sales ERP'),
+            'title' => $report->title,
+            'generatedAt' => $this->exportGeneratedAt(),
+            'appliedFiltersLabel' => $this->exportAppliedFiltersLabel($report),
+            'columns' => $columns,
+            'rows' => $rows,
+            'totals' => $this->exportPdfTotalLines($report),
+        ];
+    }
+
+    public function exportAppliedFiltersLabel(?InventoryReportResult $report = null): string
+    {
+        if (! $this->hasAppliedExportFilters()) {
+            return 'None';
+        }
+
+        $report ??= $this->exportableReport();
+
+        return implode(' | ', $report->appliedFilterLabels) ?: 'None';
+    }
+
+    public function hasAppliedExportFilters(): bool
+    {
+        $filters = $this->activeFilters();
+        $type = (string) ($filters['inventory_type'] ?? InventoryReportService::TYPE_ALL);
+
+        if (! array_key_exists($type, InventoryReportService::inventoryTypeOptions())) {
+            $type = InventoryReportService::TYPE_ALL;
+        }
+
+        $search = trim((string) ($filters['search'] ?? ''));
+        $itemKey = $filters['item_key'] ?? null;
+        $status = $filters['stock_status_filter'] ?? null;
+
+        return $type !== InventoryReportService::TYPE_ALL
+            || (is_string($itemKey) && $itemKey !== '')
+            || $search !== ''
+            || filled($status);
+    }
+
+    protected function exportableReport(): InventoryReportResult
+    {
+        $report = app(InventoryReportService::class)->build($this->activeFilters());
+
+        if (! $this->canViewCostColumns()) {
+            return $this->stripCostColumnsFromReport($report);
+        }
+
+        return $report;
+    }
+
+    protected function exportGeneratedAt(): string
+    {
+        return $this->generatedAt !== ''
+            ? $this->generatedAt
+            : now('Asia/Kolkata')->format('d M Y, h:i A');
+    }
+
+    protected function exportFilename(InventoryReportResult $report, string $extension): string
+    {
+        return $report->filenameStem.'_'.now('Asia/Kolkata')->format('Y-m-d').'.'.$extension;
+    }
+
+    /**
+     * @param  array{key: string, label: string, align: string, format: string, sortable: string|false}  $column
+     */
+    protected function formatExportPdfCell(array $column, mixed $value): string
+    {
+        return match ($column['format']) {
+            'qty' => $this->formatQtyCell($value),
+            'money' => $this->formatMoneyCell($value),
+            'rate' => $this->formatRateCell($value),
+            'integer' => $value === null || $value === ''
+                ? '—'
+                : number_format((int) $value),
+            'badge_stock' => match ((string) $value) {
+                'out_of_stock' => 'Out of Stock',
+                'low_stock' => 'Low Stock',
+                'in_stock' => 'In Stock',
+                default => (string) ($value ?: '—'),
+            },
+            default => $value === null || $value === ''
+                ? '—'
+                : (string) $value,
+        };
+    }
+
+    /**
+     * @return list<array{label: string, value: float, bold: bool}>
+     */
+    protected function exportPdfTotalLines(InventoryReportResult $report): array
+    {
+        $breakdown = $report->footerBreakdownTotals();
+
+        if ($breakdown === null) {
+            return [];
+        }
+
+        $rows = [
+            ['label' => 'Raw Material Value', 'value' => (float) ($breakdown[InventoryReportService::TYPE_RAW_MATERIAL] ?? 0.0), 'bold' => false],
+            ['label' => 'Packaging Material Value', 'value' => (float) ($breakdown[InventoryReportService::TYPE_PACKAGING_MATERIAL] ?? 0.0), 'bold' => false],
+            ['label' => 'Semi Finished Value', 'value' => (float) ($breakdown[InventoryReportService::TYPE_SEMI_FINISHED] ?? 0.0), 'bold' => false],
+            ['label' => 'Finished Product Value', 'value' => (float) ($breakdown[InventoryReportService::TYPE_FINISHED_PRODUCT] ?? 0.0), 'bold' => false],
+        ];
+
+        $grandTotal = array_sum(array_column($rows, 'value'));
+        $rows[] = ['label' => 'Grand Total Stock Value', 'value' => $grandTotal, 'bold' => true];
+
+        return $rows;
     }
 
     public function getReportProperty(): InventoryReportResult

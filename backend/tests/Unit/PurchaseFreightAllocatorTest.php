@@ -19,3 +19,13 @@ it('does not add freight to landed cost when transport is zero', function (): vo
     expect($allocator->allocate(0, [500, 500]))->toBe([0.0, 0.0])
         ->and($allocator->effectiveLandedRate(10, 100, 0))->toBe(10.0);
 });
+
+it('calculates total freight as rate per ton times quantity in ton', function (): void {
+    $allocator = new PurchaseFreightAllocator;
+
+    expect($allocator->quantityInTons(29.6, 'Ton'))->toBe(29.6)
+        ->and($allocator->quantityInTons(29600, 'Kg'))->toBe(29.6)
+        ->and($allocator->totalFreightFromPerTonRate(500, [
+            ['quantity' => 29.600, 'unit' => 'Ton'],
+        ]))->toBe(14800.0);
+});

@@ -134,11 +134,10 @@ final class MaterialOpeningStockSyncService
             updateInPlace: function (StockLedger $ledger, float $qty, float $value, string $date, float $rate) use ($product): void {
                 $locked = $this->inventoryService->lockProduct($product->id);
                 $locked->opening_finished_stock = $qty;
-                $locked->current_finished_stock = $qty;
-                $locked->weighted_average_cost = $rate;
                 $locked->manufacturing_enabled = true;
                 $locked->save();
                 $this->rewriteOpeningLedger($ledger, $qty, $value, $date, $rate);
+                app(FinishedProductStockBalanceService::class)->syncFromLedgers($locked);
             },
             updateDateOnly: function (StockLedger $ledger, string $date): void {
                 $ledger->transaction_date = $date;

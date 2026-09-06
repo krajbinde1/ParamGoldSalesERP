@@ -3,18 +3,19 @@
 use App\Enums\BomItemType;
 use App\Enums\BomOutputType;
 use App\Enums\BomStatus;
+use App\Enums\PurchaseFreightType;
 use App\Enums\PurchaseMaterialType;
 use App\Enums\PurchaseStatus;
 use App\Enums\StockTransactionType;
 use App\Enums\TransportFreightLedgerType;
 use App\Enums\UserRole;
+use App\Filament\Resources\Purchases\Pages\CreatePurchase;
 use App\Filament\Resources\Purchases\Pages\ListPurchases;
 use App\Filament\Resources\Purchases\Pages\ViewPurchase;
 use App\Filament\Resources\TransportFreightLedgers\Pages\ListTransportFreightLedgers;
 use App\Models\Bom;
 use App\Models\BomItem;
 use App\Models\PackagingMaterial;
-use App\Models\Purchase;
 use App\Models\RawMaterial;
 use App\Models\SemiFinishedMaterial;
 use App\Models\StockLedger;
@@ -24,6 +25,7 @@ use App\Models\User;
 use App\Services\Inventory\BOMCalculationService;
 use App\Services\Inventory\PurchaseService;
 use App\Services\Inventory\StockLedgerService;
+use App\Services\Inventory\TransportFreightLedgerService;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 
@@ -280,7 +282,113 @@ it('edits a confirmed purchase by posting only the stock difference', function (
     expect($updated->status)->toBe(PurchaseStatus::Confirmed)
         ->and((float) $updated->total_quantity)->toBe(30.0)
         ->and((float) $material->current_stock)->toBe(130.0)
-        ->and($purchaseInQty - $purchaseOutQty)->toBe(30.0);
+        ->and($purchaseInQty - $purchaseOutQty)->toBe(30.0)
+        ->and(StockLedger::query()->where('reference_id', $purchase->id)->where('transaction_type', StockTransactionType::Purchase)->count())->toBe(2)
+        ->and(StockLedger::query()->where('reference_id', $purchase->id)->where('transaction_type', StockTransactionType::PurchaseReturn)->count())->toBe(1);
+});
+
+it('does not post duplicate inventory when a confirmed purchase is saved again without stock changes', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $material = purchaseRawMaterial(100, 50);
+    $invoice = 'INV-SAME-'.uniqid();
+
+    $purchase = app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::RawMaterial, [
+            'supplier_invoice_number' => $invoice,
+        ]),
+        [[
+            'raw_material_id' => $material->id,
+            'quantity' => 20,
+            'purchase_rate' => 50,
+            'gst_percentage' => 0,
+        ]],
+        $director,
+        confirm: true,
+    );
+
+    $header = purchaseHeader($supplier, PurchaseMaterialType::RawMaterial, [
+        'supplier_invoice_number' => $invoice,
+    ]);
+    $items = [[
+        'raw_material_id' => $material->id,
+        'quantity' => 20,
+        'purchase_rate' => 50,
+        'gst_percentage' => 0,
+        'remarks' => 'Saved again',
+    ]];
+
+    app(PurchaseService::class)->update($purchase, $header, $items, $director);
+    $again = app(PurchaseService::class)->update($purchase->fresh(), $header, $items, $director);
+
+    expect($again->status)->toBe(PurchaseStatus::Confirmed)
+        ->and((float) $material->fresh()->current_stock)->toBe(120.0)
+        ->and(StockLedger::query()->where('reference_id', $purchase->id)->where('transaction_type', StockTransactionType::Purchase)->count())->toBe(1)
+        ->and(StockLedger::query()->where('reference_id', $purchase->id)->where('transaction_type', StockTransactionType::PurchaseReturn)->count())->toBe(0);
+});
+
+it('posts a single reversal and one updated inward when a confirmed purchase quantity is edited twice', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $material = purchaseRawMaterial(100, 50);
+    $invoice = 'INV-TWICE-'.uniqid();
+
+    $purchase = app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::RawMaterial, [
+            'supplier_invoice_number' => $invoice,
+        ]),
+        [[
+            'raw_material_id' => $material->id,
+            'quantity' => 20,
+            'purchase_rate' => 50,
+            'gst_percentage' => 0,
+        ]],
+        $director,
+        confirm: true,
+    );
+
+    $updated = app(PurchaseService::class)->update(
+        $purchase,
+        purchaseHeader($supplier, PurchaseMaterialType::RawMaterial, [
+            'supplier_invoice_number' => $invoice,
+        ]),
+        [[
+            'raw_material_id' => $material->id,
+            'quantity' => 30,
+            'purchase_rate' => 50,
+            'gst_percentage' => 0,
+        ]],
+        $director,
+    );
+
+    app(PurchaseService::class)->update(
+        $updated,
+        purchaseHeader($supplier, PurchaseMaterialType::RawMaterial, [
+            'supplier_invoice_number' => $invoice,
+        ]),
+        [[
+            'raw_material_id' => $material->id,
+            'quantity' => 30,
+            'purchase_rate' => 50,
+            'gst_percentage' => 0,
+        ]],
+        $director,
+    );
+
+    $purchaseRows = StockLedger::query()
+        ->where('reference_id', $purchase->id)
+        ->where('transaction_type', StockTransactionType::Purchase)
+        ->get();
+    $reversalRows = StockLedger::query()
+        ->where('reference_id', $purchase->id)
+        ->where('transaction_type', StockTransactionType::PurchaseReturn)
+        ->get();
+
+    expect((float) $material->fresh()->current_stock)->toBe(130.0)
+        ->and($purchaseRows)->toHaveCount(2)
+        ->and($reversalRows)->toHaveCount(1)
+        ->and($reversalRows->first()->isPurchaseEditReversal())->toBeTrue()
+        ->and((float) $purchaseRows->sum('quantity_in') - (float) $reversalRows->sum('quantity_out'))->toBe(30.0);
 });
 
 it('does not change stock when a draft purchase is updated', function (): void {
@@ -669,6 +777,66 @@ it('allocates transport cost across materials by taxable value', function (): vo
         ->and(TransportFreightLedger::query()->where('purchase_id', $purchase->id)->count())->toBe(1);
 });
 
+it('calculates total freight from rate per ton and allocates it with existing freight logic', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $material = purchaseRawMaterial(0, 0);
+    $material->update(['unit' => 'Ton']);
+
+    $purchase = app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::RawMaterial, [
+            'freight_type' => PurchaseFreightType::FreightPerTon->value,
+            'freight_rate_per_ton' => 500,
+        ]),
+        [[
+            'raw_material_id' => $material->id,
+            'quantity' => 29.600,
+            'purchase_rate' => 100,
+            'gst_percentage' => 18,
+        ]],
+        $director,
+        confirm: true,
+    );
+
+    $item = $purchase->items()->first();
+
+    expect($purchase->freight_type)->toBe(PurchaseFreightType::FreightPerTon)
+        ->and((float) $purchase->freight_rate_per_ton)->toBe(500.0)
+        ->and((float) $purchase->transport_cost)->toBe(14800.0)
+        ->and((float) $purchase->total_taxable_amount)->toBe(2960.0)
+        ->and((float) $purchase->total_gst)->toBe(532.8)
+        ->and((float) $purchase->grand_total)->toBe(3492.8)
+        ->and((float) $purchase->total_landed_cost)->toBe(17760.0)
+        ->and((float) $item->allocated_transport_cost)->toBe(14800.0)
+        ->and((float) $item->effective_unit_rate)->toBe(600.0)
+        ->and((float) $item->landed_cost)->toBe(17760.0)
+        ->and((float) $material->fresh()->average_rate)->toBe(600.0);
+});
+
+it('converts kilogram quantity to tons before applying freight per ton', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $material = purchaseRawMaterial(0, 0);
+
+    $purchase = app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::RawMaterial, [
+            'freight_type' => PurchaseFreightType::FreightPerTon->value,
+            'freight_rate_per_ton' => 500,
+        ]),
+        [[
+            'raw_material_id' => $material->id,
+            'quantity' => 29600,
+            'purchase_rate' => 1,
+            'gst_percentage' => 0,
+        ]],
+        $director,
+    );
+
+    expect((float) $purchase->transport_cost)->toBe(14800.0)
+        ->and((float) $purchase->items()->first()->allocated_transport_cost)->toBe(14800.0)
+        ->and((float) $purchase->grand_total)->toBe(29600.0);
+});
+
 it('does not post a transport ledger when freight is zero', function (): void {
     $director = purchaseDirector();
     $supplier = purchaseSupplier();
@@ -719,7 +887,7 @@ it('reverses allocated freight and transport ledger when a confirmed purchase is
         ->and((float) $material->current_stock_value)->toBe(8000.0)
         ->and(TransportFreightLedger::query()->where('purchase_id', $purchase->id)->where('transaction_type', TransportFreightLedgerType::Charge)->count())->toBe(1)
         ->and(TransportFreightLedger::query()->where('purchase_id', $purchase->id)->where('transaction_type', TransportFreightLedgerType::Reversal)->count())->toBe(1)
-        ->and((float) app(\App\Services\Inventory\TransportFreightLedgerService::class)->netPostedAmount($purchase))->toBe(0.0)
+        ->and((float) app(TransportFreightLedgerService::class)->netPostedAmount($purchase))->toBe(0.0)
         ->and(StockLedger::query()->where('reference_id', $purchase->id)->where('transaction_type', StockTransactionType::Purchase)->count())->toBe(1);
 });
 
@@ -777,7 +945,7 @@ it('reposts freight allocation without duplicating ledgers when a confirmed purc
         ->and((float) $charges->last()->amount)->toBe(500.0)
         ->and($charges->last()->transporter_name)->toBe('New Carrier')
         ->and(TransportFreightLedger::query()->where('purchase_id', $updated->id)->where('transaction_type', TransportFreightLedgerType::Reversal)->count())->toBe(1)
-        ->and((float) app(\App\Services\Inventory\TransportFreightLedgerService::class)->netPostedAmount($updated))->toBe(500.0)
+        ->and((float) app(TransportFreightLedgerService::class)->netPostedAmount($updated))->toBe(500.0)
         ->and(StockLedger::query()->where('reference_id', $updated->id)->where('transaction_type', StockTransactionType::Purchase)->count())->toBe(2);
 });
 
@@ -819,4 +987,38 @@ it('shows supplier bill and transport cost separately on purchase view and freig
         ->assertSee($purchase->purchase_number)
         ->assertSee('SafeMove')
         ->assertSee('LR-77');
+});
+
+it('renders the purchase entry form with freight type and a read-only allocated transport cost', function (): void {
+    $director = purchaseDirector();
+
+    $page = Livewire::actingAs($director)
+        ->test(CreatePurchase::class)
+        ->assertSuccessful()
+        ->assertSee('Purchase items')
+        ->assertSee('Material Name')
+        ->assertSee('Freight Type')
+        ->assertSee('Allocated Transport Cost')
+        ->assertSee('Effective/Landed Rate');
+
+    $html = $page->html();
+
+    expect($html)
+        ->toContain('paramgold-purchase-form')
+        ->toContain('paramgold-purchase-items')
+        ->toContain('paramgold-purchase-material')
+        ->toContain('allocated_transport_cost')
+        ->toContain('freight_type');
+
+    preg_match_all('/<input\b[^>]*allocated_transport_cost[^>]*>/i', $html, $allocatedInputs);
+    expect($allocatedInputs[0])->not->toBeEmpty();
+    foreach ($allocatedInputs[0] as $input) {
+        expect($input)->toContain('readonly');
+    }
+
+    $css = view('filament.partials.paramgold-admin-theme')->render();
+    expect($css)
+        ->toContain('.paramgold-purchase-form')
+        ->toContain('.paramgold-purchase-material')
+        ->toContain('.paramgold-purchase-item-row');
 });

@@ -2,6 +2,7 @@
 
 use App\Enums\StockItemType;
 use App\Enums\UserRole;
+use App\Exports\Inventory\InventoryReportExport;
 use App\Filament\Pages\InventoryReports;
 use App\Filament\Pages\StockItemLedger;
 use App\Models\PackagingMaterial;
@@ -10,6 +11,7 @@ use App\Models\RawMaterial;
 use App\Models\User;
 use App\Services\Inventory\InventoryReportService;
 use Livewire\Livewire;
+use Maatwebsite\Excel\Facades\Excel;
 
 beforeEach(function (): void {
     $this->director = User::query()->create([
@@ -106,6 +108,7 @@ it('shows a unified stock report combining raw material, packaging, and finished
         ->assertDontSee('Report Type')
         ->assertDontSee('Total Items')
         ->assertSee('Apply')
+        ->assertSee('Export PDF')
         ->assertSee('Export Excel')
         ->set('tableRecordsPerPage', 10)
         ->call('applyFilters')
@@ -462,4 +465,198 @@ it('applies inventory type and stock status filters from summary cards without r
 
     expect($component->instance()->isSummaryCardActive('total'))->toBeTrue()
         ->and($component->instance()->isSummaryCardActive('low_stock'))->toBeFalse();
+});
+
+function inventoryReportExportMaterial(string $name, float $stock = 10): RawMaterial
+{
+    return RawMaterial::query()->create([
+        'material_name' => $name,
+        'category' => 'General',
+        'unit' => 'Kg',
+        'opening_stock' => $stock,
+        'minimum_stock' => 2,
+        'purchase_rate' => 10,
+        'average_rate' => 10,
+        'status' => true,
+    ]);
+}
+
+function inventoryReportPdfText(string $pdfBytes): string
+{
+    $decoded = '';
+
+    if (preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $pdfBytes, $matches)) {
+        foreach ($matches[1] as $stream) {
+            $try = @gzuncompress($stream);
+            if ($try === false) {
+                $try = @gzinflate($stream);
+            }
+            $decoded .= ($try !== false ? $try : $stream)."\n";
+        }
+    }
+
+    return (string) preg_replace('/\x00/', '', $decoded);
+}
+
+it('exports excel and pdf of the complete inventory stock report when no filters are applied', function (): void {
+    Excel::fake();
+
+    inventoryReportExportMaterial('Export Alpha Alloy');
+    inventoryReportExportMaterial('Export Beta Alloy');
+    PackagingMaterial::query()->create([
+        'packaging_name' => 'Export Carton',
+        'category' => 'Box',
+        'unit' => 'Nos',
+        'opening_stock' => 8,
+        'minimum_stock' => 2,
+        'purchase_rate' => 5,
+        'average_rate' => 5,
+        'status' => true,
+    ]);
+
+    $this->actingAs($this->director);
+
+    $component = Livewire::test(InventoryReports::class)
+        ->assertSuccessful()
+        ->assertSee('Export PDF')
+        ->assertSee('Export Excel');
+
+    expect($component->instance()->hasAppliedExportFilters())->toBeFalse()
+        ->and($component->instance()->exportAppliedFiltersLabel())->toBe('None');
+
+    $component->call('exportExcel')->assertHasNoErrors();
+
+    Excel::assertDownloaded(
+        'Inventory_Stock_Report_'.now('Asia/Kolkata')->format('Y-m-d').'.xlsx',
+        function (InventoryReportExport $export): bool {
+            $rows = iterator_to_array($export->generator());
+            $names = collect($rows)->pluck(1)->all();
+
+            return $export->appliedFiltersLabel() === 'None'
+                && $export->headings() === ['Sr No.', 'Item Name', 'Inventory Type', 'Unit', 'Current Stock', 'Average Rate', 'Stock Value', 'Stock Status']
+                && count($rows) === 3
+                && in_array('Export Alpha Alloy', $names, true)
+                && in_array('Export Beta Alloy', $names, true)
+                && in_array('Export Carton', $names, true);
+        },
+    );
+
+    $pdfView = $component->instance()->exportPdfViewData();
+    $html = view('filament.pages.inventory-reports-export-pdf', $pdfView)->render();
+
+    expect($pdfView['title'])->toBe('Inventory Stock Report')
+        ->and($pdfView['appliedFiltersLabel'])->toBe('None')
+        ->and($pdfView['rows'])->toHaveCount(3)
+        ->and(collect($pdfView['columns'])->pluck('label')->all())->toBe([
+            'Sr No.', 'Item Name', 'Inventory Type', 'Unit', 'Current Stock', 'Average Rate', 'Stock Value', 'Stock Status',
+        ])
+        ->and($html)->toContain('Inventory Stock Report')
+        ->and($html)->toContain('Generated on:')
+        ->and($html)->toContain('Applied Filters: None')
+        ->and($html)->toContain('Export Alpha Alloy')
+        ->and($html)->toContain('Export Beta Alloy')
+        ->and($html)->toContain('Export Carton')
+        ->and($html)->toContain('Average Rate')
+        ->and($html)->toContain('Current Stock');
+
+    $pdfResponse = $component->instance()->exportPdf();
+    $pdfBytes = (string) $pdfResponse->getContent();
+    $readable = inventoryReportPdfText($pdfBytes);
+
+    expect($pdfResponse->headers->get('content-type'))->toContain('application/pdf')
+        ->and($pdfResponse->headers->get('content-disposition'))->toContain('Inventory_Stock_Report_')
+        ->and($pdfResponse->headers->get('content-disposition'))->toContain('.pdf')
+        ->and(substr($pdfBytes, 0, 4))->toBe('%PDF')
+        ->and($readable)->toContain('Inventory Stock Report')
+        ->and($readable)->toContain('Applied Filters: None')
+        ->and($readable)->toContain('Export Alpha Alloy');
+});
+
+it('exports excel and pdf of all matching filtered rows not only the current page', function (): void {
+    Excel::fake();
+
+    foreach (range(1, 12) as $i) {
+        inventoryReportExportMaterial(sprintf('Paged Export Item %02d', $i));
+    }
+
+    inventoryReportExportMaterial('Unique Filtered Export Item', 25);
+
+    PackagingMaterial::query()->create([
+        'packaging_name' => 'Filtered Export Box',
+        'category' => 'Box',
+        'unit' => 'Nos',
+        'opening_stock' => 4,
+        'minimum_stock' => 1,
+        'purchase_rate' => 3,
+        'average_rate' => 3,
+        'status' => true,
+    ]);
+
+    $this->actingAs($this->director);
+
+    $unfiltered = Livewire::test(InventoryReports::class)
+        ->set('tableRecordsPerPage', 10)
+        ->assertSuccessful();
+
+    expect($unfiltered->instance()->hasAppliedExportFilters())->toBeFalse();
+
+    $unfiltered->call('exportExcel')->assertHasNoErrors();
+
+    Excel::assertDownloaded(
+        'Inventory_Stock_Report_'.now('Asia/Kolkata')->format('Y-m-d').'.xlsx',
+        function (InventoryReportExport $export): bool {
+            return count(iterator_to_array($export->generator())) === 14;
+        },
+    );
+
+    Excel::fake();
+
+    $filtered = Livewire::test(InventoryReports::class)
+        ->set('tableRecordsPerPage', 10)
+        ->set('data.search', 'Unique Filtered Export Item')
+        ->call('applyFilters');
+
+    expect($filtered->instance()->hasAppliedExportFilters())->toBeTrue()
+        ->and($filtered->instance()->exportAppliedFiltersLabel())->toContain('Search: Unique Filtered Export Item');
+
+    $filtered->call('exportExcel')->assertHasNoErrors();
+
+    Excel::assertDownloaded(
+        'Inventory_Stock_Report_'.now('Asia/Kolkata')->format('Y-m-d').'.xlsx',
+        function (InventoryReportExport $export): bool {
+            $rows = iterator_to_array($export->generator());
+            $names = collect($rows)->pluck(1)->all();
+
+            return $export->appliedFiltersLabel() !== 'None'
+                && str_contains($export->appliedFiltersLabel(), 'Search: Unique Filtered Export Item')
+                && count($rows) === 1
+                && $names === ['Unique Filtered Export Item'];
+        },
+    );
+
+    $pdfView = $filtered->instance()->exportPdfViewData();
+    $html = view('filament.pages.inventory-reports-export-pdf', $pdfView)->render();
+    $names = collect($pdfView['rows'])->map(fn (array $row): string => (string) ($row[1]['value'] ?? ''))->all();
+
+    expect($pdfView['appliedFiltersLabel'])->toContain('Search: Unique Filtered Export Item')
+        ->and($pdfView['rows'])->toHaveCount(1)
+        ->and($names)->toBe(['Unique Filtered Export Item'])
+        ->and($html)->toContain('Applied Filters:')
+        ->and($html)->toContain('Search: Unique Filtered Export Item')
+        ->and($html)->toContain('Unique Filtered Export Item')
+        ->and($html)->not->toContain('Paged Export Item 01')
+        ->and($html)->not->toContain('Filtered Export Box');
+
+    $typeFiltered = Livewire::test(InventoryReports::class)
+        ->set('data.inventory_type', InventoryReportService::TYPE_RAW_MATERIAL)
+        ->call('applyFilters');
+
+    $typePdf = $typeFiltered->instance()->exportPdfViewData();
+    $typeNames = collect($typePdf['rows'])->map(fn (array $row): string => (string) ($row[1]['value'] ?? ''))->all();
+
+    expect($typeFiltered->instance()->hasAppliedExportFilters())->toBeTrue()
+        ->and($typePdf['appliedFiltersLabel'])->toContain('Inventory Type: Raw Material')
+        ->and($typeNames)->toContain('Unique Filtered Export Item')
+        ->and($typeNames)->not->toContain('Filtered Export Box')
+        ->and(count($typeNames))->toBe(13);
 });
