@@ -42,7 +42,10 @@ class CompanyTransportLedgersTable
                 TextColumn::make('order_no')
                     ->label('Order No.')
                     ->searchable()
-                    ->placeholder('—'),
+                    ->placeholder('—')
+                    ->formatStateUsing(fn ($state, CompanyTransportLedgerEntry $record): ?string => $record->isExpense()
+                        ? null
+                        : (filled($state) ? (string) $state : null)),
                 TextColumn::make('transport_charge_type')
                     ->label('Transport Type')
                     ->formatStateUsing(fn ($state, CompanyTransportLedgerEntry $record): string => $record->transportTypeLabel() ?: '—')

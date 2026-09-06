@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\CompanyTransportLedgers\Schemas;
 
 use App\Models\CompanyTransportLedgerEntry;
+use App\Services\Orders\CompanyTransportLedgerService;
 use App\Support\IndianCurrency;
 use Filament\Infolists\Components\ImageEntry;
 use Filament\Infolists\Components\RepeatableEntry;
@@ -27,7 +28,25 @@ class CompanyTransportLedgerInfolist
                             ->formatStateUsing(fn ($state, CompanyTransportLedgerEntry $record): string => $record->entry_kind?->label() ?? (string) $state)
                             ->color(fn (CompanyTransportLedgerEntry $record): string => $record->entry_kind?->color() ?? 'gray'),
                         TextEntry::make('particulars')->label('Particulars')->columnSpan(2),
-                        TextEntry::make('order_no')->label('Order No.')->placeholder('—'),
+                        TextEntry::make('order_no')
+                            ->label('Order No.')
+                            ->placeholder('—')
+                            ->visible(fn (CompanyTransportLedgerEntry $record): bool => ! $record->isExpense()),
+                        TextEntry::make('related_orders')
+                            ->label('Related Orders')
+                            ->state(function (CompanyTransportLedgerEntry $record): array {
+                                $record->loadMissing('relatedOrders.dealer:id,firm_name');
+                                $ledger = app(CompanyTransportLedgerService::class);
+
+                                return $record->relatedOrders
+                                    ->map(fn ($order): string => $ledger->presentRelatedOrder($order)['label'])
+                                    ->values()
+                                    ->all();
+                            })
+                            ->listWithLineBreaks()
+                            ->placeholder('—')
+                            ->visible(fn (CompanyTransportLedgerEntry $record): bool => $record->isExpense())
+                            ->columnSpanFull(),
                         TextEntry::make('transport_charge_type')
                             ->label('Transport Type')
                             ->formatStateUsing(fn ($state, CompanyTransportLedgerEntry $record): string => $record->transportTypeLabel() ?: '—')

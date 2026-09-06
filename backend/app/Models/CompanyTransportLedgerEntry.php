@@ -10,6 +10,7 @@ use App\Enums\TransportChargeType;
 use App\Support\PublicMediaUrl;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class CompanyTransportLedgerEntry extends Model
@@ -58,6 +59,16 @@ class CompanyTransportLedgerEntry extends Model
     public function order(): BelongsTo
     {
         return $this->belongsTo(Order::class);
+    }
+
+    public function relatedOrders(): BelongsToMany
+    {
+        return $this->belongsToMany(
+            Order::class,
+            'company_transport_ledger_entry_orders',
+            'entry_id',
+            'order_id',
+        )->orderByPivot('id');
     }
 
     public function vehicle(): BelongsTo

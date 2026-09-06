@@ -456,8 +456,10 @@ it('links a transport expense to a dispatched order and stores other expense det
         ->assertCreated()
         ->json('data');
 
-    expect($response['order_id'])->toBe($ctx['order']->id)
-        ->and($response['order_no'])->toBe($ctx['order']->fresh()->order_no)
+    expect($response['related_orders'])->toHaveCount(1)
+        ->and($response['related_orders'][0]['id'])->toBe($ctx['order']->id)
+        ->and($response['related_orders'][0])->not->toHaveKey('order_no')
+        ->and($response['order_no'])->toBeNull()
         ->and($response['expense_other_description'])->toBe('Parking')
         ->and($response['particulars'])->toContain('Parking')
         ->and((float) $response['debit_amount'])->toBe(12.0)
@@ -478,8 +480,54 @@ it('rejects linking a transport expense to a non-dispatched order', function () 
             'expense_type' => CompanyTransportExpenseType::Toll->value,
             'paid_to' => 'Booth',
             'payment_mode' => CompanyTransportPaymentMode::Cash->value,
-            'order_id' => $ctx['order']->id,
+            'order_ids' => [$ctx['order']->id],
         ])
         ->assertUnprocessable();
 });
+
+it('links multiple dispatched orders to one expense debit without duplicating the amount', function () {
+    $first = ctlDispatchedCompanyTransportOrder(40, 'company_transport');
+    $second = ctlDispatchedCompanyTransportOrder(80, 'transport_extra');
+
+    app(DispatchOrder::class)->execute(
+        order: $first['order']->fresh(),
+        actor: $first['production']->user,
+    );
+    app(DispatchOrder::class)->execute(
+        order: $second['order']->fresh(),
+        actor: $second['production']->user,
+    );
+
+    $response = $this->actingAs($first['production']->user, 'sanctum')
+        ->postJson('/api/production/company-transport/expenses', [
+            'amount' => 30,
+            'expense_type' => CompanyTransportExpenseType::Fuel->value,
+            'paid_to' => 'HP Pump',
+            'payment_mode' => CompanyTransportPaymentMode::Cash->value,
+            'order_ids' => [$first['order']->id, $second['order']->id],
+        ])
+        ->assertCreated()
+        ->json('data');
+
+    $relatedIds = collect($response['related_orders'])->pluck('id')->sort()->values()->all();
+
+    expect($response['entry_kind'])->toBe('debit')
+        ->and((float) $response['debit_amount'])->toBe(30.0)
+        ->and((float) $response['credit_amount'])->toBe(0.0)
+        ->and($response['related_orders'])->toHaveCount(2)
+        ->and($relatedIds)->toBe([
+            min($first['order']->id, $second['order']->id),
+            max($first['order']->id, $second['order']->id),
+        ])
+        ->and($response['related_orders'][0])->not->toHaveKey('order_no')
+        ->and($response['related_orders'][0]['label'])->toContain(' | ');
+
+    expect(CompanyTransportLedgerEntry::query()->where('entry_kind', CompanyTransportEntryKind::Debit)->count())->toBe(1);
+
+    $summary = app(CompanyTransportLedgerService::class)->liveSummary();
+    expect($summary['total_collected'])->toBe(120.0)
+        ->and($summary['total_expense'])->toBe(30.0)
+        ->and($summary['current_balance'])->toBe(90.0);
+});
+
 

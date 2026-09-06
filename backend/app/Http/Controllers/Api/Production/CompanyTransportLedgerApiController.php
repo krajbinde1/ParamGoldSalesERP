@@ -50,7 +50,12 @@ class CompanyTransportLedgerApiController extends Controller
     public function show(CompanyTransportLedgerEntry $entry): JsonResponse
     {
         $this->authorize('view', $entry);
-        $entry->loadMissing(['enteredBy:id,name', 'updatedBy:id,name', 'audits.actor:id,name']);
+        $entry->loadMissing([
+            'enteredBy:id,name',
+            'updatedBy:id,name',
+            'audits.actor:id,name',
+            'relatedOrders.dealer:id,firm_name',
+        ]);
 
         return $this->ok('Company transport entry.', $this->ledger->presentEntry($entry, includeAudits: true));
     }
@@ -69,6 +74,8 @@ class CompanyTransportLedgerApiController extends Controller
             'vehicle_number' => ['nullable', 'string', 'max:50'],
             'paid_to' => ['required', 'string', 'max:255'],
             'order_id' => ['nullable', 'integer', 'exists:orders,id'],
+            'order_ids' => ['nullable', 'array'],
+            'order_ids.*' => ['integer', 'exists:orders,id'],
             'order_no' => ['nullable', 'string', 'max:50'],
             'expense_other_description' => ['nullable', 'string', 'max:255', 'required_if:expense_type,other'],
             'payment_mode' => ['required', Rule::in(array_column(CompanyTransportPaymentMode::cases(), 'value'))],

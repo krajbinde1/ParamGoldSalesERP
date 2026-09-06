@@ -349,7 +349,8 @@ class _LedgerTile extends StatelessWidget {
             Text(
               [
                 '${entry['transaction_date_label'] ?? entry['transaction_date'] ?? ''}',
-                '${entry['order_no'] ?? '—'}',
+                if (entry['is_expense'] != true)
+                  '${entry['order_no'] ?? '—'}',
                 if ('${entry['transport_type_label'] ?? ''}'.trim().isNotEmpty)
                   '${entry['transport_type_label']}',
                 '${entry['vehicle_number'] ?? '—'}',

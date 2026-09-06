@@ -75,6 +75,7 @@ class CompanyTransportLedgerResource extends Resource
             'enteredBy:id,name',
             'updatedBy:id,name',
             'order:id,order_no',
+            'relatedOrders.dealer:id,firm_name',
         ]);
     }
 

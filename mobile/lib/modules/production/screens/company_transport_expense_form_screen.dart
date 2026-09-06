@@ -32,7 +32,7 @@ class _CompanyTransportExpenseFormScreenState
   String? _expenseType;
   String? _paymentMode;
   int? _vehicleId;
-  Map<String, dynamic>? _selectedOrder;
+  List<Map<String, dynamic>> _selectedOrders = [];
   String? _attachmentPath;
   bool _saving = false;
   String? _formError;
@@ -110,19 +110,17 @@ class _CompanyTransportExpenseFormScreenState
     }
   }
 
-  Future<void> _pickRelatedOrder() async {
-    final selected = await showModalBottomSheet<Map<String, dynamic>?>(
+  Future<void> _pickRelatedOrders() async {
+    final selected = await showModalBottomSheet<List<Map<String, dynamic>>>(
       context: context,
       isScrollControlled: true,
       builder: (context) => _RelatedOrderSheet(
         api: _api,
-        selectedId: int.tryParse('${_selectedOrder?['id'] ?? ''}'),
+        selected: _selectedOrders,
       ),
     );
     if (!mounted || selected == null) return;
-    setState(() {
-      _selectedOrder = selected.isEmpty ? null : selected;
-    });
+    setState(() => _selectedOrders = selected);
   }
 
   Future<void> _save() async {
@@ -160,9 +158,10 @@ class _CompanyTransportExpenseFormScreenState
           'expense_other_description': _otherExpenseCtrl.text.trim(),
         'vehicle_id': _vehicleId,
         'paid_to': _paidToCtrl.text.trim(),
-        'order_id': _selectedOrder == null
-            ? null
-            : int.tryParse('${_selectedOrder?['id'] ?? ''}'),
+        'order_ids': _selectedOrders
+            .map((order) => int.tryParse('${order['id'] ?? ''}'))
+            .whereType<int>()
+            .toList(),
         'payment_mode': _paymentMode,
         'remark':
             _remarkCtrl.text.trim().isEmpty ? null : _remarkCtrl.text.trim(),
@@ -181,10 +180,6 @@ class _CompanyTransportExpenseFormScreenState
 
   @override
   Widget build(BuildContext context) {
-    final orderLabel = _selectedOrder == null
-        ? 'None'
-        : '${_selectedOrder?['label'] ?? 'Selected'}';
-
     return Scaffold(
       appBar: RoleAppBar(
         title: 'Add Transport Expense',
@@ -268,23 +263,40 @@ class _CompanyTransportExpenseFormScreenState
             decoration: const InputDecoration(labelText: 'Paid To *'),
           ),
           const SizedBox(height: 12),
-          ListTile(
-            contentPadding: EdgeInsets.zero,
-            title: const Text('Related Order (optional)'),
-            subtitle: Text(orderLabel),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                if (_selectedOrder != null)
-                  IconButton(
-                    tooltip: 'Clear',
-                    onPressed: () => setState(() => _selectedOrder = null),
-                    icon: const Icon(Icons.clear),
-                  ),
-                const Icon(Icons.search),
-              ],
+          Text(
+            'Related Orders (optional)',
+            style: Theme.of(context).textTheme.titleSmall,
+          ),
+          const SizedBox(height: 8),
+          if (_selectedOrders.isEmpty)
+            const Text('None selected')
+          else
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _selectedOrders.map((order) {
+                final id = int.tryParse('${order['id'] ?? ''}');
+                return InputChip(
+                  label: Text('${order['label'] ?? ''}'),
+                  onDeleted: () {
+                    setState(() {
+                      _selectedOrders = _selectedOrders
+                          .where(
+                            (item) => int.tryParse('${item['id'] ?? ''}') != id,
+                          )
+                          .toList();
+                    });
+                  },
+                );
+              }).toList(),
             ),
-            onTap: _pickRelatedOrder,
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton.icon(
+              onPressed: _pickRelatedOrders,
+              icon: const Icon(Icons.add),
+              label: const Text('Select orders'),
+            ),
           ),
           const SizedBox(height: 12),
           DropdownButtonFormField<String>(
@@ -325,10 +337,10 @@ class _CompanyTransportExpenseFormScreenState
 }
 
 class _RelatedOrderSheet extends StatefulWidget {
-  const _RelatedOrderSheet({required this.api, this.selectedId});
+  const _RelatedOrderSheet({required this.api, required this.selected});
 
   final CompanyTransportApi api;
-  final int? selectedId;
+  final List<Map<String, dynamic>> selected;
 
   @override
   State<_RelatedOrderSheet> createState() => _RelatedOrderSheetState();
@@ -338,10 +350,16 @@ class _RelatedOrderSheetState extends State<_RelatedOrderSheet> {
   final _searchCtrl = TextEditingController();
   DateTime? _orderDate;
   late Future<List<Map<String, dynamic>>> _future;
+  late Map<int, Map<String, dynamic>> _picked;
 
   @override
   void initState() {
     super.initState();
+    _picked = {
+      for (final order in widget.selected)
+        if (int.tryParse('${order['id'] ?? ''}') != null)
+          int.parse('${order['id']}'): Map<String, dynamic>.from(order),
+    };
     _future = _load();
   }
 
@@ -365,18 +383,43 @@ class _RelatedOrderSheetState extends State<_RelatedOrderSheet> {
     setState(() => _future = _load());
   }
 
+  void _toggle(Map<String, dynamic> item) {
+    final id = int.tryParse('${item['id'] ?? ''}');
+    if (id == null) return;
+    setState(() {
+      if (_picked.containsKey(id)) {
+        _picked.remove(id);
+      } else {
+        _picked[id] = Map<String, dynamic>.from(item);
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return SafeArea(
       child: SizedBox(
-        height: MediaQuery.of(context).size.height * 0.8,
+        height: MediaQuery.of(context).size.height * 0.85,
         child: Column(
           children: [
             Padding(
               padding: const EdgeInsets.all(AppSpacing.md),
-              child: Text(
-                'Select Related Order',
-                style: Theme.of(context).textTheme.titleMedium,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Select Related Orders',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+                  ),
+                  TextButton(
+                    onPressed: () => Navigator.pop(
+                      context,
+                      _picked.values.toList(growable: false),
+                    ),
+                    child: Text('Done (${_picked.length})'),
+                  ),
+                ],
               ),
             ),
             Padding(
@@ -429,10 +472,14 @@ class _RelatedOrderSheetState extends State<_RelatedOrderSheet> {
                 ],
               ),
             ),
-            TextButton(
-              onPressed: () => Navigator.pop(context, <String, dynamic>{}),
-              child: const Text('No related order'),
-            ),
+            if (_picked.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('${_picked.length} selected'),
+                ),
+              ),
             Expanded(
               child: FutureBuilder<List<Map<String, dynamic>>>(
                 future: _future,
@@ -454,11 +501,12 @@ class _RelatedOrderSheetState extends State<_RelatedOrderSheet> {
                     itemBuilder: (context, index) {
                       final item = items[index];
                       final id = int.tryParse('${item['id'] ?? ''}');
-                      final selected = id != null && id == widget.selectedId;
-                      return ListTile(
+                      final selected = id != null && _picked.containsKey(id);
+                      return CheckboxListTile(
+                        value: selected,
                         title: Text('${item['label'] ?? ''}'),
-                        trailing: selected ? const Icon(Icons.check) : null,
-                        onTap: () => Navigator.pop(context, item),
+                        controlAffinity: ListTileControlAffinity.leading,
+                        onChanged: (_) => _toggle(item),
                       );
                     },
                   );
@@ -471,3 +519,4 @@ class _RelatedOrderSheetState extends State<_RelatedOrderSheet> {
     );
   }
 }
+

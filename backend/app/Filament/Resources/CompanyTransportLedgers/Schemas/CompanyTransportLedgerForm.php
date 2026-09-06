@@ -68,9 +68,10 @@ class CompanyTransportLedgerForm
                             ->live()
                             ->dehydrated(false)
                             ->helperText('Optional filter to find dispatched orders by sales order date.'),
-                        Select::make('order_id')
-                            ->label('Related Order (optional)')
+                        Select::make('order_ids')
+                            ->label('Related Orders (optional)')
                             ->placeholder('None')
+                            ->multiple()
                             ->searchable()
                             ->preload()
                             ->nullable()
@@ -91,16 +92,22 @@ class CompanyTransportLedgerForm
                                     ->mapWithKeys(fn (array $row): array => [(int) $row['id'] => $row['label']])
                                     ->all();
                             })
-                            ->getOptionLabelUsing(function ($value) use ($ledger): ?string {
-                                if (blank($value)) {
-                                    return null;
+                            ->getOptionLabelsUsing(function (array $values) use ($ledger): array {
+                                if ($values === []) {
+                                    return [];
                                 }
 
-                                $order = Order::query()->with('dealer:id,firm_name')->find((int) $value);
-
-                                return $order ? $ledger->presentRelatedOrder($order)['label'] : null;
+                                return Order::query()
+                                    ->with('dealer:id,firm_name')
+                                    ->whereIn('id', $values)
+                                    ->get()
+                                    ->mapWithKeys(fn (Order $order): array => [
+                                        (int) $order->id => $ledger->presentRelatedOrder($order)['label'],
+                                    ])
+                                    ->all();
                             })
-                            ->helperText('Dispatched orders with Company Transport or Transport Charges Extra only.'),
+                            ->helperText('Select one or more dispatched Company Transport / Transport Charges Extra orders. The expense amount is recorded once.')
+                            ->columnSpanFull(),
                         Select::make('payment_mode')
                             ->label('Payment Mode')
                             ->options(CompanyTransportPaymentMode::options())

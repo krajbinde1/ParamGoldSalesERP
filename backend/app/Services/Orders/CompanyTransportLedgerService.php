@@ -146,11 +146,18 @@ final class CompanyTransportLedgerService
     public function recordExpense(User $actor, array $payload): CompanyTransportLedgerEntry
     {
         return DB::transaction(function () use ($actor, $payload): CompanyTransportLedgerEntry {
-            $normalized = $this->normalizeExpensePayload($payload, $actor);
+            $relatedOrders = $this->resolveRelatedOrders($payload, null);
+            $normalized = $this->normalizeExpensePayload($payload, $actor, null, $relatedOrders);
             $entry = CompanyTransportLedgerEntry::query()->create($normalized);
+            $this->syncRelatedOrders($entry, $relatedOrders);
             $this->audit($entry, $actor, 'created', null, $this->snapshot($entry));
 
-            return $entry->fresh(['enteredBy:id,name', 'order:id,order_no', 'vehicle:id,vehicle_number']) ?? $entry;
+            return $entry->fresh([
+                'enteredBy:id,name',
+                'order:id,order_no',
+                'vehicle:id,vehicle_number',
+                'relatedOrders.dealer:id,firm_name',
+            ]) ?? $entry;
         });
     }
 
@@ -169,10 +176,15 @@ final class CompanyTransportLedgerService
             /** @var CompanyTransportLedgerEntry $locked */
             $locked = CompanyTransportLedgerEntry::query()->whereKey($entry->id)->lockForUpdate()->firstOrFail();
             $old = $this->snapshot($locked);
-            $normalized = $this->normalizeExpensePayload($payload, $actor, $locked);
+            $relatedOrders = $this->resolveRelatedOrders($payload, $locked);
+            $normalized = $this->normalizeExpensePayload($payload, $actor, $locked, $relatedOrders);
             $normalized['updated_by'] = $actor->id;
             $locked->update($normalized);
-            $fresh = $locked->fresh() ?? $locked;
+            $this->syncRelatedOrders($locked, $relatedOrders);
+            $fresh = $locked->fresh([
+                'enteredBy:id,name',
+                'relatedOrders.dealer:id,firm_name',
+            ]) ?? $locked;
             $this->audit($fresh, $actor, 'updated', $old, $this->snapshot($fresh));
 
             return $fresh;
@@ -235,7 +247,12 @@ final class CompanyTransportLedgerService
     public function ledgerRows(array $filters = []): array
     {
         $entries = $this->filteredQuery($filters)
-            ->with(['enteredBy:id,name', 'updatedBy:id,name', 'order:id,order_no'])
+            ->with([
+                'enteredBy:id,name',
+                'updatedBy:id,name',
+                'order:id,order_no',
+                'relatedOrders.dealer:id,firm_name',
+            ])
             ->orderBy('transaction_date')
             ->orderBy('id')
             ->get();
@@ -280,7 +297,7 @@ final class CompanyTransportLedgerService
     /**
      * @return list<array<string, mixed>>
      */
-    public function searchRelatedOrders(?string $search = null, ?string $orderDate = null, int $limit = 30): array
+    public function searchRelatedOrders(?string $search = null, ?string $orderDate = null, int $limit = 50): array
     {
         $orders = $this->eligibleRelatedOrdersQuery()
             ->when(
@@ -366,6 +383,11 @@ final class CompanyTransportLedgerService
     public function presentEntry(CompanyTransportLedgerEntry $entry, bool $includeAudits = false): array
     {
         $running = $entry->getAttribute('running_balance');
+        $entry->loadMissing(['relatedOrders.dealer:id,firm_name']);
+        $relatedOrders = $entry->relatedOrders
+            ->map(fn (Order $order): array => $this->presentRelatedOrder($order))
+            ->values()
+            ->all();
 
         $payload = [
             'id' => $entry->id,
@@ -376,7 +398,8 @@ final class CompanyTransportLedgerService
             'source' => $entry->source?->value,
             'particulars' => $entry->particulars,
             'order_id' => $entry->order_id,
-            'order_no' => $entry->order_no,
+            'order_no' => $entry->isExpense() ? null : $entry->order_no,
+            'related_orders' => $relatedOrders,
             'transport_charge_type' => $entry->transport_charge_type,
             'transport_type_label' => $entry->transportTypeLabel(),
             'vehicle_id' => $entry->vehicle_id,
@@ -454,7 +477,16 @@ final class CompanyTransportLedgerService
             )
             ->when(
                 filled($filters['order_no'] ?? null),
-                fn (Builder $q) => $q->where('order_no', 'like', '%'.trim((string) $filters['order_no']).'%'),
+                function (Builder $q) use ($filters): void {
+                    $term = '%'.trim((string) $filters['order_no']).'%';
+                    $q->where(function (Builder $inner) use ($term): void {
+                        $inner->where('order_no', 'like', $term)
+                            ->orWhereHas(
+                                'relatedOrders',
+                                fn (Builder $orders) => $orders->where('order_no', 'like', $term),
+                            );
+                    });
+                },
             )
             ->when(
                 filled($filters['expense_type'] ?? null),
@@ -581,10 +613,15 @@ final class CompanyTransportLedgerService
 
     /**
      * @param  array<string, mixed>  $payload
+     * @param  list<Order>  $relatedOrders
      * @return array<string, mixed>
      */
-    private function normalizeExpensePayload(array $payload, User $actor, ?CompanyTransportLedgerEntry $existing = null): array
-    {
+    private function normalizeExpensePayload(
+        array $payload,
+        User $actor,
+        ?CompanyTransportLedgerEntry $existing = null,
+        array $relatedOrders = [],
+    ): array {
         $amount = round((float) ($payload['amount'] ?? 0), 2);
         if ($amount <= 0) {
             throw ValidationException::withMessages([
@@ -624,43 +661,17 @@ final class CompanyTransportLedgerService
             $vehicleNumber = $vehicle->vehicle_number;
         }
 
-        $orderId = isset($payload['order_id']) && filled($payload['order_id'])
-            ? (int) $payload['order_id']
-            : null;
-        $orderNo = filled($payload['order_no'] ?? null) ? trim((string) $payload['order_no']) : null;
-        $relatedType = null;
-        if ($orderId !== null) {
-            $related = Order::query()->with('dealer:id,firm_name')->find($orderId);
-            if ($related === null) {
-                throw ValidationException::withMessages([
-                    'order_id' => ['Select a valid related order.'],
-                ]);
+        $firstRelated = $relatedOrders[0] ?? null;
+        $orderId = $firstRelated?->id;
+        $orderNo = $firstRelated?->order_no;
+        $relatedTypes = [];
+        foreach ($relatedOrders as $related) {
+            $type = $this->resolveChargeType($related);
+            if ($type !== null) {
+                $relatedTypes[$type->value] = $type;
             }
-            $keepExisting = $existing !== null && (int) ($existing->order_id ?? 0) === $orderId;
-            if (! $keepExisting && ! $this->isEligibleRelatedOrder($related)) {
-                throw ValidationException::withMessages([
-                    'order_id' => ['Select a dispatched sales order with Company Transport or Transport Charges Extra.'],
-                ]);
-            }
-            $orderNo = $related->order_no;
-            $relatedType = $this->resolveChargeType($related);
-        } elseif (filled($orderNo)) {
-            $related = Order::query()->where('order_no', $orderNo)->first();
-            if ($related === null) {
-                throw ValidationException::withMessages([
-                    'order_id' => ['Select a valid related order.'],
-                ]);
-            }
-            $keepExisting = $existing !== null && (int) ($existing->order_id ?? 0) === (int) $related->id;
-            if (! $keepExisting && ! $this->isEligibleRelatedOrder($related)) {
-                throw ValidationException::withMessages([
-                    'order_id' => ['Select a dispatched sales order with Company Transport or Transport Charges Extra.'],
-                ]);
-            }
-            $orderId = $related->id;
-            $orderNo = $related->order_no;
-            $relatedType = $this->resolveChargeType($related);
         }
+        $relatedType = count($relatedTypes) === 1 ? array_values($relatedTypes)[0] : null;
 
         $otherDescription = null;
         if ($expenseType === CompanyTransportExpenseType::Other) {
@@ -716,15 +727,96 @@ final class CompanyTransportLedgerService
     }
 
     /**
+     * @param  array<string, mixed>  $payload
+     * @return list<Order>
+     */
+    private function resolveRelatedOrders(array $payload, ?CompanyTransportLedgerEntry $existing): array
+    {
+        $ids = [];
+        if (isset($payload['order_ids']) && is_array($payload['order_ids'])) {
+            foreach ($payload['order_ids'] as $id) {
+                if (filled($id)) {
+                    $ids[] = (int) $id;
+                }
+            }
+        } elseif (isset($payload['order_id']) && filled($payload['order_id'])) {
+            $ids[] = (int) $payload['order_id'];
+        } elseif (filled($payload['order_no'] ?? null)) {
+            $matched = Order::query()->where('order_no', trim((string) $payload['order_no']))->first();
+            if ($matched === null) {
+                throw ValidationException::withMessages([
+                    'order_ids' => ['Select a valid related order.'],
+                ]);
+            }
+            $ids[] = (int) $matched->id;
+        }
+
+        $ids = array_values(array_unique($ids));
+        if ($ids === []) {
+            return [];
+        }
+
+        $orders = Order::query()
+            ->with('dealer:id,firm_name')
+            ->whereIn('id', $ids)
+            ->get()
+            ->keyBy('id');
+
+        $existingIds = [];
+        if ($existing !== null) {
+            $existingIds = $existing->relatedOrders()->pluck('orders.id')->map(fn ($id): int => (int) $id)->all();
+            if (filled($existing->order_id)) {
+                $existingIds[] = (int) $existing->order_id;
+            }
+        }
+
+        $resolved = [];
+        foreach ($ids as $id) {
+            $order = $orders->get($id);
+            if ($order === null) {
+                throw ValidationException::withMessages([
+                    'order_ids' => ['Select a valid related order.'],
+                ]);
+            }
+
+            $keepExisting = in_array($id, $existingIds, true);
+            if (! $keepExisting && ! $this->isEligibleRelatedOrder($order)) {
+                throw ValidationException::withMessages([
+                    'order_ids' => ['Select dispatched sales orders with Company Transport or Transport Charges Extra.'],
+                ]);
+            }
+
+            $resolved[] = $order;
+        }
+
+        return $resolved;
+    }
+
+    /**
+     * @param  list<Order>  $relatedOrders
+     */
+    private function syncRelatedOrders(CompanyTransportLedgerEntry $entry, array $relatedOrders): void
+    {
+        $entry->relatedOrders()->sync(
+            collect($relatedOrders)->map(fn (Order $order): int => (int) $order->id)->all(),
+        );
+        $entry->unsetRelation('relatedOrders');
+        $entry->load(['relatedOrders.dealer:id,firm_name']);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     private function snapshot(CompanyTransportLedgerEntry $entry): array
     {
+        $entry->loadMissing('relatedOrders');
+
         return [
             'transaction_date' => $entry->transaction_date?->toDateString(),
             'entry_kind' => $entry->entry_kind?->value,
             'particulars' => $entry->particulars,
             'order_no' => $entry->order_no,
+            'related_order_ids' => $entry->relatedOrders->pluck('id')->all(),
             'transport_charge_type' => $entry->transport_charge_type,
             'vehicle_number' => $entry->vehicle_number,
             'expense_type' => $entry->expense_type?->value,

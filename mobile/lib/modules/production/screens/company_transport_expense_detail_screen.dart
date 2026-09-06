@@ -93,6 +93,10 @@ class _CompanyTransportExpenseDetailScreenState
           }
           final entry = snapshot.data ?? const {};
           final attachment = entry['attachment_url']?.toString() ?? '';
+          final relatedOrders = (entry['related_orders'] as List? ?? const [])
+              .whereType<Map>()
+              .map((row) => Map<String, dynamic>.from(row))
+              .toList();
 
           return ListView(
             padding: const EdgeInsets.all(AppSpacing.screenPadding),
@@ -114,7 +118,6 @@ class _CompanyTransportExpenseDetailScreenState
                     _row(context, 'Transport Type', '${entry['transport_type_label'] ?? ''}'),
                     _row(context, 'Vehicle No.', '${entry['vehicle_number'] ?? ''}'),
                     _row(context, 'Paid To', '${entry['paid_to'] ?? ''}'),
-                    _row(context, 'Order No.', '${entry['order_no'] ?? ''}'),
                     _row(context, 'Payment Mode', '${entry['payment_mode_label'] ?? ''}'),
                     _row(context, 'Remark', '${entry['remark'] ?? ''}'),
                     _row(context, 'Entered By', '${entry['entered_by_name'] ?? ''}'),
@@ -123,6 +126,34 @@ class _CompanyTransportExpenseDetailScreenState
                   ],
                 ),
               ),
+              if (relatedOrders.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.md),
+                PgCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Related Orders',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: 8),
+                      ...relatedOrders.map((order) {
+                        final label = '${order['label'] ?? ''}'.trim().isNotEmpty
+                            ? '${order['label']}'
+                            : [
+                                '${order['order_date_label'] ?? ''}',
+                                '${order['vehicle_number'] ?? ''}',
+                                '${order['dealer_name'] ?? ''}',
+                              ].where((part) => part.trim().isNotEmpty).join(' | ');
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 4),
+                          child: Text(label),
+                        );
+                      }),
+                    ],
+                  ),
+                ),
+              ],
               if (attachment.isNotEmpty) ...[
                 const SizedBox(height: AppSpacing.md),
                 FilledButton.tonalIcon(

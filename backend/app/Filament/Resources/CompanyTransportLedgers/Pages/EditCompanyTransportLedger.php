@@ -23,6 +23,23 @@ class EditCompanyTransportLedger extends EditRecord
 
     /**
      * @param  array<string, mixed>  $data
+     * @return array<string, mixed>
+     */
+    protected function mutateFormDataBeforeFill(array $data): array
+    {
+        /** @var CompanyTransportLedgerEntry $record */
+        $record = $this->getRecord();
+        $ids = $record->relatedOrders()->pluck('orders.id')->map(fn ($id): int => (int) $id)->all();
+        if ($ids === [] && filled($record->order_id)) {
+            $ids = [(int) $record->order_id];
+        }
+        $data['order_ids'] = $ids;
+
+        return $data;
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
      */
     protected function handleRecordUpdate(Model $record, array $data): Model
     {
