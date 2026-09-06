@@ -25,6 +25,7 @@ class CompanyTransportLedgerEntry extends Model
         'vehicle_id',
         'vehicle_number',
         'expense_type',
+        'expense_other_description',
         'paid_to',
         'payment_mode',
         'amount',

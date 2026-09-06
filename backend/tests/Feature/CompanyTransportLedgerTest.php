@@ -373,3 +373,102 @@ it('blocks production supervisor from editing expenses and never deletes ledger 
         ->and($updated->audits()->count())->toBeGreaterThanOrEqual(2)
         ->and(CompanyTransportLedgerEntry::query()->count())->toBe(2);
 });
+
+it('searches only dispatched orders with ledger transport types by order no, dealer, and date', function () {
+    $company = ctlDispatchedCompanyTransportOrder(40, 'company_transport');
+    $extra = ctlDispatchedCompanyTransportOrder(80, 'transport_extra');
+    $billed = ctlDispatchedCompanyTransportOrder(25, 'company_transport');
+
+    app(DispatchOrder::class)->execute(
+        order: $company['order']->fresh(),
+        actor: $company['production']->user,
+    );
+    app(DispatchOrder::class)->execute(
+        order: $extra['order']->fresh(),
+        actor: $extra['production']->user,
+    );
+
+    $companyOrder = $company['order']->fresh();
+    $extraOrder = $extra['order']->fresh();
+
+    $listed = $this->actingAs($company['production']->user, 'sanctum')
+        ->getJson('/api/production/company-transport/orders')
+        ->assertOk()
+        ->json('data');
+
+    $ids = collect($listed)->pluck('id')->all();
+    expect($ids)->toContain($companyOrder->id)
+        ->and($ids)->toContain($extraOrder->id)
+        ->and($ids)->not->toContain($billed['order']->id);
+
+    $byDealer = $this->actingAs($company['production']->user, 'sanctum')
+        ->getJson('/api/production/company-transport/orders?search='.urlencode((string) $companyOrder->dealer->firm_name))
+        ->assertOk()
+        ->json('data');
+
+    expect(collect($byDealer)->pluck('id')->all())->toContain($companyOrder->id);
+
+    $byDate = $this->actingAs($company['production']->user, 'sanctum')
+        ->getJson('/api/production/company-transport/orders?order_date='.$companyOrder->order_date->toDateString())
+        ->assertOk()
+        ->json('data');
+
+    expect(collect($byDate)->pluck('id')->all())->toContain($companyOrder->id);
+    expect($listed[0])->toHaveKeys(['id', 'order_no', 'label', 'dealer_name', 'transport_type_label', 'transport_amount_label']);
+});
+
+it('links a transport expense to a dispatched order and stores other expense details', function () {
+    $ctx = ctlDispatchedCompanyTransportOrder(40);
+    app(DispatchOrder::class)->execute(
+        order: $ctx['order']->fresh(),
+        actor: $ctx['production']->user,
+    );
+
+    $this->actingAs($ctx['production']->user, 'sanctum')
+        ->postJson('/api/production/company-transport/expenses', [
+            'amount' => 12,
+            'expense_type' => CompanyTransportExpenseType::Other->value,
+            'paid_to' => 'Workshop',
+            'payment_mode' => CompanyTransportPaymentMode::Cash->value,
+        ])
+        ->assertUnprocessable();
+
+    $response = $this->actingAs($ctx['production']->user, 'sanctum')
+        ->postJson('/api/production/company-transport/expenses', [
+            'amount' => 12,
+            'expense_type' => CompanyTransportExpenseType::Other->value,
+            'expense_other_description' => 'Parking',
+            'paid_to' => 'Workshop',
+            'payment_mode' => CompanyTransportPaymentMode::Cash->value,
+            'order_id' => $ctx['order']->id,
+        ])
+        ->assertCreated()
+        ->json('data');
+
+    expect($response['order_id'])->toBe($ctx['order']->id)
+        ->and($response['order_no'])->toBe($ctx['order']->fresh()->order_no)
+        ->and($response['expense_other_description'])->toBe('Parking')
+        ->and($response['particulars'])->toContain('Parking')
+        ->and((float) $response['debit_amount'])->toBe(12.0)
+        ->and((float) $response['credit_amount'])->toBe(0.0);
+
+    $summary = app(CompanyTransportLedgerService::class)->liveSummary();
+    expect($summary['total_collected'])->toBe(40.0)
+        ->and($summary['total_expense'])->toBe(12.0)
+        ->and($summary['current_balance'])->toBe(28.0);
+});
+
+it('rejects linking a transport expense to a non-dispatched order', function () {
+    $ctx = ctlDispatchedCompanyTransportOrder(40);
+
+    $this->actingAs($ctx['production']->user, 'sanctum')
+        ->postJson('/api/production/company-transport/expenses', [
+            'amount' => 8,
+            'expense_type' => CompanyTransportExpenseType::Toll->value,
+            'paid_to' => 'Booth',
+            'payment_mode' => CompanyTransportPaymentMode::Cash->value,
+            'order_id' => $ctx['order']->id,
+        ])
+        ->assertUnprocessable();
+});
+

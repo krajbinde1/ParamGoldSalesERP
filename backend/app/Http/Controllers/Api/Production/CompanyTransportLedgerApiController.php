@@ -7,7 +7,6 @@ use App\Enums\CompanyTransportPaymentMode;
 use App\Http\Controllers\Api\Concerns\RespondsWithJson;
 use App\Http\Controllers\Controller;
 use App\Models\CompanyTransportLedgerEntry;
-use App\Models\Order;
 use App\Services\Orders\CompanyTransportLedgerService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -71,6 +70,7 @@ class CompanyTransportLedgerApiController extends Controller
             'paid_to' => ['required', 'string', 'max:255'],
             'order_id' => ['nullable', 'integer', 'exists:orders,id'],
             'order_no' => ['nullable', 'string', 'max:50'],
+            'expense_other_description' => ['nullable', 'string', 'max:255', 'required_if:expense_type,other'],
             'payment_mode' => ['required', Rule::in(array_column(CompanyTransportPaymentMode::cases(), 'value'))],
             'remark' => ['nullable', 'string', 'max:2000'],
             'attachment' => ['nullable', 'file', 'mimes:jpg,jpeg,png,pdf,webp', 'max:10240'],
@@ -102,22 +102,14 @@ class CompanyTransportLedgerApiController extends Controller
     {
         $this->authorize('viewAny', CompanyTransportLedgerEntry::class);
 
-        $search = trim((string) $request->string('search')->toString());
+        $validated = $request->validate([
+            'search' => ['nullable', 'string', 'max:100'],
+            'order_date' => ['nullable', 'date'],
+        ]);
 
-        $orders = Order::query()
-            ->when(
-                filled($search),
-                fn ($q) => $q->where('order_no', 'like', '%'.$search.'%'),
-            )
-            ->orderByDesc('id')
-            ->limit(30)
-            ->get(['id', 'order_no', 'status', 'vehicle_number']);
-
-        return $this->ok('Orders.', $orders->map(fn (Order $order): array => [
-            'id' => $order->id,
-            'order_no' => $order->order_no,
-            'status' => $order->status,
-            'vehicle_number' => $order->vehicle_number,
-        ])->values());
+        return $this->ok('Related dispatched orders.', $this->ledger->searchRelatedOrders(
+            search: $validated['search'] ?? null,
+            orderDate: $validated['order_date'] ?? null,
+        ));
     }
 }

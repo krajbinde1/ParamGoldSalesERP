@@ -96,11 +96,17 @@ class CompanyTransportApi {
     }
   }
 
-  Future<List<Map<String, dynamic>>> searchOrders(String search) async {
+  Future<List<Map<String, dynamic>>> searchOrders({
+    String search = '',
+    String? orderDate,
+  }) async {
     try {
       final response = await _dio.get(
         '/production/company-transport/orders',
-        queryParameters: {if (search.isNotEmpty) 'search': search},
+        queryParameters: {
+          if (search.trim().isNotEmpty) 'search': search.trim(),
+          if (orderDate != null && orderDate.isNotEmpty) 'order_date': orderDate,
+        },
       );
       final raw = _data(response);
       if (raw is! List) return const [];

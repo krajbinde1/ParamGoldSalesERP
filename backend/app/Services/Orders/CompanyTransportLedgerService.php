@@ -250,6 +250,92 @@ final class CompanyTransportLedgerService
     }
 
     /**
+     * Dispatched sales orders whose transport type belongs on this ledger.
+     */
+    public function eligibleRelatedOrdersQuery(): Builder
+    {
+        $chargeTypes = [
+            TransportChargeType::CompanyTransport->value,
+            TransportChargeType::TransportExtra->value,
+        ];
+
+        return Order::query()
+            ->with(['dealer:id,firm_name'])
+            ->where('status', Order::STATUS_DISPATCHED)
+            ->where(function (Builder $query) use ($chargeTypes): void {
+                $query->whereIn('transport_charge_type', $chargeTypes)
+                    ->orWhereIn('transport_type', [...$chargeTypes, 'outside_transport']);
+            });
+    }
+
+    public function isEligibleRelatedOrder(Order $order): bool
+    {
+        if ($order->status !== Order::STATUS_DISPATCHED) {
+            return false;
+        }
+
+        return $this->resolveChargeType($order) !== null;
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function searchRelatedOrders(?string $search = null, ?string $orderDate = null, int $limit = 30): array
+    {
+        $orders = $this->eligibleRelatedOrdersQuery()
+            ->when(
+                filled($orderDate),
+                fn (Builder $query) => $query->whereDate('order_date', $orderDate),
+            )
+            ->when(
+                filled($search),
+                function (Builder $query) use ($search): void {
+                    $term = '%'.trim((string) $search).'%';
+                    $query->where(function (Builder $inner) use ($term): void {
+                        $inner->where('order_no', 'like', $term)
+                            ->orWhereHas(
+                                'dealer',
+                                fn (Builder $dealer) => $dealer->where('firm_name', 'like', $term),
+                            );
+                    });
+                },
+            )
+            ->orderByDesc('order_date')
+            ->orderByDesc('id')
+            ->limit(max(1, min(50, $limit)))
+            ->get();
+
+        return $orders->map(fn (Order $order): array => $this->presentRelatedOrder($order))->values()->all();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function presentRelatedOrder(Order $order): array
+    {
+        $type = $this->resolveChargeType($order);
+        $dateLabel = $order->order_date?->format('d M Y') ?: '—';
+        $dealerName = $order->dealer?->firm_name ?: '—';
+        $typeLabel = $type?->label() ?: '—';
+        $amountLabel = IndianCurrency::formatExact((float) $order->transport_amount);
+        $orderNo = $order->shortOrderNo();
+
+        return [
+            'id' => $order->id,
+            'order_no' => $order->order_no,
+            'order_no_label' => $orderNo,
+            'order_date' => $order->order_date?->toDateString(),
+            'order_date_label' => $dateLabel,
+            'dealer_name' => $dealerName,
+            'transport_charge_type' => $type?->value,
+            'transport_type_label' => $typeLabel,
+            'transport_amount' => round((float) $order->transport_amount, 2),
+            'transport_amount_label' => $amountLabel,
+            'label' => $orderNo.' | '.$dateLabel.' | '.$dealerName.' | '.$typeLabel.' | '.$amountLabel,
+        ];
+    }
+
+    /**
      * @param  array<string, mixed>  $filters
      * @return array<string, mixed>
      */
@@ -303,6 +389,7 @@ final class CompanyTransportLedgerService
             'vehicle_number' => $entry->vehicle_number,
             'expense_type' => $entry->expense_type?->value,
             'expense_type_label' => $entry->expenseTypeLabel(),
+            'expense_other_description' => $entry->expense_other_description,
             'paid_to' => $entry->paid_to,
             'payment_mode' => $entry->payment_mode?->value,
             'payment_mode_label' => $entry->paymentModeLabel(),
@@ -547,17 +634,48 @@ final class CompanyTransportLedgerService
             ? (int) $payload['order_id']
             : null;
         $orderNo = filled($payload['order_no'] ?? null) ? trim((string) $payload['order_no']) : null;
+        $relatedType = null;
         if ($orderId !== null) {
-            $related = Order::query()->find($orderId);
+            $related = Order::query()->with('dealer:id,firm_name')->find($orderId);
             if ($related === null) {
                 throw ValidationException::withMessages([
                     'order_id' => ['Select a valid related order.'],
                 ]);
             }
+            $keepExisting = $existing !== null && (int) ($existing->order_id ?? 0) === $orderId;
+            if (! $keepExisting && ! $this->isEligibleRelatedOrder($related)) {
+                throw ValidationException::withMessages([
+                    'order_id' => ['Select a dispatched sales order with Company Transport or Transport Charges Extra.'],
+                ]);
+            }
             $orderNo = $related->order_no;
+            $relatedType = $this->resolveChargeType($related);
         } elseif (filled($orderNo)) {
             $related = Order::query()->where('order_no', $orderNo)->first();
-            $orderId = $related?->id;
+            if ($related === null) {
+                throw ValidationException::withMessages([
+                    'order_id' => ['Select a valid related order.'],
+                ]);
+            }
+            $keepExisting = $existing !== null && (int) ($existing->order_id ?? 0) === (int) $related->id;
+            if (! $keepExisting && ! $this->isEligibleRelatedOrder($related)) {
+                throw ValidationException::withMessages([
+                    'order_id' => ['Select a dispatched sales order with Company Transport or Transport Charges Extra.'],
+                ]);
+            }
+            $orderId = $related->id;
+            $orderNo = $related->order_no;
+            $relatedType = $this->resolveChargeType($related);
+        }
+
+        $otherDescription = null;
+        if ($expenseType === CompanyTransportExpenseType::Other) {
+            $otherDescription = trim((string) ($payload['expense_other_description'] ?? ''));
+            if ($otherDescription === '') {
+                throw ValidationException::withMessages([
+                    'expense_other_description' => ['Specify the other expense type.'],
+                ]);
+            }
         }
 
         $attachmentPath = $existing?->attachment_path;
@@ -572,6 +690,9 @@ final class CompanyTransportLedgerService
         $paidTo = filled($payload['paid_to'] ?? null) ? trim((string) $payload['paid_to']) : null;
         $remark = filled($payload['remark'] ?? null) ? trim((string) $payload['remark']) : null;
         $particulars = 'Transport Expense — '.$expenseType->label();
+        if ($expenseType === CompanyTransportExpenseType::Other && filled($otherDescription)) {
+            $particulars = 'Transport Expense — Other: '.$otherDescription;
+        }
         if (filled($paidTo)) {
             $particulars .= ' ('.$paidTo.')';
         }
@@ -583,9 +704,11 @@ final class CompanyTransportLedgerService
             'particulars' => $particulars,
             'order_id' => $orderId,
             'order_no' => $orderNo,
+            'transport_charge_type' => $relatedType?->value,
             'vehicle_id' => $vehicleId,
             'vehicle_number' => $vehicleNumber,
             'expense_type' => $expenseType,
+            'expense_other_description' => $otherDescription,
             'paid_to' => $paidTo,
             'payment_mode' => $paymentMode,
             'amount' => $amount,
@@ -611,6 +734,7 @@ final class CompanyTransportLedgerService
             'transport_charge_type' => $entry->transport_charge_type,
             'vehicle_number' => $entry->vehicle_number,
             'expense_type' => $entry->expense_type?->value,
+            'expense_other_description' => $entry->expense_other_description,
             'paid_to' => $entry->paid_to,
             'payment_mode' => $entry->payment_mode?->value,
             'amount' => round((float) $entry->amount, 2),

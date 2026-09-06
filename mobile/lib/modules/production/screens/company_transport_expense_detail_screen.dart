@@ -109,6 +109,8 @@ class _CompanyTransportExpenseDetailScreenState
                     _row(context, 'Date', '${entry['transaction_date_label'] ?? entry['transaction_date'] ?? ''}'),
                     _row(context, 'Amount', '${entry['debit_label'] ?? entry['amount'] ?? ''}'),
                     _row(context, 'Expense Type', '${entry['expense_type_label'] ?? ''}'),
+                    if ('${entry['expense_other_description'] ?? ''}'.trim().isNotEmpty)
+                      _row(context, 'Specify Other Expense', '${entry['expense_other_description']}'),
                     _row(context, 'Transport Type', '${entry['transport_type_label'] ?? ''}'),
                     _row(context, 'Vehicle No.', '${entry['vehicle_number'] ?? ''}'),
                     _row(context, 'Paid To', '${entry['paid_to'] ?? ''}'),

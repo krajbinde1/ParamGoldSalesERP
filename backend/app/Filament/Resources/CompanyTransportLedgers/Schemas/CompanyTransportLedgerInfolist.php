@@ -43,6 +43,11 @@ class CompanyTransportLedgerInfolist
                             ->label('Expense Type')
                             ->formatStateUsing(fn ($state, CompanyTransportLedgerEntry $record): string => $record->expenseTypeLabel() ?: '—')
                             ->visible(fn (CompanyTransportLedgerEntry $record): bool => $record->isExpense()),
+                        TextEntry::make('expense_other_description')
+                            ->label('Specify Other Expense')
+                            ->placeholder('—')
+                            ->visible(fn (CompanyTransportLedgerEntry $record): bool => $record->isExpense()
+                                && filled($record->expense_other_description)),
                         TextEntry::make('paid_to')
                             ->label('Paid To')
                             ->placeholder('—')
