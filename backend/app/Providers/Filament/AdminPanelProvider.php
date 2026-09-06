@@ -10,6 +10,7 @@ use App\Filament\Widgets\AccountWidget;
 use App\Filament\Widgets\FilamentInfoWidget;
 use App\Filament\Widgets\ProductionOrderStatsWidget;
 use App\Http\Controllers\Admin\InventoryStockReportPdfController;
+use App\Http\Controllers\Admin\ProductionBatchSheetPrintController;
 use App\Http\Controllers\Admin\TotalOutstandingPdfController;
 use App\Http\Controllers\Api\DealerApplicationDocumentController;
 use App\Http\Controllers\Api\Director\PaymentRequestSupportingDocumentController;
@@ -86,6 +87,9 @@ class AdminPanelProvider extends PanelProvider
 
                 Route::get('/inventory-reports/pdf', InventoryStockReportPdfController::class)
                     ->name('inventory-reports.pdf');
+
+                Route::get('/production-batches/{productionBatch}/print-sheet', ProductionBatchSheetPrintController::class)
+                    ->name('production-batches.print-sheet');
 
                 Route::get('/total-outstanding/pdf', TotalOutstandingPdfController::class)
                     ->name('total-outstanding.pdf');

@@ -9,6 +9,7 @@ use App\Enums\StockTransactionType;
 use App\Enums\UserRole;
 use App\Filament\Resources\Boms\Pages\ListBoms;
 use App\Filament\Resources\ProductionBatches\Pages\CreateProductionEntry;
+use App\Filament\Resources\ProductionBatches\Pages\ViewProductionBatch;
 use App\Models\Bom;
 use App\Models\BomItem;
 use App\Models\PackagingMaterial;
@@ -22,6 +23,7 @@ use App\Services\Inventory\BOMCalculationService;
 use App\Services\Inventory\FinishedProductPostingService;
 use App\Services\Inventory\InventoryReportService;
 use App\Services\Inventory\InventoryService;
+use App\Services\Inventory\ProductionBatchSheetPresenter;
 use App\Services\Inventory\ProductionCostingService;
 use App\Services\Inventory\ProductionService;
 use Illuminate\Support\Facades\DB;
@@ -941,4 +943,132 @@ it('allows production preview when raw material qty differs from formula nos', f
     ]);
 
     expect($preview)->toBeArray();
+});
+
+it('shows a compact production batch view with confirmation uom consumption table', function (): void {
+    $fixture = seedManufacturingFixture();
+    $supervisor = inventorySupervisor();
+
+    $batch = app(ProductionService::class)->completeProduction([
+        'product_id' => $fixture['product']->id,
+        'planned_quantity' => 10,
+        'actual_output_quantity' => 10,
+        'production_date' => now()->toDateString(),
+        'labour_cost' => 25,
+        'notes' => 'Floor batch notes',
+    ], $supervisor);
+
+    $this->actingAs(inventoryDirector());
+
+    Livewire::test(ViewProductionBatch::class, ['record' => $batch->getKey()])
+        ->assertSuccessful()
+        ->assertSee('Print Batch Sheet')
+        ->assertSee('Batch Details')
+        ->assertSee('Quantities')
+        ->assertSee('Costing')
+        ->assertSee('Material Consumption')
+        ->assertSee('Actual Consumed Qty')
+        ->assertSee('Gold Alloy')
+        ->assertSee('10.000')
+        ->assertSee('Kg')
+        ->assertSee('Floor batch notes')
+        ->assertDontSee('Consumed (Inventory)')
+        ->assertDontSee('Required (Inventory)');
+});
+
+it('prints the confirmed actual used qty in the production confirmation uom', function (): void {
+    $raw = RawMaterial::query()->create([
+        'material_name' => 'Zinc Print Sheet',
+        'category' => 'General',
+        'unit' => 'Ton',
+        'opening_stock' => 1,
+        'current_stock' => 1,
+        'current_stock_value' => 50000,
+        'minimum_stock' => 0,
+        'purchase_rate' => 50000,
+        'average_rate' => 50000,
+        'status' => true,
+    ]);
+
+    $fixture = seedManufacturingFixture(rawStock: 1000, packStock: 1000);
+    $fixture['bom']->update(['batch_quantity' => 100, 'batch_unit' => 'Nos']);
+
+    $rawItem = $fixture['bom']->items()->where('item_type', BomItemType::RawMaterial)->first();
+    $rawItem->raw_material_id = $raw->id;
+    $rawItem->required_quantity = 9;
+    $rawItem->unit = 'Kg';
+    $rawItem->save();
+
+    $supervisor = inventorySupervisor();
+
+    $batch = app(ProductionService::class)->completeProduction([
+        'product_id' => $fixture['product']->id,
+        'planned_quantity' => 100,
+        'actual_output_quantity' => 100,
+        'production_date' => now()->toDateString(),
+        'labour_cost' => 10,
+        'materials' => [
+            [
+                'bom_item_id' => $rawItem->id,
+                'actual_used_quantity' => 0.005,
+            ],
+        ],
+        'notes' => 'Use confirmed zinc qty only',
+    ], $supervisor);
+
+    $sheet = ProductionBatchSheetPresenter::for($batch->fresh(['consumptions', 'product', 'bom', 'supervisor']), true);
+    $zinc = collect($sheet['materials'])->firstWhere('material_name', 'Zinc Print Sheet');
+
+    expect($zinc)->not->toBeNull()
+        ->and($zinc['uom'])->toBe('Kg')
+        ->and((float) $zinc['required_qty'])->toBe(9.0)
+        ->and((float) $zinc['actual_qty'])->toBe(5.0)
+        ->and($sheet['batch_number'])->toBe($batch->batch_number)
+        ->and($sheet['prepared_by'])->toBe($supervisor->name);
+
+    $this->actingAs(inventoryDirector());
+
+    Livewire::test(ViewProductionBatch::class, ['record' => $batch->getKey()])
+        ->assertSuccessful()
+        ->assertSee('5.000')
+        ->assertSee('9.000')
+        ->assertSee('Kg')
+        ->assertDontSee('0.005 Ton');
+
+    $response = $this->get(ViewProductionBatch::printSheetUrl($batch));
+
+    $response->assertOk()
+        ->assertSee('Production Batch Sheet')
+        ->assertSee($batch->batch_number)
+        ->assertSee('Zinc Print Sheet')
+        ->assertSee('Actual Qty to Use')
+        ->assertSee('5.000')
+        ->assertSee('9.000')
+        ->assertSee('Kg')
+        ->assertSee('Use confirmed zinc qty only')
+        ->assertSee('Prepared By')
+        ->assertSee('Production Supervisor')
+        ->assertDontSee('0.005 Ton');
+});
+
+it('denies production batch sheet print to regular employees', function (): void {
+    $fixture = seedManufacturingFixture();
+    $batch = app(ProductionService::class)->completeProduction([
+        'product_id' => $fixture['product']->id,
+        'planned_quantity' => 10,
+        'actual_output_quantity' => 10,
+        'production_date' => now()->toDateString(),
+    ], inventorySupervisor());
+
+    $employee = User::query()->create([
+        'name' => 'Batch Print Employee',
+        'email' => 'batch.print.'.uniqid().'@example.com',
+        'password' => 'password',
+        'role' => UserRole::Employee->value,
+        'job_role' => 'Sales Executive',
+    ]);
+
+    $this->actingAs($employee)
+        ->get(ViewProductionBatch::printSheetUrl($batch))
+        ->assertForbidden();
 });
