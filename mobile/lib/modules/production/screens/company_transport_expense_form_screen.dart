@@ -4,7 +4,6 @@ import 'package:intl/intl.dart';
 
 import '../../../core/api/api_client.dart';
 import '../../../core/api/api_errors.dart';
-import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/navigation/navigation_guard.dart';
 import '../../../core/network/network_guard.dart';
@@ -184,7 +183,7 @@ class _CompanyTransportExpenseFormScreenState
   Widget build(BuildContext context) {
     final orderLabel = _selectedOrder == null
         ? 'None'
-        : '${_selectedOrder?['label'] ?? _selectedOrder?['order_no'] ?? 'Selected'}';
+        : '${_selectedOrder?['label'] ?? 'Selected'}';
 
     return Scaffold(
       appBar: RoleAppBar(
@@ -388,7 +387,7 @@ class _RelatedOrderSheetState extends State<_RelatedOrderSheet> {
                     controller: _searchCtrl,
                     decoration: const InputDecoration(
                       prefixIcon: Icon(Icons.search),
-                      hintText: 'Search order no. or dealer name',
+                      hintText: 'Search vehicle no. or dealer name',
                     ),
                     onChanged: (_) => _reload(),
                   ),
@@ -457,16 +456,7 @@ class _RelatedOrderSheetState extends State<_RelatedOrderSheet> {
                       final id = int.tryParse('${item['id'] ?? ''}');
                       final selected = id != null && id == widget.selectedId;
                       return ListTile(
-                        title: Text('${item['label'] ?? item['order_no'] ?? ''}'),
-                        subtitle: Text(
-                          [
-                            '${item['order_date_label'] ?? ''}',
-                            '${item['dealer_name'] ?? ''}',
-                          ].where((part) => part.trim().isNotEmpty).join(' • '),
-                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                                color: AppColors.textSecondary,
-                              ),
-                        ),
+                        title: Text('${item['label'] ?? ''}'),
                         trailing: selected ? const Icon(Icons.check) : null,
                         onTap: () => Navigator.pop(context, item),
                       );

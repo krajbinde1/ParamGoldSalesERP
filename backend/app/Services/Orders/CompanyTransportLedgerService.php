@@ -291,8 +291,10 @@ final class CompanyTransportLedgerService
                 filled($search),
                 function (Builder $query) use ($search): void {
                     $term = '%'.trim((string) $search).'%';
-                    $query->where(function (Builder $inner) use ($term): void {
-                        $inner->where('order_no', 'like', $term)
+                    $vehicleTerm = '%'.Vehicle::normalizeVehicleNumber((string) $search).'%';
+                    $query->where(function (Builder $inner) use ($term, $vehicleTerm): void {
+                        $inner->where('vehicle_number', 'like', $term)
+                            ->orWhere('vehicle_number', 'like', $vehicleTerm)
                             ->orWhereHas(
                                 'dealer',
                                 fn (Builder $dealer) => $dealer->where('firm_name', 'like', $term),
@@ -313,25 +315,17 @@ final class CompanyTransportLedgerService
      */
     public function presentRelatedOrder(Order $order): array
     {
-        $type = $this->resolveChargeType($order);
         $dateLabel = $order->order_date?->format('d M Y') ?: '—';
+        $vehicleNumber = filled($order->vehicle_number) ? (string) $order->vehicle_number : '—';
         $dealerName = $order->dealer?->firm_name ?: '—';
-        $typeLabel = $type?->label() ?: '—';
-        $amountLabel = IndianCurrency::formatExact((float) $order->transport_amount);
-        $orderNo = $order->shortOrderNo();
 
         return [
             'id' => $order->id,
-            'order_no' => $order->order_no,
-            'order_no_label' => $orderNo,
             'order_date' => $order->order_date?->toDateString(),
             'order_date_label' => $dateLabel,
+            'vehicle_number' => filled($order->vehicle_number) ? (string) $order->vehicle_number : null,
             'dealer_name' => $dealerName,
-            'transport_charge_type' => $type?->value,
-            'transport_type_label' => $typeLabel,
-            'transport_amount' => round((float) $order->transport_amount, 2),
-            'transport_amount_label' => $amountLabel,
-            'label' => $orderNo.' | '.$dateLabel.' | '.$dealerName.' | '.$typeLabel.' | '.$amountLabel,
+            'label' => $dateLabel.' | '.$vehicleNumber.' | '.$dealerName,
         ];
     }
 

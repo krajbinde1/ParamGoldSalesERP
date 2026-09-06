@@ -74,7 +74,7 @@ class CompanyTransportLedgerForm
                             ->searchable()
                             ->preload()
                             ->nullable()
-                            ->searchPrompt('Search by order no. or dealer name')
+                            ->searchPrompt('Search by vehicle no. or dealer name')
                             ->getSearchResultsUsing(function (string $search, Get $get) use ($ledger): array {
                                 $date = $get('related_order_date');
                                 $orderDate = $date instanceof \DateTimeInterface

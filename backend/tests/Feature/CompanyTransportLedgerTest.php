@@ -374,7 +374,7 @@ it('blocks production supervisor from editing expenses and never deletes ledger 
         ->and(CompanyTransportLedgerEntry::query()->count())->toBe(2);
 });
 
-it('searches only dispatched orders with ledger transport types by order no, dealer, and date', function () {
+it('searches only dispatched orders with ledger transport types by vehicle no, dealer, and date', function () {
     $company = ctlDispatchedCompanyTransportOrder(40, 'company_transport');
     $extra = ctlDispatchedCompanyTransportOrder(80, 'transport_extra');
     $billed = ctlDispatchedCompanyTransportOrder(25, 'company_transport');
@@ -408,13 +408,24 @@ it('searches only dispatched orders with ledger transport types by order no, dea
 
     expect(collect($byDealer)->pluck('id')->all())->toContain($companyOrder->id);
 
+    $byVehicle = $this->actingAs($company['production']->user, 'sanctum')
+        ->getJson('/api/production/company-transport/orders?search='.urlencode((string) $companyOrder->vehicle_number))
+        ->assertOk()
+        ->json('data');
+
+    expect(collect($byVehicle)->pluck('id')->all())->toContain($companyOrder->id);
+
     $byDate = $this->actingAs($company['production']->user, 'sanctum')
         ->getJson('/api/production/company-transport/orders?order_date='.$companyOrder->order_date->toDateString())
         ->assertOk()
         ->json('data');
 
     expect(collect($byDate)->pluck('id')->all())->toContain($companyOrder->id);
-    expect($listed[0])->toHaveKeys(['id', 'order_no', 'label', 'dealer_name', 'transport_type_label', 'transport_amount_label']);
+    expect($listed[0])->toHaveKeys(['id', 'label', 'order_date_label', 'vehicle_number', 'dealer_name'])
+        ->and($listed[0])->not->toHaveKey('order_no')
+        ->and($listed[0]['label'])->toBe(
+            $listed[0]['order_date_label'].' | '.$listed[0]['vehicle_number'].' | '.$listed[0]['dealer_name']
+        );
 });
 
 it('links a transport expense to a dispatched order and stores other expense details', function () {
