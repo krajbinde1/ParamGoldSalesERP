@@ -7,7 +7,7 @@
         @page { size: A4 portrait; margin: 12mm; }
         * { box-sizing: border-box; }
         body {
-            font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+            font-family: DejaVu Sans, "Segoe UI", Tahoma, Arial, sans-serif;
             font-size: 11px;
             color: #111;
             margin: 0;
@@ -103,17 +103,19 @@
         }
     </style>
 </head>
-<body onload="window.print()">
+<body @if (empty($forPdf)) onload="window.print()" @endif>
     @php
         $fmtQty = static fn (mixed $v): string => number_format((float) $v, 3, '.', ',');
         $fmtMoney = static fn (mixed $v): string => '₹'.number_format((float) $v, 2, '.', ',');
         $showCosts = (bool) ($showCosts ?? false);
     @endphp
 
+    @unless (! empty($forPdf))
     <div class="actions">
         <button type="button" onclick="window.print()">Print</button>
         <button type="button" onclick="window.close()">Close</button>
     </div>
+    @endunless
 
     <div class="sheet">
         <div class="heading">

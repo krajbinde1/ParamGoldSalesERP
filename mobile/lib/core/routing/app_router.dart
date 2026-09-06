@@ -72,6 +72,9 @@ import '../../modules/manager/screens/manager_targets_screen.dart';
 import '../../modules/manager/screens/manager_team_activity_screen.dart';
 import '../../modules/manager/screens/manager_team_attendance_screen.dart';
 import '../../modules/manager/screens/manager_route_tracking_screen.dart';
+import '../../modules/production/screens/company_transport_expense_detail_screen.dart';
+import '../../modules/production/screens/company_transport_expense_form_screen.dart';
+import '../../modules/production/screens/company_transport_ledger_screen.dart';
 import '../../modules/production/screens/production_dashboard_screen.dart';
 import '../../modules/production/screens/production_order_detail_screen.dart';
 import '../../modules/production/screens/production_status_orders_screen.dart';
@@ -637,6 +640,23 @@ GoRouter createRouter(
     GoRoute(
       path: '/production/inventory',
       builder: (_, _) => InventoryDashboardScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/production/company-transport',
+      builder: (_, _) => CompanyTransportLedgerScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: 'expense',
+          builder: (_, _) => CompanyTransportExpenseFormScreen(auth: auth),
+        ),
+        GoRoute(
+          path: 'entries/:entryId',
+          builder: (_, state) => CompanyTransportExpenseDetailScreen(
+            auth: auth,
+            entryId: int.parse(state.pathParameters['entryId']!),
+          ),
+        ),
+      ],
     ),
     GoRoute(
       path: '/production/raw-materials',

@@ -734,9 +734,16 @@ class InventoryProductionApi {
     }
   }
 
-  Future<List<Map<String, dynamic>>> manufacturableProducts() async {
+  Future<List<Map<String, dynamic>>> manufacturableProducts({
+    String? search,
+  }) async {
     try {
-      final response = await _dio.get('/production/products/manufacturable');
+      final response = await _dio.get(
+        '/production/products/manufacturable',
+        queryParameters: {
+          if (search != null && search.trim().isNotEmpty) 'search': search.trim(),
+        },
+      );
       return (_data(response) as List?)
               ?.map((e) => Map<String, dynamic>.from(e as Map))
               .toList() ??
@@ -855,6 +862,124 @@ class InventoryProductionApi {
       final response = await _dio.get('/production/batches/$batchId');
       return Map<String, dynamic>.from(_data(response) as Map);
     } on DioException catch (e) {
+      throw mapApiError(e);
+    }
+  }
+
+  Future<({List<int> bytes, String filename})> downloadBatchSheetPdf(
+    int batchId,
+  ) async {
+    final safeUrl =
+        '${_dio.options.baseUrl}/production/batches/$batchId/sheet-pdf';
+
+    try {
+      final response = await _dio.get<List<int>>(
+        '/production/batches/$batchId/sheet-pdf',
+        options: Options(
+          responseType: ResponseType.bytes,
+          receiveTimeout: const Duration(seconds: 90),
+          validateStatus: (status) => status != null && status < 500,
+          headers: {
+            'Accept': 'application/pdf',
+          },
+        ),
+      );
+
+      final status = response.statusCode ?? 0;
+      final contentType =
+          (response.headers.value('content-type') ?? '').toLowerCase();
+      final raw = response.data;
+      final bytes = raw == null ? const <int>[] : List<int>.from(raw);
+      final headerPreview = _pdfHeaderPreview(bytes);
+
+      if (kDebugMode) {
+        developer.log(
+          'batch sheet PDF ← status=$status content-type=$contentType '
+          'bytes=${bytes.length} header=$headerPreview url=$safeUrl',
+          name: 'ProductionBatchSheetPdf',
+        );
+      }
+
+      if (status == 401 || status == 403 || status == 404 || status >= 400) {
+        throw StateError(
+          _safePdfErrorMessage(
+            status: status,
+            contentType: contentType,
+            bytes: bytes,
+            fallback: 'Batch sheet PDF request failed ($status).',
+          ),
+        );
+      }
+
+      if (status != 200) {
+        throw StateError(
+          'Unexpected batch sheet PDF status $status '
+          '(content-type=$contentType, size=${bytes.length}).',
+        );
+      }
+
+      if (!contentType.contains('application/pdf')) {
+        throw StateError(
+          _safePdfErrorMessage(
+            status: status,
+            contentType: contentType,
+            bytes: bytes,
+            fallback:
+                'Batch sheet endpoint did not return application/pdf '
+                '(got $contentType, size=${bytes.length}).',
+          ),
+        );
+      }
+
+      if (bytes.isEmpty) {
+        throw StateError(
+          'Batch sheet PDF body was empty '
+          '(status=$status, content-type=$contentType).',
+        );
+      }
+
+      if (!_looksLikePdf(bytes)) {
+        throw StateError(
+          _safePdfErrorMessage(
+            status: status,
+            contentType: contentType,
+            bytes: bytes,
+            fallback:
+                'Batch sheet response was not a PDF '
+                '(size=${bytes.length}, header=$headerPreview).',
+          ),
+        );
+      }
+
+      final disposition = response.headers.value('content-disposition') ?? '';
+      final filename = _filenameFromDisposition(disposition) ??
+          'Production_Batch_Sheet_$batchId.pdf';
+      return (bytes: bytes, filename: filename);
+    } on DioException catch (e) {
+      final status = e.response?.statusCode;
+      final contentType =
+          (e.response?.headers.value('content-type') ?? '').toLowerCase();
+      final data = e.response?.data;
+      final bytes = data is List<int>
+          ? data
+          : (data is List ? List<int>.from(data.whereType<int>()) : const <int>[]);
+      if (kDebugMode) {
+        developer.log(
+          'batch sheet PDF ✗ status=$status content-type=$contentType '
+          'bytes=${bytes.length} url=$safeUrl err=${e.message}',
+          name: 'ProductionBatchSheetPdf',
+        );
+      }
+      if (bytes.isNotEmpty && !_looksLikePdf(bytes)) {
+        throw StateError(
+          _safePdfErrorMessage(
+            status: status ?? 0,
+            contentType: contentType,
+            bytes: bytes,
+            fallback: errorMessage(mapApiError(e)),
+          ),
+        );
+      }
       throw mapApiError(e);
     }
   }

@@ -48,7 +48,7 @@ final class ProductionBatchPresenter
             'completed_at' => $batch->completed_at?->toDateTimeString(),
         ];
 
-        if ($viewer->canViewProductionCosts()) {
+        if (self::viewerCanSeeCosts($viewer)) {
             $data['total_batch_cost'] = (float) $batch->total_batch_cost;
             $data['cost_per_unit'] = (float) $batch->cost_per_unit;
             $data['cost_per_pack'] = (float) $batch->cost_per_pack;
@@ -67,12 +67,15 @@ final class ProductionBatchPresenter
     public static function detail(ProductionBatch $batch, User $viewer): array
     {
         $data = self::summary($batch, $viewer);
-        $showCosts = $viewer->canViewProductionCosts();
+        $showCosts = self::viewerCanSeeCosts($viewer);
 
         $data['expiry_date'] = $batch->expiry_date?->toDateString();
         $data['finished_product_ledger_id'] = $batch->finished_product_ledger_id;
         $data['semi_finished_ledger_id'] = $batch->semi_finished_ledger_id;
         $data['labour_cost'] = $showCosts ? (float) $batch->labour_cost : null;
+        $data['labour_rate_per_nos'] = $showCosts && $batch->labour_rate_per_nos !== null
+            ? (float) $batch->labour_rate_per_nos
+            : null;
         $data['transport_cost'] = $showCosts ? (float) $batch->transport_cost : null;
         $data['other_manufacturing_cost'] = $showCosts ? (float) $batch->other_manufacturing_cost : null;
         $data['submitted_for_approval_at'] = $batch->submitted_for_approval_at?->toDateTimeString();
@@ -121,5 +124,10 @@ final class ProductionBatchPresenter
             'rate' => $showCosts ? (float) $c->rate : null,
             'consumption_value' => $showCosts ? (float) $c->consumption_value : null,
         ];
+    }
+
+    private static function viewerCanSeeCosts(User $viewer): bool
+    {
+        return $viewer->canViewProductionCosts() || $viewer->canActAsProductionSupervisor();
     }
 }

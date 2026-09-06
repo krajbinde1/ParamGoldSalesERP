@@ -166,6 +166,34 @@ class ProductionOrderListCard extends StatelessWidget {
                             ),
                       ),
                   ],
+                  if (statusKey != 'dispatched' &&
+                      statusKey != 'rejected' &&
+                      order['stock_availability_applies'] == true) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 6,
+                      children: [
+                        if ((order['stock_status_label']?.toString() ?? '')
+                            .isNotEmpty)
+                          PgStatusBadge(
+                            label: '${order['stock_status_label']}',
+                            tone: switch ('${order['stock_status']}') {
+                              'available' => PgStatusTone.approved,
+                              'out_of_stock' => PgStatusTone.rejected,
+                              'partial_stock' => PgStatusTone.pending,
+                              _ => PgStatusTone.neutral,
+                            },
+                          ),
+                        if ((order['stock_short_label']?.toString() ?? '')
+                            .isNotEmpty)
+                          PgStatusBadge(
+                            label: '${order['stock_short_label']}',
+                            tone: PgStatusTone.rejected,
+                          ),
+                      ],
+                    ),
+                  ],
                   if (statusKey == 'sent_for_bill')
                     Text(
                       'Sent: ${_formatDateTime(order['sent_for_bill_at'])}',

@@ -1072,3 +1072,48 @@ it('denies production batch sheet print to regular employees', function (): void
         ->get(ViewProductionBatch::printSheetUrl($batch))
         ->assertForbidden();
 });
+
+it('computes total labour cost from labour rate per nos and includes it in batch cost', function () {
+    $fixture = seedManufacturingFixture(rawStock: 200, packStock: 200);
+    $supervisor = inventorySupervisor();
+
+    $batch = app(ProductionService::class)->completeProduction([
+        'product_id' => $fixture['product']->id,
+        'planned_quantity' => 100,
+        'actual_output_quantity' => 100,
+        'production_date' => now()->toDateString(),
+        'labour_rate_per_nos' => 2.50,
+        'labour_cost' => 0,
+        'transport_cost' => 0,
+        'other_manufacturing_cost' => 0,
+    ], $supervisor);
+
+    expect((float) $batch->labour_rate_per_nos)->toBe(2.5)
+        ->and((float) $batch->labour_cost)->toBe(250.0)
+        ->and((float) $batch->total_conversion_cost)->toBe(250.0)
+        ->and((float) $batch->total_material_cost)->toBe(10000.0)
+        ->and((float) $batch->total_packaging_cost)->toBe(1000.0)
+        ->and((float) $batch->total_batch_cost)->toBe(11250.0)
+        ->and((float) $batch->cost_per_unit)->toBe(112.5)
+        ->and((float) $batch->cost_per_pack)->toBe(112.5);
+});
+
+it('keeps legacy labour_cost when labour rate is not provided', function () {
+    $fixture = seedManufacturingFixture();
+    $supervisor = inventorySupervisor();
+
+    $batch = app(ProductionService::class)->completeProduction([
+        'product_id' => $fixture['product']->id,
+        'planned_quantity' => 10,
+        'actual_output_quantity' => 10,
+        'production_date' => now()->toDateString(),
+        'labour_cost' => 40,
+        'transport_cost' => 10,
+        'other_manufacturing_cost' => 0,
+    ], $supervisor);
+
+    expect($batch->labour_rate_per_nos)->toBeNull()
+        ->and((float) $batch->labour_cost)->toBe(40.0)
+        ->and((float) $batch->total_conversion_cost)->toBe(50.0);
+});
+

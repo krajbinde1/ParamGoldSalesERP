@@ -46,6 +46,7 @@ use App\Http\Controllers\Api\Manager\ManagerTaDaClaimController;
 use App\Http\Controllers\Api\Manager\ManagerTeamActivityController;
 use App\Http\Controllers\Api\Manager\ManagerTeamAttendanceController;
 use App\Http\Controllers\Api\Production\BomApiController;
+use App\Http\Controllers\Api\Production\CompanyTransportLedgerApiController;
 use App\Http\Controllers\Api\Production\FinishedGoodsApiController;
 use App\Http\Controllers\Api\Production\InventoryDashboardApiController;
 use App\Http\Controllers\Api\Production\PackagingMaterialApiController;
@@ -210,6 +211,12 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::get('vehicles', [VehicleApiController::class, 'index']);
         Route::post('vehicles', [VehicleApiController::class, 'store']);
 
+        Route::get('company-transport/ledger', [CompanyTransportLedgerApiController::class, 'index']);
+        Route::get('company-transport/orders', [CompanyTransportLedgerApiController::class, 'searchOrders']);
+        Route::post('company-transport/expenses/attachment', [CompanyTransportLedgerApiController::class, 'storeAttachment']);
+        Route::post('company-transport/expenses', [CompanyTransportLedgerApiController::class, 'storeExpense']);
+        Route::get('company-transport/entries/{entry}', [CompanyTransportLedgerApiController::class, 'show']);
+
         Route::get('inventory/dashboard', InventoryDashboardApiController::class);
         Route::get('inventory/raw-materials', [RawMaterialApiController::class, 'index']);
         Route::post('inventory/raw-materials', [RawMaterialApiController::class, 'store']);
@@ -239,6 +246,7 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::post('batches/confirm', [ProductionBatchApiController::class, 'confirm']);
         Route::get('batches', [ProductionBatchApiController::class, 'index']);
         Route::post('batches', [ProductionBatchApiController::class, 'store']);
+        Route::get('batches/{batch}/sheet-pdf', [ProductionBatchApiController::class, 'sheetPdf']);
         Route::get('batches/{batch}', [ProductionBatchApiController::class, 'show']);
         Route::put('batches/{batch}', [ProductionBatchApiController::class, 'update']);
         Route::post('batches/{batch}/submit-approval', [ProductionBatchApiController::class, 'submitApproval']);

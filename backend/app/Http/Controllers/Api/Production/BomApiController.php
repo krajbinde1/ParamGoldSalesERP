@@ -128,8 +128,19 @@ class BomApiController extends Controller
     {
         $this->authorize('viewAny', Product::class);
 
+        $validated = $request->validate([
+            'search' => ['nullable', 'string', 'max:255'],
+        ]);
+        $search = trim((string) ($validated['search'] ?? ''));
+
         $products = Product::query()
             ->where('status', true)
+            ->when($search !== '', function ($query) use ($search) {
+                $query->where(function ($inner) use ($search) {
+                    $inner->where('product_name', 'like', '%'.$search.'%')
+                        ->orWhere('product_code', 'like', '%'.$search.'%');
+                });
+            })
             ->orderBy('product_name')
             ->get([
                 'id', 'product_code', 'product_name', 'category', 'uom', 'production_unit',

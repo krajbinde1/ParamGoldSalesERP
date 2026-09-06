@@ -24,6 +24,7 @@ import '../../orders/widgets/order_info_card.dart';
 import '../../orders/widgets/order_invoice_products_table.dart';
 import '../../orders/widgets/order_widgets.dart';
 import '../api/production_api.dart';
+import '../widgets/finished_product_stock_availability.dart';
 import '../widgets/mark_as_dispatched_dialog.dart';
 
 class ProductionOrderDetailScreen extends StatefulWidget {
@@ -391,6 +392,12 @@ class _ProductionOrderDetailScreenState
                         labelText: 'Transport Charges *',
                         prefixText: '₹ ',
                       ),
+                    ),
+                    const SizedBox(height: 12),
+                    FinishedProductStockAvailabilitySection(
+                      order: Map<String, dynamic>.from(_order ?? const {}),
+                      title: 'Stock Availability',
+                      compact: true,
                     ),
                     const SizedBox(height: 12),
                     _SendForBillTotalPreview(
@@ -925,6 +932,10 @@ class _ProductionOrderDetailScreenState
                   ),
                 ),
               ],
+              const SizedBox(height: AppSpacing.md),
+              FinishedProductStockAvailabilitySection(
+                order: Map<String, dynamic>.from(order),
+              ),
               const SizedBox(height: AppSpacing.md),
               OrderInvoiceProductsCard.sharedReview(
                 lines: items

@@ -3,8 +3,10 @@
 namespace App\Observers;
 
 use App\Models\Order;
+use App\Models\User;
 use App\Services\Dealers\DealerLedgerPostingService;
 use App\Services\Notifications\OrderPushNotifier;
+use App\Services\Orders\CompanyTransportLedgerService;
 use App\Services\TallySync\TallyOutboundEnqueueService;
 use App\Services\WhatsApp\WhatsAppOutboundEnqueueService;
 use Illuminate\Support\Facades\Log;
@@ -17,6 +19,7 @@ class OrderObserver
         private readonly DealerLedgerPostingService $ledgerPosting,
         private readonly TallyOutboundEnqueueService $tallyOutbound,
         private readonly WhatsAppOutboundEnqueueService $whatsAppOutbound,
+        private readonly CompanyTransportLedgerService $companyTransportLedger,
     ) {}
 
     public function created(Order $order): void
@@ -44,6 +47,18 @@ class OrderObserver
             'order_no',
         ])) {
             $this->syncLedger($order->fresh() ?? $order);
+        }
+
+        if ($order->wasChanged([
+            'status',
+            'transport_amount',
+            'transport_charge_type',
+            'transport_type',
+            'vehicle_id',
+            'vehicle_number',
+            'dispatch_date',
+        ])) {
+            $this->syncCompanyTransportLedger($order->fresh() ?? $order);
         }
 
         if ($order->wasChanged('status')) {
@@ -87,6 +102,19 @@ class OrderObserver
     private function syncLedger(Order $order): void
     {
         $this->ledgerPosting->syncDispatchedOrder($order);
+    }
+
+    private function syncCompanyTransportLedger(Order $order): void
+    {
+        $actor = auth()->user();
+        if ($actor === null && filled($order->dispatched_by)) {
+            $actor = User::query()->find($order->dispatched_by);
+        }
+        if ($actor === null) {
+            return;
+        }
+
+        $this->companyTransportLedger->syncDispatchedOrderCredit($order, $actor);
     }
 
     private function queueTallySales(Order $order): void

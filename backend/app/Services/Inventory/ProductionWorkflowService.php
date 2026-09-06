@@ -39,6 +39,8 @@ final class ProductionWorkflowService
      */
     public function preview(array $input, User $user): array
     {
+        $input = ProductionLabourCost::apply($input);
+
         $outputType = $this->resolveOutputType($input);
 
         // Semi-finished uses the simplified ProductionService path (no substitutions).
@@ -152,6 +154,11 @@ final class ProductionWorkflowService
                 // entry form; it is always persisted as zero.
                 'wastage_quantity' => 0.0,
                 'labour_cost' => (float) ($input['labour_cost'] ?? 0),
+                'labour_rate_per_nos' => array_key_exists('labour_rate_per_nos', $input)
+                    && $input['labour_rate_per_nos'] !== null
+                    && $input['labour_rate_per_nos'] !== ''
+                    ? round((float) $input['labour_rate_per_nos'], 4)
+                    : null,
                 // Electricity/Machine/Processing costs have been removed from
                 // the manufacturing expenses UI and formula; always persist 0.
                 'electricity_cost' => 0.0,

@@ -48,6 +48,9 @@ final class ProductionBatchSheetPresenter
             'conversion_cost' => $conversionCost,
             'has_conversion_cost' => $conversionCost > 0.0001,
             'labour_cost' => (float) $batch->labour_cost,
+            'labour_rate_per_nos' => $batch->labour_rate_per_nos !== null
+                ? (float) $batch->labour_rate_per_nos
+                : null,
             'transport_cost' => (float) $batch->transport_cost,
             'other_manufacturing_cost' => (float) $batch->other_manufacturing_cost,
             'total_batch_cost' => (float) $batch->total_batch_cost,

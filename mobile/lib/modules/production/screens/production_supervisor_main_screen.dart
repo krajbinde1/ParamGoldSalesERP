@@ -34,6 +34,13 @@ class ProductionSupervisorMainScreen extends StatelessWidget {
             subtitle: 'Stock overview, production and reports',
             onTap: () => _open(context, '/production/inventory'),
           ),
+          const SizedBox(height: AppSpacing.md),
+          ModuleTile(
+            icon: const Icon(Icons.local_taxi_outlined),
+            label: 'Company Transport',
+            subtitle: 'Collected charges, expenses and running balance',
+            onTap: () => _open(context, '/production/company-transport'),
+          ),
         ],
       ),
     );

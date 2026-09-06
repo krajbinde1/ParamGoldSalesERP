@@ -24,6 +24,7 @@ use App\Models\SemiFinishedMaterial;
 use App\Models\StockAdjustment;
 use App\Models\StockLedger;
 use App\Models\TaDaClaim;
+use App\Models\CompanyTransportLedgerEntry;
 use App\Models\TransportFreightLedger;
 use App\Models\WhatsAppOutboundMessage;
 use App\Observers\CollectionObserver;
@@ -31,6 +32,7 @@ use App\Observers\CreditNoteObserver;
 use App\Observers\OrderObserver;
 use App\Observers\PaymentRequestObserver;
 use App\Policies\BomPolicy;
+use App\Policies\CompanyTransportLedgerPolicy;
 use App\Policies\CreditNotePolicy;
 use App\Policies\CropPolicy;
 use App\Policies\DealerApplicationPolicy;
@@ -95,6 +97,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(ProductionBatch::class, ProductionBatchPolicy::class);
         Gate::policy(StockLedger::class, StockLedgerPolicy::class);
         Gate::policy(TransportFreightLedger::class, TransportFreightLedgerPolicy::class);
+        Gate::policy(CompanyTransportLedgerEntry::class, CompanyTransportLedgerPolicy::class);
         Gate::policy(StockAdjustment::class, StockAdjustmentPolicy::class);
         Gate::policy(WhatsAppOutboundMessage::class, WhatsAppOutboundMessagePolicy::class);
 

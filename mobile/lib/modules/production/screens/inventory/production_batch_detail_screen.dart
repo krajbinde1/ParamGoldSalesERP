@@ -10,6 +10,7 @@ import '../../../../core/widgets/design/pg_status_badge.dart';
 import '../../../../core/widgets/role_shell_widgets.dart';
 import '../../../auth/providers/auth_controller.dart';
 import '../../api/inventory_production_api.dart';
+import 'production_batch_sheet_pdf_screen.dart';
 
 class ProductionBatchDetailScreen extends StatefulWidget {
   const ProductionBatchDetailScreen({
@@ -73,10 +74,31 @@ class _ProductionBatchDetailScreenState
                     .toList() ??
                 const [];
             final status = batch['status']?.toString() ?? '';
+            final canExportSheet =
+                status == 'completed' || status == 'reversed';
 
             return ListView(
               padding: const EdgeInsets.all(AppSpacing.screenPadding),
               children: [
+                if (canExportSheet) ...[
+                  FilledButton.icon(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => ProductionBatchSheetPdfScreen(
+                            api: _api,
+                            batchId: widget.batchId,
+                            title:
+                                'Batch Sheet ${batch['batch_number'] ?? ''}'.trim(),
+                          ),
+                        ),
+                      );
+                    },
+                    icon: const Icon(Icons.picture_as_pdf_outlined),
+                    label: const Text('Download Batch Sheet'),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                ],
                 PgCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,

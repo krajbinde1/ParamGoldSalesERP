@@ -109,6 +109,7 @@ enum UserRole: string
                 'production_dashboard', 'orders_dispatch', 'orders_view_production',
                 'inventory_view', 'bom_view_active', 'production_create', 'production_complete',
                 'production_history_view', 'shortage_report_view', 'stock_report_view',
+                'company_transport_view', 'company_transport_expense_create',
             ],
             self::Director => [
                 'director_dashboard', 'orders_view_all', 'ta_da_view_all',

@@ -881,3 +881,137 @@ it('requires approval for material substitution and allows director approve then
     expect((float) $fixture['altRaw']->fresh()->current_stock)->toBe(78.0)
         ->and((float) $fixture['raw']->fresh()->current_stock)->toBe(100.0);
 });
+
+it('searches manufacturable finished products by name or product code', function () {
+    $fixture = seedMobileProductionFixture();
+    $supervisor = mobileApiSupervisor();
+    $product = $fixture['product']->fresh();
+
+    $this->actingAs($supervisor, 'sanctum')
+        ->getJson('/api/production/products/manufacturable?search=Mobile Coin')
+        ->assertOk()
+        ->assertJsonPath('success', true)
+        ->assertJsonFragment(['id' => $product->id, 'product_name' => 'Mobile Coin']);
+
+    $this->actingAs($supervisor, 'sanctum')
+        ->getJson('/api/production/products/manufacturable?search='.$product->product_code)
+        ->assertOk()
+        ->assertJsonFragment(['product_code' => $product->product_code]);
+
+    $this->actingAs($supervisor, 'sanctum')
+        ->getJson('/api/production/products/manufacturable?search=zzznomatch')
+        ->assertOk()
+        ->assertJsonPath('data', []);
+});
+
+it('previews and confirms production with labour rate and actual used qty', function () {
+    $fixture = seedMobileProductionFixture();
+    $supervisor = mobileApiSupervisor();
+    $rawBomItemId = $fixture['bomItem']->id;
+    $packBomItemId = $fixture['bom']->items()->where('item_type', BomItemType::PackagingMaterial)->value('id');
+
+    $preview = $this->actingAs($supervisor, 'sanctum')
+        ->postJson('/api/production/batches/preview', [
+            'product_id' => $fixture['product']->id,
+            'production_quantity' => 5,
+            'production_date' => now()->toDateString(),
+            'labour_rate_per_nos' => 2.5,
+            'transport_cost' => 0,
+            'other_manufacturing_cost' => 0,
+        ])
+        ->assertOk()
+        ->json('data');
+
+    $raw = collect($preview['requirements'])->firstWhere('item_type', BomItemType::RawMaterial->value);
+    $pack = collect($preview['requirements'])->firstWhere('item_type', BomItemType::PackagingMaterial->value);
+
+    expect($preview['has_mandatory_shortage'])->toBeFalse()
+        ->and((float) $preview['costing']['total_conversion_cost'])->toBe(12.5)
+        ->and((float) $raw['required_qty'])->toBe(5.0)
+        ->and((float) $raw['actual_used_qty'])->toBe(5.0)
+        ->and($raw['uom'])->toBe('Kg')
+        ->and($raw['actual_used_formulation_quantity'])->not->toBeNull()
+        ->and((float) $pack['required_qty'])->toBe(5.0)
+        ->and((float) $pack['actual_used_qty'])->toBe(5.0);
+
+    $confirmed = $this->actingAs($supervisor, 'sanctum')
+        ->postJson('/api/production/batches/confirm', [
+            'product_id' => $fixture['product']->id,
+            'production_quantity' => 5,
+            'production_date' => now()->toDateString(),
+            'labour_rate_per_nos' => 2.5,
+            'posting_token' => (string) Str::uuid(),
+            'materials' => [
+                [
+                    'bom_item_id' => $rawBomItemId,
+                    'actual_used_formulation_quantity' => 3,
+                ],
+                [
+                    'bom_item_id' => $packBomItemId,
+                    'actual_used_formulation_quantity' => 5,
+                ],
+            ],
+        ])
+        ->assertCreated()
+        ->json('data');
+
+    expect($confirmed['status'])->toBe('completed')
+        ->and((float) $confirmed['labour_cost'])->toBe(12.5)
+        ->and((float) $confirmed['labour_rate_per_nos'])->toBe(2.5)
+        ->and((float) $fixture['raw']->fresh()->current_stock)->toBe(97.0)
+        ->and((float) $fixture['pack']->fresh()->current_stock)->toBe(95.0)
+        ->and((float) $fixture['product']->fresh()->current_finished_stock)->toBe(5.0);
+
+    $rawConsumption = collect($confirmed['consumptions'])->firstWhere('item_type', BomItemType::RawMaterial->value);
+    expect((float) $rawConsumption['consumed_quantity'])->toBe(3.0)
+        ->and((float) $rawConsumption['consumption_value'])->toBe(150.0);
+});
+
+it('downloads the same production batch sheet pdf after confirm', function () {
+    $fixture = seedMobileProductionFixture();
+    $supervisor = mobileApiSupervisor();
+
+    $batch = $this->actingAs($supervisor, 'sanctum')
+        ->postJson('/api/production/batches/confirm', [
+            'product_id' => $fixture['product']->id,
+            'production_quantity' => 4,
+            'production_date' => now()->toDateString(),
+            'labour_rate_per_nos' => 2.5,
+            'posting_token' => (string) Str::uuid(),
+            'materials' => [
+                [
+                    'bom_item_id' => $fixture['bomItem']->id,
+                    'actual_used_formulation_quantity' => 3,
+                ],
+            ],
+        ])
+        ->assertCreated()
+        ->json('data');
+
+    $response = $this->actingAs($supervisor, 'sanctum')
+        ->get('/api/production/batches/'.$batch['id'].'/sheet-pdf');
+
+    $response->assertOk()
+        ->assertHeader('content-type', 'application/pdf');
+
+    $pdfBytes = $response->getContent();
+    expect($pdfBytes)->toContain('%PDF')
+        ->and(strlen($pdfBytes))->toBeGreaterThan(500);
+
+    $decoded = '';
+    if (preg_match_all('/stream\r?\n(.*?)\r?\nendstream/s', $pdfBytes, $m)) {
+        foreach ($m[1] as $stream) {
+            $try = @gzuncompress($stream);
+            if ($try === false) {
+                $try = @gzinflate($stream);
+            }
+            $decoded .= ($try !== false ? $try : $stream)."\n";
+        }
+    }
+    $readable = preg_replace('/\x00/', '', $decoded.$pdfBytes);
+
+    expect($readable)->toContain('PRODUCTION BATCH SHEET')
+        ->and($readable)->toContain($batch['batch_number'])
+        ->and($readable)->toContain('Primary Alloy');
+});
+

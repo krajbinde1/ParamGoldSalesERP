@@ -9,6 +9,7 @@ use App\Filament\Resources\Orders\OrderResource;
 use App\Filament\Widgets\AccountWidget;
 use App\Filament\Widgets\FilamentInfoWidget;
 use App\Filament\Widgets\ProductionOrderStatsWidget;
+use App\Http\Controllers\Admin\CompanyTransportLedgerExportController;
 use App\Http\Controllers\Admin\InventoryStockReportPdfController;
 use App\Http\Controllers\Admin\ProductionBatchSheetPrintController;
 use App\Http\Controllers\Admin\TotalOutstandingPdfController;
@@ -93,6 +94,11 @@ class AdminPanelProvider extends PanelProvider
 
                 Route::get('/total-outstanding/pdf', TotalOutstandingPdfController::class)
                     ->name('total-outstanding.pdf');
+
+                Route::get('/company-transport-ledger/print', [CompanyTransportLedgerExportController::class, 'print'])
+                    ->name('company-transport-ledger.print');
+                Route::get('/company-transport-ledger/pdf', [CompanyTransportLedgerExportController::class, 'pdf'])
+                    ->name('company-transport-ledger.pdf');
 
                 // Admin Filament View links must stay inside /admin so panel auth applies.
                 Route::get(

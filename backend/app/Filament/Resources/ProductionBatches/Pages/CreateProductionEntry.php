@@ -8,6 +8,7 @@ use App\Models\Product;
 use App\Models\SemiFinishedMaterial;
 use App\Services\Inventory\InventoryUnitConversion;
 use App\Services\Inventory\ProductionCostingService;
+use App\Services\Inventory\ProductionLabourCost;
 use App\Services\Inventory\ProductionService;
 use Filament\Actions\Action;
 use Filament\Actions\Concerns\InteractsWithActions;
@@ -21,6 +22,7 @@ use Filament\Forms\Contracts\HasForms;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\Page;
 use Filament\Schemas\Components\Section;
+use Filament\Schemas\Components\Utilities\Get;
 use Filament\Schemas\Components\Utilities\Set;
 use Filament\Schemas\Schema;
 use Filament\Support\Enums\Alignment;
@@ -81,6 +83,7 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
         $this->form->fill([
             'output_type' => BomOutputType::FinishedProduct->value,
             'production_date' => $today,
+            'labour_rate_per_nos' => 0,
             'labour_cost' => 0,
             'transport_cost' => 0,
             'other_manufacturing_cost' => 0,
@@ -166,16 +169,34 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
                             ->numeric()
                             ->minValue(0.001)
                             ->required()
+                            ->live(onBlur: true)
+                            ->afterStateUpdated(function (Set $set, Get $get): void {
+                                $this->syncLabourCost($set, $get);
+                            })
                             ->suffix(fn (): string => $this->productionUnit ?: '')
                             ->helperText(fn ($get): string => ($get('output_type') ?? BomOutputType::FinishedProduct->value) === BomOutputType::SemiFinished->value
                                 ? 'Bulk output quantity in the manufacturing BOM unit (e.g. Kg).'
                                 : 'Number of finished packs for this SKU. Bulk is consumed from the packing BOM (e.g. 2 KG bulk per 2 KG bag).'),
+                        TextInput::make('labour_rate_per_nos')
+                            ->label('Labour Rate Per Nos')
+                            ->prefix('₹')
+                            ->suffix('/Nos')
+                            ->numeric()
+                            ->minValue(0)
+                            ->default(0)
+                            ->live(onBlur: true)
+                            ->afterStateUpdated(function (Set $set, Get $get): void {
+                                $this->syncLabourCost($set, $get);
+                            }),
                         TextInput::make('labour_cost')
-                            ->label('Labour Cost')
+                            ->label('Total Labour Cost')
                             ->prefix('₹')
                             ->numeric()
                             ->minValue(0)
-                            ->default(0),
+                            ->default(0)
+                            ->readOnly()
+                            ->dehydrated()
+                            ->helperText('Production Quantity × Labour Rate Per Nos'),
                         TextInput::make('transport_cost')
                             ->label('Transport Cost')
                             ->prefix('₹')
@@ -265,7 +286,8 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
                 'semi_finished_id' => $semiFinishedId > 0 ? $semiFinishedId : null,
                 'planned_quantity' => $quantity,
                 'actual_output_quantity' => $quantity,
-                'labour_cost' => $data['labour_cost'] ?? 0,
+                'labour_rate_per_nos' => $data['labour_rate_per_nos'] ?? 0,
+                'labour_cost' => $this->resolvedLabourCost($data),
                 'transport_cost' => $data['transport_cost'] ?? 0,
                 'other_manufacturing_cost' => $data['other_manufacturing_cost'] ?? 0,
             ]);
@@ -287,6 +309,7 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
                     ? ($semiFinished?->unit ?: 'Kg')
                     : ($product->production_unit ?: $product->uom ?: 'Nos')));
             $this->productionDateLabel = (string) $data['production_date'];
+            $this->data['labour_cost'] = $this->resolvedLabourCost($data);
             $this->productionQuantityPreview = $quantity;
             $this->hydrateActualUsedFormulationQuantities();
 
@@ -732,6 +755,7 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
             'costing' => $this->costing,
             'showCosts' => $this->canViewProductionCosts(),
             'labourCost' => (float) ($this->data['labour_cost'] ?? 0),
+            'labourRatePerNos' => (float) ($this->data['labour_rate_per_nos'] ?? 0),
             'transportCost' => (float) ($this->data['transport_cost'] ?? 0),
             'otherManufacturingCost' => (float) ($this->data['other_manufacturing_cost'] ?? 0),
         ];
@@ -778,6 +802,23 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
         return auth()->user()?->canViewProductionCosts() ?? false;
     }
 
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    private function resolvedLabourCost(array $data): float
+    {
+        $qty = (float) ($data['production_quantity'] ?? $this->productionQuantityPreview ?? 0);
+
+        return ProductionLabourCost::total($qty, (float) ($data['labour_rate_per_nos'] ?? 0));
+    }
+
+    private function syncLabourCost(Set $set, Get $get): void
+    {
+        $qty = (float) ($get('production_quantity') ?? 0);
+        $rate = (float) ($get('labour_rate_per_nos') ?? 0);
+        $set('labour_cost', ProductionLabourCost::total($qty, $rate));
+    }
+
     protected function completeProduction(): void
     {
         $data = $this->form->getState();
@@ -791,7 +832,8 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
             'planned_quantity' => $data['production_quantity'],
             'actual_output_quantity' => $data['production_quantity'],
             'wastage_quantity' => 0,
-            'labour_cost' => $data['labour_cost'] ?? 0,
+            'labour_rate_per_nos' => $data['labour_rate_per_nos'] ?? 0,
+            'labour_cost' => $this->resolvedLabourCost($data),
             'electricity_cost' => 0,
             'machine_cost' => 0,
             'processing_cost' => 0,

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Production;
 
 use App\Enums\ProductionBatchStatus;
+use App\Exports\Inventory\ProductionBatchSheetPdfExporter;
 use App\Http\Controllers\Api\Concerns\RespondsWithJson;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\Production\ProductionBatchPresenter;
@@ -14,6 +15,7 @@ use App\Services\Inventory\ProductionService;
 use App\Services\Inventory\ProductionWorkflowService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Validation\ValidationException;
 
 class ProductionBatchApiController extends Controller
@@ -158,6 +160,21 @@ class ProductionBatchApiController extends Controller
         return $this->ok('Production batch details loaded successfully.', ProductionBatchPresenter::detail($batch, $request->user()));
     }
 
+    public function sheetPdf(Request $request, ProductionBatch $batch): Response
+    {
+        $this->authorize('view', $batch);
+
+        if (! in_array($batch->status, [ProductionBatchStatus::Completed, ProductionBatchStatus::Reversed], true)) {
+            throw ValidationException::withMessages([
+                'batch' => 'Batch sheet is available after production is confirmed.',
+            ]);
+        }
+
+        $showCosts = $this->viewerCanSeeProductionCosts($request->user());
+
+        return app(ProductionBatchSheetPdfExporter::class)->download($batch, $showCosts);
+    }
+
     public function history(Request $request): JsonResponse
     {
         $this->authorize('viewAny', ProductionBatch::class);
@@ -242,6 +259,7 @@ class ProductionBatchApiController extends Controller
             'wastage_quantity' => ['nullable', 'numeric', 'min:0'],
             'batch_number' => ['nullable', 'string', 'max:191'],
             'labour_cost' => ['nullable', 'numeric', 'min:0'],
+            'labour_rate_per_nos' => ['nullable', 'numeric', 'min:0'],
             'transport_cost' => ['nullable', 'numeric', 'min:0'],
             'other_manufacturing_cost' => ['nullable', 'numeric', 'min:0'],
             'notes' => ['nullable', 'string', 'max:2000'],
@@ -255,6 +273,7 @@ class ProductionBatchApiController extends Controller
             'materials.*.conversion_ratio' => ['nullable', 'numeric', 'min:0.000001'],
             'materials.*.consumed_quantity' => ['nullable', 'numeric', 'min:0'],
             'materials.*.actual_used_quantity' => ['nullable', 'numeric', 'min:0'],
+            'materials.*.actual_used_formulation_quantity' => ['nullable', 'numeric', 'min:0'],
             'materials.*.substitution_reason' => ['nullable', 'string', 'max:100'],
             'materials.*.substitution_remarks' => ['nullable', 'string', 'max:2000'],
         ]);
@@ -303,7 +322,7 @@ class ProductionBatchApiController extends Controller
      */
     private function presentPreview(array $preview, User $user): array
     {
-        $showCosts = $user->canViewProductionCosts();
+        $showCosts = $this->viewerCanSeeProductionCosts($user);
         /** @var ?Product $product */
         $product = $preview['product'] ?? null;
         /** @var ?\App\Models\SemiFinishedMaterial $semiFinished */
@@ -381,6 +400,15 @@ class ProductionBatchApiController extends Controller
             default => 'Sufficient',
         };
 
+        $formUnit = (string) ($line['formulation_unit'] ?? $line['unit'] ?? '');
+        $line['required_qty'] = (float) ($line['required_formulation_quantity'] ?? $line['formulation_quantity'] ?? $line['required_quantity'] ?? 0);
+        $line['actual_used_qty'] = (float) ($line['actual_used_formulation_quantity'] ?? $line['actual_used_quantity'] ?? 0);
+        $line['uom'] = $formUnit;
+        $line['material_cost'] = $showCosts ? ($line['estimated_value'] ?? null) : null;
+        if ($showCosts && isset($line['formulation_average_rate'])) {
+            $line['average_rate'] = $line['formulation_average_rate'];
+        }
+
         $line['alternates'] = array_map(function (array $alternate) use ($showCosts): array {
             if (! $showCosts) {
                 $alternate['average_rate'] = null;
@@ -391,9 +419,16 @@ class ProductionBatchApiController extends Controller
 
         if (! $showCosts) {
             $line['average_rate'] = null;
+            $line['formulation_average_rate'] = null;
             $line['estimated_value'] = null;
+            $line['material_cost'] = null;
         }
 
         return $line;
+    }
+
+    private function viewerCanSeeProductionCosts(?User $user): bool
+    {
+        return (bool) ($user?->canViewProductionCosts() || $user?->canActAsProductionSupervisor());
     }
 }

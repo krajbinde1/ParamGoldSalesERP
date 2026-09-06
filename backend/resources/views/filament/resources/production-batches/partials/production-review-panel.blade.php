@@ -456,7 +456,11 @@
                                 <td class="fi-ta-cell px-4 py-2 text-end text-sm tabular-nums text-gray-950 dark:text-white">{{ $money($costing['total_packaging_cost'] ?? 0) }}</td>
                             </tr>
                             <tr class="fi-ta-row hover:bg-gray-50 dark:hover:bg-white/5">
-                                <td class="fi-ta-cell px-4 py-2 text-start text-sm text-gray-700 dark:text-gray-200">Labour Cost</td>
+                                <td class="fi-ta-cell px-4 py-2 text-start text-sm text-gray-700 dark:text-gray-200">Labour Rate Per Nos</td>
+                                <td class="fi-ta-cell px-4 py-2 text-end text-sm tabular-nums text-gray-950 dark:text-white">{{ $money($labourRatePerNos ?? 0) }}</td>
+                            </tr>
+                            <tr class="fi-ta-row bg-gray-50/80 hover:bg-gray-50 dark:bg-white/[0.03] dark:hover:bg-white/5">
+                                <td class="fi-ta-cell px-4 py-2 text-start text-sm text-gray-700 dark:text-gray-200">Total Labour Cost</td>
                                 <td class="fi-ta-cell px-4 py-2 text-end text-sm tabular-nums text-gray-950 dark:text-white">{{ $money($labourCost ?? 0) }}</td>
                             </tr>
                             <tr class="fi-ta-row bg-gray-50/80 hover:bg-gray-50 dark:bg-white/[0.03] dark:hover:bg-white/5">

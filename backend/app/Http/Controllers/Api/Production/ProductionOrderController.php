@@ -11,6 +11,7 @@ use App\Actions\Orders\SendOrderForBilling;
 use App\Actions\Orders\UploadOrderReceivedCopy;
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Services\Orders\FinishedProductOrderAvailabilityService;
 use App\Services\Orders\OrderDispatchCalculationService;
 use App\Support\Orders\OrderDetailPresenter;
 use Illuminate\Http\JsonResponse;
@@ -21,6 +22,7 @@ class ProductionOrderController extends Controller
     public function __construct(
         private readonly OrderDetailPresenter $presenter,
         private readonly OrderDispatchCalculationService $calculator,
+        private readonly FinishedProductOrderAvailabilityService $stockAvailability,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -108,64 +110,79 @@ class ProductionOrderController extends Controller
             ->orderByDesc('id')
             ->paginate(20);
 
+        $stockSummaries = $this->stockAvailability->summariesForOrderIds(
+            collect($orders->items())->pluck('id')->map(fn ($id): int => (int) $id)->all(),
+        );
+
         return response()->json([
-            'data' => collect($orders->items())->map(fn (Order $order): array => [
-                'id' => $order->id,
-                'order_no' => $order->order_no,
-                'short_order_no' => $order->shortOrderNo(),
-                'order_date' => $order->order_date?->toDateString(),
-                'created_at' => $order->created_at?->toDateTimeString(),
-                'approved_at' => $order->approved_at?->toDateTimeString(),
-                'approved_by_name' => $order->approvedByUser?->name,
-                'sent_for_bill_at' => $order->sent_for_bill_at?->toDateTimeString(),
-                'billed_at' => $order->billed_at?->toDateTimeString(),
-                'dispatched_at' => $order->dispatched_at?->toDateTimeString(),
-                'dispatch_date' => $order->dispatch_date?->toDateString(),
-                'dispatched_by' => $order->dispatched_by,
-                'dispatched_by_name' => $order->dispatchedByUser?->name,
-                'dispatch_remark' => $order->dispatch_remark,
-                'dealer_name' => $order->dealer?->firm_name,
-                'dealer_village' => $order->dealer?->village,
-                'delivery_address' => $order->dealer?->address,
-                'employee_name' => $order->salesEmployee?->full_name,
-                'payment_type' => $order->payment_type,
-                'grand_total' => \App\Services\Orders\OrderBillingTransportCalculator::finalGrandTotal($order),
-                'vehicle_id' => $order->vehicle_id,
-                'vehicle_number' => $order->vehicle_number,
-                'vehicle_no' => $order->vehicle_number,
-                'transport_charge_type' => $order->transport_charge_type,
-                'transport_charge_type_label' => filled($order->transport_charge_type)
-                    ? \App\Enums\TransportChargeType::tryFrom((string) $order->transport_charge_type)?->label()
-                    : null,
-                'transport_amount' => $order->transport_amount !== null
-                    ? (float) $order->transport_amount
-                    : null,
-                'original_grand_total' => $order->original_grand_total !== null
-                    ? (float) $order->original_grand_total
-                    : null,
-                'transport_adjustment' => $order->transport_adjustment !== null
-                    ? (float) $order->transport_adjustment
-                    : null,
-                'final_grand_total' => \App\Services\Orders\OrderBillingTransportCalculator::finalGrandTotal($order),
-                'bill_number' => $order->bill_number,
-                'bill_date' => $order->bill_date?->toDateString(),
-                'rejected_at' => $order->rejected_at?->toDateTimeString(),
-                'rejected_by_name' => $order->rejectedByUser?->name,
-                'rejection_remark' => $order->rejection_remark,
-                'status' => $order->status,
-                'status_label' => $order->displayStatusLabel(),
-                'can_send_for_bill' => $order->canBeSentForBilling(),
-                'can_hold' => $order->canBeHeld(),
-                'can_release_hold' => $order->canBeReleasedFromHold(),
-                'can_revert_to_manager' => $order->canBeRevertedToManager(),
-                'can_dispatch' => $order->canBeDispatched(),
-                'can_upload_received_copy' => $order->canUploadReceivedCopy(),
-                'received_copy_url' => $order->receivedCopyUrl(),
-                'held_at' => $order->held_at?->toDateTimeString(),
-                'hold_remark' => $order->hold_remark,
-                'reverted_at' => $order->reverted_at?->toDateTimeString(),
-                'revert_remark' => $order->revert_remark,
-            ])->values(),
+            'data' => collect($orders->items())->map(function (Order $order) use ($stockSummaries): array {
+                $summary = $stockSummaries[(int) $order->id] ?? [
+                    'stock_availability_applies' => false,
+                    'stock_status' => null,
+                    'stock_status_label' => null,
+                    'has_stock_shortage' => false,
+                    'stock_short_label' => null,
+                ];
+
+                return [
+                    'id' => $order->id,
+                    'order_no' => $order->order_no,
+                    'short_order_no' => $order->shortOrderNo(),
+                    'order_date' => $order->order_date?->toDateString(),
+                    'created_at' => $order->created_at?->toDateTimeString(),
+                    'approved_at' => $order->approved_at?->toDateTimeString(),
+                    'approved_by_name' => $order->approvedByUser?->name,
+                    'sent_for_bill_at' => $order->sent_for_bill_at?->toDateTimeString(),
+                    'billed_at' => $order->billed_at?->toDateTimeString(),
+                    'dispatched_at' => $order->dispatched_at?->toDateTimeString(),
+                    'dispatch_date' => $order->dispatch_date?->toDateString(),
+                    'dispatched_by' => $order->dispatched_by,
+                    'dispatched_by_name' => $order->dispatchedByUser?->name,
+                    'dispatch_remark' => $order->dispatch_remark,
+                    'dealer_name' => $order->dealer?->firm_name,
+                    'dealer_village' => $order->dealer?->village,
+                    'delivery_address' => $order->dealer?->address,
+                    'employee_name' => $order->salesEmployee?->full_name,
+                    'payment_type' => $order->payment_type,
+                    'grand_total' => \App\Services\Orders\OrderBillingTransportCalculator::finalGrandTotal($order),
+                    'vehicle_id' => $order->vehicle_id,
+                    'vehicle_number' => $order->vehicle_number,
+                    'vehicle_no' => $order->vehicle_number,
+                    'transport_charge_type' => $order->transport_charge_type,
+                    'transport_charge_type_label' => filled($order->transport_charge_type)
+                        ? \App\Enums\TransportChargeType::tryFrom((string) $order->transport_charge_type)?->label()
+                        : null,
+                    'transport_amount' => $order->transport_amount !== null
+                        ? (float) $order->transport_amount
+                        : null,
+                    'original_grand_total' => $order->original_grand_total !== null
+                        ? (float) $order->original_grand_total
+                        : null,
+                    'transport_adjustment' => $order->transport_adjustment !== null
+                        ? (float) $order->transport_adjustment
+                        : null,
+                    'final_grand_total' => \App\Services\Orders\OrderBillingTransportCalculator::finalGrandTotal($order),
+                    'bill_number' => $order->bill_number,
+                    'bill_date' => $order->bill_date?->toDateString(),
+                    'rejected_at' => $order->rejected_at?->toDateTimeString(),
+                    'rejected_by_name' => $order->rejectedByUser?->name,
+                    'rejection_remark' => $order->rejection_remark,
+                    'status' => $order->status,
+                    'status_label' => $order->displayStatusLabel(),
+                    'can_send_for_bill' => $order->canBeSentForBilling(),
+                    'can_hold' => $order->canBeHeld(),
+                    'can_release_hold' => $order->canBeReleasedFromHold(),
+                    'can_revert_to_manager' => $order->canBeRevertedToManager(),
+                    'can_dispatch' => $order->canBeDispatched(),
+                    'can_upload_received_copy' => $order->canUploadReceivedCopy(),
+                    'received_copy_url' => $order->receivedCopyUrl(),
+                    'held_at' => $order->held_at?->toDateTimeString(),
+                    'hold_remark' => $order->hold_remark,
+                    'reverted_at' => $order->reverted_at?->toDateTimeString(),
+                    'revert_remark' => $order->revert_remark,
+                    ...$summary,
+                ];
+            })->values(),
             'meta' => [
                 'current_page' => $orders->currentPage(),
                 'last_page' => $orders->lastPage(),
@@ -180,7 +197,7 @@ class ProductionOrderController extends Controller
         $this->authorize('view', $order);
 
         return response()->json([
-            'data' => $this->presenter->present($order),
+            'data' => $this->presentForSupervisor($order),
         ]);
     }
 
@@ -213,7 +230,7 @@ class ProductionOrderController extends Controller
 
         return response()->json([
             'message' => 'Order sent for billing successfully.',
-            'data' => $this->presenter->present($result['order']),
+            'data' => $this->presentForSupervisor($result['order']),
         ]);
     }
 
@@ -232,7 +249,7 @@ class ProductionOrderController extends Controller
 
         return response()->json([
             'message' => 'Order put on hold.',
-            'data' => $this->presenter->present($result['order']),
+            'data' => $this->presentForSupervisor($result['order']),
             'meta' => [
                 'counts' => $this->statusCounts(),
             ],
@@ -248,7 +265,7 @@ class ProductionOrderController extends Controller
 
         return response()->json([
             'message' => 'Order hold released.',
-            'data' => $this->presenter->present($result['order']),
+            'data' => $this->presentForSupervisor($result['order']),
             'meta' => [
                 'counts' => $this->statusCounts(),
             ],
@@ -270,7 +287,7 @@ class ProductionOrderController extends Controller
 
         return response()->json([
             'message' => 'Order returned to manager for review.',
-            'data' => $this->presenter->present($result['order']),
+            'data' => $this->presentForSupervisor($result['order']),
             'meta' => [
                 'counts' => $this->statusCounts(),
             ],
@@ -293,7 +310,7 @@ class ProductionOrderController extends Controller
         );
 
         return response()->json([
-            'data' => $this->presenter->present($order, previewCalculation: $calculation),
+            'data' => $this->presentForSupervisor($order, previewCalculation: $calculation),
         ]);
     }
 
@@ -341,7 +358,7 @@ class ProductionOrderController extends Controller
 
         return response()->json([
             'message' => 'Order dispatched successfully.',
-            'data' => $this->presenter->present($result['order']),
+            'data' => $this->presentForSupervisor($result['order']),
             'meta' => [
                 'counts' => $this->statusCounts(),
             ],
@@ -364,7 +381,7 @@ class ProductionOrderController extends Controller
 
         return response()->json([
             'message' => 'Received copy uploaded successfully.',
-            'data' => $this->presenter->present($result['order']),
+            'data' => $this->presentForSupervisor($result['order']),
         ]);
     }
 
@@ -400,5 +417,20 @@ class ProductionOrderController extends Controller
             'dispatched' => (int) ($counts[Order::STATUS_DISPATCHED] ?? 0),
             'rejected' => (int) ($counts[Order::STATUS_REJECTED] ?? 0),
         ];
+    }
+
+    /**
+     * @param  array<string, mixed>|null  $previewCalculation
+     * @return array<string, mixed>
+     */
+    private function presentForSupervisor(
+        Order $order,
+        bool $includeDispatchPreview = false,
+        ?array $previewCalculation = null,
+    ): array {
+        return $this->stockAvailability->attachToPayload(
+            $this->presenter->present($order, $includeDispatchPreview, $previewCalculation),
+            $order,
+        );
     }
 }

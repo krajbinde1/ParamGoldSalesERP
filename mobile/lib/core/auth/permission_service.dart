@@ -41,6 +41,10 @@ class PermissionService {
       has('packaging_material_inward_create') ||
       has('raw_material_inward_create');
   bool get canViewProductionCosts => has('production_cost_view');
+  bool get canViewCompanyTransport =>
+      has('company_transport_view') || role.isProductionSupervisor;
+  bool get canCreateCompanyTransportExpense =>
+      has('company_transport_expense_create') || role.isProductionSupervisor;
 
   /// Stock adjustment — Director/Admin only unless explicitly granted.
   bool get canAdjustStock => has('stock_adjustment');

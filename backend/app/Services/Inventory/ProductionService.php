@@ -35,6 +35,8 @@ final class ProductionService
      */
     public function preview(array $input): array
     {
+        $input = ProductionLabourCost::apply($input);
+
         [$outputType, $product, $semiFinished, $bom] = $this->resolveOutputAndBom($input);
 
         $this->bomCalculator->assertActiveBomFormulaIsComplete($bom);
@@ -87,6 +89,8 @@ final class ProductionService
         }
 
         return DB::transaction(function () use ($input, $user, $postingToken) {
+            $input = ProductionLabourCost::apply($input);
+
             [$outputType, $product, $semiFinished, $bom] = $this->resolveOutputAndBom($input, lock: true);
 
             $this->bomCalculator->assertActiveBomFormulaIsComplete($bom);
@@ -127,6 +131,11 @@ final class ProductionService
                 'actual_output_quantity' => $actual,
                 'wastage_quantity' => $wastage,
                 'labour_cost' => (float) ($input['labour_cost'] ?? 0),
+                'labour_rate_per_nos' => array_key_exists('labour_rate_per_nos', $input)
+                    && $input['labour_rate_per_nos'] !== null
+                    && $input['labour_rate_per_nos'] !== ''
+                    ? round((float) $input['labour_rate_per_nos'], 4)
+                    : null,
                 'electricity_cost' => 0.0,
                 'machine_cost' => 0.0,
                 'processing_cost' => 0.0,
@@ -446,12 +455,17 @@ final class ProductionService
             $unit = (string) ($row['inventory_unit'] ?? $row['unit'] ?? '');
 
             $override = $byBomItem->get((string) ($row['bom_item_id'] ?? ''), []);
-            $hasOverride = array_key_exists('actual_used_quantity', $override)
+            $hasFormOverride = array_key_exists('actual_used_formulation_quantity', $override);
+            $hasInvOverride = array_key_exists('actual_used_quantity', $override)
                 || array_key_exists('consumed_quantity', $override);
 
-            $actual = $hasOverride
-                ? round((float) ($override['actual_used_quantity'] ?? $override['consumed_quantity'] ?? 0), 4)
-                : self::defaultActualUsedQuantity($required, $available);
+            if ($hasFormOverride) {
+                $actual = $this->inventoryQtyFromFormulationOverride($row, $override);
+            } elseif ($hasInvOverride) {
+                $actual = round((float) ($override['actual_used_quantity'] ?? $override['consumed_quantity'] ?? 0), 4);
+            } else {
+                $actual = self::defaultActualUsedQuantity($required, $available);
+            }
 
             if ($actual < -0.0001) {
                 throw ValidationException::withMessages([
@@ -466,9 +480,13 @@ final class ProductionService
             }
 
             if ($actual - $available > 0.0001) {
-                throw ValidationException::withMessages([
-                    'materials' => "Actual Used Qty cannot exceed available stock for {$name} (available {$available} {$unit}).",
-                ]);
+                if ($hasFormOverride) {
+                    $actual = max(0.0, $available);
+                } else {
+                    throw ValidationException::withMessages([
+                        'materials' => "Actual Used Qty cannot exceed available stock for {$name} (available {$available} {$unit}).",
+                    ]);
+                }
             }
 
             $variance = round(max(0.0, $required - $actual), 4);
@@ -496,7 +514,7 @@ final class ProductionService
                 $row['stock_status'] = 'available';
             }
 
-            return $row;
+            return $this->decorateFormulationDisplay($row);
         }, $requirements));
     }
 
@@ -546,6 +564,127 @@ final class ProductionService
             throw ValidationException::withMessages([
                 'actual_output_quantity' => "Actual output exceeds allowed tolerance of {$tolerance}% over planned quantity (max {$maxAllowed}).",
             ]);
+        }
+    }
+
+    /**
+     * Convert Actual Used Qty entered in Required Qty (formulation) UOM to inventory qty.
+     *
+     * @param  array<string, mixed>  $row
+     * @param  array<string, mixed>  $override
+     */
+    private function inventoryQtyFromFormulationOverride(array $row, array $override): float
+    {
+        $formUnit = $this->formulationUnitOf($row);
+        $invUnit = $this->inventoryUnitOf($row);
+        $formRequired = $this->requiredQtyInFormulation($row);
+        $formAvailable = $this->convertQuantity(
+            (float) ($row['available_stock'] ?? 0),
+            $invUnit,
+            $formUnit,
+        );
+        $formMax = round(min($formRequired, max(0.0, $formAvailable)), 4);
+        $formActual = round((float) ($override['actual_used_formulation_quantity'] ?? 0), 4);
+
+        if ($formActual < 0) {
+            $formActual = 0.0;
+        }
+        if ($formActual - $formMax > 0.0001) {
+            $formActual = max(0.0, $formMax);
+        }
+
+        return round($this->convertQuantity($formActual, $formUnit, $invUnit), 6);
+    }
+
+    /**
+     * Display fields in Required Qty (formulation) UOM for Review & Confirm.
+     *
+     * @param  array<string, mixed>  $row
+     * @return array<string, mixed>
+     */
+    private function decorateFormulationDisplay(array $row): array
+    {
+        $formUnit = $this->formulationUnitOf($row);
+        $invUnit = $this->inventoryUnitOf($row);
+        $formRequired = $this->requiredQtyInFormulation($row);
+        $invActual = (float) ($row['actual_used_quantity'] ?? 0);
+        $invAvailable = (float) ($row['available_stock'] ?? 0);
+        $invRate = (float) ($row['average_rate'] ?? 0);
+        $formActual = $this->convertQuantity($invActual, $invUnit, $formUnit);
+        $formAvailable = $this->convertQuantity($invAvailable, $invUnit, $formUnit);
+        $formRate = $invRate;
+        $converter = app(InventoryUnitConversion::class);
+
+        try {
+            if ($formUnit !== '' && $invUnit !== '' && $formUnit !== $invUnit && $converter->areCompatible($formUnit, $invUnit)) {
+                $formRate = round($invRate * $converter->conversionFactor($formUnit, $invUnit), 4);
+            }
+        } catch (\Throwable) {
+            $formRate = $invRate;
+        }
+
+        $row['required_formulation_quantity'] = $formRequired;
+        $row['actual_used_formulation_quantity'] = round($formActual, 4);
+        $row['available_stock_formulation'] = round($formAvailable, 6);
+        $row['balance_after_formulation'] = round($formAvailable - $formActual, 6);
+        $row['max_actual_used_formulation'] = round(min($formRequired, max(0.0, $formAvailable)), 4);
+        $row['formulation_average_rate'] = round($formRate, 4);
+
+        return $row;
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function formulationUnitOf(array $row): string
+    {
+        $converter = app(InventoryUnitConversion::class);
+        $formUnit = trim((string) ($row['formulation_unit'] ?? ''));
+        $invUnit = trim((string) ($row['inventory_unit'] ?? $row['unit'] ?? ''));
+
+        return $converter->normalize($formUnit !== '' ? $formUnit : $invUnit);
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function inventoryUnitOf(array $row): string
+    {
+        return app(InventoryUnitConversion::class)->normalize(
+            (string) ($row['inventory_unit'] ?? $row['unit'] ?? ''),
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    private function requiredQtyInFormulation(array $row): float
+    {
+        if (array_key_exists('formulation_quantity', $row) && $row['formulation_quantity'] !== null) {
+            return round((float) $row['formulation_quantity'], 6);
+        }
+
+        return $this->convertQuantity(
+            (float) ($row['required_quantity'] ?? 0),
+            $this->inventoryUnitOf($row),
+            $this->formulationUnitOf($row),
+        );
+    }
+
+    private function convertQuantity(float $quantity, string $fromUnit, string $toUnit): float
+    {
+        $converter = app(InventoryUnitConversion::class);
+        $from = $converter->normalize($fromUnit);
+        $to = $converter->normalize($toUnit);
+
+        if ($from === '' || $to === '' || $from === $to) {
+            return round($quantity, 6);
+        }
+
+        try {
+            return (float) $converter->convert($quantity, $from, $to)['quantity'];
+        } catch (\Throwable) {
+            return round($quantity, 6);
         }
     }
 }
