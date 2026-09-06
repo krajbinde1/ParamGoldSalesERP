@@ -23,20 +23,60 @@
         justify-self: center;
     }
 
+    .erp-production-review .erp-mat-scroll {
+        overflow-x: auto;
+        overflow-y: auto;
+        max-height: 28rem;
+        -webkit-overflow-scrolling: touch;
+    }
+
     .erp-production-review .erp-mat-table {
-        table-layout: fixed;
+        table-layout: auto;
         border-collapse: separate;
         border-spacing: 0;
-        width: 100%;
+        width: max-content;
+        min-width: 100%;
+    }
+
+    .erp-production-review .erp-mat-table.erp-mat-table--costs {
+        min-width: 78rem;
+    }
+
+    .erp-production-review .erp-mat-table.erp-mat-table--basic {
+        min-width: 60rem;
     }
 
     .erp-production-review .erp-mat-table th,
     .erp-production-review .erp-mat-table td {
-        padding-left: 1rem;
-        padding-right: 1rem;
+        padding: 0.55rem 0.75rem;
+        vertical-align: middle;
+        height: 3rem;
+        box-sizing: border-box;
     }
 
     .erp-production-review .erp-mat-table .fi-ta-header-cell {
+        white-space: normal;
+        line-height: 1.25;
+        overflow: hidden;
+        text-overflow: clip;
+    }
+
+    .erp-production-review .erp-mat-col-material { min-width: 12.5rem; width: 14rem; }
+    .erp-production-review .erp-mat-col-qty { min-width: 8.75rem; }
+    .erp-production-review .erp-mat-col-actual { min-width: 13.5rem; }
+    .erp-production-review .erp-mat-col-stock { min-width: 9.5rem; }
+    .erp-production-review .erp-mat-col-balance { min-width: 12rem; }
+    .erp-production-review .erp-mat-col-rate { min-width: 11rem; }
+    .erp-production-review .erp-mat-col-cost { min-width: 8.75rem; }
+    .erp-production-review .erp-mat-col-status { min-width: 7.75rem; }
+
+    .erp-production-review .erp-mat-table td.erp-mat-col-material {
+        white-space: normal !important;
+        overflow-wrap: anywhere;
+        word-break: break-word;
+    }
+
+    .erp-production-review .erp-mat-table td.erp-mat-numeric {
         white-space: nowrap;
     }
 
@@ -101,11 +141,38 @@
         color: rgb(255 255 255);
     }
 
+    .erp-production-review .erp-actual-used-wrap {
+        display: inline-flex;
+        flex-direction: row;
+        flex-wrap: nowrap;
+        align-items: center;
+        justify-content: flex-end;
+        gap: 0.375rem;
+        white-space: nowrap;
+        width: 100%;
+        min-width: 12rem;
+    }
+
     .erp-production-review .erp-actual-used-input {
-        width: 7.5rem;
-        max-width: 100%;
-        margin-left: auto;
+        width: 6.75rem;
+        flex: 0 0 6.75rem;
+        max-width: 6.75rem;
+        height: 2.25rem;
+        margin: 0;
         text-align: right;
+    }
+
+    .erp-production-review .erp-actual-used-uom {
+        flex: 0 0 auto;
+        min-width: 2.5rem;
+        font-size: 0.75rem;
+        line-height: 1;
+        color: rgb(107 114 128);
+        white-space: nowrap;
+    }
+
+    .dark .erp-production-review .erp-actual-used-uom {
+        color: rgb(156 163 175);
     }
 </style>
 
@@ -218,56 +285,51 @@
         </x-slot>
 
         <div class="fi-ta-ctn divide-y divide-gray-200 overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-gray-950/5 dark:divide-white/10 dark:bg-white/5 dark:ring-white/10">
-            <div class="fi-ta-content relative divide-y divide-gray-200 overflow-x-auto dark:divide-white/10">
-                <div class="max-h-[28rem] overflow-auto">
-                    <table class="fi-ta-table erp-mat-table divide-y divide-gray-200 dark:divide-white/10">
-                        @if ($showCosts)
-                            <colgroup>
-                                <col style="width: 18%">
-                                <col style="width: 12%">
-                                <col style="width: 14%">
-                                <col style="width: 12%">
-                                <col style="width: 12%">
-                                <col style="width: 12%">
-                                <col style="width: 10%">
-                                <col style="width: 10%">
-                            </colgroup>
-                        @else
-                            <colgroup>
-                                <col style="width: 24%">
-                                <col style="width: 14%">
-                                <col style="width: 16%">
-                                <col style="width: 16%">
-                                <col style="width: 16%">
-                                <col style="width: 14%">
-                            </colgroup>
-                        @endif
+            <div class="fi-ta-content relative divide-y divide-gray-200 dark:divide-white/10">
+                <div class="erp-mat-scroll">
+                    <table @class([
+                        'fi-ta-table erp-mat-table divide-y divide-gray-200 dark:divide-white/10',
+                        'erp-mat-table--costs' => $showCosts,
+                        'erp-mat-table--basic' => ! $showCosts,
+                    ])>
+                        <colgroup>
+                            <col class="erp-mat-col-material">
+                            <col class="erp-mat-col-qty">
+                            <col class="erp-mat-col-actual">
+                            <col class="erp-mat-col-stock">
+                            <col class="erp-mat-col-balance">
+                            @if ($showCosts)
+                                <col class="erp-mat-col-rate">
+                                <col class="erp-mat-col-cost">
+                            @endif
+                            <col class="erp-mat-col-status">
+                        </colgroup>
                         <thead class="divide-y divide-gray-200 dark:divide-white/5">
                             <tr class="bg-gray-50 dark:bg-white/5">
-                                <th class="fi-ta-header-cell sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-4 py-2 text-start text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
+                                <th class="fi-ta-header-cell erp-mat-col-material sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-3 py-2 text-start text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
                                     Material
                                 </th>
-                                <th class="fi-ta-header-cell sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-4 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
+                                <th class="fi-ta-header-cell erp-mat-col-qty sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-3 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
                                     Required Qty
                                 </th>
-                                <th class="fi-ta-header-cell sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-4 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
+                                <th class="fi-ta-header-cell erp-mat-col-actual sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-3 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
                                     Actual Used Qty
                                 </th>
-                                <th class="fi-ta-header-cell sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-4 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
+                                <th class="fi-ta-header-cell erp-mat-col-stock sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-3 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
                                     Available Stock
                                 </th>
-                                <th class="fi-ta-header-cell sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-4 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
+                                <th class="fi-ta-header-cell erp-mat-col-balance sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-3 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
                                     Balance After Production
                                 </th>
                                 @if ($showCosts)
-                                    <th class="fi-ta-header-cell sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-4 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
+                                    <th class="fi-ta-header-cell erp-mat-col-rate sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-3 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
                                         Average Purchase Rate
                                     </th>
-                                    <th class="fi-ta-header-cell sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-4 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
+                                    <th class="fi-ta-header-cell erp-mat-col-cost sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-3 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
                                         Material Cost
                                     </th>
                                 @endif
-                                <th class="fi-ta-header-cell sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-4 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
+                                <th class="fi-ta-header-cell erp-mat-col-status sticky top-0 z-10 border-b border-gray-200 bg-gray-50 px-3 py-2 text-end text-xs font-semibold uppercase tracking-wide text-gray-700 dark:border-white/10 dark:bg-gray-900 dark:text-gray-200">
                                     Status
                                 </th>
                             </tr>
@@ -280,21 +342,21 @@
                                         'bg-gray-50/80 dark:bg-white/[0.03]' => $index % 2 === 1,
                                     ])
                                 >
-                                    <td class="fi-ta-cell whitespace-normal px-4 py-2 text-start text-sm font-medium text-gray-950 dark:text-white">
+                                    <td class="fi-ta-cell erp-mat-col-material px-3 py-2 text-start text-sm font-medium text-gray-950 dark:text-white">
                                         {{ $row['material_name'] }}
                                     </td>
-                                    <td class="fi-ta-cell whitespace-nowrap px-4 py-2 text-end text-sm tabular-nums text-gray-950 dark:text-white">
+                                    <td class="fi-ta-cell erp-mat-numeric erp-mat-col-qty px-3 py-2 text-end text-sm tabular-nums text-gray-950 dark:text-white">
                                         {{ $row['required_label'] }}
                                     </td>
-                                    <td class="fi-ta-cell whitespace-nowrap px-4 py-2 text-end">
+                                    <td class="fi-ta-cell erp-mat-numeric erp-mat-col-actual px-3 py-2 text-end">
                                         @php $rowIndex = $row['index'] ?? $index; @endphp
-                                        <div class="flex items-center justify-end gap-1">
+                                        <div class="erp-actual-used-wrap">
                                             <input
                                                 type="number"
                                                 min="0"
-                                                max="{{ $row['available_stock'] ?? 0 }}"
+                                                max="{{ $row['max_actual_used'] ?? 0 }}"
                                                 step="0.001"
-                                                wire:model.live.debounce.300="requirements.{{ $rowIndex }}.actual_used_quantity"
+                                                wire:model.live.debounce.300="requirements.{{ $rowIndex }}.actual_used_formulation_quantity"
                                                 aria-label="Actual Used Qty"
                                                 @class([
                                                     'fi-input erp-actual-used-input rounded-lg border text-sm tabular-nums shadow-sm focus:ring-1 dark:bg-white/5 dark:text-white',
@@ -302,24 +364,24 @@
                                                     'border-gray-300 focus:border-primary-500 focus:ring-primary-500 dark:border-white/10' => ! ($row['has_usage_variance'] ?? false),
                                                 ])
                                             >
-                                            <span class="text-xs text-gray-500 dark:text-gray-400">{{ $row['inventory_unit'] ?? '' }}</span>
+                                            <span class="erp-actual-used-uom">{{ $row['formulation_unit'] ?? '' }}</span>
                                         </div>
                                     </td>
-                                    <td class="fi-ta-cell whitespace-nowrap px-4 py-2 text-end text-sm tabular-nums text-gray-950 dark:text-white">
+                                    <td class="fi-ta-cell erp-mat-numeric erp-mat-col-stock px-3 py-2 text-end text-sm tabular-nums text-gray-950 dark:text-white">
                                         {{ $row['available_label'] }}
                                     </td>
-                                    <td class="fi-ta-cell whitespace-nowrap px-4 py-2 text-end text-sm tabular-nums text-gray-950 dark:text-white">
+                                    <td class="fi-ta-cell erp-mat-numeric erp-mat-col-balance px-3 py-2 text-end text-sm tabular-nums text-gray-950 dark:text-white">
                                         {{ $row['balance_label'] }}
                                     </td>
                                     @if ($showCosts)
-                                        <td class="fi-ta-cell whitespace-nowrap px-4 py-2 text-end text-sm tabular-nums text-gray-950 dark:text-white">
+                                        <td class="fi-ta-cell erp-mat-numeric erp-mat-col-rate px-3 py-2 text-end text-sm tabular-nums text-gray-950 dark:text-white">
                                             {{ $row['average_rate_label'] }}
                                         </td>
-                                        <td class="fi-ta-cell whitespace-nowrap px-4 py-2 text-end text-sm font-semibold tabular-nums text-gray-950 dark:text-white">
+                                        <td class="fi-ta-cell erp-mat-numeric erp-mat-col-cost px-3 py-2 text-end text-sm font-semibold tabular-nums text-gray-950 dark:text-white">
                                             {{ $money($row['material_cost']) }}
                                         </td>
                                     @endif
-                                    <td class="fi-ta-cell px-4 py-2 text-end">
+                                    <td class="fi-ta-cell erp-mat-col-status px-3 py-2 text-end">
                                         <div class="flex justify-end">
                                             <x-filament::badge :color="$row['status_color']">
                                                 {{ $row['status_label'] }}

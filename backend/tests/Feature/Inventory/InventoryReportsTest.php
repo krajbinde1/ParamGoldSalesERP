@@ -660,3 +660,120 @@ it('exports excel and pdf of all matching filtered rows not only the current pag
         ->and($typeNames)->not->toContain('Filtered Export Box')
         ->and(count($typeNames))->toBe(13);
 });
+
+it('downloads the complete inventory stock report pdf from the dedicated get route when no filters are applied', function (): void {
+    inventoryReportExportMaterial('Route Alpha Alloy');
+    inventoryReportExportMaterial('Route Beta Alloy');
+    PackagingMaterial::query()->create([
+        'packaging_name' => 'Route Carton',
+        'category' => 'Box',
+        'unit' => 'Nos',
+        'opening_stock' => 8,
+        'minimum_stock' => 2,
+        'purchase_rate' => 5,
+        'average_rate' => 5,
+        'status' => true,
+    ]);
+
+    $this->actingAs($this->director);
+
+    $url = Livewire::test(InventoryReports::class)
+        ->assertSuccessful()
+        ->instance()
+        ->pdfExportUrl();
+
+    expect($url)->toBe(route('filament.admin.inventory-reports.pdf'));
+
+    $response = $this->get($url);
+
+    $response->assertOk()
+        ->assertHeader('content-type', 'application/pdf');
+
+    $pdfBytes = (string) $response->getContent();
+    $readable = inventoryReportPdfText($pdfBytes);
+
+    expect($pdfBytes)->toStartWith('%PDF')
+        ->and($response->headers->get('content-disposition'))->toContain('Inventory_Stock_Report_')
+        ->and($response->headers->get('content-disposition'))->toContain('.pdf')
+        ->and($readable)->toContain('Inventory Stock Report')
+        ->and($readable)->toContain('Applied Filters: None')
+        ->and($readable)->toContain('Route Alpha Alloy')
+        ->and($readable)->toContain('Route Beta Alloy')
+        ->and($readable)->toContain('Route Carton');
+});
+
+it('downloads only filtered inventory stock report pdf records from the dedicated get route', function (): void {
+    foreach (range(1, 12) as $i) {
+        inventoryReportExportMaterial(sprintf('Paged Pdf Item %02d', $i));
+    }
+
+    inventoryReportExportMaterial('Unique Pdf Export Item', 25);
+
+    PackagingMaterial::query()->create([
+        'packaging_name' => 'Filtered Pdf Box',
+        'category' => 'Box',
+        'unit' => 'Nos',
+        'opening_stock' => 4,
+        'minimum_stock' => 1,
+        'purchase_rate' => 3,
+        'average_rate' => 3,
+        'status' => true,
+    ]);
+
+    $this->actingAs($this->director);
+
+    $filtered = Livewire::test(InventoryReports::class)
+        ->set('tableRecordsPerPage', 10)
+        ->set('data.search', 'Unique Pdf Export Item')
+        ->call('applyFilters');
+
+    $url = $filtered->instance()->pdfExportUrl();
+
+    expect($url)->toContain('/admin/inventory-reports/pdf')
+        ->and($url)->toContain('search=Unique')
+        ->and($filtered->instance()->hasAppliedExportFilters())->toBeTrue();
+
+    $response = $this->get($url);
+
+    $response->assertOk()
+        ->assertHeader('content-type', 'application/pdf');
+
+    $readable = inventoryReportPdfText((string) $response->getContent());
+
+    expect((string) $response->getContent())->toStartWith('%PDF')
+        ->and($readable)->toContain('Inventory Stock Report')
+        ->and($readable)->toContain('Search: Unique Pdf Export Item')
+        ->and($readable)->toContain('Unique Pdf Export Item')
+        ->and($readable)->not->toContain('Paged Pdf Item 01')
+        ->and($readable)->not->toContain('Filtered Pdf Box');
+
+    $typeUrl = Livewire::test(InventoryReports::class)
+        ->set('data.inventory_type', InventoryReportService::TYPE_RAW_MATERIAL)
+        ->call('applyFilters')
+        ->instance()
+        ->pdfExportUrl();
+
+    expect($typeUrl)->toContain('inventory_type='.InventoryReportService::TYPE_RAW_MATERIAL);
+
+    $typeResponse = $this->get($typeUrl);
+    $typeResponse->assertOk();
+    $typeReadable = inventoryReportPdfText((string) $typeResponse->getContent());
+
+    expect($typeReadable)->toContain('Inventory Type: Raw Material')
+        ->and($typeReadable)->toContain('Unique Pdf Export Item')
+        ->and($typeReadable)->not->toContain('Filtered Pdf Box');
+});
+
+it('denies inventory stock report pdf export to regular employees', function (): void {
+    $employee = User::query()->create([
+        'name' => 'Pdf Employee',
+        'email' => 'pdf.employee.'.uniqid().'@example.com',
+        'password' => 'password',
+        'role' => UserRole::Employee->value,
+        'job_role' => 'Sales Executive',
+    ]);
+
+    $this->actingAs($employee)
+        ->get(route('filament.admin.inventory-reports.pdf'))
+        ->assertForbidden();
+});

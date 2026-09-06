@@ -461,6 +461,10 @@ final class ProductionService
 
             $actual = max(0.0, $actual);
 
+            if ($actual - $required > 0.0001) {
+                $actual = $required;
+            }
+
             if ($actual - $available > 0.0001) {
                 throw ValidationException::withMessages([
                     'materials' => "Actual Used Qty cannot exceed available stock for {$name} (available {$available} {$unit}).",

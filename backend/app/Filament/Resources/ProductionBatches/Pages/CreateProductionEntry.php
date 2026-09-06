@@ -288,6 +288,7 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
                     : ($product->production_unit ?: $product->uom ?: 'Nos')));
             $this->productionDateLabel = (string) $data['production_date'];
             $this->productionQuantityPreview = $quantity;
+            $this->hydrateActualUsedFormulationQuantities();
 
             return true;
         } catch (ValidationException $exception) {
@@ -359,6 +360,109 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
     }
 
     /**
+     * Fill Actual Used Qty in the Required Qty (formulation) UOM for the review table.
+     */
+    public function hydrateActualUsedFormulationQuantities(): void
+    {
+        foreach ($this->requirements as $index => $row) {
+            $formUnit = $this->formulationUnit($row);
+            $invUnit = $this->inventoryUnit($row);
+            $invActual = round((float) ($row['actual_used_quantity'] ?? $row['required_quantity'] ?? 0), 6);
+            $formActual = $this->convertQuantity($invActual, $invUnit, $formUnit);
+            $maxForm = $this->maxActualUsedInFormulation($row);
+
+            if ($formActual < 0) {
+                $formActual = 0.0;
+            }
+            if ($formActual - $maxForm > 0.0001) {
+                $formActual = max(0.0, $maxForm);
+            }
+
+            $this->requirements[$index]['actual_used_formulation_quantity'] = round($formActual, 4);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    public function formulationUnit(array $row): string
+    {
+        $converter = app(InventoryUnitConversion::class);
+        $formUnit = trim((string) ($row['formulation_unit'] ?? ''));
+        $invUnit = trim((string) ($row['inventory_unit'] ?? $row['unit'] ?? ''));
+
+        return $converter->normalize($formUnit !== '' ? $formUnit : $invUnit);
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    public function inventoryUnit(array $row): string
+    {
+        return app(InventoryUnitConversion::class)->normalize(
+            (string) ($row['inventory_unit'] ?? $row['unit'] ?? ''),
+        );
+    }
+
+    public function convertQuantity(float $quantity, string $fromUnit, string $toUnit): float
+    {
+        $converter = app(InventoryUnitConversion::class);
+        $from = $converter->normalize($fromUnit);
+        $to = $converter->normalize($toUnit);
+
+        if ($from === '' || $to === '' || $from === $to) {
+            return round($quantity, 6);
+        }
+
+        try {
+            return (float) $converter->convert($quantity, $from, $to)['quantity'];
+        } catch (\Throwable) {
+            return round($quantity, 6);
+        }
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    public function requiredQuantityInFormulation(array $row): float
+    {
+        if (array_key_exists('formulation_quantity', $row) && $row['formulation_quantity'] !== null) {
+            return round((float) $row['formulation_quantity'], 6);
+        }
+
+        return $this->convertQuantity(
+            (float) ($row['required_quantity'] ?? 0),
+            $this->inventoryUnit($row),
+            $this->formulationUnit($row),
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $row
+     */
+    public function availableStockInFormulation(array $row): float
+    {
+        return $this->convertQuantity(
+            (float) ($row['available_stock'] ?? 0),
+            $this->inventoryUnit($row),
+            $this->formulationUnit($row),
+        );
+    }
+
+    /**
+     * Max Actual Used Qty in Required Qty UOM: min(required, available-in-that-UOM).
+     *
+     * @param  array<string, mixed>  $row
+     */
+    public function maxActualUsedInFormulation(array $row): float
+    {
+        $required = $this->requiredQuantityInFormulation($row);
+        $available = max(0.0, $this->availableStockInFormulation($row));
+
+        return round(min($required, $available), 6);
+    }
+
+    /**
      * @return list<array<string, mixed>>
      */
     public function shortageRows(): array
@@ -379,41 +483,63 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
 
     /**
      * Recalculate cost, balance, and shortage when Actual Used Qty is edited.
+     * Actual Used Qty is entered in the Required Qty (formulation) UOM.
      */
     public function updatedRequirements(mixed $value, string $key): void
     {
-        if (! str_contains($key, 'actual_used_quantity')) {
+        if (str_contains($key, 'actual_used_formulation_quantity')) {
+            $this->recostReviewFromActualUsed(fromFormulation: true);
+
             return;
         }
 
-        $this->recostReviewFromActualUsed();
+        if (str_contains($key, 'actual_used_quantity')) {
+            $this->recostReviewFromActualUsed(fromFormulation: false);
+        }
     }
 
-    public function recostReviewFromActualUsed(): void
+    public function recostReviewFromActualUsed(bool $fromFormulation = false): void
     {
         foreach ($this->requirements as $index => $row) {
-            $required = round((float) ($row['required_quantity'] ?? 0), 4);
-            $available = round((float) ($row['available_stock'] ?? 0), 4);
-            $rate = (float) ($row['average_rate'] ?? 0);
-            $actual = round((float) ($row['actual_used_quantity'] ?? 0), 4);
+            $formUnit = $this->formulationUnit($row);
+            $invUnit = $this->inventoryUnit($row);
+            $formRequired = $this->requiredQuantityInFormulation($row);
+            $requiredInv = round((float) ($row['required_quantity'] ?? 0), 6);
+            $availableInv = round((float) ($row['available_stock'] ?? 0), 6);
+            $maxForm = $this->maxActualUsedInFormulation($row);
+            $inventoryRate = (float) ($row['average_rate'] ?? 0);
 
-            if ($actual < 0) {
-                $actual = 0.0;
+            if ($fromFormulation) {
+                $formActual = round((float) ($row['actual_used_formulation_quantity'] ?? 0), 4);
+            } else {
+                $formActual = $this->convertQuantity(
+                    round((float) ($row['actual_used_quantity'] ?? 0), 4),
+                    $invUnit,
+                    $formUnit,
+                );
             }
 
-            if ($actual - $available > 0.0001) {
-                $actual = max(0.0, $available);
+            if ($formActual < 0) {
+                $formActual = 0.0;
             }
 
-            $variance = round(max(0.0, $required - $actual), 4);
+            if ($formActual - $maxForm > 0.0001) {
+                $formActual = max(0.0, $maxForm);
+            }
 
-            $this->requirements[$index]['actual_used_quantity'] = $actual;
-            $this->requirements[$index]['consumed_quantity'] = $actual;
-            $this->requirements[$index]['balance_after'] = round($available - $actual, 6);
-            $this->requirements[$index]['estimated_value'] = round($actual * $rate, 2);
-            $this->requirements[$index]['variance_quantity'] = $variance;
-            $this->requirements[$index]['has_usage_variance'] = $variance > 0.0001;
-            $this->requirements[$index]['shortage_quantity'] = round(max(0.0, $actual - $available), 4);
+            $formActual = round($formActual, 4);
+            $invActual = round($this->convertQuantity($formActual, $formUnit, $invUnit), 6);
+            $rate = $this->displayAverageRate($inventoryRate, $invUnit, $formUnit);
+            $varianceInv = round(max(0.0, $requiredInv - $invActual), 4);
+
+            $this->requirements[$index]['actual_used_formulation_quantity'] = $formActual;
+            $this->requirements[$index]['actual_used_quantity'] = $invActual;
+            $this->requirements[$index]['consumed_quantity'] = $invActual;
+            $this->requirements[$index]['balance_after'] = round($availableInv - $invActual, 6);
+            $this->requirements[$index]['estimated_value'] = round($formActual * $rate['rate'], 2);
+            $this->requirements[$index]['variance_quantity'] = $varianceInv;
+            $this->requirements[$index]['has_usage_variance'] = ($formRequired - $formActual) > 0.0001;
+            $this->requirements[$index]['shortage_quantity'] = round(max(0.0, $invActual - $availableInv), 4);
         }
 
         $this->hasMandatoryShortage = collect($this->requirements)->contains(
@@ -501,7 +627,7 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
                 ];
             })
             ->action(function (): void {
-                $this->recostReviewFromActualUsed();
+                $this->recostReviewFromActualUsed(fromFormulation: true);
 
                 if ($this->requirements === [] || $this->hasMandatoryShortage) {
                     Notification::make()
@@ -539,20 +665,22 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
             $cost = (float) ($row['estimated_value'] ?? 0);
             $totalMaterialCost += $cost;
             $requiredQty = (float) ($row['required_quantity'] ?? 0);
-            $actualUsed = (float) ($row['actual_used_quantity'] ?? $requiredQty);
+            $actualUsedInv = (float) ($row['actual_used_quantity'] ?? $requiredQty);
             $available = (float) ($row['available_stock'] ?? 0);
+            $formRequired = $this->requiredQuantityInFormulation($row);
 
             $materialRows[] = [
                 'index' => $index,
                 'material_name' => $row['material_name'],
-                'required_label' => number_format((float) ($row['formulation_quantity'] ?? $requiredQty), 3)
-                    .' '.($row['formulation_unit'] ?? $formUnit),
+                'required_label' => number_format($formRequired, 3).' '.$formUnit,
                 'available_stock' => $available,
                 'available_label' => number_format($available, 3).' '.$invUnit,
                 'inventory_unit' => $invUnit,
+                'formulation_unit' => $formUnit,
+                'max_actual_used' => $this->maxActualUsedInFormulation($row),
                 'has_usage_variance' => (bool) ($row['has_usage_variance'] ?? false),
                 'balance_label' => number_format(
-                    (float) ($row['balance_after'] ?? ($available - $actualUsed)),
+                    (float) ($row['balance_after'] ?? ($available - $actualUsedInv)),
                     3,
                 ).' '.$invUnit,
                 'average_rate_label' => $rate['label'],
@@ -576,13 +704,16 @@ class CreateProductionEntry extends Page implements HasActions, HasForms
 
         $varianceDisplay = [];
         foreach ($this->usageVarianceRows() as $row) {
-            $invUnit = (string) ($row['inventory_unit'] ?? $row['unit'] ?? '');
+            $formUnit = $this->formulationUnit($row);
+            $invUnit = $this->inventoryUnit($row);
+            $formRequired = $this->requiredQuantityInFormulation($row);
+            $formActual = (float) ($row['actual_used_formulation_quantity']
+                ?? $this->convertQuantity((float) ($row['actual_used_quantity'] ?? 0), $invUnit, $formUnit));
             $varianceDisplay[] = [
                 'material_name' => $row['material_name'],
-                'required_label' => number_format((float) ($row['formulation_quantity'] ?? $row['required_quantity']), 3)
-                    .' '.($row['formulation_unit'] ?? $invUnit),
-                'actual_used_label' => number_format((float) ($row['actual_used_quantity'] ?? 0), 3).' '.$invUnit,
-                'variance_label' => number_format((float) ($row['variance_quantity'] ?? 0), 3).' '.$invUnit,
+                'required_label' => number_format($formRequired, 3).' '.$formUnit,
+                'actual_used_label' => number_format($formActual, 3).' '.$formUnit,
+                'variance_label' => number_format(max(0.0, $formRequired - $formActual), 3).' '.$formUnit,
             ];
         }
 

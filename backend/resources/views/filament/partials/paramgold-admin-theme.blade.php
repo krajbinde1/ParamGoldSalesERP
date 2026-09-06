@@ -149,6 +149,12 @@
         table-layout: auto;
     }
 
+    .paramgold-admin-shell .erp-production-review .erp-mat-table {
+        width: max-content;
+        min-width: 100%;
+        table-layout: auto;
+    }
+
     .paramgold-admin-shell .fi-ta .fi-ta-header-cell {
         font-size: 0.75rem;
         font-weight: 600;

@@ -2,6 +2,7 @@
 
 use App\Enums\BomItemType;
 use App\Enums\BomStatus;
+use App\Filament\Resources\ProductionBatches\Pages\CreateProductionEntry;
 use App\Models\Bom;
 use App\Models\BomItem;
 use App\Models\RawMaterial;
@@ -9,6 +10,7 @@ use App\Services\Inventory\BOMCalculationService;
 use App\Services\Inventory\InventoryUnitConversion;
 use App\Services\Inventory\ProductionService;
 use Illuminate\Validation\ValidationException;
+use Livewire\Livewire;
 
 it('converts kg formulation to ton inventory stock unit', function () {
     $converter = app(InventoryUnitConversion::class);
@@ -155,6 +157,82 @@ it('deducts inventory-equivalent quantity on production completion', function ()
         ->and((float) $consumption->formulation_quantity)->toBe(9.0)
         ->and($consumption->formulation_unit)->toBe('Kg')
         ->and((float) $consumption->consumption_value)->toBe(450.0);
+});
+
+it('keeps review actual used qty in the required qty uom when inventory stock is in tons', function () {
+    $raw = RawMaterial::query()->create([
+        'material_name' => 'Zinc Review Uom',
+        'category' => 'General',
+        'unit' => 'Ton',
+        'opening_stock' => 2,
+        'current_stock' => 2,
+        'current_stock_value' => 100000,
+        'minimum_stock' => 0,
+        'purchase_rate' => 50000,
+        'average_rate' => 50000,
+        'status' => true,
+    ]);
+
+    $fixture = seedManufacturingFixture(rawStock: 1000, packStock: 1000);
+    $fixture['bom']->update(['batch_quantity' => 100, 'batch_unit' => 'Nos']);
+
+    $rawItem = $fixture['bom']->items()->where('item_type', BomItemType::RawMaterial)->first();
+    $rawItem->raw_material_id = $raw->id;
+    $rawItem->required_quantity = 900;
+    $rawItem->unit = 'Kg';
+    $rawItem->save();
+
+    $this->actingAs(inventorySupervisor());
+
+    $component = Livewire::test(CreateProductionEntry::class)
+        ->fillForm([
+            'product_id' => $fixture['product']->id,
+            'production_quantity' => 50,
+            'production_date' => now('Asia/Kolkata')->toDateString(),
+            'labour_cost' => 0,
+            'transport_cost' => 0,
+            'other_manufacturing_cost' => 0,
+        ]);
+
+    expect($component->instance()->prepareReview())->toBeTrue();
+
+    $page = $component->instance();
+    $rawIndex = collect($page->requirements)->search(
+        fn (array $row): bool => ($row['item_type'] ?? '') === BomItemType::RawMaterial->value,
+    );
+    $row = $page->requirements[$rawIndex];
+    $panel = collect($page->reviewPanelData()['materialRows'])->firstWhere('index', $rawIndex);
+
+    // Required 450 Kg; stock 2 Ton = 2000 Kg, so default actual used is 450 Kg (not 0.45 Ton).
+    expect((float) $row['formulation_quantity'])->toBe(450.0)
+        ->and($row['formulation_unit'])->toBe('Kg')
+        ->and((float) $row['required_quantity'])->toBe(0.45)
+        ->and($row['inventory_unit'])->toBe('Ton')
+        ->and((float) $row['actual_used_formulation_quantity'])->toBe(450.0)
+        ->and((float) $row['actual_used_quantity'])->toBe(0.45)
+        ->and($panel['required_label'])->toBe('450.000 Kg')
+        ->and($panel['formulation_unit'])->toBe('Kg')
+        ->and($panel['formulation_unit'])->not->toBe('Ton')
+        ->and((float) $panel['max_actual_used'])->toBe(450.0)
+        ->and($panel['average_rate_label'])->toContain('/Kg')
+        ->and((float) $row['estimated_value'])->toBe(22500.0);
+
+    $page->requirements[$rawIndex]['actual_used_formulation_quantity'] = 200;
+    $page->recostReviewFromActualUsed(fromFormulation: true);
+    $used = $page->requirements[$rawIndex];
+
+    expect((float) $used['actual_used_formulation_quantity'])->toBe(200.0)
+        ->and((float) $used['actual_used_quantity'])->toBe(0.2)
+        ->and((float) $used['estimated_value'])->toBe(10000.0)
+        ->and((float) $used['balance_after'])->toBe(1.8)
+        ->and((float) $used['required_quantity'])->toBe(0.45);
+
+    $page->requirements[$rawIndex]['actual_used_formulation_quantity'] = 3000;
+    $page->recostReviewFromActualUsed(fromFormulation: true);
+    $clamped = $page->requirements[$rawIndex];
+
+    expect((float) $clamped['actual_used_formulation_quantity'])->toBe(450.0)
+        ->and((float) $clamped['actual_used_quantity'])->toBe(0.45);
 });
 
 it('rejects activating bom with incompatible formulation unit', function () {

@@ -288,10 +288,19 @@ it('defaults actual used qty on the review screen and keeps required qty read-on
 
     expect((float) $requirements[$rawIndex]['required_quantity'])->toBe(100.0)
         ->and((float) $requirements[$rawIndex]['actual_used_quantity'])->toBe(80.0)
+        ->and((float) $requirements[$rawIndex]['actual_used_formulation_quantity'])->toBe(80.0)
+        ->and($requirements[$rawIndex]['formulation_unit'])->toBe('Kg')
         ->and($component->get('hasMandatoryShortage'))->toBeFalse()
         ->and($component->get('hasUsageVariance'))->toBeTrue();
 
     $page = $component->instance();
+    $panel = $page->reviewPanelData();
+    $rawPanel = collect($panel['materialRows'])->firstWhere('index', $rawIndex);
+
+    expect($rawPanel['required_label'])->toContain('Kg')
+        ->and($rawPanel['formulation_unit'])->toBe('Kg')
+        ->and((float) $rawPanel['max_actual_used'])->toBe(80.0);
+
     $page->requirements[$rawIndex]['actual_used_quantity'] = 50;
     $page->recostReviewFromActualUsed();
 
@@ -307,7 +316,44 @@ it('defaults actual used qty on the review screen and keeps required qty read-on
 
     $clamped = $page->requirements[$rawIndex];
 
-    expect((float) $clamped['actual_used_quantity'])->toBe(80.0);
+    expect((float) $clamped['actual_used_quantity'])->toBe(80.0)
+        ->and((float) $clamped['actual_used_formulation_quantity'])->toBe(80.0);
+});
+
+it('clamps actual used qty to required qty when stock is higher than bom required', function () {
+    $fixture = seedManufacturingFixture(rawStock: 200, packStock: 200);
+    $this->actingAs(inventorySupervisor());
+
+    $component = Livewire::test(CreateProductionEntry::class)
+        ->fillForm([
+            'product_id' => $fixture['product']->id,
+            'production_quantity' => 100,
+            'production_date' => now('Asia/Kolkata')->toDateString(),
+            'labour_cost' => 0,
+            'transport_cost' => 0,
+            'other_manufacturing_cost' => 0,
+        ]);
+
+    expect($component->instance()->prepareReview())->toBeTrue();
+
+    $page = $component->instance();
+    $rawIndex = collect($page->requirements)->search(
+        fn (array $row): bool => ($row['item_type'] ?? '') === BomItemType::RawMaterial->value,
+    );
+
+    expect((float) $page->requirements[$rawIndex]['actual_used_formulation_quantity'])->toBe(100.0)
+        ->and((float) $page->requirements[$rawIndex]['actual_used_quantity'])->toBe(100.0);
+
+    $page->requirements[$rawIndex]['actual_used_formulation_quantity'] = 150;
+    $page->recostReviewFromActualUsed(fromFormulation: true);
+
+    $rawAfter = $page->requirements[$rawIndex];
+
+    expect((float) $rawAfter['actual_used_formulation_quantity'])->toBe(100.0)
+        ->and((float) $rawAfter['actual_used_quantity'])->toBe(100.0)
+        ->and((float) $rawAfter['required_quantity'])->toBe(100.0)
+        ->and((float) $rawAfter['estimated_value'])->toBe(10000.0)
+        ->and((float) $rawAfter['balance_after'])->toBe(100.0);
 });
 
 it('deducts raw and packaging materials and increases finished stock on production', function () {
