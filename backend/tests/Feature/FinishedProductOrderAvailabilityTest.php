@@ -162,27 +162,93 @@ it('calculates shortage independently for each product on the same order', funct
         ->and($rows[$gold->id]['short_label'])->toBe('Short 12 Nos');
 });
 
-it('drops dispatched and rejected orders from the virtual allocation queue', function () {
+it('does not include the current order in allocated_to_earlier_orders', function () {
+    $employee = fgStockAvailEmployee(UserRole::Employee, '9300000108');
+    $dealer = fgStockAvailDealer($employee->id, '9300001108');
+    $product = fgStockAvailProduct('NEMAX-FG-7', 'NEMAX', 100);
+
+    $order = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-7001', '2026-09-01');
+    fgStockAvailLine($order, $product, 80);
+
+    $row = app(FinishedProductOrderAvailabilityService::class)->allocate([(int) $product->id])[$order->id][$product->id];
+
+    expect($row)->toMatchArray([
+        'order_qty' => 80.0,
+        'current_finished_stock' => 100.0,
+        'allocated_to_earlier_orders' => 0.0,
+        'available_for_this_order' => 80.0,
+        'short_qty' => 0.0,
+        'stock_status' => 'available',
+    ]);
+});
+
+it('drops dispatched, rejected, cancelled, and reverted orders from the virtual allocation queue', function () {
     $employee = fgStockAvailEmployee(UserRole::Employee, '9300000103');
     $dealer = fgStockAvailDealer($employee->id, '9300001103');
     $product = fgStockAvailProduct('NEMAX-FG-3', 'NEMAX', 100);
 
     $dispatched = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_DISPATCHED, 'ORD-FG-3001', '2026-09-01');
     $rejected = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_REJECTED, 'ORD-FG-3002', '2026-09-02');
-    $pending = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-3003', '2026-09-03');
+    $cancelled = fgStockAvailOrder($employee->id, $dealer->id, 'cancelled', 'ORD-FG-3003', '2026-09-03');
+    $reverted = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_REVERTED_TO_MANAGER, 'ORD-FG-3004', '2026-09-04');
+    $pending = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-3005', '2026-09-05');
     fgStockAvailLine($dispatched, $product, 80);
     fgStockAvailLine($rejected, $product, 70);
+    fgStockAvailLine($cancelled, $product, 65);
+    fgStockAvailLine($reverted, $product, 55);
     fgStockAvailLine($pending, $product, 60);
 
     $allocated = app(FinishedProductOrderAvailabilityService::class)->allocate([(int) $product->id]);
 
     expect($allocated)->not->toHaveKey($dispatched->id)
         ->and($allocated)->not->toHaveKey($rejected->id)
+        ->and($allocated)->not->toHaveKey($cancelled->id)
+        ->and($allocated)->not->toHaveKey($reverted->id)
         ->and($allocated[$pending->id][$product->id])->toMatchArray([
+            'allocated_to_earlier_orders' => 0.0,
             'available_for_this_order' => 60.0,
             'short_qty' => 0.0,
             'stock_status' => 'available',
         ]);
+});
+
+it('releases allocation immediately when an earlier order is reverted, dispatched, rejected, or cancelled', function () {
+    $employee = fgStockAvailEmployee(UserRole::Employee, '9300000109');
+    $dealer = fgStockAvailDealer($employee->id, '9300001109');
+    $product = fgStockAvailProduct('NEMAX-FG-8', 'NEMAX', 100);
+
+    $earlier = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-8001', '2026-09-01');
+    $later = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-8002', '2026-09-02');
+    fgStockAvailLine($earlier, $product, 70);
+    fgStockAvailLine($later, $product, 50);
+
+    $service = app(FinishedProductOrderAvailabilityService::class);
+
+    expect($service->allocate([(int) $product->id])[$later->id][$product->id])->toMatchArray([
+        'allocated_to_earlier_orders' => 70.0,
+        'available_for_this_order' => 30.0,
+        'short_qty' => 20.0,
+        'stock_status' => 'partial_stock',
+    ]);
+
+    foreach ([
+        Order::STATUS_REVERTED_TO_MANAGER,
+        Order::STATUS_DISPATCHED,
+        Order::STATUS_REJECTED,
+        'cancelled',
+    ] as $releasedStatus) {
+        Order::query()->whereKey($earlier->id)->update(['status' => $releasedStatus]);
+
+        expect($service->allocate([(int) $product->id]))->not->toHaveKey($earlier->id)
+            ->and($service->allocate([(int) $product->id])[$later->id][$product->id])->toMatchArray([
+                'allocated_to_earlier_orders' => 0.0,
+                'available_for_this_order' => 50.0,
+                'short_qty' => 0.0,
+                'stock_status' => 'available',
+            ]);
+
+        Order::query()->whereKey($earlier->id)->update(['status' => Order::STATUS_APPROVED]);
+    }
 });
 
 it('recalculates when stock increases or order quantity changes', function () {
@@ -254,6 +320,167 @@ it('includes live stock availability on production supervisor order detail and l
             'has_stock_shortage' => true,
             'stock_short_label' => 'Short 10 Nos',
         ]);
+});
+
+it('recalculates existing production supervisor orders after an earlier order is reverted', function () {
+    $employee = fgStockAvailEmployee(UserRole::Employee, '9300000110');
+    $production = fgStockAvailEmployee(UserRole::ProductionSupervisor, '9300000111');
+    $dealer = fgStockAvailDealer($employee->id, '9300001110');
+    $product = fgStockAvailProduct('NEMAX-FG-9', 'NEMAX', 100);
+
+    $first = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-9001', '2026-09-01');
+    $second = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-9002', '2026-09-02');
+    fgStockAvailLine($first, $product, 50);
+    fgStockAvailLine($second, $product, 60);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson("/api/production/orders/{$second->id}")
+        ->assertOk()
+        ->assertJsonPath('data.stock_availability.0.allocated_to_earlier_orders', 50)
+        ->assertJsonPath('data.stock_availability.0.available_for_this_order', 50)
+        ->assertJsonPath('data.stock_availability.0.short_qty', 10);
+
+    $first->update(['status' => Order::STATUS_REVERTED_TO_MANAGER]);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson("/api/production/orders/{$second->id}")
+        ->assertOk()
+        ->assertJsonPath('data.stock_availability_applies', true)
+        ->assertJsonPath('data.stock_availability.0.allocated_to_earlier_orders', 0)
+        ->assertJsonPath('data.stock_availability.0.available_for_this_order', 60)
+        ->assertJsonPath('data.stock_availability.0.short_qty', 0)
+        ->assertJsonPath('data.stock_status', 'available');
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson("/api/production/orders/{$first->id}")
+        ->assertOk()
+        ->assertJsonPath('data.stock_availability_applies', false);
+});
+
+it('reserves stock for placed, billed, and send-for-bill orders still in the pipeline', function () {
+    $employee = fgStockAvailEmployee(UserRole::Employee, '9300000112');
+    $dealer = fgStockAvailDealer($employee->id, '9300001112');
+    $product = fgStockAvailProduct('NEMAX-FG-10', 'NEMAX', 100);
+
+    $placed = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_PENDING_APPROVAL, 'ORD-FG-A001', '2026-09-01');
+    $billed = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_BILLED, 'ORD-FG-A002', '2026-09-02');
+    $sentForBill = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_PENDING_FOR_BILLING, 'ORD-FG-A003', '2026-09-03');
+    $later = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-A004', '2026-09-04');
+    fgStockAvailLine($placed, $product, 20);
+    fgStockAvailLine($billed, $product, 25);
+    fgStockAvailLine($sentForBill, $product, 15);
+    fgStockAvailLine($later, $product, 50);
+
+    $allocated = app(FinishedProductOrderAvailabilityService::class)->allocate([(int) $product->id]);
+
+    expect($allocated[$placed->id][$product->id]['available_for_this_order'])->toBe(20.0)
+        ->and($allocated[$billed->id][$product->id])->toMatchArray([
+            'allocated_to_earlier_orders' => 20.0,
+            'available_for_this_order' => 25.0,
+        ])
+        ->and($allocated[$sentForBill->id][$product->id])->toMatchArray([
+            'allocated_to_earlier_orders' => 45.0,
+            'available_for_this_order' => 15.0,
+        ])
+        ->and($allocated[$later->id][$product->id])->toMatchArray([
+            'allocated_to_earlier_orders' => 60.0,
+            'available_for_this_order' => 40.0,
+            'short_qty' => 10.0,
+            'stock_status' => 'partial_stock',
+        ]);
+});
+
+it('reserves stock for on-hold orders that are still valid for production', function () {
+    $employee = fgStockAvailEmployee(UserRole::Employee, '9300000113');
+    $dealer = fgStockAvailDealer($employee->id, '9300001113');
+    $product = fgStockAvailProduct('NEMAX-FG-11', 'NEMAX', 100);
+
+    $held = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_ON_HOLD, 'ORD-FG-B001', '2026-09-01');
+    $later = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-B002', '2026-09-02');
+    fgStockAvailLine($held, $product, 40);
+    fgStockAvailLine($later, $product, 70);
+
+    $allocated = app(FinishedProductOrderAvailabilityService::class)->allocate([(int) $product->id]);
+
+    expect($allocated[$held->id][$product->id])->toMatchArray([
+        'allocated_to_earlier_orders' => 0.0,
+        'available_for_this_order' => 40.0,
+        'stock_status' => 'available',
+    ])->and($allocated[$later->id][$product->id])->toMatchArray([
+        'allocated_to_earlier_orders' => 40.0,
+        'available_for_this_order' => 60.0,
+        'short_qty' => 10.0,
+        'stock_status' => 'partial_stock',
+    ]);
+});
+
+it('allocates same-day orders by order number and date before id', function () {
+    $employee = fgStockAvailEmployee(UserRole::Employee, '9300000114');
+    $dealer = fgStockAvailDealer($employee->id, '9300001114');
+    $product = fgStockAvailProduct('NEMAX-FG-12', 'NEMAX', 100);
+
+    $laterNo = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-C002', '2026-09-01');
+    $earlierNo = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-C001', '2026-09-01');
+    $olderDateLaterId = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-C003', '2026-08-31');
+    fgStockAvailLine($laterNo, $product, 30);
+    fgStockAvailLine($earlierNo, $product, 20);
+    fgStockAvailLine($olderDateLaterId, $product, 40);
+
+    $allocated = app(FinishedProductOrderAvailabilityService::class)->allocate([(int) $product->id]);
+
+    expect($allocated[$olderDateLaterId->id][$product->id])->toMatchArray([
+        'allocated_to_earlier_orders' => 0.0,
+        'available_for_this_order' => 40.0,
+    ])->and($allocated[$earlierNo->id][$product->id])->toMatchArray([
+        'allocated_to_earlier_orders' => 40.0,
+        'available_for_this_order' => 20.0,
+    ])->and($allocated[$laterNo->id][$product->id])->toMatchArray([
+        'allocated_to_earlier_orders' => 60.0,
+        'available_for_this_order' => 30.0,
+        'short_qty' => 0.0,
+    ]);
+});
+
+it('does not double-count stock across multiple orders or duplicate lines', function () {
+    $employee = fgStockAvailEmployee(UserRole::Employee, '9300000115');
+    $dealer = fgStockAvailDealer($employee->id, '9300001115');
+    $product = fgStockAvailProduct('NEMAX-FG-13', 'NEMAX', 100);
+
+    $first = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-D001', '2026-09-01');
+    $second = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-D002', '2026-09-02');
+    $third = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-D003', '2026-09-03');
+    fgStockAvailLine($first, $product, 30);
+    fgStockAvailLine($first, $product, 20);
+    fgStockAvailLine($second, $product, 40);
+    fgStockAvailLine($third, $product, 50);
+
+    $allocated = app(FinishedProductOrderAvailabilityService::class)->allocate([(int) $product->id]);
+    $firstRow = $allocated[$first->id][$product->id];
+    $secondRow = $allocated[$second->id][$product->id];
+    $thirdRow = $allocated[$third->id][$product->id];
+
+    expect($firstRow)->toMatchArray([
+        'order_qty' => 50.0,
+        'allocated_to_earlier_orders' => 0.0,
+        'available_for_this_order' => 50.0,
+    ])->and($secondRow)->toMatchArray([
+        'allocated_to_earlier_orders' => 50.0,
+        'available_for_this_order' => 40.0,
+        'short_qty' => 0.0,
+    ])->and($thirdRow)->toMatchArray([
+        'allocated_to_earlier_orders' => 90.0,
+        'available_for_this_order' => 10.0,
+        'short_qty' => 40.0,
+        'stock_status' => 'partial_stock',
+    ]);
+
+    $reserved = $firstRow['available_for_this_order']
+        + $secondRow['available_for_this_order']
+        + $thirdRow['available_for_this_order'];
+
+    expect($reserved)->toBe(100.0)
+        ->and($secondRow['allocated_to_earlier_orders'])->not->toBe(90.0)
+        ->and($thirdRow['allocated_to_earlier_orders'])->not->toBe(140.0);
 });
 
 it('lets a pending approval order consume stock ahead of a later approved order', function () {

@@ -11,15 +11,29 @@ use App\Models\Product;
  *
  * Allocates current_finished_stock virtually, oldest order first
  * (order_date, then order_no). Does not persist a reservation or deduct stock.
+ *
+ * Only orders that still require stock consume the virtual pool. Dispatched,
+ * rejected, cancelled, and reverted (returned to manager) orders release
+ * their allocation immediately on the next calculation — including existing
+ * orders, because nothing is stored.
  */
 final class FinishedProductOrderAvailabilityService
 {
     /**
+     * Statuses that still require finished stock and may hold a virtual allocation.
+     * Dispatched, rejected, cancelled, and reverted orders are excluded.
+     *
      * @return list<string>
      */
     public static function openStatuses(): array
     {
-        return Order::activeNonDispatchedStatuses();
+        return [
+            Order::STATUS_PENDING_APPROVAL,
+            Order::STATUS_APPROVED,
+            Order::STATUS_ON_HOLD,
+            Order::STATUS_PENDING_FOR_BILLING,
+            Order::STATUS_BILLED,
+        ];
     }
 
     /**
@@ -178,11 +192,7 @@ final class FinishedProductOrderAvailabilityService
             ->get(['id', 'product_name', 'product_code', 'uom', 'production_unit', 'current_finished_stock'])
             ->keyBy('id');
 
-        $remaining = [];
-        foreach ($products as $product) {
-            $remaining[(int) $product->id] = max(0.0, round((float) $product->current_finished_stock, 3));
-        }
-
+        $allocatedToEarlier = [];
         $result = [];
 
         foreach ($openOrders as $openOrder) {
@@ -190,11 +200,11 @@ final class FinishedProductOrderAvailabilityService
             foreach ($orderProductQty[$orderId] ?? [] as $productId => $orderQty) {
                 $product = $products->get($productId);
                 $currentStock = max(0.0, round((float) ($product?->current_finished_stock ?? 0), 3));
-                $left = $remaining[$productId] ?? 0.0;
-                $allocatedEarlier = round(max(0.0, $currentStock - $left), 3);
-                $availableForThis = round(min($orderQty, max(0.0, $left)), 3);
+                $allocatedEarlier = round((float) ($allocatedToEarlier[$productId] ?? 0.0), 3);
+                $left = round(max(0.0, $currentStock - $allocatedEarlier), 3);
+                $availableForThis = round(min($orderQty, $left), 3);
                 $shortQty = round(max(0.0, $orderQty - $availableForThis), 3);
-                $remaining[$productId] = round(max(0.0, $left - $availableForThis), 3);
+                $allocatedToEarlier[$productId] = round($allocatedEarlier + $availableForThis, 3);
 
                 $unit = trim((string) ($product?->production_unit ?: $product?->uom ?: 'Nos'));
                 if ($unit === '') {

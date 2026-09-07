@@ -168,6 +168,7 @@ class ProductionOrderListCard extends StatelessWidget {
                   ],
                   if (statusKey != 'dispatched' &&
                       statusKey != 'rejected' &&
+                      statusKey != 'reverted_to_manager' &&
                       order['stock_availability_applies'] == true) ...[
                     const SizedBox(height: 8),
                     Wrap(
