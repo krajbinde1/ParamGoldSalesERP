@@ -145,6 +145,33 @@ it('scopes manager order list to direct reports only', function () {
         ->assertJsonPath('counts.pending_approval', 1);
 });
 
+it('shows a pending order only to the manager the sales employee currently reports to', function (): void {
+    $testManager = orderWorkflowEmployee(UserRole::Manager, '9200000021');
+    $mangesh = orderWorkflowEmployee(UserRole::Manager, '9200000022');
+    $testSales = orderWorkflowEmployee(UserRole::Employee, '9200000023');
+    $mangeshSales = orderWorkflowEmployee(UserRole::Employee, '9200000024');
+
+    $testSales->update(['reporting_manager_id' => $testManager->id]);
+    $mangeshSales->update(['reporting_manager_id' => $mangesh->id]);
+
+    $testOrder = orderWorkflowPending($testSales->id);
+    $mangeshOrder = orderWorkflowPending($mangeshSales->id);
+
+    $testResponse = $this->actingAs($testManager->user, 'sanctum')
+        ->getJson('/api/manager/orders?status=pending_approval')
+        ->assertOk();
+
+    expect(collect($testResponse->json('data'))->pluck('id')->all())->toBe([$testOrder->id])
+        ->and($testResponse->json('counts.pending_approval'))->toBe(1);
+
+    $mangeshResponse = $this->actingAs($mangesh->user, 'sanctum')
+        ->getJson('/api/manager/orders?status=pending_approval')
+        ->assertOk();
+
+    expect(collect($mangeshResponse->json('data'))->pluck('id')->all())->toBe([$mangeshOrder->id])
+        ->and($mangeshResponse->json('counts.pending_approval'))->toBe(1);
+});
+
 it('allows manager to edit a pending team order and stores edit audit', function () {
     $manager = orderWorkflowEmployee(UserRole::Manager, '9200000014');
     $employee = orderWorkflowEmployee(UserRole::Employee, '9200000015');

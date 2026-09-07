@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Actions\Employees\CreateEmployeeWithUserAccount;
+use App\Actions\Employees\RepairTestManagerEmployee;
 use App\Enums\UserRole;
 use App\Models\User;
 use Illuminate\Database\Seeder;
@@ -32,7 +33,13 @@ class RoleTestUsersSeeder extends Seeder
             ],
         ];
 
+        app(RepairTestManagerEmployee::class)->execute();
+
         foreach ($roles as $profile) {
+            if ($profile['mobile'] === RepairTestManagerEmployee::MANAGER_LOGIN_ID) {
+                continue;
+            }
+
             if (User::query()->where('login_id', $profile['mobile'])->exists()) {
                 continue;
             }
