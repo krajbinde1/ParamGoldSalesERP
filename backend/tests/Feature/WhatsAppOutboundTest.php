@@ -196,6 +196,7 @@ it('queues one payment received whatsapp message when a collection is marked rec
         ->and($message->payload['amount'])->toEqual(5000.0)
         ->and($message->payload['receipt_no'])->toBe($collection->receipt_no)
         ->and($message->payload['collection_date'])->toBe('2026-08-21')
+        ->and($message->payload['outstanding'])->toEqual(-5000.0)
         ->and($message->payload['body'])->toContain('Pay Dealer')
         ->and($message->payload['body'])->toContain($collection->receipt_no);
 
@@ -303,6 +304,123 @@ it('sends a collection confirmation through the cloud api when credentials are c
             && ($data['to'] ?? null) === '919000000002'
             && str_contains((string) ($data['text']['body'] ?? ''), 'Rcv Dealer')
             && str_contains((string) ($data['text']['body'] ?? ''), $receiptNo);
+    });
+});
+
+it('sends dealer_invoice with a pdf header and three body variables', function (): void {
+    Http::fake([
+        'https://graph.facebook.com/v21.0/123456/media' => Http::response(['id' => 'MEDIA-INV'], 200),
+        'https://graph.facebook.com/v21.0/123456/messages' => Http::response([
+            'messages' => [['id' => 'wamid.INV1']],
+        ], 200),
+    ]);
+    config()->set([
+        'services.whatsapp.enabled' => true,
+        'services.whatsapp.token' => 'test-token',
+        'services.whatsapp.phone_number_id' => '123456',
+        'services.whatsapp.graph_version' => 'v21.0',
+        'services.whatsapp.template_language' => 'en',
+        'services.whatsapp.bill_template' => 'dealer_invoice',
+        'services.whatsapp.bill_image_template' => '',
+    ]);
+
+    $employee = waEmployee('9814000015');
+    $dealer = waDealer($employee, ['firm_name' => 'Invoice Dealer', 'mobile' => '9000000015']);
+    $order = waPendingOrder($dealer, $employee);
+    $order->markAsBilled(
+        billPath: waBillFile('invoice.pdf'),
+        billNumber: 'BILL-INV-1',
+        billDate: '2026-08-29',
+    );
+
+    $message = WhatsAppOutboundMessage::query()->where('erp_reference', 'WA-BILL-'.$order->id)->first();
+
+    expect($message?->status)->toBe(WhatsAppOutboundMessage::STATUS_SENT)
+        ->and($message?->meta_message_id)->toBe('wamid.INV1')
+        ->and($message?->meta_media_id)->toBe('MEDIA-INV');
+
+    Http::assertSent(function ($request): bool {
+        if (! str_ends_with($request->url(), '/messages')) {
+            return false;
+        }
+
+        $data = $request->data();
+        $template = $data['template'] ?? [];
+        $components = $template['components'] ?? [];
+        $header = $components[0]['parameters'][0] ?? [];
+        $body = $components[1]['parameters'] ?? [];
+
+        return ($data['type'] ?? null) === 'template'
+            && ($template['name'] ?? null) === 'dealer_invoice'
+            && ($header['type'] ?? null) === 'document'
+            && ($header['document']['id'] ?? null) === 'MEDIA-INV'
+            && ($header['document']['filename'] ?? null) === 'invoice.pdf'
+            && count($body) === 3
+            && ($body[0]['text'] ?? null) === 'Invoice Dealer'
+            && ($body[1]['text'] ?? null) === 'BILL-INV-1'
+            && ($body[2]['text'] ?? null) === '11,800'
+            && ! str_contains(json_encode($body), '2026-08-29')
+            && ! str_contains((string) ($body[2]['text'] ?? ''), '₹');
+    });
+});
+
+it('sends payment_received with amount, date and ledger outstanding and without receipt number', function (): void {
+    Http::fake([
+        'https://graph.facebook.com/v21.0/123456/media' => Http::response(['id' => 'MEDIA-BILL'], 200),
+        'https://graph.facebook.com/v21.0/123456/messages' => Http::response([
+            'messages' => [['id' => 'wamid.PAY1']],
+        ], 200),
+    ]);
+    config()->set([
+        'services.whatsapp.enabled' => true,
+        'services.whatsapp.token' => 'test-token',
+        'services.whatsapp.phone_number_id' => '123456',
+        'services.whatsapp.graph_version' => 'v21.0',
+        'services.whatsapp.template_language' => 'en',
+        'services.whatsapp.bill_template' => '',
+        'services.whatsapp.bill_image_template' => '',
+        'services.whatsapp.collection_template' => 'payment_received',
+    ]);
+
+    $employee = waEmployee('9814000016');
+    $dealer = waDealer($employee, ['firm_name' => 'Pay Template Dealer', 'mobile' => '9000000016']);
+    $order = waPendingOrder($dealer, $employee);
+    $order->markAsBilled(
+        billPath: waBillFile('pay-template.pdf'),
+        billNumber: 'BILL-PAY-1',
+        billDate: '2026-08-20',
+    );
+
+    $collection = waPendingCollection($dealer, $employee, [
+        'amount' => 5000,
+        'collection_date' => '2026-08-21',
+    ]);
+    $collection->transitionTo(Collection::STATUS_RECEIVED);
+
+    $message = WhatsAppOutboundMessage::query()->where('erp_reference', 'WA-RCV-'.$collection->id)->first();
+    $receiptNo = (string) $collection->receipt_no;
+
+    expect($message?->status)->toBe(WhatsAppOutboundMessage::STATUS_SENT)
+        ->and($message?->payload['outstanding'])->toEqual(6800.0)
+        ->and($message?->meta_message_id)->toBe('wamid.PAY1');
+
+    Http::assertSent(function ($request) use ($receiptNo): bool {
+        $data = $request->data();
+        if (($data['template']['name'] ?? null) !== 'payment_received') {
+            return false;
+        }
+
+        $body = $data['template']['components'][0]['parameters'] ?? [];
+
+        return ($data['type'] ?? null) === 'template'
+            && count($body) === 4
+            && ($body[0]['text'] ?? null) === 'Pay Template Dealer'
+            && ($body[1]['text'] ?? null) === '5,000'
+            && ($body[2]['text'] ?? null) === '21 Aug 2026'
+            && ($body[3]['text'] ?? null) === '6,800'
+            && ! str_contains((string) ($body[1]['text'] ?? ''), '₹')
+            && ! str_contains((string) ($body[3]['text'] ?? ''), '₹')
+            && ! str_contains(json_encode($body), $receiptNo);
     });
 });
 

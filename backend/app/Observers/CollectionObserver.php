@@ -82,6 +82,7 @@ class CollectionObserver
         } catch (Throwable $e) {
             Log::error('WhatsApp outbound enqueue (collection) failed: '.$e->getMessage(), [
                 'collection_id' => $collection->id,
+                'status' => $collection->status,
             ]);
         }
     }

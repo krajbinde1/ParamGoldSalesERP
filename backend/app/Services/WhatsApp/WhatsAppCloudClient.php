@@ -4,6 +4,7 @@ namespace App\Services\WhatsApp;
 
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 final class WhatsAppCloudClient
@@ -37,6 +38,11 @@ final class WhatsAppCloudClient
                 'type' => $mimeType,
             ]);
 
+        $this->logResult('media', [
+            'filename' => $filename,
+            'mime_type' => $mimeType,
+        ], $response);
+
         $this->throwIfFailed($response, 'WhatsApp media upload failed.');
 
         $id = (string) ($response->json('id') ?? '');
@@ -64,6 +70,12 @@ final class WhatsAppCloudClient
                 $message,
             ));
 
+        $this->logResult('messages', [
+            'to' => $message['to'] ?? null,
+            'message_type' => $message['type'] ?? null,
+            'template' => $message['template']['name'] ?? null,
+        ], $response);
+
         $this->throwIfFailed($response, 'WhatsApp message send failed.');
 
         $id = (string) ($response->json('messages.0.id') ?? '');
@@ -89,6 +101,29 @@ final class WhatsAppCloudClient
         }
     }
 
+    /**
+     * @param  array<string, mixed>  $context
+     */
+    private function logResult(string $endpoint, array $context, Response $response): void
+    {
+        $error = $response->json('error');
+        $ok = $response->successful();
+
+        Log::log($ok ? 'info' : 'warning', 'WhatsApp API request result', array_filter([
+            'endpoint' => $endpoint,
+            'http_status' => $response->status(),
+            'status' => $ok ? 'ok' : 'failed',
+            'to' => $context['to'] ?? null,
+            'message_type' => $context['message_type'] ?? null,
+            'template' => $context['template'] ?? null,
+            'filename' => $context['filename'] ?? null,
+            'mime_type' => $context['mime_type'] ?? null,
+            'meta_message_id' => $response->json('messages.0.id'),
+            'meta_media_id' => $response->json('id'),
+            'meta_error' => is_array($error) ? $error : null,
+        ], fn ($value): bool => $value !== null && $value !== ''));
+    }
+
     private function throwIfFailed(Response $response, string $fallback): void
     {
         if ($response->successful()) {
@@ -98,12 +133,14 @@ final class WhatsAppCloudClient
         $message = (string) ($response->json('error.message') ?? '');
         $code = $response->json('error.code');
         $details = (string) ($response->json('error.error_data.details') ?? '');
+        $errorJson = $response->json('error');
 
         $parts = array_values(array_filter([
             $message !== '' ? $message : $fallback,
             $details !== '' ? $details : null,
             is_numeric($code) ? 'Meta error '.$code : null,
             'HTTP '.$response->status(),
+            is_array($errorJson) ? json_encode($errorJson, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES) : null,
         ]));
 
         throw new RuntimeException(implode(' — ', $parts));

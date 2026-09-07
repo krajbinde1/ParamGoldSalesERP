@@ -52,6 +52,11 @@ class SendWhatsAppOutboundMessage implements ShouldBeUnique, ShouldQueue
 
         Log::error('WhatsApp outbound job failed: '.$error, [
             'message_id' => $this->messageId,
+            'message_type' => $message->messageTypeLabel(),
+            'dealer' => $message->dealerName(),
+            'mobile' => $message->to_number,
+            'status' => $message->status,
+            'meta_error' => $message->error,
         ]);
     }
 }

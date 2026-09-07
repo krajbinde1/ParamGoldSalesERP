@@ -6,6 +6,7 @@ use App\Jobs\SendWhatsAppOutboundMessage;
 use App\Models\Collection;
 use App\Models\Order;
 use App\Models\WhatsAppOutboundMessage;
+use App\Services\Dealers\DealerLedgerService;
 use App\Support\IndianCurrency;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
@@ -197,6 +198,9 @@ final class WhatsAppOutboundEnqueueService
         $date = $collection->collection_date?->toDateString()
             ?: Carbon::now('Asia/Kolkata')->toDateString();
         $amount = round((float) $collection->amount, 2);
+        $outstanding = $dealer !== null
+            ? round(app(DealerLedgerService::class)->getOutstanding($dealer), 2)
+            : 0.0;
 
         return [
             'type' => 'collection',
@@ -208,6 +212,7 @@ final class WhatsAppOutboundEnqueueService
             'collection_date' => $date,
             'amount' => $amount,
             'amount_label' => IndianCurrency::format($amount),
+            'outstanding' => $outstanding,
             'body' => $this->collectionBody(
                 (string) ($dealer?->firm_name ?? 'Dealer'),
                 $amount,

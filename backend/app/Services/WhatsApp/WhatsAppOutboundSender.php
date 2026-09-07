@@ -5,6 +5,7 @@ namespace App\Services\WhatsApp;
 use App\Models\WhatsAppOutboundMessage;
 use App\Support\IndianCurrency;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 
@@ -27,9 +28,9 @@ final class WhatsAppOutboundSender
         }
 
         $message->increment('attempts');
+        $payload = $message->payload ?? [];
 
         try {
-            $payload = $message->payload ?? [];
             $to = WhatsAppPhoneNumber::toApi($message->to_number);
             if ($to === null) {
                 throw new RuntimeException(WhatsAppOutboundEnqueueService::ERROR_INVALID_MOBILE);
@@ -54,7 +55,10 @@ final class WhatsAppOutboundSender
             ]);
         }
 
-        return $message->fresh() ?? $message;
+        $fresh = $message->fresh() ?? $message;
+        $this->logOutbound($fresh);
+
+        return $fresh;
     }
 
     /**
@@ -99,12 +103,11 @@ final class WhatsAppOutboundSender
                         ],
                         [
                             'type' => 'body',
-                            'parameters' => [
-                                ['type' => 'text', 'text' => (string) ($payload['dealer_name'] ?? '')],
-                                ['type' => 'text', 'text' => (string) ($payload['bill_number'] ?? '')],
-                                ['type' => 'text', 'text' => (string) ($payload['bill_date'] ?? '')],
-                                ['type' => 'text', 'text' => (string) ($payload['grand_total_label'] ?? IndianCurrency::format($payload['grand_total'] ?? 0))],
-                            ],
+                            'parameters' => $this->textParams([
+                                $payload['dealer_name'] ?? '',
+                                $payload['bill_number'] ?? '',
+                                $this->amountText($payload['grand_total'] ?? 0),
+                            ]),
                         ],
                     ],
                 ],
@@ -142,8 +145,29 @@ final class WhatsAppOutboundSender
      */
     private function sendCollection(string $to, array $payload): array
     {
-        $template = trim((string) config('services.whatsapp.collection_template'));
-        $body = (string) ($payload['body'] ?? $this->fallbackCollectionCaption($payload));
+        return $this->sendSimple(
+            $to,
+            $payload,
+            'collection_template',
+            [
+                $payload['dealer_name'] ?? '',
+                $this->amountText($payload['amount'] ?? 0),
+                $this->dateText($payload['collection_date'] ?? ''),
+                $this->amountText($payload['outstanding'] ?? 0),
+            ],
+            (string) ($payload['body'] ?? $this->fallbackCollectionCaption($payload)),
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @param  list<mixed>  $bodyValues
+     * @return array{message_id: string, media_id: ?string}
+     */
+    private function sendSimple(string $to, array $payload, string $templateConfigKey, array $bodyValues, string $fallbackBody): array
+    {
+        $template = trim((string) config('services.whatsapp.'.$templateConfigKey));
+        $body = $fallbackBody !== '' ? $fallbackBody : (string) ($payload['body'] ?? '');
 
         if ($template !== '') {
             $sent = $this->cloud->sendMessage([
@@ -154,12 +178,7 @@ final class WhatsAppOutboundSender
                     'language' => ['code' => (string) config('services.whatsapp.template_language', 'en')],
                     'components' => [[
                         'type' => 'body',
-                        'parameters' => [
-                            ['type' => 'text', 'text' => (string) ($payload['dealer_name'] ?? '')],
-                            ['type' => 'text', 'text' => (string) ($payload['amount_label'] ?? IndianCurrency::format($payload['amount'] ?? 0))],
-                            ['type' => 'text', 'text' => (string) ($payload['receipt_no'] ?? '')],
-                            ['type' => 'text', 'text' => (string) ($payload['collection_date'] ?? '')],
-                        ],
+                        'parameters' => $this->textParams($bodyValues),
                     ]],
                 ],
             ]);
@@ -169,7 +188,7 @@ final class WhatsAppOutboundSender
                 'type' => 'text',
                 'text' => [
                     'preview_url' => false,
-                    'body' => $body,
+                    'body' => $body !== '' ? $body : '-',
                 ],
             ]);
         }
@@ -178,6 +197,38 @@ final class WhatsAppOutboundSender
             'message_id' => $sent['id'],
             'media_id' => null,
         ];
+    }
+
+    /**
+     * @param  list<mixed>  $values
+     * @return list<array{type: string, text: string}>
+     */
+    private function textParams(array $values): array
+    {
+        return array_map(function (mixed $value): array {
+            $text = trim((string) $value);
+
+            return ['type' => 'text', 'text' => $text !== '' ? $text : '-'];
+        }, $values);
+    }
+
+    private function amountText(mixed $amount): string
+    {
+        return str_replace('₹', '', IndianCurrency::format($amount));
+    }
+
+    private function dateText(mixed $date): string
+    {
+        $raw = trim((string) $date);
+        if ($raw === '') {
+            return '';
+        }
+
+        try {
+            return Carbon::parse($raw)->timezone('Asia/Kolkata')->format('d M Y');
+        } catch (\Throwable) {
+            return $raw;
+        }
     }
 
     /**
@@ -201,5 +252,25 @@ final class WhatsAppOutboundSender
             .', we have received payment of '.(string) ($payload['amount_label'] ?? '')
             .'. Receipt '.(string) ($payload['receipt_no'] ?? '')
             .' dated '.(string) ($payload['collection_date'] ?? '').'.';
+    }
+
+    private function logOutbound(WhatsAppOutboundMessage $message): void
+    {
+        $payload = $message->payload ?? [];
+
+        Log::log(
+            $message->isFailed() ? 'warning' : 'info',
+            'WhatsApp outbound result',
+            [
+                'message_type' => $message->messageTypeLabel(),
+                'source_type' => $message->source_type,
+                'erp_reference' => $message->erp_reference,
+                'dealer' => (string) ($payload['dealer_name'] ?? $message->dealerName()),
+                'mobile' => $message->to_number,
+                'status' => $message->status,
+                'meta_message_id' => $message->meta_message_id,
+                'meta_error' => $message->error,
+            ],
+        );
     }
 }

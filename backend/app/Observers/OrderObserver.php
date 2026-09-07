@@ -135,6 +135,7 @@ class OrderObserver
         } catch (Throwable $e) {
             Log::error('WhatsApp outbound enqueue (order) failed: '.$e->getMessage(), [
                 'order_id' => $order->id,
+                'status' => $order->status,
             ]);
         }
     }
