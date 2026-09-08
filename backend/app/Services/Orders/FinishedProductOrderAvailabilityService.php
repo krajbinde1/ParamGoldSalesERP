@@ -9,19 +9,19 @@ use App\Models\Product;
 /**
  * Live finished-product availability for open sales orders.
  *
- * Allocates current_finished_stock virtually, oldest order first
- * (order_date, then order_no). Does not persist a reservation or deduct stock.
+ * Allocates current_finished_stock virtually, oldest eligible pending order
+ * first (order_date, then order_no). Does not persist a reservation or deduct
+ * stock. Eligibility is always recomputed from the current row — never from a
+ * previous status.
  *
- * Only orders that still require stock consume the virtual pool. Dispatched,
- * rejected, cancelled, and reverted (returned to manager) orders release
- * their allocation immediately on the next calculation — including existing
- * orders, because nothing is stored.
+ * Only orders still waiting for dispatch consume the virtual pool. Dispatched,
+ * rejected, cancelled, delivered, reverted, and any row with dispatch/reject
+ * timestamps is excluded, even if status was left stale.
  */
 final class FinishedProductOrderAvailabilityService
 {
     /**
      * Statuses that still require finished stock and may hold a virtual allocation.
-     * Dispatched, rejected, cancelled, and reverted orders are excluded.
      *
      * @return list<string>
      */
@@ -34,6 +34,55 @@ final class FinishedProductOrderAvailabilityService
             Order::STATUS_PENDING_FOR_BILLING,
             Order::STATUS_BILLED,
         ];
+    }
+
+    /**
+     * Completed / non-active statuses that must never reserve finished stock.
+     *
+     * @return list<string>
+     */
+    public static function releasedStatuses(): array
+    {
+        return [
+            Order::STATUS_DISPATCHED,
+            Order::STATUS_REJECTED,
+            Order::STATUS_REVERTED_TO_MANAGER,
+            'cancelled',
+            'delivered',
+            'draft',
+        ];
+    }
+
+    public static function normalizeStatus(mixed $status): string
+    {
+        return strtolower(trim((string) $status));
+    }
+
+    /**
+     * Whether this order currently waits for dispatch and may reserve stock.
+     * Uses live status plus completion timestamps so stale statuses do not hold stock.
+     */
+    public static function isEligibleForReservation(Order $order): bool
+    {
+        $status = self::normalizeStatus($order->status);
+
+        if ($status === '' || ! in_array($status, self::openStatuses(), true)) {
+            return false;
+        }
+
+        if (in_array($status, self::releasedStatuses(), true)) {
+            return false;
+        }
+
+        if (filled($order->dispatched_at)) {
+            return false;
+        }
+
+        if (filled($order->rejected_at)) {
+            return false;
+        }
+
+        return true;
     }
 
     /**
@@ -51,7 +100,7 @@ final class FinishedProductOrderAvailabilityService
             ->values()
             ->all();
 
-        $applies = in_array($order->status, self::openStatuses(), true) && $productIds !== [];
+        $applies = self::isEligibleForReservation($order) && $productIds !== [];
         $byProduct = $applies
             ? ($this->allocate($productIds)[(int) $order->id] ?? [])
             : [];
@@ -148,6 +197,9 @@ final class FinishedProductOrderAvailabilityService
 
         $openOrders = Order::query()
             ->whereIn('status', self::openStatuses())
+            ->whereNotIn('status', self::releasedStatuses())
+            ->whereNull('dispatched_at')
+            ->whereNull('rejected_at')
             ->orderBy('order_date')
             ->orderBy('order_no')
             ->orderBy('id')
@@ -157,12 +209,16 @@ final class FinishedProductOrderAvailabilityService
                     $query->whereIn('product_id', $productIds);
                 }
             }])
-            ->get(['id', 'order_date', 'order_no', 'status']);
+            ->get(['id', 'order_date', 'order_no', 'status', 'dispatched_at', 'rejected_at']);
 
         $neededProductIds = [];
         $orderProductQty = [];
 
         foreach ($openOrders as $openOrder) {
+            if (! self::isEligibleForReservation($openOrder)) {
+                continue;
+            }
+
             foreach ($openOrder->items as $item) {
                 $productId = (int) $item->product_id;
                 if ($productId < 1) {
@@ -196,6 +252,10 @@ final class FinishedProductOrderAvailabilityService
         $result = [];
 
         foreach ($openOrders as $openOrder) {
+            if (! self::isEligibleForReservation($openOrder)) {
+                continue;
+            }
+
             $orderId = (int) $openOrder->id;
             foreach ($orderProductQty[$orderId] ?? [] as $productId => $orderQty) {
                 $product = $products->get($productId);

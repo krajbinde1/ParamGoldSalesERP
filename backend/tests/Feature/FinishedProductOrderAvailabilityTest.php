@@ -3,11 +3,12 @@
 use App\Actions\Employees\CreateEmployeeWithUserAccount;
 use App\Enums\UserRole;
 use App\Models\Dealer;
+use App\Models\Employee;
 use App\Models\Order;
 use App\Models\Product;
 use App\Services\Orders\FinishedProductOrderAvailabilityService;
 
-function fgStockAvailEmployee(UserRole $role, string $mobile): \App\Models\Employee
+function fgStockAvailEmployee(UserRole $role, string $mobile): Employee
 {
     return app(CreateEmployeeWithUserAccount::class)->execute([
         'full_name' => $role->label().' FG '.$mobile,
@@ -191,11 +192,13 @@ it('drops dispatched, rejected, cancelled, and reverted orders from the virtual 
     $rejected = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_REJECTED, 'ORD-FG-3002', '2026-09-02');
     $cancelled = fgStockAvailOrder($employee->id, $dealer->id, 'cancelled', 'ORD-FG-3003', '2026-09-03');
     $reverted = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_REVERTED_TO_MANAGER, 'ORD-FG-3004', '2026-09-04');
+    $delivered = fgStockAvailOrder($employee->id, $dealer->id, 'delivered', 'ORD-FG-3006', '2026-09-04');
     $pending = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-3005', '2026-09-05');
     fgStockAvailLine($dispatched, $product, 80);
     fgStockAvailLine($rejected, $product, 70);
     fgStockAvailLine($cancelled, $product, 65);
     fgStockAvailLine($reverted, $product, 55);
+    fgStockAvailLine($delivered, $product, 45);
     fgStockAvailLine($pending, $product, 60);
 
     $allocated = app(FinishedProductOrderAvailabilityService::class)->allocate([(int) $product->id]);
@@ -204,9 +207,42 @@ it('drops dispatched, rejected, cancelled, and reverted orders from the virtual 
         ->and($allocated)->not->toHaveKey($rejected->id)
         ->and($allocated)->not->toHaveKey($cancelled->id)
         ->and($allocated)->not->toHaveKey($reverted->id)
+        ->and($allocated)->not->toHaveKey($delivered->id)
         ->and($allocated[$pending->id][$product->id])->toMatchArray([
             'allocated_to_earlier_orders' => 0.0,
             'available_for_this_order' => 60.0,
+            'short_qty' => 0.0,
+            'stock_status' => 'available',
+        ]);
+});
+
+it('ignores earlier orders whose status is still open but dispatch or reject already happened', function () {
+    $employee = fgStockAvailEmployee(UserRole::Employee, '9300000116');
+    $dealer = fgStockAvailDealer($employee->id, '9300001116');
+    $product = fgStockAvailProduct('NEMAX-FG-14', 'NEMAX', 100);
+
+    $staleDispatched = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_BILLED, 'ORD-FG-E001', '2026-09-01');
+    $staleRejected = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-E002', '2026-09-02');
+    $pending = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-E003', '2026-09-03');
+    fgStockAvailLine($staleDispatched, $product, 80);
+    fgStockAvailLine($staleRejected, $product, 70);
+    fgStockAvailLine($pending, $product, 40);
+
+    Order::query()->whereKey($staleDispatched->id)->update([
+        'dispatched_at' => now('Asia/Kolkata'),
+        'dispatch_date' => now('Asia/Kolkata')->toDateString(),
+    ]);
+    Order::query()->whereKey($staleRejected->id)->update([
+        'rejected_at' => now('Asia/Kolkata'),
+    ]);
+
+    $allocated = app(FinishedProductOrderAvailabilityService::class)->allocate([(int) $product->id]);
+
+    expect($allocated)->not->toHaveKey($staleDispatched->id)
+        ->and($allocated)->not->toHaveKey($staleRejected->id)
+        ->and($allocated[$pending->id][$product->id])->toMatchArray([
+            'allocated_to_earlier_orders' => 0.0,
+            'available_for_this_order' => 40.0,
             'short_qty' => 0.0,
             'stock_status' => 'available',
         ]);
@@ -249,6 +285,19 @@ it('releases allocation immediately when an earlier order is reverted, dispatche
 
         Order::query()->whereKey($earlier->id)->update(['status' => Order::STATUS_APPROVED]);
     }
+
+    Order::query()->whereKey($earlier->id)->update([
+        'status' => Order::STATUS_BILLED,
+        'dispatched_at' => now('Asia/Kolkata'),
+    ]);
+
+    expect($service->allocate([(int) $product->id]))->not->toHaveKey($earlier->id)
+        ->and($service->allocate([(int) $product->id])[$later->id][$product->id])->toMatchArray([
+            'allocated_to_earlier_orders' => 0.0,
+            'available_for_this_order' => 50.0,
+            'short_qty' => 0.0,
+            'stock_status' => 'available',
+        ]);
 });
 
 it('recalculates when stock increases or order quantity changes', function () {
@@ -341,6 +390,43 @@ it('recalculates existing production supervisor orders after an earlier order is
         ->assertJsonPath('data.stock_availability.0.short_qty', 10);
 
     $first->update(['status' => Order::STATUS_REVERTED_TO_MANAGER]);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson("/api/production/orders/{$second->id}")
+        ->assertOk()
+        ->assertJsonPath('data.stock_availability_applies', true)
+        ->assertJsonPath('data.stock_availability.0.allocated_to_earlier_orders', 0)
+        ->assertJsonPath('data.stock_availability.0.available_for_this_order', 60)
+        ->assertJsonPath('data.stock_availability.0.short_qty', 0)
+        ->assertJsonPath('data.stock_status', 'available');
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson("/api/production/orders/{$first->id}")
+        ->assertOk()
+        ->assertJsonPath('data.stock_availability_applies', false);
+});
+
+it('recalculates existing production supervisor orders after an earlier billed order is dispatched without a status update', function () {
+    $employee = fgStockAvailEmployee(UserRole::Employee, '9300000117');
+    $production = fgStockAvailEmployee(UserRole::ProductionSupervisor, '9300000118');
+    $dealer = fgStockAvailDealer($employee->id, '9300001117');
+    $product = fgStockAvailProduct('NEMAX-FG-15', 'NEMAX', 100);
+
+    $first = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_BILLED, 'ORD-FG-F001', '2026-09-01');
+    $second = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-F002', '2026-09-02');
+    fgStockAvailLine($first, $product, 50);
+    fgStockAvailLine($second, $product, 60);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson("/api/production/orders/{$second->id}")
+        ->assertOk()
+        ->assertJsonPath('data.stock_availability.0.allocated_to_earlier_orders', 50)
+        ->assertJsonPath('data.stock_availability.0.available_for_this_order', 50)
+        ->assertJsonPath('data.stock_availability.0.short_qty', 10);
+
+    Order::query()->whereKey($first->id)->update([
+        'dispatched_at' => now('Asia/Kolkata'),
+    ]);
 
     $this->actingAs($production->user, 'sanctum')
         ->getJson("/api/production/orders/{$second->id}")

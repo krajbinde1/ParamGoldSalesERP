@@ -77,7 +77,7 @@ class FinishedProductStockAvailabilitySection extends StatelessWidget {
           const SizedBox(height: 4),
           if (!compact)
             Text(
-              'Oldest pending orders are allocated first. Dispatched, rejected, cancelled, and returned orders do not hold stock.',
+              'Oldest pending orders waiting for dispatch are allocated first. Dispatched, rejected, cancelled, and completed orders do not hold stock.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppColors.textSecondary,
                   ),
