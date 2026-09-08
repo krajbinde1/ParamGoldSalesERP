@@ -5,6 +5,7 @@ namespace App\Actions\Orders;
 use App\Enums\TransportType;
 use App\Models\Order;
 use App\Models\User;
+use App\Services\Inventory\OrderDispatchStockService;
 use App\Services\Orders\OrderDispatchCalculationService;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\UploadedFile;
@@ -100,6 +101,8 @@ final class DispatchOrderWithTransport
                 'lr_number' => filled($lrNumber) ? trim($lrNumber) : null,
                 'lr_document_path' => $lrPath,
             ]);
+
+            app(OrderDispatchStockService::class)->postForDispatchedOrder($order->fresh() ?? $order, $actor);
 
             return [
                 'order' => $order->fresh(),

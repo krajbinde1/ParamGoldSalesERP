@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Inventory\OrderDispatchStockService;
 use App\Services\Orders\OrderBillingTransportCalculator;
 use App\Support\PublicMediaUrl;
 use Illuminate\Database\Eloquent\Builder;
@@ -1005,14 +1006,25 @@ class Order extends Model
             ]);
         }
 
-        // Preserve prior workflow history (approval, billing, dispatch, etc.).
-        $this->update([
-            'status' => self::STATUS_REJECTED,
-            'rejected_by' => $userId,
-            'rejected_by_role' => $rejectedByRole,
-            'rejected_at' => Carbon::now(self::BUSINESS_TIMEZONE),
-            'rejection_remark' => trim($remark),
-        ]);
+        DB::transaction(function () use ($userId, $remark, $rejectedByRole): void {
+            $wasDispatched = $this->status === self::STATUS_DISPATCHED || filled($this->dispatched_at);
+
+            // Preserve prior workflow history (approval, billing, dispatch, etc.).
+            $this->update([
+                'status' => self::STATUS_REJECTED,
+                'rejected_by' => $userId,
+                'rejected_by_role' => $rejectedByRole,
+                'rejected_at' => Carbon::now(self::BUSINESS_TIMEZONE),
+                'rejection_remark' => trim($remark),
+            ]);
+
+            if ($wasDispatched) {
+                app(OrderDispatchStockService::class)->reverseForRejectedOrder(
+                    $this->fresh() ?? $this,
+                    $userId ? User::query()->find($userId) : null,
+                );
+            }
+        });
     }
 
     public function markAsBilled(
@@ -1098,13 +1110,20 @@ class Order extends Model
             ]);
         }
 
-        $this->update([
-            'status' => self::STATUS_DISPATCHED,
-            'dispatched_by' => $userId,
-            'dispatched_at' => Carbon::now(self::BUSINESS_TIMEZONE),
-            'dispatch_date' => Carbon::now(self::BUSINESS_TIMEZONE)->toDateString(),
-            'dispatch_remark' => filled($remark) ? trim($remark) : null,
-        ]);
+        DB::transaction(function () use ($userId, $remark): void {
+            $this->update([
+                'status' => self::STATUS_DISPATCHED,
+                'dispatched_by' => $userId,
+                'dispatched_at' => Carbon::now(self::BUSINESS_TIMEZONE),
+                'dispatch_date' => Carbon::now(self::BUSINESS_TIMEZONE)->toDateString(),
+                'dispatch_remark' => filled($remark) ? trim($remark) : null,
+            ]);
+
+            app(OrderDispatchStockService::class)->postForDispatchedOrder(
+                $this->fresh() ?? $this,
+                $userId ? User::query()->find($userId) : null,
+            );
+        });
     }
 
     public function transitionTo(string $status): void
