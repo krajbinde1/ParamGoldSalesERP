@@ -102,4 +102,29 @@ class OrderItem extends Model
     {
         return $this->belongsTo(Product::class);
     }
+
+    /**
+     * Dispatched / reserved qty in Nos (same base unit as finished stock).
+     * Prefer stored total_quantity_nos; otherwise Cases × Qty Per Case (item, then product).
+     */
+    public function quantityInNos(): float
+    {
+        $nos = round((float) ($this->total_quantity_nos ?? 0), 3);
+        if ($nos > 0.0001) {
+            return $nos;
+        }
+
+        $cases = (float) ($this->case_quantity ?? 0);
+        $perCase = (float) ($this->nos_per_case ?? 0);
+        if ($perCase <= 0.0001) {
+            $this->loadMissing('product:id,nos_per_case');
+            $perCase = (float) ($this->product?->nos_per_case ?? 0);
+        }
+
+        if ($cases > 0.0001 && $perCase > 0.0001) {
+            return round($cases * $perCase, 3);
+        }
+
+        return round((float) ($this->quantity ?? 0), 3);
+    }
 }

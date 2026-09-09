@@ -386,18 +386,7 @@ final class FinishedProductOrderAvailabilityService
      */
     private function lineQuantityNos(OrderItem $item): float
     {
-        $nos = round((float) ($item->total_quantity_nos ?? 0), 3);
-        if ($nos > 0.0001) {
-            return $nos;
-        }
-
-        $cases = (float) ($item->case_quantity ?? 0);
-        $perCase = (float) ($item->nos_per_case ?? 0);
-        if ($cases > 0.0001 && $perCase > 0.0001) {
-            return round($cases * $perCase, 3);
-        }
-
-        return round((float) ($item->quantity ?? 0), 3);
+        return $item->quantityInNos();
     }
 
     /**

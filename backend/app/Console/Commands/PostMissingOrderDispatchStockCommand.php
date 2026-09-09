@@ -9,10 +9,10 @@ class PostMissingOrderDispatchStockCommand extends Command
 {
     protected $signature = 'inventory:post-missing-order-dispatch-stock
                             {order? : Specific sales order id}
-                            {--all : Post missing FG dispatch stock for every eligible dispatched order}
-                            {--dry-run : Report which orders would be posted without writing}';
+                            {--all : Include every eligible dispatched order}
+                            {--dry-run : Report missing outwards without writing stock ledgers}';
 
-    protected $description = 'Post missing Finished Product stock deductions for dispatched sales orders that have no dispatch ledger (never double-posts)';
+    protected $description = 'Audit/post missing Finished Product dispatch outwards for dispatched sales orders (idempotent; never double-posts)';
 
     public function handle(OrderDispatchStockService $stock): int
     {
@@ -26,9 +26,60 @@ class PostMissingOrderDispatchStockCommand extends Command
             return self::FAILURE;
         }
 
+        $audit = $stock->auditMissing($orderId !== null ? (int) $orderId : null);
+
+        $this->info('Dispatched orders scanned: '.$audit['scanned_orders']);
+        $this->info('Already posted product lines: '.$audit['already_posted_lines']);
+        $this->info('Missing product lines: '.$audit['missing_lines']);
+        $this->info('Blocked (insufficient stock): '.$audit['blocked_lines']);
+        if ($audit['zero_qty_lines'] > 0) {
+            $this->warn('Lines skipped for zero qty: '.$audit['zero_qty_lines']);
+        }
+
+        if ($audit['missing'] !== []) {
+            $this->newLine();
+            $this->info('Missing dispatch outwards:');
+            $this->table(
+                ['Order ID', 'Order No', 'Dispatch Date', 'Product ID', 'Product', 'Qty Nos', 'Stock Before', 'Expected After', 'Blocked'],
+                array_map(fn (array $row): array => [
+                    $row['order_id'],
+                    $row['order_no'],
+                    $row['dispatch_date'],
+                    $row['product_id'],
+                    $row['product_name'],
+                    $row['qty_nos'],
+                    $row['stock_before'],
+                    $row['expected_stock_after'],
+                    $row['blocked'] ? ($row['block_reason'] ?? 'yes') : '',
+                ], $audit['missing']),
+            );
+        }
+
+        if ($audit['product_effects'] !== []) {
+            $this->newLine();
+            $this->info('Expected stock effect by product (after all missing outwards):');
+            $this->table(
+                ['Product ID', 'Code', 'Product', 'Stock Now', 'Missing Outward', 'Expected Closing'],
+                array_map(fn (array $row): array => [
+                    $row['product_id'],
+                    $row['product_code'],
+                    $row['product_name'],
+                    $row['stock_now'],
+                    $row['missing_outward'],
+                    $row['expected_closing'],
+                ], $audit['product_effects']),
+            );
+        }
+
         if ($dryRun) {
-            $this->warn('Dry-run: no stock ledgers will be written.');
-            $this->info('Pass an order id or --all without --dry-run to post missing dispatch stock.');
+            $this->newLine();
+            $this->warn('Dry-run: no stock ledgers were written.');
+
+            return self::SUCCESS;
+        }
+
+        if ($audit['missing_lines'] === 0) {
+            $this->info('Nothing to post.');
 
             return self::SUCCESS;
         }
@@ -37,9 +88,22 @@ class PostMissingOrderDispatchStockCommand extends Command
             $orderId !== null ? (int) $orderId : null,
         );
 
-        $this->info('Posted missing dispatch stock for orders: '.$result['posted']);
+        $this->newLine();
+        $this->info('Posted missing product lines: '.$result['posted']);
         $this->info('Skipped (already posted or ineligible): '.$result['skipped']);
+        $this->info('Failed: '.$result['failed']);
 
-        return self::SUCCESS;
+        if ($result['failed_orders'] !== []) {
+            $this->table(
+                ['Order ID', 'Order No', 'Error'],
+                array_map(fn (array $row): array => [
+                    $row['order_id'],
+                    $row['order_no'],
+                    $row['error'],
+                ], $result['failed_orders']),
+            );
+        }
+
+        return $result['failed'] > 0 ? self::FAILURE : self::SUCCESS;
     }
 }

@@ -284,6 +284,56 @@ it('uses remaining finished stock after dispatch for FIFO pending allocation', f
         ]);
 });
 
+it('converts cases to nos when total_quantity_nos is zero and dry-run does not write', function () {
+    $employee = fgDispatchEmployee(UserRole::Employee, '9400000111');
+    $dealer = fgDispatchDealer($employee->id, '9400001111');
+    $product = fgDispatchProduct('DSP-FG-7', 46);
+    $product->forceFill(['nos_per_case' => 1])->save();
+
+    $order = fgDispatchOrder($employee->id, $dealer->id, Order::STATUS_DISPATCHED, 'ORD-DSP-7001', '2026-09-06');
+    $order->forceFill([
+        'dispatched_at' => now('Asia/Kolkata'),
+        'dispatch_date' => '2026-09-06',
+        'order_no' => 'PG-20260906-0001',
+    ])->saveQuietly();
+    $item = $order->items()->make([
+        'product_id' => $product->id,
+        'case_quantity' => 10,
+        'nos_per_case' => 1,
+        'total_quantity_nos' => 0,
+        'quantity' => 0,
+        'unit' => 'Nos',
+        'rate_per_no' => 10,
+        'rate' => 10,
+        'discount_percentage' => 0,
+        'discount_amount' => 0,
+        'gst_percentage' => 18,
+        'base_amount' => 100,
+        'taxable_amount' => 100,
+        'gst_amount' => 0,
+        'final_amount' => 100,
+        'line_total' => 100,
+    ]);
+    $item->saveQuietly();
+
+    $service = app(OrderDispatchStockService::class);
+    $audit = $service->auditMissing((int) $order->id);
+
+    expect($audit['missing_lines'])->toBe(1)
+        ->and($audit['missing'][0]['qty_nos'])->toEqual(10.0)
+        ->and($audit['missing'][0]['product_id'])->toBe($product->id)
+        ->and(fgDispatchLedgers($order->id, $product->id))->toHaveCount(0)
+        ->and((float) $product->fresh()->current_finished_stock)->toBe(46.0);
+
+    $first = $service->postMissingForDispatchedOrders((int) $order->id);
+    $second = $service->postMissingForDispatchedOrders((int) $order->id);
+
+    expect($first['posted'])->toBe(1)
+        ->and($second['posted'])->toBe(0)
+        ->and((float) $product->fresh()->current_finished_stock)->toBe(36.0)
+        ->and((float) fgDispatchLedgers($order->id, $product->id)->first()->quantity_out)->toBe(10.0);
+});
+
 it('deducts finished stock when dispatching with transport details', function () {
     $employee = fgDispatchEmployee(UserRole::Employee, '9400000109');
     $production = fgDispatchEmployee(UserRole::ProductionSupervisor, '9400000110');
