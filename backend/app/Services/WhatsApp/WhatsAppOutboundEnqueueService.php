@@ -142,6 +142,28 @@ final class WhatsAppOutboundEnqueueService
         return $message;
     }
 
+    public function queuePaymentFollowUpCommitment(PaymentFollowUpEntry $entry): ?WhatsAppOutboundMessage
+    {
+        $entry->loadMissing('dealer');
+        $phone = WhatsAppPhoneNumber::fromDealer($entry->dealer);
+        $error = $this->followUpCommitmentError($entry, $phone);
+        $payload = $this->followUpCommitmentPayload($entry, $phone);
+
+        $message = $this->insertOnce(
+            sourceType: WhatsAppOutboundMessage::SOURCE_PAYMENT_COMMITMENT,
+            sourceId: (int) $entry->id,
+            erpReference: WhatsAppOutboundMessage::paymentCommitmentReference((int) $entry->id),
+            toNumber: $phone,
+            payload: $payload,
+            enqueueError: $error,
+            refreshIfUnsynced: true,
+        );
+
+        $this->dispatchIfPending($message);
+
+        return $message;
+    }
+
     private function billError(Order $order, ?string $phone): ?string
     {
         if ($order->dealer === null) {
@@ -184,6 +206,23 @@ final class WhatsAppOutboundEnqueueService
 
         if (trim((string) config('services.whatsapp.payment_reminder_template')) === '') {
             return 'WhatsApp template payment_reminder is not configured yet.';
+        }
+
+        return null;
+    }
+
+    private function followUpCommitmentError(PaymentFollowUpEntry $entry, ?string $phone): ?string
+    {
+        if ($entry->dealer === null) {
+            return self::ERROR_NO_DEALER;
+        }
+
+        if ($phone === null) {
+            return self::ERROR_INVALID_MOBILE;
+        }
+
+        if (trim((string) config('services.whatsapp.payment_commitment_template')) === '') {
+            return 'WhatsApp template payment_commitment is not configured yet.';
         }
 
         return null;
@@ -288,6 +327,36 @@ final class WhatsAppOutboundEnqueueService
                 (string) ($dealer?->firm_name ?? 'Dealer'),
                 $outstanding,
                 $expected,
+                $this->displayDate($date),
+            ),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function followUpCommitmentPayload(PaymentFollowUpEntry $entry, ?string $phone): array
+    {
+        $dealer = $entry->dealer;
+        $outstanding = round((float) $entry->outstanding_at_time, 2);
+        $promised = $entry->expected_amount !== null ? round((float) $entry->expected_amount, 2) : null;
+        $date = $entry->next_follow_up_date?->toDateString()
+            ?: Carbon::now('Asia/Kolkata')->toDateString();
+
+        return [
+            'type' => 'payment_commitment',
+            'dealer_id' => $dealer?->id,
+            'dealer_name' => (string) ($dealer?->firm_name ?? ''),
+            'to_number' => $phone,
+            'entry_id' => (int) $entry->id,
+            'cycle_id' => (int) $entry->cycle_id,
+            'outstanding' => $outstanding,
+            'promised_amount' => $promised,
+            'promised_date' => $date,
+            'body' => PaymentFollowUpWhatsAppCopy::commitmentBody(
+                (string) ($dealer?->firm_name ?? 'Dealer'),
+                $outstanding,
+                $promised,
                 $this->displayDate($date),
             ),
         ];

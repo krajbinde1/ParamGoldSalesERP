@@ -87,6 +87,15 @@
                                     @endif
                                 </dd>
                             </div>
+                            <div>
+                                <dt class="text-gray-500">WhatsApp Commitment</dt>
+                                <dd>
+                                    {{ $entry['commitment_whatsapp_status'] ?? '-' }}
+                                    @if (! empty($entry['commitment_whatsapp_sent_at']))
+                                        · {{ \Illuminate\Support\Carbon::parse($entry['commitment_whatsapp_sent_at'])->timezone('Asia/Kolkata')->format('d M Y h:i A') }}
+                                    @endif
+                                </dd>
+                            </div>
                         </dl>
                     </div>
                 @endforeach

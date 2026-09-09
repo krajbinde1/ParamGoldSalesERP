@@ -46,6 +46,7 @@ return [
         'bill_image_template' => env('WHATSAPP_BILL_IMAGE_TEMPLATE'),
         'collection_template' => env('WHATSAPP_COLLECTION_TEMPLATE'),
         'payment_reminder_template' => env('WHATSAPP_PAYMENT_REMINDER_TEMPLATE'),
+        'payment_commitment_template' => env('WHATSAPP_PAYMENT_COMMITMENT_TEMPLATE'),
         'webhook_verify_token' => env('WHATSAPP_WEBHOOK_VERIFY_TOKEN'),
     ],
 

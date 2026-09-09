@@ -80,6 +80,10 @@ return new class extends Migration
                 $table->timestamp('whatsapp_sent_at')->nullable();
                 $table->text('whatsapp_error')->nullable();
                 $table->unsignedBigInteger('whatsapp_outbound_message_id')->nullable();
+                $table->string('commitment_whatsapp_status', 20)->default('pending');
+                $table->timestamp('commitment_whatsapp_sent_at')->nullable();
+                $table->text('commitment_whatsapp_error')->nullable();
+                $table->unsignedBigInteger('commitment_whatsapp_outbound_message_id')->nullable();
                 $table->unsignedBigInteger('collection_id')->nullable();
                 $table->timestamps();
 
@@ -102,6 +106,7 @@ return new class extends Migration
                     'pfu_next_date_notif_idx'
                 );
                 $table->index('entry_type', 'pfu_ent_type_idx');
+                $table->index('commitment_whatsapp_status', 'pfu_ent_cmt_wa_idx');
             });
 
             return;
@@ -116,6 +121,13 @@ return new class extends Migration
             'pfu_next_date_notif_idx'
         );
         $this->ensureIndex('payment_follow_up_entries', ['entry_type'], 'pfu_ent_type_idx');
+        if (Schema::hasColumn('payment_follow_up_entries', 'commitment_whatsapp_status')) {
+            $this->ensureIndex(
+                'payment_follow_up_entries',
+                ['commitment_whatsapp_status'],
+                'pfu_ent_cmt_wa_idx'
+            );
+        }
     }
 
     /**

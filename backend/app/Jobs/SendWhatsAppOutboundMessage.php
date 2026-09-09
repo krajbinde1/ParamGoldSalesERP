@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Models\WhatsAppOutboundMessage;
+use App\Services\PaymentFollowUps\PaymentFollowUpCommitmentService;
 use App\Services\WhatsApp\WhatsAppOutboundSender;
 use Illuminate\Contracts\Queue\ShouldBeUnique;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -35,6 +36,8 @@ class SendWhatsAppOutboundMessage implements ShouldBeUnique, ShouldQueue
         }
 
         $sender->send($message);
+
+        $this->syncCommitment($message->fresh() ?? $message);
     }
 
     public function failed(?Throwable $exception): void
@@ -50,6 +53,8 @@ class SendWhatsAppOutboundMessage implements ShouldBeUnique, ShouldQueue
             'error' => mb_substr($error, 0, 2000),
         ]);
 
+        $this->syncCommitment($message->fresh() ?? $message);
+
         Log::error('WhatsApp outbound job failed: '.$error, [
             'message_id' => $this->messageId,
             'message_type' => $message->messageTypeLabel(),
@@ -58,5 +63,14 @@ class SendWhatsAppOutboundMessage implements ShouldBeUnique, ShouldQueue
             'status' => $message->status,
             'meta_error' => $message->error,
         ]);
+    }
+
+    private function syncCommitment(WhatsAppOutboundMessage $message): void
+    {
+        if ($message->source_type !== WhatsAppOutboundMessage::SOURCE_PAYMENT_COMMITMENT) {
+            return;
+        }
+
+        app(PaymentFollowUpCommitmentService::class)->syncFromOutbound($message);
     }
 }

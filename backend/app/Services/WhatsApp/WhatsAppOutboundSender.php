@@ -38,6 +38,8 @@ final class WhatsAppOutboundSender
 
             $type = (string) ($payload['type'] ?? $message->source_type);
             $result = match (true) {
+                $type === 'payment_commitment' || $message->source_type === WhatsAppOutboundMessage::SOURCE_PAYMENT_COMMITMENT
+                    => $this->sendPaymentCommitment($to, $payload),
                 $type === 'payment_followup' || $message->source_type === WhatsAppOutboundMessage::SOURCE_PAYMENT_FOLLOWUP
                     => $this->sendPaymentReminder($to, $payload),
                 $type === 'collection' || $message->source_type === WhatsAppOutboundMessage::SOURCE_COLLECTION
@@ -182,6 +184,30 @@ final class WhatsAppOutboundSender
                     ? 'As discussed'
                     : $this->amountText($expected),
                 $this->dateText($payload['follow_up_date'] ?? ''),
+            ],
+            (string) ($payload['body'] ?? ''),
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array{message_id: string, media_id: ?string}
+     */
+    private function sendPaymentCommitment(string $to, array $payload): array
+    {
+        $promised = $payload['promised_amount'] ?? null;
+
+        return $this->sendSimple(
+            $to,
+            $payload,
+            'payment_commitment_template',
+            [
+                $payload['dealer_name'] ?? '',
+                $promised === null || $promised === ''
+                    ? 'As discussed'
+                    : $this->amountText($promised),
+                $this->dateText($payload['promised_date'] ?? ''),
+                $this->amountText($payload['outstanding'] ?? 0),
             ],
             (string) ($payload['body'] ?? ''),
         );

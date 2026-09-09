@@ -61,6 +61,8 @@ class WhatsAppOutboundMessagesTable
                     ->options([
                         WhatsAppOutboundMessage::SOURCE_BILL => 'Sales Bill',
                         WhatsAppOutboundMessage::SOURCE_COLLECTION => 'Collection Received',
+                        WhatsAppOutboundMessage::SOURCE_PAYMENT_COMMITMENT => 'Payment Commitment',
+                        WhatsAppOutboundMessage::SOURCE_PAYMENT_FOLLOWUP => 'Payment Reminder',
                     ]),
                 SelectFilter::make('status')
                     ->options([

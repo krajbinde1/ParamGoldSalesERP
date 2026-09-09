@@ -37,6 +37,10 @@ class PaymentFollowUpEntry extends Model
         'whatsapp_sent_at',
         'whatsapp_error',
         'whatsapp_outbound_message_id',
+        'commitment_whatsapp_status',
+        'commitment_whatsapp_sent_at',
+        'commitment_whatsapp_error',
+        'commitment_whatsapp_outbound_message_id',
         'collection_id',
     ];
 
@@ -49,6 +53,7 @@ class PaymentFollowUpEntry extends Model
             'next_follow_up_date' => 'date',
             'employee_notification_sent_at' => 'datetime',
             'whatsapp_sent_at' => 'datetime',
+            'commitment_whatsapp_sent_at' => 'datetime',
         ];
     }
 
@@ -82,6 +87,11 @@ class PaymentFollowUpEntry extends Model
         return $this->belongsTo(WhatsAppOutboundMessage::class, 'whatsapp_outbound_message_id');
     }
 
+    public function commitmentWhatsappOutboundMessage(): BelongsTo
+    {
+        return $this->belongsTo(WhatsAppOutboundMessage::class, 'commitment_whatsapp_outbound_message_id');
+    }
+
     public function isFollowUp(): bool
     {
         return $this->entry_type === self::TYPE_FOLLOW_UP;
@@ -112,5 +122,19 @@ class PaymentFollowUpEntry extends Model
     public function whatsappWasSent(): bool
     {
         return $this->whatsapp_status === self::REMINDER_SENT;
+    }
+
+    public function commitmentWhatsAppNeedsSend(): bool
+    {
+        return in_array($this->commitment_whatsapp_status, [
+            self::REMINDER_PENDING,
+            self::REMINDER_FAILED,
+            self::REMINDER_SKIPPED,
+        ], true);
+    }
+
+    public function commitmentWhatsAppWasSent(): bool
+    {
+        return $this->commitment_whatsapp_status === self::REMINDER_SENT;
     }
 }

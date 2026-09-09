@@ -29,4 +29,32 @@ final class PaymentFollowUpWhatsAppCopy
             'ParamGold',
         ]);
     }
+
+    public static function commitmentBody(
+        string $dealerName,
+        float $outstanding,
+        ?float $promisedAmount,
+        string $promisedDate,
+    ): string {
+        $amount = $promisedAmount !== null
+            ? IndianCurrency::format($promisedAmount)
+            : 'As discussed';
+
+        return implode("\n", [
+            'Dear '.$dealerName.',',
+            '',
+            'Thank you for your payment commitment.',
+            '',
+            'As per our discussion, you have kindly confirmed the following payment:',
+            '',
+            'Promised Payment Amount: '.$amount,
+            'Promised Payment Date: '.$promisedDate,
+            'Current Outstanding: '.IndianCurrency::format($outstanding),
+            '',
+            'We appreciate your confirmation and continued association with ParamGold.',
+            '',
+            'Thank you,',
+            'ParamGold Agritech Pvt. Ltd.',
+        ]);
+    }
 }

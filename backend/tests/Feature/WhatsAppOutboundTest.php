@@ -10,8 +10,11 @@ use App\Models\Collection;
 use App\Models\Dealer;
 use App\Models\Employee;
 use App\Models\Order;
+use App\Models\PaymentFollowUpCycle;
+use App\Models\PaymentFollowUpEntry;
 use App\Models\User;
 use App\Models\WhatsAppOutboundMessage;
+use App\Services\PaymentFollowUps\PaymentFollowUpCommitmentService;
 use App\Services\WhatsApp\WhatsAppOutboundEnqueueService;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
@@ -660,4 +663,88 @@ it('lets admin and director open the whatsapp log and hides it from employees', 
 
     $this->actingAs($employee->user);
     expect(WhatsAppOutboundMessageResource::canAccess())->toBeFalse();
+});
+
+it('sends payment_commitment with four body variables and does not use dealer_invoice or payment_received', function (): void {
+    Http::fake([
+        'https://graph.facebook.com/v21.0/123456/messages' => Http::response([
+            'messages' => [['id' => 'wamid.CMT1']],
+        ], 200),
+    ]);
+    config()->set([
+        'services.whatsapp.enabled' => true,
+        'services.whatsapp.token' => 'test-token',
+        'services.whatsapp.phone_number_id' => '123456',
+        'services.whatsapp.graph_version' => 'v21.0',
+        'services.whatsapp.template_language' => 'en',
+        'services.whatsapp.bill_template' => 'dealer_invoice',
+        'services.whatsapp.collection_template' => 'payment_received',
+        'services.whatsapp.payment_reminder_template' => 'payment_reminder',
+        'services.whatsapp.payment_commitment_template' => 'payment_commitment',
+    ]);
+
+    $employee = waEmployee('9814000020');
+    $dealer = waDealer($employee, ['firm_name' => 'Commitment Dealer', 'mobile' => '9000000020']);
+    $cycle = PaymentFollowUpCycle::query()->create([
+        'dealer_id' => $dealer->id,
+        'employee_id' => $employee->id,
+        'cycle_number' => 1,
+        'opening_outstanding' => 125000,
+        'started_at' => now('Asia/Kolkata'),
+        'status' => PaymentFollowUpCycle::STATUS_OPEN,
+        'created_by' => $employee->user->id,
+    ]);
+    $entry = PaymentFollowUpEntry::query()->create([
+        'cycle_id' => $cycle->id,
+        'dealer_id' => $dealer->id,
+        'employee_id' => $employee->id,
+        'created_by' => $employee->user->id,
+        'entry_type' => PaymentFollowUpEntry::TYPE_FOLLOW_UP,
+        'followed_up_at' => now('Asia/Kolkata'),
+        'remark' => 'Dealer promised payment.',
+        'outstanding_at_time' => 125000,
+        'expected_amount' => 50000,
+        'next_follow_up_date' => '2026-09-15',
+        'employee_notification_status' => PaymentFollowUpEntry::REMINDER_PENDING,
+        'whatsapp_status' => PaymentFollowUpEntry::REMINDER_PENDING,
+        'commitment_whatsapp_status' => PaymentFollowUpEntry::REMINDER_PENDING,
+    ]);
+
+    $result = app(PaymentFollowUpCommitmentService::class)->sendForEntry($entry);
+
+    $message = WhatsAppOutboundMessage::query()
+        ->where('erp_reference', 'WA-PFU-C-'.$entry->id)
+        ->first();
+
+    expect($result)->toBe('sent')
+        ->and($message?->status)->toBe(WhatsAppOutboundMessage::STATUS_SENT)
+        ->and($message?->meta_message_id)->toBe('wamid.CMT1')
+        ->and($message?->source_type)->toBe(WhatsAppOutboundMessage::SOURCE_PAYMENT_COMMITMENT)
+        ->and($entry->fresh()->commitment_whatsapp_status)->toBe(PaymentFollowUpEntry::REMINDER_SENT)
+        ->and($entry->fresh()->whatsapp_status)->toBe(PaymentFollowUpEntry::REMINDER_PENDING);
+
+    Http::assertSent(function ($request): bool {
+        $data = $request->data();
+        if (($data['template']['name'] ?? null) !== 'payment_commitment') {
+            return false;
+        }
+
+        $body = $data['template']['components'][0]['parameters'] ?? [];
+
+        return ($data['type'] ?? null) === 'template'
+            && ($data['to'] ?? null) === '919000000020'
+            && count($body) === 4
+            && ($body[0]['text'] ?? null) === 'Commitment Dealer'
+            && ($body[1]['text'] ?? null) === '50,000'
+            && ($body[2]['text'] ?? null) === '15 Sep 2026'
+            && ($body[3]['text'] ?? null) === '1,25,000'
+            && ! str_contains((string) ($body[1]['text'] ?? ''), '₹')
+            && ! str_contains((string) ($body[3]['text'] ?? ''), '₹');
+    });
+
+    Http::assertNotSent(function ($request): bool {
+        $name = $request->data()['template']['name'] ?? null;
+
+        return in_array($name, ['dealer_invoice', 'payment_received', 'payment_reminder'], true);
+    });
 });

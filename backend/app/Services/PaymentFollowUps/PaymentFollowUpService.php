@@ -20,6 +20,7 @@ final class PaymentFollowUpService
     public function __construct(
         private readonly TallyDealerLedgerService $ledger,
         private readonly DealerAccessService $dealerAccess,
+        private readonly PaymentFollowUpCommitmentService $commitments,
     ) {}
 
     public function currentOutstanding(Dealer $dealer): float
@@ -112,7 +113,9 @@ final class PaymentFollowUpService
             ]);
         }
 
-        DB::transaction(function () use ($dealer, $employee, $user, $remark, $expected, $nextDate): void {
+        $entryId = null;
+
+        DB::transaction(function () use ($dealer, $employee, $user, $remark, $expected, $nextDate, &$entryId): void {
             $dealer = Dealer::query()->whereKey($dealer->id)->lockForUpdate()->firstOrFail();
             $outstanding = $this->currentOutstanding($dealer);
 
@@ -144,7 +147,7 @@ final class PaymentFollowUpService
                 ]);
             }
 
-            PaymentFollowUpEntry::query()->create([
+            $entry = PaymentFollowUpEntry::query()->create([
                 'cycle_id' => $open->id,
                 'dealer_id' => $dealer->id,
                 'employee_id' => $employee->id,
@@ -157,8 +160,17 @@ final class PaymentFollowUpService
                 'next_follow_up_date' => $nextDate->toDateString(),
                 'employee_notification_status' => PaymentFollowUpEntry::REMINDER_PENDING,
                 'whatsapp_status' => PaymentFollowUpEntry::REMINDER_PENDING,
+                'commitment_whatsapp_status' => PaymentFollowUpEntry::REMINDER_PENDING,
             ]);
+
+            $entryId = (int) $entry->id;
         });
+
+        if ($entryId !== null) {
+            $this->commitments->sendForEntry(
+                PaymentFollowUpEntry::query()->findOrFail($entryId),
+            );
+        }
 
         return $this->dealerDetail($dealer->fresh() ?? $dealer);
     }
@@ -205,6 +217,7 @@ final class PaymentFollowUpService
                 'next_follow_up_date' => null,
                 'employee_notification_status' => PaymentFollowUpEntry::REMINDER_SKIPPED,
                 'whatsapp_status' => PaymentFollowUpEntry::REMINDER_SKIPPED,
+                'commitment_whatsapp_status' => PaymentFollowUpEntry::REMINDER_SKIPPED,
                 'collection_id' => $collection->id,
             ]);
 
@@ -490,6 +503,11 @@ final class PaymentFollowUpService
                 ?->timezone(PaymentFollowUpStatus::TIMEZONE)
                 ?->toIso8601String(),
             'whatsapp_error' => $entry->whatsapp_error,
+            'commitment_whatsapp_status' => $entry->commitment_whatsapp_status,
+            'commitment_whatsapp_sent_at' => $entry->commitment_whatsapp_sent_at
+                ?->timezone(PaymentFollowUpStatus::TIMEZONE)
+                ?->toIso8601String(),
+            'commitment_whatsapp_error' => $entry->commitment_whatsapp_error,
             'collection_id' => $entry->collection_id,
         ];
     }

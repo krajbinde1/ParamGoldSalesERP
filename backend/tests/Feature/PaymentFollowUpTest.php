@@ -4,6 +4,7 @@ use App\Actions\Collections\UpdateCollectionStatus;
 use App\Actions\Employees\CreateEmployeeWithUserAccount;
 use App\Enums\UserRole;
 use App\Filament\Pages\PaymentFollowUps;
+use App\Jobs\SendWhatsAppOutboundMessage;
 use App\Models\AppNotification;
 use App\Models\Collection;
 use App\Models\Dealer;
@@ -12,6 +13,8 @@ use App\Models\Employee;
 use App\Models\PaymentFollowUpCycle;
 use App\Models\PaymentFollowUpEntry;
 use App\Models\User;
+use App\Models\WhatsAppOutboundMessage;
+use App\Services\PaymentFollowUps\PaymentFollowUpCommitmentService;
 use App\Services\PaymentFollowUps\PaymentFollowUpReminderService;
 use App\Services\TallyLedger\TallyDealerLedgerService;
 use Illuminate\Support\Carbon;
@@ -230,11 +233,110 @@ it('sends an employee reminder once and skips WhatsApp until the payment_reminde
     $entry->refresh();
     expect($entry->employee_notification_status)->toBe(PaymentFollowUpEntry::REMINDER_SENT)
         ->and($entry->whatsapp_status)->toBe(PaymentFollowUpEntry::REMINDER_SKIPPED)
+        ->and($entry->commitment_whatsapp_status)->toBe(PaymentFollowUpEntry::REMINDER_SKIPPED)
         ->and(AppNotification::query()->where('type', 'payment_follow_up_due')->count())->toBe(1);
 
     $again = app(PaymentFollowUpReminderService::class)->sendDueReminders();
     expect($again['employee_sent'])->toBe(0)
         ->and(AppNotification::query()->where('type', 'payment_follow_up_due')->count())->toBe(1);
+});
+
+it('queues a payment_commitment whatsapp immediately when a follow-up is saved and does not duplicate the same entry', function (): void {
+    config()->set('services.whatsapp.payment_commitment_template', 'payment_commitment');
+
+    $employee = paymentFollowUpEmployee('9811300008');
+    $dealer = paymentFollowUpDealer($employee, 'ABC Fertilizers');
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'Dealer promised payment next week.',
+            'expected_amount' => 50000,
+            'next_follow_up_date' => '2026-09-15',
+        ])
+        ->assertCreated();
+
+    $entry = PaymentFollowUpEntry::query()->first();
+    expect($entry)->not->toBeNull()
+        ->and($entry->commitment_whatsapp_status)->toBe(PaymentFollowUpEntry::REMINDER_PENDING)
+        ->and($entry->whatsapp_status)->toBe(PaymentFollowUpEntry::REMINDER_PENDING);
+
+    $message = WhatsAppOutboundMessage::query()
+        ->where('source_type', WhatsAppOutboundMessage::SOURCE_PAYMENT_COMMITMENT)
+        ->where('source_id', $entry->id)
+        ->first();
+
+    expect($message)->not->toBeNull()
+        ->and($message->erp_reference)->toBe('WA-PFU-C-'.$entry->id)
+        ->and($message->to_number)->toBe('+91'.$dealer->mobile)
+        ->and($message->payload['type'] ?? null)->toBe('payment_commitment')
+        ->and($message->payload['promised_amount'] ?? null)->toEqual(50000)
+        ->and($message->payload['promised_date'] ?? null)->toBe('2026-09-15')
+        ->and($message->payload['outstanding'] ?? null)->toEqual(125000)
+        ->and($message->payload['body'] ?? '')->toContain('Thank you for your payment commitment.')
+        ->and($entry->commitment_whatsapp_outbound_message_id)->toBe($message->id);
+
+    Queue::assertPushed(SendWhatsAppOutboundMessage::class, fn (SendWhatsAppOutboundMessage $job): bool => $job->messageId === $message->id);
+
+    app(PaymentFollowUpCommitmentService::class)->sendForEntry($entry->fresh());
+
+    expect(WhatsAppOutboundMessage::query()->where('source_type', WhatsAppOutboundMessage::SOURCE_PAYMENT_COMMITMENT)->count())->toBe(1)
+        ->and(WhatsAppOutboundMessage::query()->where('source_type', WhatsAppOutboundMessage::SOURCE_PAYMENT_FOLLOWUP)->count())->toBe(0);
+});
+
+it('queues a new payment_commitment when Follow-up Again is saved and retries a failed commitment', function (): void {
+    config()->set('services.whatsapp.payment_commitment_template', 'payment_commitment');
+
+    $employee = paymentFollowUpEmployee('9811300009');
+    $dealer = paymentFollowUpDealer($employee, 'ABC Fertilizers');
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'First promise',
+            'expected_amount' => 50000,
+            'next_follow_up_date' => '2026-09-15',
+        ])
+        ->assertCreated();
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'Follow-up Again with a new date',
+            'expected_amount' => 40000,
+            'next_follow_up_date' => '2026-09-18',
+        ])
+        ->assertCreated();
+
+    $entries = PaymentFollowUpEntry::query()->orderBy('id')->get();
+    expect($entries)->toHaveCount(2);
+
+    $messages = WhatsAppOutboundMessage::query()
+        ->where('source_type', WhatsAppOutboundMessage::SOURCE_PAYMENT_COMMITMENT)
+        ->orderBy('id')
+        ->get();
+
+    expect($messages)->toHaveCount(2)
+        ->and($messages[0]->source_id)->toBe($entries[0]->id)
+        ->and($messages[1]->source_id)->toBe($entries[1]->id)
+        ->and($messages[1]->payload['promised_amount'] ?? null)->toEqual(40000)
+        ->and($messages[1]->payload['promised_date'] ?? null)->toBe('2026-09-18')
+        ->and($entries[0]->fresh()->whatsapp_status)->toBe(PaymentFollowUpEntry::REMINDER_PENDING)
+        ->and($entries[1]->fresh()->whatsapp_status)->toBe(PaymentFollowUpEntry::REMINDER_PENDING);
+
+    $first = $messages[0];
+    $first->update([
+        'status' => WhatsAppOutboundMessage::STATUS_FAILED,
+        'error' => 'Temporary WhatsApp failure',
+    ]);
+    $entries[0]->forceFill([
+        'commitment_whatsapp_status' => PaymentFollowUpEntry::REMINDER_FAILED,
+        'commitment_whatsapp_error' => 'Temporary WhatsApp failure',
+    ])->save();
+
+    $retried = app(PaymentFollowUpCommitmentService::class)->retryUnsent();
+
+    expect($retried['failed'])->toBe(0)
+        ->and(WhatsAppOutboundMessage::query()->where('source_type', WhatsAppOutboundMessage::SOURCE_PAYMENT_COMMITMENT)->count())->toBe(2)
+        ->and($first->fresh()->status)->toBe(WhatsAppOutboundMessage::STATUS_PENDING)
+        ->and($entries[0]->fresh()->commitment_whatsapp_status)->toBe(PaymentFollowUpEntry::REMINDER_PENDING);
 });
 
 it('lets admin view the assigned dealer follow-up timeline', function (): void {
