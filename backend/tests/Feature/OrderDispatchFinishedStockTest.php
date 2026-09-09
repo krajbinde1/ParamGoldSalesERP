@@ -15,6 +15,7 @@ use App\Models\StockLedger;
 use App\Models\User;
 use App\Services\Inventory\OrderDispatchStockService;
 use App\Services\Orders\FinishedProductOrderAvailabilityService;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
 function fgDispatchEmployee(UserRole $role, string $mobile): Employee
@@ -332,6 +333,68 @@ it('converts cases to nos when total_quantity_nos is zero and dry-run does not w
         ->and($second['posted'])->toBe(0)
         ->and((float) $product->fresh()->current_finished_stock)->toBe(36.0)
         ->and((float) fgDispatchLedgers($order->id, $product->id)->first()->quantity_out)->toBe(10.0);
+});
+
+it('includes same-day opening-date dispatches in backfill and ignores pre-opening dispatches', function () {
+    $employee = fgDispatchEmployee(UserRole::Employee, '9400000112');
+    $dealer = fgDispatchDealer($employee->id, '9400001112');
+    $product = fgDispatchProduct('DSP-FG-8', 46);
+    $product->forceFill([
+        'product_name' => 'SAMRUDDHI PLUS 5KG DSP-FG-8',
+        'opening_finished_stock' => 46,
+        'nos_per_case' => 1,
+    ])->save();
+
+    StockLedger::query()->create([
+        'transaction_date' => '2026-09-06',
+        'transaction_type' => StockTransactionType::OpeningStock,
+        'item_type' => StockItemType::FinishedProduct,
+        'product_id' => $product->id,
+        'quantity_in' => 46,
+        'quantity_out' => 0,
+        'stock_before' => 0,
+        'stock_after' => 46,
+        'rate' => 25,
+        'transaction_value' => 1150,
+        'remarks' => 'Opening Stock',
+    ]);
+
+    $before = fgDispatchOrder($employee->id, $dealer->id, Order::STATUS_DISPATCHED, 'ORD-DSP-8000', '2026-09-05');
+    $before->forceFill([
+        'dispatched_at' => Carbon::parse('2026-09-05 10:00:00', 'Asia/Kolkata'),
+        'dispatch_date' => '2026-09-05',
+    ])->saveQuietly();
+    fgDispatchLine($before, $product, 8);
+
+    $sameDay = fgDispatchOrder($employee->id, $dealer->id, Order::STATUS_DISPATCHED, 'PG-20260906-0001', '2026-09-06');
+    $sameDay->forceFill([
+        'dispatched_at' => Carbon::parse('2026-09-06 11:00:00', 'Asia/Kolkata'),
+        'dispatch_date' => '2026-09-06',
+        'order_no' => 'PG-20260906-0001',
+    ])->saveQuietly();
+    fgDispatchLine($sameDay, $product, 10);
+
+    $after = fgDispatchOrder($employee->id, $dealer->id, Order::STATUS_DISPATCHED, 'ORD-DSP-8002', '2026-09-07');
+    $after->forceFill([
+        'dispatched_at' => Carbon::parse('2026-09-07 09:00:00', 'Asia/Kolkata'),
+        'dispatch_date' => '2026-09-07',
+    ])->saveQuietly();
+    fgDispatchLine($after, $product, 4);
+
+    $audit = app(OrderDispatchStockService::class)->auditMissing(null, ['SAMRUDDHI PLUS 5KG DSP-FG-8']);
+
+    expect($audit['ignored_pre_opening_lines'])->toBe(1)
+        ->and($audit['missing_lines'])->toBe(2)
+        ->and($audit['product_effects'][0]['opening_date'])->toBe('2026-09-06')
+        ->and($audit['product_effects'][0]['opening_qty'])->toEqual(46.0)
+        ->and($audit['product_effects'][0]['ignore_before_qty'])->toEqual(8.0)
+        ->and($audit['product_effects'][0]['on_opening_date_qty'])->toEqual(10.0)
+        ->and($audit['product_effects'][0]['after_opening_qty'])->toEqual(4.0)
+        ->and($audit['product_effects'][0]['missing_outward'])->toEqual(14.0)
+        ->and($audit['product_effects'][0]['expected_closing'])->toEqual(32.0)
+        ->and(collect($audit['missing'])->pluck('order_no')->all())->toContain('PG-20260906-0001')
+        ->and(collect($audit['ignored'])->pluck('order_id')->all())->toContain($before->id)
+        ->and(fgDispatchLedgers($sameDay->id, $product->id))->toHaveCount(0);
 });
 
 it('deducts finished stock when dispatching with transport details', function () {
