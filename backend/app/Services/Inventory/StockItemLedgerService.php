@@ -291,50 +291,57 @@ final class StockItemLedgerService
     {
         $inQty = round((float) $ledger->quantity_in, 3);
         $outQty = round((float) $ledger->quantity_out, 3);
+        $allowNegative = $ledger->item_type === StockItemType::FinishedProduct;
 
         $avgBefore = $this->resolveAverageBefore($ledger, $state['rate']);
         $inwardValue = $this->resolveInwardValue($ledger, $inQty);
         $outwardValue = $this->resolveOutwardValue($ledger, $outQty, $avgBefore);
 
-        $prevQty = max(0.0, $state['qty']);
-        $prevValue = max(0.0, $state['value']);
+        $prevQty = $allowNegative ? round((float) $state['qty'], 3) : max(0.0, (float) $state['qty']);
+        $prevValue = $allowNegative ? round((float) $state['value'], 2) : max(0.0, (float) $state['value']);
 
         // Prefer historical closing snapshot when present and qty matches stock_after.
         if ($ledger->closing_value !== null && $ledger->stock_after !== null
             && abs((float) $ledger->stock_after - round($prevQty + $inQty - $outQty, 3)) < 0.001
         ) {
-            $closingQty = round(max(0.0, (float) $ledger->stock_after), 3);
-            $closingValue = $closingQty <= 0.0001 ? 0.0 : round(max(0.0, (float) $ledger->closing_value), 2);
-            $closingRate = $ledger->average_rate_after !== null
-                ? (float) $ledger->average_rate_after
-                : ($ledger->new_average_rate !== null ? (float) $ledger->new_average_rate : ($closingQty > 0 ? round($closingValue / $closingQty, 4) : 0.0));
+            $closingQty = round((float) $ledger->stock_after, 3);
+            if (! $allowNegative) {
+                $closingQty = max(0.0, $closingQty);
+            }
+            [$closingQty, $closingValue, $closingRate] = $this->finalizeClosing(
+                $closingQty,
+                $allowNegative && $closingQty < -0.0001
+                    ? 0.0
+                    : round((float) $ledger->closing_value, 2),
+                $ledger,
+                $allowNegative,
+            );
         } else {
             $closingQty = round($prevQty + $inQty - $outQty, 3);
             $clamped = false;
-            if ($closingQty < -0.0001) {
+            if ($closingQty < -0.0001 && ! $allowNegative) {
                 $clamped = true;
+                $closingQty = 0.0;
             }
-            $closingQty = max(0.0, $closingQty);
 
             if ($inQty > 0 && $outQty <= 0) {
                 $closingValue = round($prevValue + $inwardValue, 2);
             } elseif ($outQty > 0 && $inQty <= 0) {
-                $closingValue = round(max(0.0, $prevValue - $outwardValue), 2);
+                $closingValue = round($prevValue - $outwardValue, 2);
             } else {
-                $closingValue = round(max(0.0, $prevValue + $inwardValue - $outwardValue), 2);
+                $closingValue = round($prevValue + $inwardValue - $outwardValue, 2);
             }
 
-            if ($closingQty <= 0.0001) {
-                $closingQty = 0.0;
-                $closingValue = 0.0;
-                $closingRate = 0.0;
-            } else {
-                $closingRate = $ledger->average_rate_after !== null
-                    ? (float) $ledger->average_rate_after
-                    : ($ledger->new_average_rate !== null
-                        ? (float) $ledger->new_average_rate
-                        : round($closingValue / $closingQty, 4));
+            if (! $allowNegative) {
+                $closingValue = max(0.0, $closingValue);
             }
+
+            [$closingQty, $closingValue, $closingRate] = $this->finalizeClosing(
+                $closingQty,
+                $closingValue,
+                $ledger,
+                $allowNegative,
+            );
 
             $state['clamped'] = $state['clamped'] || $clamped;
         }
@@ -410,6 +417,33 @@ final class StockItemLedgerService
             ],
             'row' => $row,
         ];
+    }
+
+    /**
+     * @return array{0: float, 1: float, 2: float}
+     */
+    private function finalizeClosing(float $closingQty, float $closingValue, StockLedger $ledger, bool $allowNegative): array
+    {
+        if (abs($closingQty) <= 0.0001) {
+            return [0.0, 0.0, 0.0];
+        }
+
+        if ($closingQty < -0.0001) {
+            if (! $allowNegative) {
+                return [0.0, 0.0, 0.0];
+            }
+
+            return [round($closingQty, 3), 0.0, 0.0];
+        }
+
+        $closingValue = max(0.0, round($closingValue, 2));
+        $closingRate = $ledger->average_rate_after !== null
+            ? (float) $ledger->average_rate_after
+            : ($ledger->new_average_rate !== null
+                ? (float) $ledger->new_average_rate
+                : round($closingValue / $closingQty, 4));
+
+        return [round($closingQty, 3), $closingValue, $closingRate];
     }
 
     /**

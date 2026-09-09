@@ -43,17 +43,21 @@ final class FinishedProductStockBalanceService
             if ($out > 0.0001) {
                 $avg = $qty > 0.0001 ? round($value / $qty, 4) : $rate;
                 $outward = $this->outwardValue($ledger, $out, $avg);
-                $value = round(max(0, $value - $outward), 2);
+                $value = round($value - $outward, 2);
                 $qty = round($qty - $out, 3);
             }
 
-            if ($qty <= 0.0001) {
+            if (abs($qty) <= 0.0001) {
                 $qty = 0.0;
                 $value = 0.0;
+            } elseif ($qty < 0) {
+                $value = 0.0;
+            } else {
+                $value = max(0.0, $value);
             }
         }
 
-        $qty = max(0.0, round($qty, 3));
+        $qty = round($qty, 3);
         $wac = $qty > 0.0001 ? round($value / $qty, 4) : 0.0;
 
         $product->current_finished_stock = $qty;

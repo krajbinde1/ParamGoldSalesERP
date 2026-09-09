@@ -398,7 +398,7 @@ final class FinishedProductOrderAvailabilityService
     {
         $stock = [];
         foreach ($productIds as $productId) {
-            $stock[$productId] = max(0.0, round((float) ($products->get($productId)?->current_finished_stock ?? 0), 3));
+            $stock[$productId] = round((float) ($products->get($productId)?->current_finished_stock ?? 0), 3);
         }
 
         if ($productIds === []) {
@@ -426,7 +426,7 @@ final class FinishedProductOrderAvailabilityService
                 continue;
             }
 
-            $stock[$productId] = max(0.0, round((float) $row->stock_after, 3));
+            $stock[$productId] = round((float) $row->stock_after, 3);
         }
 
         return $stock;
