@@ -382,16 +382,25 @@ it('includes same-day opening-date dispatches in backfill and ignores pre-openin
     fgDispatchLine($after, $product, 4);
 
     $audit = app(OrderDispatchStockService::class)->auditMissing(null, ['SAMRUDDHI PLUS 5KG DSP-FG-8']);
+    $effect = $audit['product_effects'][0];
 
     expect($audit['ignored_pre_opening_lines'])->toBe(1)
         ->and($audit['missing_lines'])->toBe(2)
-        ->and($audit['product_effects'][0]['opening_date'])->toBe('2026-09-06')
-        ->and($audit['product_effects'][0]['opening_qty'])->toEqual(46.0)
-        ->and($audit['product_effects'][0]['ignore_before_qty'])->toEqual(8.0)
-        ->and($audit['product_effects'][0]['on_opening_date_qty'])->toEqual(10.0)
-        ->and($audit['product_effects'][0]['after_opening_qty'])->toEqual(4.0)
-        ->and($audit['product_effects'][0]['missing_outward'])->toEqual(14.0)
-        ->and($audit['product_effects'][0]['expected_closing'])->toEqual(32.0)
+        ->and($audit['blocked_lines'])->toBe(0)
+        ->and($effect['opening_date'])->toBe('2026-09-06')
+        ->and($effect['opening_qty'])->toEqual(46.0)
+        ->and($effect['production_inward_qty'])->toEqual(0.0)
+        ->and($effect['returns_positive_qty'])->toEqual(0.0)
+        ->and($effect['outward_negative_adj_qty'])->toEqual(0.0)
+        ->and($effect['ignore_before_qty'])->toEqual(8.0)
+        ->and($effect['on_opening_date_qty'])->toEqual(10.0)
+        ->and($effect['after_opening_qty'])->toEqual(4.0)
+        ->and($effect['confirmed_dispatch_qty'])->toEqual(14.0)
+        ->and($effect['missing_outward'])->toEqual(14.0)
+        ->and($effect['expected_current_stock'])->toEqual(32.0)
+        ->and($effect['erp_current_stock'])->toEqual(46.0)
+        ->and($effect['difference'])->toEqual(-14.0)
+        ->and($effect['status'])->toBe('MISMATCH')
         ->and(collect($audit['missing'])->pluck('order_no')->all())->toContain('PG-20260906-0001')
         ->and(collect($audit['ignored'])->pluck('order_id')->all())->toContain($before->id)
         ->and(fgDispatchLedgers($sameDay->id, $product->id))->toHaveCount(0);
@@ -415,4 +424,212 @@ it('deducts finished stock when dispatching with transport details', function ()
 
     expect((float) $product->fresh()->current_finished_stock)->toBe(16.0)
         ->and(fgDispatchLedgers($order->id, $product->id))->toHaveCount(1);
+});
+
+it('includes production inward and adjustments in reconstructed expected stock', function () {
+    $employee = fgDispatchEmployee(UserRole::Employee, '9400000113');
+    $dealer = fgDispatchDealer($employee->id, '9400001113');
+    $product = fgDispatchProduct('DSP-FG-9', 46);
+
+    StockLedger::query()->create([
+        'transaction_date' => '2026-09-06',
+        'transaction_type' => StockTransactionType::OpeningStock,
+        'item_type' => StockItemType::FinishedProduct,
+        'product_id' => $product->id,
+        'quantity_in' => 46,
+        'quantity_out' => 0,
+        'stock_before' => 0,
+        'stock_after' => 46,
+        'rate' => 25,
+        'transaction_value' => 1150,
+        'remarks' => 'Opening Stock',
+    ]);
+    StockLedger::query()->create([
+        'transaction_date' => '2026-09-07',
+        'transaction_type' => StockTransactionType::ProductionOutput,
+        'item_type' => StockItemType::FinishedProduct,
+        'product_id' => $product->id,
+        'quantity_in' => 20,
+        'quantity_out' => 0,
+        'stock_before' => 46,
+        'stock_after' => 66,
+        'rate' => 25,
+        'transaction_value' => 500,
+        'remarks' => 'Production',
+    ]);
+    StockLedger::query()->create([
+        'transaction_date' => '2026-09-08',
+        'transaction_type' => StockTransactionType::StockAdjustment,
+        'item_type' => StockItemType::FinishedProduct,
+        'product_id' => $product->id,
+        'quantity_in' => 0,
+        'quantity_out' => 2,
+        'stock_before' => 66,
+        'stock_after' => 64,
+        'rate' => 25,
+        'transaction_value' => 50,
+        'remarks' => 'Adjustment',
+    ]);
+    $product->forceFill(['current_finished_stock' => 64])->save();
+
+    $order = fgDispatchOrder($employee->id, $dealer->id, Order::STATUS_DISPATCHED, 'ORD-DSP-9001', '2026-09-08');
+    $order->forceFill([
+        'dispatched_at' => Carbon::parse('2026-09-08 14:00:00', 'Asia/Kolkata'),
+        'dispatch_date' => '2026-09-08',
+    ])->saveQuietly();
+    fgDispatchLine($order, $product, 10);
+
+    $effect = app(OrderDispatchStockService::class)->auditMissing((int) $order->id)['product_effects'][0];
+
+    expect($effect['opening_qty'])->toEqual(46.0)
+        ->and($effect['production_inward_qty'])->toEqual(20.0)
+        ->and($effect['returns_positive_qty'])->toEqual(0.0)
+        ->and($effect['outward_negative_adj_qty'])->toEqual(2.0)
+        ->and($effect['adjustments_returns_qty'])->toEqual(-2.0)
+        ->and($effect['confirmed_dispatch_qty'])->toEqual(10.0)
+        ->and($effect['expected_current_stock'])->toEqual(54.0)
+        ->and($effect['erp_current_stock'])->toEqual(64.0)
+        ->and($effect['difference'])->toEqual(-10.0)
+        ->and($effect['status'])->toBe('MISMATCH');
+});
+
+it('lists every finished product in dry-run reconciliation and splits returns from outward adjustments', function () {
+    $employee = fgDispatchEmployee(UserRole::Employee, '9400000117');
+    $dealer = fgDispatchDealer($employee->id, '9400001117');
+    $active = fgDispatchProduct('DSP-FG-12', 10);
+    $idle = fgDispatchProduct('DSP-FG-13', 8);
+    $active->forceFill(['product_name' => 'ACTIVE RECON FG-12'])->save();
+    $idle->forceFill(['product_name' => 'IDLE RECON FG-13'])->save();
+
+    foreach ([[$active, 10], [$idle, 8]] as [$product, $opening]) {
+        StockLedger::query()->create([
+            'transaction_date' => '2026-09-06',
+            'transaction_type' => StockTransactionType::OpeningStock,
+            'item_type' => StockItemType::FinishedProduct,
+            'product_id' => $product->id,
+            'quantity_in' => $opening,
+            'quantity_out' => 0,
+            'stock_before' => 0,
+            'stock_after' => $opening,
+            'rate' => 25,
+            'transaction_value' => $opening * 25,
+            'remarks' => 'Opening Stock',
+        ]);
+    }
+
+    StockLedger::query()->create([
+        'transaction_date' => '2026-09-07',
+        'transaction_type' => StockTransactionType::Return,
+        'item_type' => StockItemType::FinishedProduct,
+        'product_id' => $active->id,
+        'quantity_in' => 2,
+        'quantity_out' => 0,
+        'stock_before' => 10,
+        'stock_after' => 12,
+        'rate' => 25,
+        'transaction_value' => 50,
+        'remarks' => 'Sales return',
+    ]);
+    $active->forceFill(['current_finished_stock' => 12])->save();
+
+    $before = fgDispatchOrder($employee->id, $dealer->id, Order::STATUS_DISPATCHED, 'ORD-DSP-12000', '2026-09-05');
+    $before->forceFill([
+        'dispatched_at' => Carbon::parse('2026-09-05 09:00:00', 'Asia/Kolkata'),
+        'dispatch_date' => '2026-09-05',
+    ])->saveQuietly();
+    fgDispatchLine($before, $active, 4);
+
+    $dispatched = fgDispatchOrder($employee->id, $dealer->id, Order::STATUS_DISPATCHED, 'ORD-DSP-12001', '2026-09-06');
+    $dispatched->forceFill([
+        'dispatched_at' => Carbon::parse('2026-09-06 15:00:00', 'Asia/Kolkata'),
+        'dispatch_date' => '2026-09-06',
+    ])->saveQuietly();
+    fgDispatchLine($dispatched, $active, 6);
+
+    $effects = collect(app(OrderDispatchStockService::class)->auditMissing(null, [], true)['product_effects'])
+        ->keyBy('product_name');
+    $idle = $effects['IDLE RECON FG-13'];
+    $activeRow = $effects['ACTIVE RECON FG-12'];
+
+    expect($effects->keys())->toContain('ACTIVE RECON FG-12', 'IDLE RECON FG-13')
+        ->and($idle['opening_qty'])->toEqual(8.0)
+        ->and($idle['production_inward_qty'])->toEqual(0.0)
+        ->and($idle['returns_positive_qty'])->toEqual(0.0)
+        ->and($idle['outward_negative_adj_qty'])->toEqual(0.0)
+        ->and($idle['confirmed_dispatch_qty'])->toEqual(0.0)
+        ->and($idle['expected_current_stock'])->toEqual(8.0)
+        ->and($idle['status'])->toBe('MATCH')
+        ->and($activeRow['returns_positive_qty'])->toEqual(2.0)
+        ->and($activeRow['confirmed_dispatch_qty'])->toEqual(6.0)
+        ->and($activeRow['ignore_before_qty'])->toEqual(4.0)
+        ->and($activeRow['expected_current_stock'])->toEqual(6.0)
+        ->and($activeRow['status'])->toBe('MISMATCH');
+});
+
+it('posts historical dispatched lines even when reconstructed stock goes negative', function () {
+    $employee = fgDispatchEmployee(UserRole::Employee, '9400000114');
+    $dealer = fgDispatchDealer($employee->id, '9400001114');
+    $product = fgDispatchProduct('DSP-FG-10', 5);
+
+    StockLedger::query()->create([
+        'transaction_date' => '2026-09-06',
+        'transaction_type' => StockTransactionType::OpeningStock,
+        'item_type' => StockItemType::FinishedProduct,
+        'product_id' => $product->id,
+        'quantity_in' => 5,
+        'quantity_out' => 0,
+        'stock_before' => 0,
+        'stock_after' => 5,
+        'rate' => 25,
+        'transaction_value' => 125,
+        'remarks' => 'Opening Stock',
+    ]);
+
+    $order = fgDispatchOrder($employee->id, $dealer->id, Order::STATUS_DISPATCHED, 'ORD-DSP-10001', '2026-09-06');
+    $order->forceFill([
+        'dispatched_at' => Carbon::parse('2026-09-06 16:00:00', 'Asia/Kolkata'),
+        'dispatch_date' => '2026-09-06',
+    ])->saveQuietly();
+    fgDispatchLine($order, $product, 20);
+
+    $service = app(OrderDispatchStockService::class);
+    $audit = $service->auditMissing((int) $order->id);
+    $effect = $audit['product_effects'][0];
+
+    expect($audit['missing_lines'])->toBe(1)
+        ->and($audit['blocked_lines'])->toBe(0)
+        ->and($audit['negative_lines'])->toBe(1)
+        ->and($audit['missing'][0]['would_go_negative'])->toBeTrue()
+        ->and($audit['missing'][0]['review_flag'])->toBe('NEGATIVE STOCK / NEEDS REVIEW')
+        ->and($effect['expected_current_stock'])->toEqual(-15.0)
+        ->and($effect['status'])->toBe('NEGATIVE')
+        ->and(fgDispatchLedgers($order->id, $product->id))->toHaveCount(0);
+
+    $posted = $service->postMissingForDispatchedOrders((int) $order->id);
+
+    expect($posted['posted'])->toBe(1)
+        ->and($posted['failed'])->toBe(0)
+        ->and((float) $product->fresh()->current_finished_stock)->toBe(-15.0)
+        ->and((float) fgDispatchLedgers($order->id, $product->id)->first()->quantity_out)->toBe(20.0)
+        ->and((float) fgDispatchLedgers($order->id, $product->id)->first()->stock_after)->toBe(-15.0);
+});
+
+it('does not allow a new billed order to dispatch when finished stock is insufficient', function () {
+    $employee = fgDispatchEmployee(UserRole::Employee, '9400000115');
+    $production = fgDispatchEmployee(UserRole::ProductionSupervisor, '9400000116');
+    $dealer = fgDispatchDealer($employee->id, '9400001115');
+    $product = fgDispatchProduct('DSP-FG-11', 5);
+
+    $order = fgDispatchOrder($employee->id, $dealer->id, Order::STATUS_BILLED, 'ORD-DSP-11001', '2026-09-09');
+    fgDispatchLine($order, $product, 20);
+
+    expect(fn () => app(DispatchOrder::class)->execute(
+        order: $order->fresh(),
+        actor: $production->user,
+        remark: 'No stock',
+    ))->toThrow(\Illuminate\Validation\ValidationException::class);
+
+    expect($order->fresh()->status)->toBe(Order::STATUS_BILLED)
+        ->and(fgDispatchLedgers($order->id, $product->id))->toHaveCount(0)
+        ->and((float) $product->fresh()->current_finished_stock)->toBe(5.0);
 });

@@ -18,6 +18,8 @@ use Illuminate\Validation\ValidationException;
  */
 final class OrderDispatchStockService
 {
+    public const RECONCILIATION_START_DATE = '2026-09-06';
+
     public function __construct(
         private readonly StockLedgerService $ledgerService = new StockLedgerService,
         private readonly InventoryService $inventoryService = new InventoryService,
@@ -43,7 +45,7 @@ final class OrderDispatchStockService
 
             foreach ($this->sortedProductIds($qtyByProduct) as $productId) {
                 $qty = $qtyByProduct[$productId];
-                $this->postProductOutward($locked, $productId, $qty, $actor);
+                $this->postProductOutward($locked, $productId, $qty, $actor, allowNegative: false);
             }
         });
     }
@@ -99,9 +101,9 @@ final class OrderDispatchStockService
     }
 
     /**
-     * Read-only audit of dispatched orders missing FG outward ledgers.
-     * Pre-opening dispatches (dispatch date < opening as-on date) are ignored.
-     * Same-day and later dispatches are included; opening is the start-of-day balance.
+     * Read-only reconciliation from the confirmed ERP start date (06-09-2026).
+     * Pre-start dispatches are ignored (already inside opening). Same-day and later
+     * confirmed dispatches are included even if reconstructed stock goes negative.
      *
      * @param  list<string>  $productNames
      * @return array{
@@ -110,21 +112,23 @@ final class OrderDispatchStockService
      *     missing_lines: int,
      *     ignored_pre_opening_lines: int,
      *     blocked_lines: int,
+     *     negative_lines: int,
      *     zero_qty_lines: int,
+     *     reconciliation_start_date: string,
      *     missing: list<array<string, mixed>>,
      *     ignored: list<array<string, mixed>>,
      *     product_effects: list<array<string, mixed>>
      * }
      */
-    public function auditMissing(?int $orderId = null, array $productNames = []): array
+    public function auditMissing(?int $orderId = null, array $productNames = [], bool $includeAllFinishedProducts = false): array
     {
+        $startDate = self::RECONCILIATION_START_DATE;
         $orders = $this->eligibleDispatchedOrders($orderId);
         $missing = [];
         $ignored = [];
         $alreadyPosted = 0;
         $zeroQty = 0;
         $simulated = [];
-        $openings = [];
 
         foreach ($orders as $order) {
             $order->loadMissing(['items.product:id,product_name,product_code,nos_per_case,current_finished_stock']);
@@ -151,32 +155,11 @@ final class OrderDispatchStockService
                     continue;
                 }
 
-                if (! array_key_exists($productId, $openings)) {
-                    $openings[$productId] = $this->openingStockSnapshot($productId);
-                }
-                $opening = $openings[$productId];
-
                 if (! array_key_exists($productId, $simulated)) {
-                    $stockNow = $this->currentFinishedStock($productId, $product);
-                    $postOpeningNet = $opening['date'] === null
-                        ? $stockNow
-                        : $this->postOpeningLedgerNet($productId, $opening['date']);
-                    $simulated[$productId] = [
-                        'product_id' => $productId,
-                        'product_code' => (string) ($product?->product_code ?? ''),
-                        'product_name' => (string) ($product?->product_name ?? 'Product #'.$productId),
-                        'opening_date' => $opening['date'],
-                        'opening_qty' => $opening['qty'],
-                        'stock_now' => $stockNow,
-                        'ignore_before_qty' => 0.0,
-                        'on_opening_date_qty' => 0.0,
-                        'after_opening_qty' => 0.0,
-                        'missing_outward' => 0.0,
-                        'post_opening_ledger_net' => $postOpeningNet,
-                    ];
+                    $simulated[$productId] = $this->newProductAuditState($productId, $product);
                 }
 
-                $bucket = $this->dispatchOpeningBucket($dispatchDate, $opening['date']);
+                $bucket = $this->dispatchOpeningBucket($dispatchDate, $startDate);
                 if ($bucket === 'before') {
                     $simulated[$productId]['ignore_before_qty'] = round(
                         (float) $simulated[$productId]['ignore_before_qty'] + $qty,
@@ -189,14 +172,8 @@ final class OrderDispatchStockService
                         'product_id' => $productId,
                         'product_name' => $simulated[$productId]['product_name'],
                         'qty_nos' => $qty,
-                        'reason' => 'Dispatch date is before opening stock as-on date '.$opening['date'].'.',
+                        'reason' => 'Dispatch date is before reconciliation start date '.$startDate.'.',
                     ];
-
-                    continue;
-                }
-
-                if ($this->hasLedger((int) $order->id, $productId, StockTransactionType::Dispatch, true)) {
-                    $alreadyPosted++;
 
                     continue;
                 }
@@ -215,11 +192,26 @@ final class OrderDispatchStockService
 
                 $stockBefore = round(
                     (float) $simulated[$productId]['opening_qty']
-                    + (float) $simulated[$productId]['post_opening_ledger_net']
-                    - (float) $simulated[$productId]['missing_outward'],
+                    + (float) $simulated[$productId]['production_inward_qty']
+                    + (float) $simulated[$productId]['returns_positive_qty']
+                    - (float) $simulated[$productId]['outward_negative_adj_qty']
+                    - (float) $simulated[$productId]['confirmed_dispatch_qty'],
                     3,
                 );
-                $blocked = $stockBefore + 0.0001 < $qty;
+                $stockAfter = round($stockBefore - $qty, 3);
+                $goesNegative = $stockAfter < -0.0001;
+
+                $simulated[$productId]['confirmed_dispatch_qty'] = round(
+                    (float) $simulated[$productId]['confirmed_dispatch_qty'] + $qty,
+                    3,
+                );
+
+                if ($this->hasLedger((int) $order->id, $productId, StockTransactionType::Dispatch, true)) {
+                    $alreadyPosted++;
+
+                    continue;
+                }
+
                 $simulated[$productId]['missing_outward'] = round(
                     (float) $simulated[$productId]['missing_outward'] + $qty,
                     3,
@@ -232,27 +224,35 @@ final class OrderDispatchStockService
                     'product_id' => $productId,
                     'product_code' => $simulated[$productId]['product_code'],
                     'product_name' => $simulated[$productId]['product_name'],
-                    'opening_date' => $opening['date'],
+                    'opening_date' => $startDate,
                     'period' => $bucket,
                     'qty_nos' => $qty,
                     'stock_before' => $stockBefore,
-                    'expected_stock_after' => round($stockBefore - $qty, 3),
-                    'blocked' => $blocked,
-                    'block_reason' => $blocked
-                        ? 'Insufficient finished stock ('.$stockBefore.' available, '.$qty.' required).'
-                        : null,
+                    'expected_stock_after' => $stockAfter,
+                    'blocked' => false,
+                    'would_go_negative' => $goesNegative,
+                    'block_reason' => null,
+                    'review_flag' => $goesNegative ? 'NEGATIVE STOCK / NEEDS REVIEW' : null,
                 ];
             }
         }
 
+        if ($includeAllFinishedProducts && $orderId === null) {
+            $this->includeRemainingFinishedProducts($simulated, $productNames);
+        }
+
         $productEffects = [];
         foreach ($simulated as $row) {
-            if (
-                (float) $row['missing_outward'] <= 0
-                && (float) $row['ignore_before_qty'] <= 0
-            ) {
-                continue;
-            }
+            $expected = round(
+                (float) $row['opening_qty']
+                + (float) $row['production_inward_qty']
+                + (float) $row['returns_positive_qty']
+                - (float) $row['outward_negative_adj_qty']
+                - (float) $row['confirmed_dispatch_qty'],
+                3,
+            );
+            $erp = (float) $row['erp_current_stock'];
+            $difference = round($expected - $erp, 3);
 
             $productEffects[] = [
                 'product_id' => $row['product_id'],
@@ -260,29 +260,46 @@ final class OrderDispatchStockService
                 'product_name' => $row['product_name'],
                 'opening_date' => $row['opening_date'],
                 'opening_qty' => $row['opening_qty'],
+                'production_inward_qty' => $row['production_inward_qty'],
+                'returns_positive_qty' => $row['returns_positive_qty'],
+                'outward_negative_adj_qty' => $row['outward_negative_adj_qty'],
+                'adjustments_returns_qty' => round(
+                    (float) $row['returns_positive_qty'] - (float) $row['outward_negative_adj_qty'],
+                    3,
+                ),
                 'ignore_before_qty' => $row['ignore_before_qty'],
                 'on_opening_date_qty' => $row['on_opening_date_qty'],
                 'after_opening_qty' => $row['after_opening_qty'],
+                'confirmed_dispatch_qty' => $row['confirmed_dispatch_qty'],
                 'missing_outward' => $row['missing_outward'],
-                'stock_now' => $row['stock_now'],
-                'expected_closing' => round(
-                    (float) $row['opening_qty']
-                    + (float) $row['post_opening_ledger_net']
-                    - (float) $row['missing_outward'],
-                    3,
-                ),
+                'stock_now' => $erp,
+                'erp_current_stock' => $erp,
+                'expected_closing' => $expected,
+                'expected_current_stock' => $expected,
+                'difference' => $difference,
+                'status' => $this->reconciliationStatus($expected, $erp),
             ];
         }
 
-        $blocked = count(array_filter($missing, fn (array $row): bool => (bool) $row['blocked']));
+        usort(
+            $productEffects,
+            fn (array $a, array $b): int => strcasecmp((string) $a['product_name'], (string) $b['product_name']),
+        );
+
+        $negativeLines = count(array_filter(
+            $missing,
+            fn (array $row): bool => (bool) $row['would_go_negative'],
+        ));
 
         return [
             'scanned_orders' => $orders->count(),
             'already_posted_lines' => $alreadyPosted,
             'missing_lines' => count($missing),
             'ignored_pre_opening_lines' => count($ignored),
-            'blocked_lines' => $blocked,
+            'blocked_lines' => 0,
+            'negative_lines' => $negativeLines,
             'zero_qty_lines' => $zeroQty,
+            'reconciliation_start_date' => $startDate,
             'missing' => $missing,
             'ignored' => $ignored,
             'product_effects' => $productEffects,
@@ -304,17 +321,6 @@ final class OrderDispatchStockService
         $failedOrders = [];
 
         foreach ($audit['missing'] as $row) {
-            if ($row['blocked']) {
-                $failed++;
-                $failedOrders[] = [
-                    'order_id' => (int) $row['order_id'],
-                    'order_no' => (string) $row['order_no'],
-                    'error' => (string) $row['block_reason'],
-                ];
-
-                continue;
-            }
-
             $order = Order::query()->with('items.product')->find((int) $row['order_id']);
             if ($order === null) {
                 $skipped++;
@@ -406,14 +412,26 @@ final class OrderDispatchStockService
         return $ids;
     }
 
-    private function postProductOutward(Order $order, int $productId, float $qty, ?User $actor): void
-    {
+    private function postProductOutward(
+        Order $order,
+        int $productId,
+        float $qty,
+        ?User $actor,
+        bool $allowNegative = false,
+    ): void {
         if ($this->hasLedger($order->id, $productId, StockTransactionType::Dispatch, true)) {
             return;
         }
 
         $product = $this->inventoryService->lockProduct($productId);
         $rate = (float) $product->weighted_average_cost;
+        $remarks = 'Sales order dispatch '.$order->order_no;
+        if ($allowNegative) {
+            $projected = round((float) $product->current_finished_stock - $qty, 3);
+            if ($projected < -0.0001) {
+                $remarks .= ' [STOCK MISMATCH / NEGATIVE STOCK / NEEDS REVIEW]';
+            }
+        }
 
         $this->ledgerService->postFinishedProductMovement(
             $product,
@@ -426,7 +444,8 @@ final class OrderDispatchStockService
                 'reference_type' => Order::class,
                 'reference_id' => $order->id,
                 'reference_number' => $order->order_no,
-                'remarks' => 'Sales order dispatch '.$order->order_no,
+                'remarks' => $remarks,
+                'allow_negative_stock' => $allowNegative,
             ],
             $actor,
         );
@@ -448,7 +467,7 @@ final class OrderDispatchStockService
                 return;
             }
 
-            $this->postProductOutward($locked, $productId, $qty, $this->actorFor($locked));
+            $this->postProductOutward($locked, $productId, $qty, $this->actorFor($locked), allowNegative: true);
         });
     }
 
@@ -495,39 +514,80 @@ final class OrderDispatchStockService
     }
 
     /**
-     * @return array{date: ?string, qty: float}
+     * @return array<string, mixed>
      */
-    private function openingStockSnapshot(int $productId): array
+    private function newProductAuditState(int $productId, ?Product $product): array
     {
-        $ledger = StockLedger::query()
-            ->where('item_type', StockItemType::FinishedProduct)
-            ->where('product_id', $productId)
-            ->where('transaction_type', StockTransactionType::OpeningStock)
-            ->orderBy('transaction_date')
-            ->orderBy('id')
-            ->first();
-
-        if ($ledger === null) {
-            return ['date' => null, 'qty' => 0.0];
-        }
+        $buckets = $this->postStartLedgerBuckets($productId);
 
         return [
-            'date' => $ledger->transaction_date?->toDateString(),
-            'qty' => round((float) $ledger->quantity_in, 3),
+            'product_id' => $productId,
+            'product_code' => (string) ($product?->product_code ?? ''),
+            'product_name' => (string) ($product?->product_name ?? 'Product #'.$productId),
+            'opening_date' => self::RECONCILIATION_START_DATE,
+            'opening_qty' => $this->openingQtyOnStartDate($productId),
+            'production_inward_qty' => $buckets['production_inward'],
+            'returns_positive_qty' => $buckets['returns_positive'],
+            'outward_negative_adj_qty' => $buckets['outward_negative'],
+            'adjustments_returns_qty' => round($buckets['returns_positive'] - $buckets['outward_negative'], 3),
+            'erp_current_stock' => $this->currentFinishedStock($productId, $product),
+            'ignore_before_qty' => 0.0,
+            'on_opening_date_qty' => 0.0,
+            'after_opening_qty' => 0.0,
+            'confirmed_dispatch_qty' => 0.0,
+            'missing_outward' => 0.0,
         ];
     }
 
-    /**
-     * Ledger qty after the opening row on the as-on date (opening is start-of-day).
-     * Includes same-day non-opening movements and all later ledgers.
-     */
-    private function postOpeningLedgerNet(int $productId, ?string $openingDate): float
+    private function openingQtyOnStartDate(int $productId): float
     {
-        if ($openingDate === null) {
-            return $this->currentFinishedStock($productId, null);
-        }
+        $qty = StockLedger::query()
+            ->where('item_type', StockItemType::FinishedProduct)
+            ->where('product_id', $productId)
+            ->where('transaction_type', StockTransactionType::OpeningStock)
+            ->whereDate('transaction_date', self::RECONCILIATION_START_DATE)
+            ->orderBy('id')
+            ->value('quantity_in');
 
-        $net = 0.0;
+        return round((float) ($qty ?? 0), 3);
+    }
+
+    /**
+     * @param  array<int, array<string, mixed>>  $simulated
+     * @param  list<string>  $productNames
+     */
+    private function includeRemainingFinishedProducts(array &$simulated, array $productNames): void
+    {
+        $products = Product::query()
+            ->inFinishedInventory()
+            ->orderBy('product_name')
+            ->get(['id', 'product_name', 'product_code', 'current_finished_stock']);
+
+        foreach ($products as $product) {
+            if (! $this->productNameMatches($product->product_name, $productNames)) {
+                continue;
+            }
+
+            $productId = (int) $product->id;
+            if (! array_key_exists($productId, $simulated)) {
+                $simulated[$productId] = $this->newProductAuditState($productId, $product);
+            }
+        }
+    }
+
+    /**
+     * Ledger movements on/after 06-09-2026 excluding opening and dispatch
+     * (dispatch qty comes from confirmed sales orders).
+     *
+     * @return array{production_inward: float, returns_positive: float, outward_negative: float}
+     */
+    private function postStartLedgerBuckets(int $productId): array
+    {
+        $startDate = self::RECONCILIATION_START_DATE;
+        $productionInward = 0.0;
+        $returnsPositive = 0.0;
+        $outwardNegative = 0.0;
+
         $ledgers = StockLedger::query()
             ->where('item_type', StockItemType::FinishedProduct)
             ->where('product_id', $productId)
@@ -537,21 +597,50 @@ final class OrderDispatchStockService
 
         foreach ($ledgers as $ledger) {
             $date = $ledger->transaction_date?->toDateString();
-            if ($date === null || $date < $openingDate) {
+            if ($date === null || $date < $startDate) {
                 continue;
             }
 
-            if ($date === $openingDate && $ledger->transaction_type === StockTransactionType::OpeningStock) {
+            if ($date === $startDate && $ledger->transaction_type === StockTransactionType::OpeningStock) {
                 continue;
             }
 
-            $net = round(
-                $net + (float) $ledger->quantity_in - (float) $ledger->quantity_out,
-                3,
-            );
+            if ($ledger->transaction_type === StockTransactionType::Dispatch) {
+                continue;
+            }
+
+            $qtyIn = round((float) $ledger->quantity_in, 3);
+            $qtyOut = round((float) $ledger->quantity_out, 3);
+
+            if (in_array($ledger->transaction_type, [
+                StockTransactionType::ProductionOutput,
+                StockTransactionType::Purchase,
+            ], true)) {
+                $productionInward = round($productionInward + $qtyIn - $qtyOut, 3);
+            } else {
+                $returnsPositive = round($returnsPositive + $qtyIn, 3);
+                $outwardNegative = round($outwardNegative + $qtyOut, 3);
+            }
         }
 
-        return $net;
+        return [
+            'production_inward' => $productionInward,
+            'returns_positive' => $returnsPositive,
+            'outward_negative' => $outwardNegative,
+        ];
+    }
+
+    private function reconciliationStatus(float $expected, float $erpCurrent): string
+    {
+        if ($expected < -0.0001) {
+            return 'NEGATIVE';
+        }
+
+        if (abs($expected - $erpCurrent) < 0.001) {
+            return 'MATCH';
+        }
+
+        return 'MISMATCH';
     }
 
     /**
@@ -559,9 +648,7 @@ final class OrderDispatchStockService
      */
     private function dispatchOpeningBucket(string $dispatchDate, ?string $openingDate): string
     {
-        if ($openingDate === null || $openingDate === '') {
-            return 'after';
-        }
+        $openingDate = $openingDate ?: self::RECONCILIATION_START_DATE;
 
         if ($dispatchDate < $openingDate) {
             return 'before';
@@ -612,12 +699,12 @@ final class OrderDispatchStockService
             ->value('stock_after');
 
         if ($latest !== null) {
-            return max(0.0, round((float) $latest, 3));
+            return round((float) $latest, 3);
         }
 
         $product ??= Product::query()->find($productId);
 
-        return max(0.0, round((float) ($product?->current_finished_stock ?? 0), 3));
+        return round((float) ($product?->current_finished_stock ?? 0), 3);
     }
 
     private function transactionDate(Order $order): string

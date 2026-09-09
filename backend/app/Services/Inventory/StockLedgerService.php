@@ -171,14 +171,17 @@ final class StockLedgerService
     ): StockLedger {
         $stockBefore = (float) $product->current_finished_stock;
         $stockAfter = round($stockBefore + $quantityIn - $quantityOut, 3);
+        $allowNegative = (bool) ($meta['allow_negative_stock'] ?? false);
 
-        if ($stockAfter < -0.0001) {
+        if ($stockAfter < -0.0001 && ! $allowNegative) {
             throw ValidationException::withMessages([
                 'stock' => "Insufficient finished stock for {$product->product_name}. Available: {$stockBefore}.",
             ]);
         }
 
-        $stockAfter = max(0, $stockAfter);
+        if (! $allowNegative) {
+            $stockAfter = max(0, $stockAfter);
+        }
         $averageBefore = (float) $product->weighted_average_cost;
         $this->applyFinishedProductWeightedAverage(
             $product,
