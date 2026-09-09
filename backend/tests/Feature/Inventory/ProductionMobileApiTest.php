@@ -229,6 +229,7 @@ it('returns structured inventory dashboard cards for production supervisor', fun
             'data' => [
                 'cards' => [
                     'raw_material' => ['item_count', 'stock_value'],
+                    'packaging_material' => ['item_count', 'stock_value'],
                     'semi_finished' => ['item_count', 'stock_value'],
                     'finished_product' => ['item_count', 'stock_value'],
                     'today_production' => ['entry_count', 'produced_qty', 'produced_qty_unit_safe'],
@@ -1013,5 +1014,60 @@ it('downloads the same production batch sheet pdf after confirm', function () {
     expect($readable)->toContain('PRODUCTION BATCH SHEET')
         ->and($readable)->toContain($batch['batch_number'])
         ->and($readable)->toContain('Primary Alloy');
+});
+
+it('gives director inventory view permissions without production posting', function (): void {
+    $permissions = UserRole::Director->mobilePermissions();
+
+    expect($permissions)->toContain('inventory_view')
+        ->and($permissions)->toContain('stock_report_view')
+        ->and($permissions)->toContain('production_history_view')
+        ->and($permissions)->not->toContain('production_create')
+        ->and($permissions)->not->toContain('production_complete');
+});
+
+it('allows director to view inventory dashboard and all stock report types', function (): void {
+    seedMobileProductionFixture();
+    $director = mobileApiDirector();
+
+    $this->actingAs($director, 'sanctum')
+        ->getJson('/api/production/inventory/dashboard')
+        ->assertOk()
+        ->assertJsonPath('success', true)
+        ->assertJsonStructure([
+            'data' => [
+                'cards' => [
+                    'raw_material' => ['item_count', 'stock_value'],
+                    'packaging_material' => ['item_count', 'stock_value'],
+                    'semi_finished' => ['item_count', 'stock_value'],
+                    'finished_product' => ['item_count', 'stock_value'],
+                ],
+            ],
+        ]);
+
+    foreach ([
+        'raw_material',
+        'packaging_material',
+        'semi_finished',
+        'finished_product',
+    ] as $type) {
+        $this->actingAs($director, 'sanctum')
+            ->getJson('/api/production/inventory/stock-report?inventory_type='.$type)
+            ->assertOk()
+            ->assertJsonPath('success', true);
+    }
+});
+
+it('forbids director from creating inventory masters on mobile', function (): void {
+    $director = mobileApiDirector();
+
+    $this->actingAs($director, 'sanctum')
+        ->postJson('/api/production/inventory/raw-materials', [
+            'material_name' => 'Director Blocked Alloy',
+            'unit' => 'Kg',
+            'minimum_stock' => 1,
+            'status' => true,
+        ])
+        ->assertForbidden();
 });
 

@@ -157,6 +157,14 @@ class EmployeeAuthController extends Controller
             $permissions[] = 'production_cost_view';
         }
 
+        if ($user->canAccessInventoryModule() && ! in_array('inventory_view', $permissions, true)) {
+            $permissions[] = 'inventory_view';
+        }
+
+        if ($user->canAccessInventoryModule() && ! in_array('stock_report_view', $permissions, true)) {
+            $permissions[] = 'stock_report_view';
+        }
+
         return array_values($permissions);
     }
 

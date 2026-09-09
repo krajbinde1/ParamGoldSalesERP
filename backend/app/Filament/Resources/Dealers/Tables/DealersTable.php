@@ -34,7 +34,8 @@ class DealersTable
                 TextColumn::make('dealer_code')
                     ->searchable(),
                 TextColumn::make('firm_name')
-                    ->searchable(),
+                    ->searchable()
+                    ->grow(),
                 TextColumn::make('owner_name')
                     ->searchable()
                     ->placeholder('-'),

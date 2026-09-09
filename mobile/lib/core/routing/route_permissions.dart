@@ -49,7 +49,9 @@ class RoutePermissions {
     }
 
     if (path.startsWith('/production')) {
-      return role.isProductionSupervisor;
+      if (role.isProductionSupervisor) return true;
+      if (role.isDirector) return directorCanAccessProductionPath(path);
+      return false;
     }
 
     if (path.startsWith('/director')) {
@@ -57,5 +59,43 @@ class RoutePermissions {
     }
 
     return true;
+  }
+
+  /// Director may open the same Inventory Stock read screens as Production Supervisor.
+  /// Write/action flows stay Production Supervisor only.
+  static bool directorCanAccessProductionPath(String path) {
+    const blockedPrefixes = [
+      '/production/orders',
+      '/production/entry',
+      '/production/company-transport',
+      '/production/inwards',
+      '/production/packaging-inwards',
+      '/production/material-inward',
+    ];
+    if (blockedPrefixes.any(path.startsWith)) return false;
+
+    if (RegExp(r'/(create|edit|new)(/|$)').hasMatch(path)) return false;
+
+    const allowedPrefixes = [
+      '/production/inventory',
+      '/production/inventory-manufacturing',
+      '/production/stock-report',
+      '/production/stock-ledger',
+      '/production/ledger',
+      '/production/history',
+      '/production/batches',
+      '/production/raw-materials',
+      '/production/packaging-materials',
+      '/production/semi-finished',
+      '/production/finished-goods',
+      '/production/bom',
+      '/production/shortages',
+      '/production/material-masters',
+      '/production/production-hub',
+    ];
+
+    return allowedPrefixes.any(
+      (prefix) => path == prefix || path.startsWith('$prefix/'),
+    );
   }
 }

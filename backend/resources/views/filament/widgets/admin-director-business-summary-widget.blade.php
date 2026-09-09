@@ -5,7 +5,7 @@
 
         <div class="paramgold-summary-grid">
             @foreach ($cards as $card)
-                <a href="{{ $card['url'] }}" class="paramgold-summary-card paramgold-summary-card--{{ $card['color'] }}">
+                <a href="{{ $card['url'] }}" class="paramgold-summary-card paramgold-summary-card--{{ $card['color'] }} paramgold-summary-card--clickable">
                     <p class="paramgold-summary-card__label">{{ $card['label'] }}</p>
                     <p class="paramgold-summary-card__value">{{ $card['value'] }}</p>
                 </a>

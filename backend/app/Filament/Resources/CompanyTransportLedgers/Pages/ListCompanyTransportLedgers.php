@@ -9,12 +9,15 @@ use App\Models\CompanyTransportLedgerEntry;
 use Filament\Actions\Action;
 use Filament\Actions\CreateAction;
 use Filament\Resources\Pages\ListRecords;
+use Livewire\Attributes\On;
 use Maatwebsite\Excel\Facades\Excel;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 
 class ListCompanyTransportLedgers extends ListRecords
 {
     protected static string $resource = CompanyTransportLedgerResource::class;
+
+    public string $ledgerView = 'all';
 
     protected function getHeaderActions(): array
     {
@@ -44,13 +47,25 @@ class ListCompanyTransportLedgers extends ListRecords
     protected function getHeaderWidgets(): array
     {
         return [
-            CompanyTransportLedgerStatsWidget::class,
+            CompanyTransportLedgerStatsWidget::make([
+                'activeView' => $this->ledgerView,
+            ]),
         ];
     }
 
     public function getHeaderWidgetsColumns(): int|array
     {
-        return 3;
+        return 1;
+    }
+
+    #[On('company-transport-ledger-view')]
+    public function applyLedgerView(string $view): void
+    {
+        $this->ledgerView = in_array($view, ['all', 'collected', 'expense'], true)
+            ? $view
+            : 'all';
+
+        $this->resetTable();
     }
 
     public function exportExcel(): BinaryFileResponse

@@ -35,7 +35,10 @@ class OrderEditPermissionRequestsTable
                 TextColumn::make('reason')
                     ->label('Reason')
                     ->limit(40)
-                    ->wrap()
+                    ->tooltip(fn (OrderEditPermissionRequest $record): ?string => filled($record->reason) && mb_strlen((string) $record->reason) > 40
+                        ? (string) $record->reason
+                        : null)
+                    ->grow()
                     ->placeholder('—'),
                 TextColumn::make('status')
                     ->label('Status')

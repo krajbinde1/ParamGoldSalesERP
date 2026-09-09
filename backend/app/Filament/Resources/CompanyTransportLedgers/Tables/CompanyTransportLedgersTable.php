@@ -2,9 +2,12 @@
 
 namespace App\Filament\Resources\CompanyTransportLedgers\Tables;
 
+use App\Enums\CompanyTransportEntryKind;
 use App\Enums\CompanyTransportExpenseType;
+use App\Enums\CompanyTransportLedgerSource;
 use App\Enums\TransportChargeType;
 use App\Filament\Resources\CompanyTransportLedgers\CompanyTransportLedgerResource;
+use App\Filament\Resources\CompanyTransportLedgers\Pages\ListCompanyTransportLedgers;
 use App\Models\CompanyTransportLedgerEntry;
 use App\Support\IndianCurrency;
 use Filament\Actions\EditAction;
@@ -16,6 +19,7 @@ use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\Filter;
 use Filament\Tables\Table;
 use Illuminate\Database\Eloquent\Builder;
+use Livewire\Livewire;
 
 class CompanyTransportLedgersTable
 {
@@ -24,21 +28,39 @@ class CompanyTransportLedgersTable
         return $table
             ->defaultSort('transaction_date', 'asc')
             ->modifyQueryUsing(function (Builder $query): Builder {
-                return $query
+                $query
                     ->select('company_transport_ledger_entries.*')
                     ->selectRaw(
                         'ROUND(SUM(credit_amount - debit_amount) OVER (ORDER BY transaction_date ASC, id ASC), 2) as running_balance',
                     );
+
+                $livewire = Livewire::current();
+                $view = $livewire instanceof ListCompanyTransportLedgers
+                    ? $livewire->ledgerView
+                    : 'all';
+
+                return match ($view) {
+                    'collected' => $query->where('entry_kind', CompanyTransportEntryKind::Credit),
+                    'expense' => $query
+                        ->where('entry_kind', CompanyTransportEntryKind::Debit)
+                        ->where('source', CompanyTransportLedgerSource::Expense),
+                    default => $query,
+                };
             })
             ->columns([
                 TextColumn::make('transaction_date')
                     ->label('Date')
                     ->date('d M Y')
-                    ->sortable(),
+                    ->sortable()
+                    ->width('7.5rem'),
                 TextColumn::make('particulars')
                     ->label('Particulars')
                     ->searchable()
-                    ->wrap(),
+                    ->limit(48)
+                    ->tooltip(fn (CompanyTransportLedgerEntry $record): ?string => filled($record->particulars) && mb_strlen((string) $record->particulars) > 48
+                        ? (string) $record->particulars
+                        : null)
+                    ->grow(),
                 TextColumn::make('order_no')
                     ->label('Order No.')
                     ->searchable()
@@ -56,19 +78,22 @@ class CompanyTransportLedgersTable
                     ->placeholder('—'),
                 TextColumn::make('debit_amount')
                     ->label('Debit')
-                    ->alignRight()
+                    ->alignEnd()
+                    ->width('8rem')
                     ->formatStateUsing(fn ($state): string => (float) $state > 0.004
                         ? IndianCurrency::formatExact((float) $state)
                         : ''),
                 TextColumn::make('credit_amount')
                     ->label('Credit')
-                    ->alignRight()
+                    ->alignEnd()
+                    ->width('8rem')
                     ->formatStateUsing(fn ($state): string => (float) $state > 0.004
                         ? IndianCurrency::formatExact((float) $state)
                         : ''),
                 TextColumn::make('running_balance')
                     ->label('Running Balance')
-                    ->alignRight()
+                    ->alignEnd()
+                    ->width('9rem')
                     ->state(fn (CompanyTransportLedgerEntry $record): mixed => $record->getAttribute('running_balance'))
                     ->formatStateUsing(fn ($state): string => $state === null || $state === ''
                         ? '—'

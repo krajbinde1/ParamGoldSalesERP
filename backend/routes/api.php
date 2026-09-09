@@ -200,6 +200,35 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::post('ta-da-claims/{taDaClaim}/reject', [ManagerTaDaClaimController::class, 'reject']);
     });
 
+    Route::middleware('role:production_supervisor,director')->prefix('production')->group(function () {
+        Route::get('inventory/dashboard', InventoryDashboardApiController::class);
+        Route::get('inventory/raw-materials', [RawMaterialApiController::class, 'index']);
+        Route::get('inventory/raw-materials/{rawMaterial}', [RawMaterialApiController::class, 'show']);
+        Route::get('inventory/packaging-materials', [PackagingMaterialApiController::class, 'index']);
+        Route::get('inventory/semi-finished', [SemiFinishedMaterialApiController::class, 'index']);
+        Route::get('inventory/semi-finished/{semiFinishedMaterial}', [SemiFinishedMaterialApiController::class, 'show']);
+        Route::get('inventory/semi-finished/{semiFinishedMaterial}/ledger', [SemiFinishedMaterialApiController::class, 'ledger']);
+        Route::get('inventory/finished-goods', [FinishedGoodsApiController::class, 'index']);
+        Route::get('inventory/shortages', [ShortageApiController::class, 'index']);
+        Route::get('inventory/stock-report', StockReportApiController::class);
+        Route::get('inventory/stock-report/pdf', [StockReportApiController::class, 'pdf']);
+        Route::get('inventory/ledger', [StockItemLedgerApiController::class, 'show']);
+        Route::get('inventory/ledger/export', [StockItemLedgerApiController::class, 'export']);
+        Route::get('inventory/ledger/print', [StockItemLedgerApiController::class, 'print']);
+        Route::get('inventory/ledger/pdf', [StockItemLedgerApiController::class, 'pdf']);
+        Route::get('inventory/stock-ledger', StockLedgerBrowseApiController::class);
+        Route::get('products/manufacturable', [BomApiController::class, 'manufacturableProducts']);
+        Route::get('semi-finished/manufacturable', [BomApiController::class, 'manufacturableSemiFinished']);
+        Route::get('boms', [BomApiController::class, 'index']);
+        Route::get('boms/active', [BomApiController::class, 'activeBom']);
+        Route::get('boms/items/{bomItem}/alternates', [BomApiController::class, 'alternates']);
+        Route::get('boms/{bom}', [BomApiController::class, 'show']);
+        Route::get('batches', [ProductionBatchApiController::class, 'index']);
+        Route::get('batches/{batch}/sheet-pdf', [ProductionBatchApiController::class, 'sheetPdf']);
+        Route::get('batches/{batch}', [ProductionBatchApiController::class, 'show']);
+        Route::get('history', [ProductionBatchApiController::class, 'history']);
+    });
+
     Route::middleware('role:production_supervisor')->prefix('production')->group(function () {
         Route::get('dashboard', ProductionDashboardController::class);
         Route::get('orders', [ProductionOrderController::class, 'index']);
@@ -221,43 +250,17 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::post('company-transport/expenses', [CompanyTransportLedgerApiController::class, 'storeExpense']);
         Route::get('company-transport/entries/{entry}', [CompanyTransportLedgerApiController::class, 'show']);
 
-        Route::get('inventory/dashboard', InventoryDashboardApiController::class);
-        Route::get('inventory/raw-materials', [RawMaterialApiController::class, 'index']);
         Route::post('inventory/raw-materials', [RawMaterialApiController::class, 'store']);
-        Route::get('inventory/raw-materials/{rawMaterial}', [RawMaterialApiController::class, 'show']);
         Route::put('inventory/raw-materials/{rawMaterial}', [RawMaterialApiController::class, 'update']);
-        Route::get('inventory/packaging-materials', [PackagingMaterialApiController::class, 'index']);
-        Route::get('inventory/semi-finished', [SemiFinishedMaterialApiController::class, 'index']);
-        Route::get('inventory/semi-finished/{semiFinishedMaterial}', [SemiFinishedMaterialApiController::class, 'show']);
-        Route::get('inventory/semi-finished/{semiFinishedMaterial}/ledger', [SemiFinishedMaterialApiController::class, 'ledger']);
-        Route::get('inventory/finished-goods', [FinishedGoodsApiController::class, 'index']);
-        Route::get('inventory/shortages', [ShortageApiController::class, 'index']);
-        Route::get('inventory/stock-report', StockReportApiController::class);
-        Route::get('inventory/stock-report/pdf', [StockReportApiController::class, 'pdf']);
-        Route::get('inventory/ledger', [StockItemLedgerApiController::class, 'show']);
-        Route::get('inventory/ledger/export', [StockItemLedgerApiController::class, 'export']);
-        Route::get('inventory/ledger/print', [StockItemLedgerApiController::class, 'print']);
-        Route::get('inventory/ledger/pdf', [StockItemLedgerApiController::class, 'pdf']);
-        Route::get('inventory/stock-ledger', StockLedgerBrowseApiController::class);
-        Route::get('products/manufacturable', [BomApiController::class, 'manufacturableProducts']);
-        Route::get('semi-finished/manufacturable', [BomApiController::class, 'manufacturableSemiFinished']);
-        Route::get('boms', [BomApiController::class, 'index']);
-        Route::get('boms/active', [BomApiController::class, 'activeBom']);
-        Route::get('boms/items/{bomItem}/alternates', [BomApiController::class, 'alternates']);
-        Route::get('boms/{bom}', [BomApiController::class, 'show']);
 
         Route::post('batches/preview', [ProductionBatchApiController::class, 'preview']);
         Route::post('batches/confirm', [ProductionBatchApiController::class, 'confirm']);
-        Route::get('batches', [ProductionBatchApiController::class, 'index']);
         Route::post('batches', [ProductionBatchApiController::class, 'store']);
-        Route::get('batches/{batch}/sheet-pdf', [ProductionBatchApiController::class, 'sheetPdf']);
-        Route::get('batches/{batch}', [ProductionBatchApiController::class, 'show']);
         Route::put('batches/{batch}', [ProductionBatchApiController::class, 'update']);
         Route::post('batches/{batch}/submit-approval', [ProductionBatchApiController::class, 'submitApproval']);
         Route::post('batches/{batch}/start', [ProductionBatchApiController::class, 'start']);
         Route::post('batches/{batch}/complete', [ProductionBatchApiController::class, 'complete']);
         Route::post('batches/{batch}/cancel', [ProductionBatchApiController::class, 'cancel']);
-        Route::get('history', [ProductionBatchApiController::class, 'history']);
 
         Route::get('inwards', [RawMaterialInwardApiController::class, 'index']);
         Route::post('inwards', [RawMaterialInwardApiController::class, 'store']);

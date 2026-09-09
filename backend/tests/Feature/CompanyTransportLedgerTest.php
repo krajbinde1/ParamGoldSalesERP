@@ -11,6 +11,7 @@ use App\Enums\CompanyTransportEntryKind;
 use App\Enums\CompanyTransportExpenseType;
 use App\Enums\CompanyTransportPaymentMode;
 use App\Enums\UserRole;
+use App\Filament\Resources\CompanyTransportLedgers\Pages\ListCompanyTransportLedgers;
 use App\Models\CompanyTransportLedgerEntry;
 use App\Models\Dealer;
 use App\Models\Order;
@@ -18,7 +19,10 @@ use App\Models\User;
 use App\Models\Vehicle;
 use App\Services\Orders\CompanyTransportLedgerService;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Validation\ValidationException;
+use Livewire\Livewire;
 
 function ctlEmployee(UserRole $role, string $mobile): \App\Models\Employee
 {
@@ -296,26 +300,44 @@ it('reverses and reposts credit when dispatched company transport is corrected',
         ->and($summary['current_balance'])->toBe(55.0);
 });
 
-it('lets production supervisor add a debit expense and keeps admin/mobile summary in sync', function () {
+it('lets production supervisor view the expenses ledger without add, edit, or delete', function () {
     $ctx = ctlDispatchedCompanyTransportOrder(40);
     app(DispatchOrder::class)->execute(
         order: $ctx['order']->fresh(),
         actor: $ctx['production']->user,
     );
 
-    $this->actingAs($ctx['production']->user, 'sanctum')
-        ->postJson('/api/production/company-transport/expenses', [
-            'transaction_date' => now('Asia/Kolkata')->toDateString(),
-            'amount' => 15,
-            'expense_type' => CompanyTransportExpenseType::Fuel->value,
-            'vehicle_id' => $ctx['vehicle']->id,
-            'paid_to' => 'HP Petrol Pump',
-            'payment_mode' => CompanyTransportPaymentMode::Cash->value,
-            'remark' => 'Diesel',
-        ])
-        ->assertCreated()
-        ->assertJsonPath('data.entry_kind', 'debit')
-        ->assertJsonPath('data.debit_amount', 15);
+    $expense = app(CompanyTransportLedgerService::class)->recordExpense($ctx['admin'], [
+        'transaction_date' => now('Asia/Kolkata')->toDateString(),
+        'amount' => 15,
+        'expense_type' => CompanyTransportExpenseType::Fuel->value,
+        'vehicle_id' => $ctx['vehicle']->id,
+        'paid_to' => 'HP Petrol Pump',
+        'payment_mode' => CompanyTransportPaymentMode::Cash->value,
+        'remark' => 'Diesel',
+    ]);
+
+    $login = $this->postJson('/api/login', [
+        'login_id' => $ctx['production']->user->login_id,
+        'password' => substr((string) $ctx['production']->mobile, -4),
+        'device_id' => 'ps-ctl-view',
+    ])->assertOk();
+
+    expect($login->json('permissions'))->toContain('company_transport_view')
+        ->and($login->json('permissions'))->not->toContain('company_transport_expense_create')
+        ->and($login->json('user.role'))->toBe(UserRole::ProductionSupervisor->value);
+
+    $me = $this->withToken($login->json('token'))
+        ->getJson('/api/me')
+        ->assertOk()
+        ->json('permissions');
+
+    expect($me)->toContain('company_transport_view')
+        ->and($me)->not->toContain('company_transport_expense_create');
+
+    expect(Gate::forUser($ctx['production']->user)->allows('viewAny', CompanyTransportLedgerEntry::class))->toBeTrue()
+        ->and(Gate::forUser($ctx['production']->user)->allows('create', CompanyTransportLedgerEntry::class))->toBeFalse()
+        ->and(Gate::forUser($ctx['admin'])->allows('create', CompanyTransportLedgerEntry::class))->toBeTrue();
 
     $ledger = $this->actingAs($ctx['production']->user, 'sanctum')
         ->getJson('/api/production/company-transport/ledger')
@@ -325,20 +347,50 @@ it('lets production supervisor add a debit expense and keeps admin/mobile summar
     expect((float) $ledger['summary']['total_collected'])->toBe(40.0)
         ->and((float) $ledger['summary']['total_expense'])->toBe(15.0)
         ->and((float) $ledger['summary']['current_balance'])->toBe(25.0)
-        ->and($ledger['entries'])->toHaveCount(2);
+        ->and($ledger['entries'])->toHaveCount(2)
+        ->and($ledger['lookups']['expense_types'])->not->toBeEmpty();
+
+    $filtered = $this->actingAs($ctx['production']->user, 'sanctum')
+        ->getJson('/api/production/company-transport/ledger?expense_type='.CompanyTransportExpenseType::Fuel->value)
+        ->assertOk()
+        ->json('data');
+
+    expect(collect($filtered['entries'])->pluck('id'))->toContain($expense->id);
+
+    $this->actingAs($ctx['production']->user, 'sanctum')
+        ->getJson('/api/production/company-transport/entries/'.$expense->id)
+        ->assertOk()
+        ->assertJsonPath('data.id', $expense->id)
+        ->assertJsonPath('data.entry_kind', 'debit')
+        ->assertJsonPath('data.debit_amount', 15);
 
     $this->actingAs($ctx['production']->user, 'sanctum')
         ->postJson('/api/production/company-transport/expenses', [
+            'transaction_date' => now('Asia/Kolkata')->toDateString(),
             'amount' => 10,
             'expense_type' => CompanyTransportExpenseType::Toll->value,
             'paid_to' => 'NHAI',
             'payment_mode' => CompanyTransportPaymentMode::Upi->value,
-            'entry_kind' => 'credit',
         ])
-        ->assertCreated()
-        ->assertJsonPath('data.entry_kind', 'debit');
+        ->assertForbidden();
 
-    expect(CompanyTransportLedgerEntry::query()->where('entry_kind', CompanyTransportEntryKind::Credit)->count())->toBe(1);
+    $this->actingAs($ctx['production']->user, 'sanctum')
+        ->postJson('/api/production/company-transport/expenses/attachment', [
+            'attachment' => UploadedFile::fake()->image('pump.jpg'),
+        ])
+        ->assertForbidden();
+
+    $forced = app(CompanyTransportLedgerService::class)->recordExpense($ctx['admin'], [
+        'amount' => 10,
+        'expense_type' => CompanyTransportExpenseType::Toll->value,
+        'paid_to' => 'NHAI',
+        'payment_mode' => CompanyTransportPaymentMode::Upi->value,
+        'entry_kind' => 'credit',
+    ]);
+
+    expect($forced->entry_kind)->toBe(CompanyTransportEntryKind::Debit)
+        ->and(CompanyTransportLedgerEntry::query()->where('entry_kind', CompanyTransportEntryKind::Credit)->count())->toBe(1)
+        ->and(CompanyTransportLedgerEntry::query()->where('entry_kind', CompanyTransportEntryKind::Debit)->count())->toBe(2);
 });
 
 it('blocks production supervisor from editing expenses and never deletes ledger rows', function () {
@@ -356,10 +408,11 @@ it('blocks production supervisor from editing expenses and never deletes ledger 
         'vehicle_id' => $ctx['vehicle']->id,
     ]);
 
-    expect(\Illuminate\Support\Facades\Gate::forUser($ctx['production']->user)->allows('update', $expense))->toBeFalse();
+    expect(Gate::forUser($ctx['production']->user)->allows('update', $expense))->toBeFalse();
 
-    expect(\Illuminate\Support\Facades\Gate::forUser($ctx['admin'])->allows('update', $expense))->toBeTrue()
-        ->and(\Illuminate\Support\Facades\Gate::forUser($ctx['admin'])->allows('delete', $expense))->toBeFalse();
+    expect(Gate::forUser($ctx['admin'])->allows('update', $expense))->toBeTrue()
+        ->and(Gate::forUser($ctx['admin'])->allows('delete', $expense))->toBeFalse()
+        ->and(Gate::forUser($ctx['admin'])->allows('create', CompanyTransportLedgerEntry::class))->toBeTrue();
 
     $updated = app(CompanyTransportLedgerService::class)->updateExpense($expense, $ctx['admin'], [
         'amount' => 18,
@@ -435,25 +488,27 @@ it('links a transport expense to a dispatched order and stores other expense det
         actor: $ctx['production']->user,
     );
 
-    $this->actingAs($ctx['production']->user, 'sanctum')
-        ->postJson('/api/production/company-transport/expenses', [
-            'amount' => 12,
-            'expense_type' => CompanyTransportExpenseType::Other->value,
-            'paid_to' => 'Workshop',
-            'payment_mode' => CompanyTransportPaymentMode::Cash->value,
-        ])
-        ->assertUnprocessable();
+    $service = app(CompanyTransportLedgerService::class);
+
+    expect(fn () => $service->recordExpense($ctx['admin'], [
+        'amount' => 12,
+        'expense_type' => CompanyTransportExpenseType::Other->value,
+        'paid_to' => 'Workshop',
+        'payment_mode' => CompanyTransportPaymentMode::Cash->value,
+    ]))->toThrow(ValidationException::class);
+
+    $entry = $service->recordExpense($ctx['admin'], [
+        'amount' => 12,
+        'expense_type' => CompanyTransportExpenseType::Other->value,
+        'expense_other_description' => 'Parking',
+        'paid_to' => 'Workshop',
+        'payment_mode' => CompanyTransportPaymentMode::Cash->value,
+        'order_id' => $ctx['order']->id,
+    ]);
 
     $response = $this->actingAs($ctx['production']->user, 'sanctum')
-        ->postJson('/api/production/company-transport/expenses', [
-            'amount' => 12,
-            'expense_type' => CompanyTransportExpenseType::Other->value,
-            'expense_other_description' => 'Parking',
-            'paid_to' => 'Workshop',
-            'payment_mode' => CompanyTransportPaymentMode::Cash->value,
-            'order_id' => $ctx['order']->id,
-        ])
-        ->assertCreated()
+        ->getJson('/api/production/company-transport/entries/'.$entry->id)
+        ->assertOk()
         ->json('data');
 
     expect($response['related_orders'])->toHaveCount(1)
@@ -474,15 +529,13 @@ it('links a transport expense to a dispatched order and stores other expense det
 it('rejects linking a transport expense to a non-dispatched order', function () {
     $ctx = ctlDispatchedCompanyTransportOrder(40);
 
-    $this->actingAs($ctx['production']->user, 'sanctum')
-        ->postJson('/api/production/company-transport/expenses', [
-            'amount' => 8,
-            'expense_type' => CompanyTransportExpenseType::Toll->value,
-            'paid_to' => 'Booth',
-            'payment_mode' => CompanyTransportPaymentMode::Cash->value,
-            'order_ids' => [$ctx['order']->id],
-        ])
-        ->assertUnprocessable();
+    expect(fn () => app(CompanyTransportLedgerService::class)->recordExpense($ctx['admin'], [
+        'amount' => 8,
+        'expense_type' => CompanyTransportExpenseType::Toll->value,
+        'paid_to' => 'Booth',
+        'payment_mode' => CompanyTransportPaymentMode::Cash->value,
+        'order_ids' => [$ctx['order']->id],
+    ]))->toThrow(ValidationException::class);
 });
 
 it('links multiple dispatched orders to one expense debit without duplicating the amount', function () {
@@ -498,15 +551,17 @@ it('links multiple dispatched orders to one expense debit without duplicating th
         actor: $second['production']->user,
     );
 
+    $entry = app(CompanyTransportLedgerService::class)->recordExpense($first['admin'], [
+        'amount' => 30,
+        'expense_type' => CompanyTransportExpenseType::Fuel->value,
+        'paid_to' => 'HP Pump',
+        'payment_mode' => CompanyTransportPaymentMode::Cash->value,
+        'order_ids' => [$first['order']->id, $second['order']->id],
+    ]);
+
     $response = $this->actingAs($first['production']->user, 'sanctum')
-        ->postJson('/api/production/company-transport/expenses', [
-            'amount' => 30,
-            'expense_type' => CompanyTransportExpenseType::Fuel->value,
-            'paid_to' => 'HP Pump',
-            'payment_mode' => CompanyTransportPaymentMode::Cash->value,
-            'order_ids' => [$first['order']->id, $second['order']->id],
-        ])
-        ->assertCreated()
+        ->getJson('/api/production/company-transport/entries/'.$entry->id)
+        ->assertOk()
         ->json('data');
 
     $relatedIds = collect($response['related_orders'])->pluck('id')->sort()->values()->all();
@@ -528,6 +583,51 @@ it('links multiple dispatched orders to one expense debit without duplicating th
     expect($summary['total_collected'])->toBe(120.0)
         ->and($summary['total_expense'])->toBe(30.0)
         ->and($summary['current_balance'])->toBe(90.0);
+});
+
+it('filters the admin company transport ledger from shared summary cards', function () {
+    $ctx = ctlDispatchedCompanyTransportOrder(40);
+    app(DispatchOrder::class)->execute(
+        order: $ctx['order']->fresh(),
+        actor: $ctx['production']->user,
+    );
+
+    $expense = app(CompanyTransportLedgerService::class)->recordExpense($ctx['admin'], [
+        'transaction_date' => now('Asia/Kolkata')->toDateString(),
+        'amount' => 15,
+        'expense_type' => CompanyTransportExpenseType::Fuel->value,
+        'vehicle_id' => $ctx['vehicle']->id,
+        'paid_to' => 'HP Petrol Pump',
+        'payment_mode' => CompanyTransportPaymentMode::Cash->value,
+        'remark' => 'Diesel',
+    ]);
+
+    $credit = CompanyTransportLedgerEntry::query()
+        ->where('entry_kind', CompanyTransportEntryKind::Credit)
+        ->first();
+
+    expect($credit)->not->toBeNull();
+
+    Livewire::actingAs($ctx['admin'])
+        ->test(ListCompanyTransportLedgers::class)
+        ->assertSuccessful()
+        ->assertSee('Total Transport Collected')
+        ->assertSee('Total Transport Expense')
+        ->assertSee('Current Balance')
+        ->assertSeeHtml('paramgold-summary-card--clickable')
+        ->assertSeeHtml('paramgold-summary-card--active')
+        ->assertCanSeeTableRecords([$credit, $expense])
+        ->call('applyLedgerView', 'collected')
+        ->assertSet('ledgerView', 'collected')
+        ->assertCanSeeTableRecords([$credit])
+        ->assertCanNotSeeTableRecords([$expense])
+        ->call('applyLedgerView', 'expense')
+        ->assertSet('ledgerView', 'expense')
+        ->assertCanSeeTableRecords([$expense])
+        ->assertCanNotSeeTableRecords([$credit])
+        ->call('applyLedgerView', 'all')
+        ->assertSet('ledgerView', 'all')
+        ->assertCanSeeTableRecords([$credit, $expense]);
 });
 
 

@@ -62,9 +62,11 @@ class ProductionBatchResource extends Resource
     public static function getEloquentQuery(): Builder
     {
         return parent::getEloquentQuery()->with([
-            'product:id,product_code,product_name,production_unit,uom',
+            'product:id,product_code,product_name,production_unit,uom,deleted_at',
             'semiFinished:id,material_code,material_name,unit',
-            'bom:id,bom_number,batch_quantity,batch_unit',
+            'bom:id,bom_number,batch_quantity,batch_unit,product_id,semi_finished_id',
+            'bom.product:id,product_code,product_name',
+            'bom.semiFinished:id,material_code,material_name',
             'supervisor:id,name',
             'consumptions',
         ]);

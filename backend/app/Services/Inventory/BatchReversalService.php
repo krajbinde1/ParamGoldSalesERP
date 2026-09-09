@@ -53,7 +53,7 @@ final class BatchReversalService
             }
 
             $outputQty = (float) $locked->actual_output_quantity;
-            $isSemiFinishedOutput = (string) $locked->output_type === BomOutputType::SemiFinished->value
+            $isSemiFinishedOutput = $locked->outputType() === BomOutputType::SemiFinished
                 || filled($locked->semi_finished_id);
 
             if ($isSemiFinishedOutput) {

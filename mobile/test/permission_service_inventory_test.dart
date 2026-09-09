@@ -48,6 +48,30 @@ void main() {
       expect(permissions.canManageInventoryMasters, isFalse);
     });
 
+    test('production supervisor can view company transport but cannot create expenses', () {
+      final permissions = PermissionService(
+        const [
+          'production_dashboard',
+          'inventory_view',
+          'company_transport_view',
+        ],
+        UserRole.productionSupervisor,
+      );
+
+      expect(permissions.canViewCompanyTransport, isTrue);
+      expect(permissions.canCreateCompanyTransportExpense, isFalse);
+    });
+
+    test('company transport expense create requires explicit permission', () {
+      final permissions = PermissionService(
+        const ['company_transport_view', 'company_transport_expense_create'],
+        UserRole.productionSupervisor,
+      );
+
+      expect(permissions.canViewCompanyTransport, isTrue);
+      expect(permissions.canCreateCompanyTransportExpense, isTrue);
+    });
+
     test('stock adjustment only when stock_adjustment is granted', () {
       final permissions = PermissionService(
         const ['inventory_view', 'stock_adjustment'],
@@ -57,14 +81,23 @@ void main() {
       expect(permissions.canAdjustStock, isTrue);
     });
 
-    test('director inventory_full_access can manage masters', () {
+    test('director inventory_full_access can view inventory but not mutate on mobile', () {
       final permissions = PermissionService(
-        const ['inventory_full_access', 'bom_manage', 'stock_adjustment'],
+        const [
+          'inventory_full_access',
+          'inventory_view',
+          'stock_report_view',
+          'bom_manage',
+          'stock_adjustment',
+        ],
         UserRole.director,
       );
 
-      expect(permissions.canManageInventoryMasters, isTrue);
-      expect(permissions.canAdjustStock, isTrue);
+      expect(permissions.canViewInventory, isTrue);
+      expect(permissions.canViewStockReport, isTrue);
+      expect(permissions.canManageInventoryMasters, isFalse);
+      expect(permissions.canAdjustStock, isFalse);
+      expect(permissions.canCreateProduction, isFalse);
     });
   });
 }

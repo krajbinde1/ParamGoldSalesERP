@@ -13,6 +13,8 @@ final class ProductionBatchPresenter
      */
     public static function summary(ProductionBatch $batch, User $viewer): array
     {
+        $label = $batch->outputDisplayLabel();
+
         $data = [
             'id' => $batch->id,
             'batch_number' => $batch->batch_number,
@@ -21,11 +23,10 @@ final class ProductionBatchPresenter
                 ?? $batch->semiFinished?->material_name,
             'output_item_name' => $batch->product?->product_name
                 ?? $batch->semiFinished?->material_name,
-            'output_type' => $batch->output_type instanceof \BackedEnum
-                ? $batch->output_type->value
-                : (string) ($batch->output_type ?? 'finished_product'),
-            'product_code' => $batch->product?->product_code,
-            'product_label' => $batch->product?->displayLabel(),
+            'output_type' => $batch->outputType()->value,
+            'product_code' => $batch->product?->product_code
+                ?? $batch->semiFinished?->material_code,
+            'product_label' => $label !== '' ? $label : null,
             'bom_id' => $batch->bom_id,
             'bom_version' => $batch->bom_version,
             'production_date' => $batch->production_date?->toDateString(),

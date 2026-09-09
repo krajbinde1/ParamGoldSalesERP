@@ -189,6 +189,15 @@ class _ProductAvailabilityCard extends StatelessWidget {
               ),
               _row(
                 context,
+                'Available Stock',
+                FinishedProductStockAvailabilitySection.formatQty(
+                  row['remaining_before_this_order'] ??
+                      row['available_for_this_order'],
+                  unit,
+                ),
+              ),
+              _row(
+                context,
                 'Allocated to This Order',
                 FinishedProductStockAvailabilitySection.formatQty(
                   row['allocated_to_this_order'] ??

@@ -466,6 +466,6 @@ it('keeps finished-goods production unchanged without semi-finished', function (
     $product->refresh();
     expect((float) $product->current_finished_stock)->toBe(3.0)
         ->and($batch->finished_product_ledger_id)->not->toBeNull()
-        ->and($batch->output_type)->toBe(BomOutputType::FinishedProduct->value)
+        ->and($batch->outputType())->toBe(BomOutputType::FinishedProduct)
         ->and($batch->semi_finished_id)->toBeNull();
 });

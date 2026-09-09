@@ -825,3 +825,32 @@ it('attaches the same FIFO payload on manager and director order detail APIs', f
             ->assertJsonPath('data.stock_status', 'short');
     }
 });
+
+it('includes live stock availability on director approved order list and keeps short orders visible', function (): void {
+    $employee = fgStockAvailEmployee(UserRole::Employee, '9300000130');
+    $director = fgStockAvailEmployee(UserRole::Director, '9300000131');
+    $dealer = fgStockAvailDealer($employee->id, '9300001130');
+    $product = fgStockAvailProduct('DIR-FG-1', 'NEMAX', 100);
+
+    $first = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-DIR-1', '2026-09-01');
+    $second = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-DIR-2', '2026-09-02');
+    fgStockAvailLine($first, $product, 50);
+    fgStockAvailLine($second, $product, 60);
+
+    $response = $this->actingAs($director->user, 'sanctum')
+        ->getJson('/api/director/orders?status=approved&per_page=100')
+        ->assertOk();
+
+    $ids = collect($response->json('data'))->pluck('id')->all();
+    expect($ids)->toContain($first->id)
+        ->and($ids)->toContain($second->id);
+
+    $response->assertJsonFragment([
+        'id' => $second->id,
+        'stock_availability_applies' => true,
+        'stock_status' => 'short',
+        'stock_status_label' => 'Short',
+        'has_stock_shortage' => true,
+        'stock_short_label' => 'Short 10 Nos',
+    ]);
+});

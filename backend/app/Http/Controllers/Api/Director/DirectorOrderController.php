@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\Director;
 
 use App\Http\Controllers\Controller;
 use App\Models\Order;
+use App\Services\Orders\FinishedProductOrderAvailabilityService;
 use App\Support\Orders\OrderDetailPresenter;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Http\JsonResponse;
@@ -17,6 +18,7 @@ class DirectorOrderController extends Controller
 {
     public function __construct(
         private readonly OrderDetailPresenter $presenter,
+        private readonly FinishedProductOrderAvailabilityService $stockAvailability,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -30,6 +32,7 @@ class DirectorOrderController extends Controller
             'order_no' => ['nullable', 'string', 'max:50'],
             'date_from' => ['nullable', 'date'],
             'date_to' => ['nullable', 'date', 'after_or_equal:date_from'],
+            'date_field' => ['nullable', 'string', 'in:order_date,dispatch_date'],
             'search' => ['nullable', 'string', 'max:100'],
             'per_page' => ['nullable', 'integer', 'min:1', 'max:200'],
         ]);
@@ -65,12 +68,15 @@ class DirectorOrderController extends Controller
                 fn ($q) => $q->where('order_no', 'like', '%'.$validated['order_no'].'%'),
             )
             ->when(
-                filled($validated['date_from'] ?? null),
-                fn ($q) => $q->whereDate('order_date', '>=', $validated['date_from']),
-            )
-            ->when(
-                filled($validated['date_to'] ?? null),
-                fn ($q) => $q->whereDate('order_date', '<=', $validated['date_to']),
+                filled($validated['date_from'] ?? null) || filled($validated['date_to'] ?? null),
+                function ($q) use ($validated): void {
+                    $this->applyDateFilter(
+                        $q,
+                        (string) ($validated['date_field'] ?? 'order_date'),
+                        $validated['date_from'] ?? null,
+                        $validated['date_to'] ?? null,
+                    );
+                },
             )
             ->when(filled($validated['search'] ?? null), function ($q) use ($validated): void {
                 $term = '%'.$validated['search'].'%';
@@ -90,36 +96,52 @@ class DirectorOrderController extends Controller
             ->orderByDesc('id')
             ->paginate($perPage);
 
+        $stockSummaries = $this->stockAvailability->summariesForOrderIds(
+            collect($orders->items())->pluck('id')->map(fn ($id): int => (int) $id)->all(),
+        );
+
         return response()->json([
-            'data' => collect($orders->items())->map(fn (Order $order): array => [
-                'id' => $order->id,
-                'order_no' => $order->order_no,
-                'order_date' => $order->order_date?->toDateString(),
-                'created_at' => $order->created_at?->toDateTimeString(),
-                'dealer_name' => $order->dealer?->firm_name,
-                'dealer_code' => $order->dealer?->dealer_code,
-                'dealer_village' => $order->dealer?->village,
-                'dealer_taluka' => $order->dealer?->taluka,
-                'dealer_district' => $order->dealer?->district,
-                'dealer_location' => collect([
-                    $order->dealer?->village,
-                    $order->dealer?->taluka,
-                    $order->dealer?->district,
-                    $order->dealer?->state,
-                ])->filter()->implode(', '),
-                'employee_name' => $order->salesEmployee?->full_name,
-                'employee_code' => $order->salesEmployee?->employee_code,
-                'grand_total' => \App\Services\Orders\OrderBillingTransportCalculator::finalGrandTotal($order),
-                'status' => $order->status,
-                'status_label' => $order->displayStatusLabel(),
-                'approved_at' => $order->approved_at?->toDateTimeString(),
-                'rejected_at' => $order->rejected_at?->toDateTimeString(),
-                'rejected_by_name' => $order->rejectedByUser?->name,
-                'rejection_remark' => $order->rejection_remark,
-                'billed_at' => $order->billed_at?->toDateTimeString(),
-                'dispatched_at' => $order->dispatched_at?->toDateTimeString(),
-                'bill_url' => $order->billUrl(),
-            ])->values(),
+            'data' => collect($orders->items())->map(function (Order $order) use ($stockSummaries): array {
+                $summary = $stockSummaries[(int) $order->id] ?? [
+                    'stock_availability_applies' => false,
+                    'stock_status' => null,
+                    'stock_status_label' => null,
+                    'has_stock_shortage' => false,
+                    'stock_short_label' => null,
+                ];
+
+                return [
+                    'id' => $order->id,
+                    'order_no' => $order->order_no,
+                    'order_date' => $order->order_date?->toDateString(),
+                    'created_at' => $order->created_at?->toDateTimeString(),
+                    'dealer_name' => $order->dealer?->firm_name,
+                    'dealer_code' => $order->dealer?->dealer_code,
+                    'dealer_village' => $order->dealer?->village,
+                    'dealer_taluka' => $order->dealer?->taluka,
+                    'dealer_district' => $order->dealer?->district,
+                    'dealer_location' => collect([
+                        $order->dealer?->village,
+                        $order->dealer?->taluka,
+                        $order->dealer?->district,
+                        $order->dealer?->state,
+                    ])->filter()->implode(', '),
+                    'employee_name' => $order->salesEmployee?->full_name,
+                    'employee_code' => $order->salesEmployee?->employee_code,
+                    'grand_total' => \App\Services\Orders\OrderBillingTransportCalculator::finalGrandTotal($order),
+                    'status' => $order->status,
+                    'status_label' => $order->displayStatusLabel(),
+                    'approved_at' => $order->approved_at?->toDateTimeString(),
+                    'rejected_at' => $order->rejected_at?->toDateTimeString(),
+                    'rejected_by_name' => $order->rejectedByUser?->name,
+                    'rejection_remark' => $order->rejection_remark,
+                    'billed_at' => $order->billed_at?->toDateTimeString(),
+                    'dispatched_at' => $order->dispatched_at?->toDateTimeString(),
+                    'dispatch_date' => $order->dispatch_date?->toDateString(),
+                    'bill_url' => $order->billUrl(),
+                    ...$summary,
+                ];
+            })->values(),
             'meta' => [
                 'current_page' => $orders->currentPage(),
                 'last_page' => $orders->lastPage(),
@@ -204,5 +226,20 @@ class DirectorOrderController extends Controller
         }
 
         $query->where('status', $status);
+    }
+
+    private function applyDateFilter(Builder $query, string $field, mixed $from, mixed $to): void
+    {
+        if ($field === 'dispatch_date') {
+            $query
+                ->when(filled($from), fn (Builder $q) => $q->whereRaw('date(coalesce(dispatch_date, dispatched_at)) >= ?', [$from]))
+                ->when(filled($to), fn (Builder $q) => $q->whereRaw('date(coalesce(dispatch_date, dispatched_at)) <= ?', [$to]));
+
+            return;
+        }
+
+        $query
+            ->when(filled($from), fn (Builder $q) => $q->whereDate('order_date', '>=', $from))
+            ->when(filled($to), fn (Builder $q) => $q->whereDate('order_date', '<=', $to));
     }
 }

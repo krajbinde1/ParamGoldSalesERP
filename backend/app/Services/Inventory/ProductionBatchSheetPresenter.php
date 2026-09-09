@@ -19,9 +19,7 @@ final class ProductionBatchSheetPresenter
     {
         $batch->loadMissing(['product', 'semiFinished', 'bom', 'supervisor', 'consumptions']);
 
-        $productName = $batch->product?->displayLabel()
-            ?? trim(($batch->semiFinished?->material_code ? $batch->semiFinished->material_code.' — ' : '').($batch->semiFinished?->material_name ?? ''))
-            ?: '—';
+        $productName = $batch->outputDisplayLabel() ?: '—';
 
         $productionUnit = (string) ($batch->bom?->batch_unit
             ?: ($batch->product?->production_unit ?: $batch->product?->uom ?: $batch->semiFinished?->unit ?: 'Nos'));

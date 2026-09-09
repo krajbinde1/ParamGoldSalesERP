@@ -98,6 +98,9 @@ class _CompanyTransportLedgerScreenState
 
   @override
   Widget build(BuildContext context) {
+    final canAddExpense =
+        widget.auth.permissions.canCreateCompanyTransportExpense;
+
     return PopScope(
       canPop: context.canPop(),
       onPopInvokedWithResult: (didPop, _) {
@@ -111,16 +114,18 @@ class _CompanyTransportLedgerScreenState
           showBack: true,
           onBack: () => smartBack(context),
         ),
-        floatingActionButton: FloatingActionButton.extended(
-          onPressed: () async {
-            final added = await context.push<bool>(
-              '/production/company-transport/expense',
-            );
-            if (added == true) await _reload();
-          },
-          icon: const Icon(Icons.add),
-          label: const Text('Add Expense'),
-        ),
+        floatingActionButton: canAddExpense
+            ? FloatingActionButton.extended(
+                onPressed: () async {
+                  final added = await context.push<bool>(
+                    '/production/company-transport/expense',
+                  );
+                  if (added == true) await _reload();
+                },
+                icon: const Icon(Icons.add),
+                label: const Text('Add Expense'),
+              )
+            : null,
         body: RefreshIndicator(
           onRefresh: _reload,
           child: FutureBuilder<Map<String, dynamic>>(
@@ -154,11 +159,11 @@ class _CompanyTransportLedgerScreenState
                   .toList();
 
               return ListView(
-                padding: const EdgeInsets.fromLTRB(
+                padding: EdgeInsets.fromLTRB(
                   AppSpacing.screenPadding,
                   AppSpacing.screenPadding,
                   AppSpacing.screenPadding,
-                  96,
+                  canAddExpense ? 96 : AppSpacing.screenPadding,
                 ),
                 children: [
                   Row(

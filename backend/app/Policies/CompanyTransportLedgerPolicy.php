@@ -21,7 +21,7 @@ class CompanyTransportLedgerPolicy
 
     public function create(User $user): bool
     {
-        return $user->isAdminUser() || $user->canActAsProductionSupervisor();
+        return $user->isAdminUser();
     }
 
     public function update(User $user, CompanyTransportLedgerEntry $entry): bool

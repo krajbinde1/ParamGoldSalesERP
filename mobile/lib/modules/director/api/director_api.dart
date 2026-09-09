@@ -76,6 +76,9 @@ class DirectorDashboardData {
     this.topPerformers = const [],
     this.needsAttention = const [],
     this.hasMonitoring = false,
+    this.totalSales = 0,
+    this.periodStartDate,
+    this.periodEndDate,
   });
 
   final String period;
@@ -124,6 +127,9 @@ class DirectorDashboardData {
   final List<Map<String, dynamic>> topPerformers;
   final List<Map<String, dynamic>> needsAttention;
   final bool hasMonitoring;
+  final double totalSales;
+  final String? periodStartDate;
+  final String? periodEndDate;
 
   double get salesRemaining =>
       salesTarget > salesAchieved ? salesTarget - salesAchieved : 0;
@@ -287,6 +293,9 @@ class DirectorDashboardData {
       topPerformers: top,
       needsAttention: needs,
       hasMonitoring: hasMonitoring,
+      totalSales: double.tryParse('${summary['total_sales'] ?? 0}') ?? 0,
+      periodStartDate: summary['start_date']?.toString(),
+      periodEndDate: summary['end_date']?.toString(),
     );
   }
 }
@@ -327,6 +336,7 @@ class DirectorApi {
     String? orderNo,
     String? dateFrom,
     String? dateTo,
+    String? dateField,
     int page = 1,
     int perPage = 20,
   }) async {
@@ -342,6 +352,8 @@ class DirectorApi {
           if (orderNo != null && orderNo.isNotEmpty) 'order_no': orderNo,
           if (dateFrom != null && dateFrom.isNotEmpty) 'date_from': dateFrom,
           if (dateTo != null && dateTo.isNotEmpty) 'date_to': dateTo,
+          if (dateField != null && dateField.isNotEmpty)
+            'date_field': dateField,
           'page': page,
           'per_page': perPage,
         },

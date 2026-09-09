@@ -416,6 +416,33 @@ class _DirectorOrderTab extends StatelessWidget {
                         tone: PgStatusRules.orderTone(status),
                       ),
                     ],
+                    if (order['stock_availability_applies'] == true) ...[
+                      const SizedBox(height: 8),
+                      Wrap(
+                        spacing: 8,
+                        runSpacing: 6,
+                        children: [
+                          if ((order['stock_status_label']?.toString() ?? '')
+                              .isNotEmpty)
+                            PgStatusBadge(
+                              label: '${order['stock_status_label']}',
+                              tone: switch ('${order['stock_status']}') {
+                                'available' => PgStatusTone.approved,
+                                'short' => PgStatusTone.rejected,
+                                'out_of_stock' => PgStatusTone.rejected,
+                                'partial_stock' => PgStatusTone.rejected,
+                                _ => PgStatusTone.neutral,
+                              },
+                            ),
+                          if ((order['stock_short_label']?.toString() ?? '')
+                              .isNotEmpty)
+                            PgStatusBadge(
+                              label: '${order['stock_short_label']}',
+                              tone: PgStatusTone.rejected,
+                            ),
+                        ],
+                      ),
+                    ],
                   ],
                 ),
               );
@@ -463,6 +490,9 @@ class DirectorFilteredOrdersScreen extends StatefulWidget {
     this.status,
     this.todayOnly = false,
     this.showOrderPipeline = false,
+    this.dateFrom,
+    this.dateTo,
+    this.dateField,
   });
 
   final AuthController auth;
@@ -471,6 +501,9 @@ class DirectorFilteredOrdersScreen extends StatefulWidget {
   final String? status;
   final bool todayOnly;
   final bool showOrderPipeline;
+  final String? dateFrom;
+  final String? dateTo;
+  final String? dateField;
 
   @override
   State<DirectorFilteredOrdersScreen> createState() =>
@@ -514,8 +547,9 @@ class _DirectorFilteredOrdersScreenState
     do {
       final result = await _api.listOrders(
         status: widget.status,
-        dateFrom: widget.todayOnly ? today : null,
-        dateTo: widget.todayOnly ? today : null,
+        dateFrom: widget.dateFrom ?? (widget.todayOnly ? today : null),
+        dateTo: widget.dateTo ?? (widget.todayOnly ? today : null),
+        dateField: widget.dateField,
         page: page,
         perPage: perPage,
       );

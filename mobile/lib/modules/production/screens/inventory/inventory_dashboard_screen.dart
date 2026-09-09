@@ -109,6 +109,7 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
             final monthStart = DateTime(now.year, now.month, 1);
 
             final rm = _map(cards['raw_material']);
+            final pack = _map(cards['packaging_material']);
             final sf = _map(cards['semi_finished']);
             final fg = _map(cards['finished_product']);
             final todayProd = _map(cards['today_production']);
@@ -148,6 +149,22 @@ class _InventoryDashboardScreenState extends State<InventoryDashboardScreen> {
                           onTap: p.canViewStockReport
                               ? () => context.push(
                                     '/production/stock-report?type=raw_material',
+                                  )
+                              : null,
+                        ),
+                        _SummaryCard(
+                          width: width,
+                          title: 'Packing Material',
+                          primary:
+                              '${pack['item_count'] ?? 0} items',
+                          secondary: _formatValue(
+                            pack['stock_value'] ??
+                                cards['packaging_material_value'],
+                          ),
+                          icon: const Icon(Icons.inventory_outlined),
+                          onTap: p.canViewStockReport
+                              ? () => context.push(
+                                    '/production/stock-report?type=packaging_material',
                                   )
                               : null,
                         ),

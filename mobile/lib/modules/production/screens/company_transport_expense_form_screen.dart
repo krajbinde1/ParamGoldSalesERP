@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 
@@ -50,6 +51,13 @@ class _CompanyTransportExpenseFormScreenState
   @override
   void initState() {
     super.initState();
+    if (!widget.auth.permissions.canCreateCompanyTransportExpense) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        context.go('/production/company-transport');
+      });
+      return;
+    }
     _bootstrap();
   }
 
@@ -125,6 +133,9 @@ class _CompanyTransportExpenseFormScreenState
 
   Future<void> _save() async {
     if (_saving) return;
+    if (!widget.auth.permissions.canCreateCompanyTransportExpense) {
+      return;
+    }
     if (!await NetworkGuard.isOnline()) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(

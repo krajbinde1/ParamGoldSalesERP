@@ -18,6 +18,7 @@ import '../../orders/models/order_detail.dart';
 import '../../orders/widgets/order_info_card.dart';
 import '../../orders/widgets/order_invoice_products_table.dart';
 import '../../orders/widgets/order_widgets.dart';
+import '../../production/widgets/finished_product_stock_availability.dart';
 import '../api/manager_api.dart';
 
 enum _ManagerOrderTabKey { pending, returned, approved, dispatched, rejected }
@@ -850,6 +851,10 @@ class _ManagerOrderDetailScreenState extends State<ManagerOrderDetailScreen> {
                 ),
               ),
               const SizedBox(height: AppSpacing.md),
+              if (order['stock_availability_applies'] == true) ...[
+                FinishedProductStockAvailabilitySection(order: order),
+                const SizedBox(height: AppSpacing.md),
+              ],
               PgCard(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,

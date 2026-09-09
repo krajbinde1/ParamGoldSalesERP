@@ -73,11 +73,22 @@
         gap: 0.875rem;
     }
 
+    .paramgold-admin-shell .fi-main-ctn,
+    .paramgold-admin-shell .fi-page,
+    .paramgold-admin-shell .fi-page-content,
+    .paramgold-admin-shell .fi-header-widgets {
+        width: 100%;
+        max-width: 100%;
+        min-width: 0;
+    }
+
     /*
      * Admin list / table standard - Dealer List is the reference.
      * Scoped to Filament tables (.fi-ta) so custom report/review tables are unchanged.
      */
     .paramgold-admin-shell .fi-header:not(.pg-order-view-header):not(.pg-bom-view-header) {
+        display: flex;
+        flex-wrap: wrap;
         align-items: center;
         gap: 0.75rem;
         margin-bottom: 0.125rem;
@@ -90,8 +101,15 @@
         letter-spacing: -0.02em;
     }
 
-    .paramgold-admin-shell .fi-header-actions-ctn {
+    .paramgold-admin-shell .fi-header-actions-ctn,
+    .paramgold-admin-shell .fi-ac-header-actions,
+    .paramgold-admin-shell .fi-header-actions {
+        display: flex;
+        flex-wrap: wrap;
+        align-items: center;
+        justify-content: flex-end;
         gap: 0.5rem;
+        max-width: 100%;
     }
 
     .paramgold-admin-shell .fi-ta-ctn {
@@ -100,6 +118,8 @@
     }
 
     .paramgold-admin-shell .fi-ta .fi-ta-ctn {
+        width: 100%;
+        max-width: 100%;
         overflow: hidden;
         border-radius: 0.75rem;
         box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
@@ -139,12 +159,14 @@
     }
 
     .paramgold-admin-shell .fi-ta .fi-ta-content {
+        width: 100%;
+        max-width: 100%;
         overflow-x: auto;
         overflow-y: visible;
     }
 
     .paramgold-admin-shell .fi-ta .fi-ta-table:not(.erp-mat-table):not(.erp-cost-table) {
-        width: max-content;
+        width: 100%;
         min-width: 100%;
         table-layout: auto;
     }
@@ -172,6 +194,8 @@
         min-height: 2.75rem;
         padding: 0.45rem 0.75rem;
         white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
         vertical-align: middle;
     }
 
@@ -184,6 +208,7 @@
     .paramgold-admin-shell .fi-ta .fi-ta-cell.fi-growable {
         width: auto;
         min-width: 8rem;
+        max-width: 28rem;
     }
 
     .paramgold-admin-shell .fi-ta .fi-ta-table:not(.fi-ta-table-stacked-on-mobile) > thead > tr > .fi-ta-header-cell:nth-last-child(2):not(.fi-ta-actions-header-cell),
@@ -323,6 +348,7 @@
         display: grid;
         grid-template-columns: minmax(0, 1fr);
         gap: 0.875rem;
+        width: 100%;
     }
 
     @media (min-width: 640px) {
@@ -333,13 +359,15 @@
 
     @media (min-width: 1024px) {
         .paramgold-summary-grid {
-            grid-template-columns: repeat(5, minmax(0, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
         }
     }
 
     .paramgold-summary-card {
         display: flex;
         min-height: 6.5rem;
+        height: 100%;
+        width: 100%;
         flex-direction: column;
         justify-content: space-between;
         border: 1px solid rgb(226 232 240);
@@ -347,6 +375,8 @@
         background: rgb(255 255 255);
         padding: 0.875rem 1rem;
         text-decoration: none;
+        box-sizing: border-box;
+        color: inherit;
     }
 
     .paramgold-summary-card--warning { border-left: 3px solid rgb(245 158 11); }
@@ -354,6 +384,23 @@
     .paramgold-summary-card--info { border-left: 3px solid rgb(59 130 246); }
     .paramgold-summary-card--danger { border-left: 3px solid rgb(239 68 68); }
     .paramgold-summary-card--primary { border-left: 3px solid rgb(15 118 110); }
+
+    .paramgold-summary-card--clickable {
+        cursor: pointer;
+        text-align: start;
+        transition: box-shadow 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+    }
+
+    .paramgold-summary-card--clickable:hover,
+    .paramgold-summary-card--clickable:focus-visible {
+        box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+        outline: none;
+    }
+
+    .paramgold-summary-card--active {
+        box-shadow: 0 0 0 2px rgb(15 118 110);
+        background: rgb(240 253 250);
+    }
 
     .paramgold-summary-card__label {
         margin: 0;
@@ -367,6 +414,15 @@
         font-size: 1.35rem;
         font-weight: 800;
         color: rgb(15 23 42);
+        line-height: 1.2;
+        word-break: break-word;
+    }
+
+    .paramgold-summary-card__meta {
+        margin: 0.4rem 0 0;
+        font-size: 0.75rem;
+        line-height: 1.35;
+        color: rgb(100 116 139);
     }
 
     .paramgold-quick-actions-grid {
@@ -456,6 +512,163 @@
         color: rgb(15 118 110);
         text-decoration: none;
         white-space: nowrap;
+    }
+
+    /*
+     * Filament StatsOverviewWidget — same card size as paramgold-summary-card.
+     */
+    .paramgold-admin-shell .fi-wi-stats-overview {
+        width: 100%;
+    }
+
+    .paramgold-admin-shell .fi-wi-stats-overview .fi-grid,
+    .paramgold-admin-shell .fi-wi-stats-overview .fi-sc,
+    .paramgold-admin-shell .fi-wi-paramgold-summary {
+        width: 100%;
+        max-width: 100%;
+        gap: 0.875rem;
+    }
+
+    @media (min-width: 640px) {
+        .paramgold-admin-shell .fi-wi-stats-overview .fi-grid {
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        }
+    }
+
+    .paramgold-admin-shell .fi-wi-paramgold-summary .fi-section,
+    .paramgold-admin-shell .fi-wi-paramgold-summary .fi-wi-widget {
+        background: transparent;
+        border: 0;
+        box-shadow: none;
+        padding: 0;
+    }
+
+    .paramgold-admin-shell .fi-wi-stats-overview-stat {
+        display: flex;
+        min-height: 6.5rem;
+        height: 100%;
+        flex-direction: column;
+        justify-content: space-between;
+        border: 1px solid rgb(226 232 240);
+        border-radius: 0.75rem;
+        background: rgb(255 255 255);
+        padding: 0.875rem 1rem;
+        box-sizing: border-box;
+        text-decoration: none;
+    }
+
+    .paramgold-admin-shell a.fi-wi-stats-overview-stat {
+        cursor: pointer;
+    }
+
+    .paramgold-admin-shell .fi-wi-stats-overview-stat-label {
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: rgb(100 116 139);
+    }
+
+    .paramgold-admin-shell .fi-wi-stats-overview-stat-value {
+        margin-top: 0.5rem;
+        font-size: 1.35rem;
+        font-weight: 800;
+        line-height: 1.2;
+        color: rgb(15 23 42);
+        word-break: break-word;
+    }
+
+    .paramgold-admin-shell .fi-wi-stats-overview-stat-description {
+        margin-top: 0.4rem;
+        font-size: 0.75rem;
+        color: rgb(100 116 139);
+    }
+
+    /*
+     * Filter dropdown / drawer stays inside the viewport.
+     */
+    .paramgold-admin-shell .fi-ta-filters {
+        max-height: min(70vh, 36rem);
+        overflow-x: hidden;
+        overflow-y: auto;
+        padding-right: 0.15rem;
+    }
+
+    .paramgold-admin-shell .fi-ta-filters-dropdown .fi-dropdown-panel,
+    .paramgold-admin-shell .fi-dropdown-panel:has(.fi-ta-filters),
+    .paramgold-admin-shell .fi-modal-window:has(.fi-ta-filters) {
+        max-width: min(22rem, calc(100vw - 1.5rem));
+        width: min(22rem, calc(100vw - 1.5rem));
+        max-height: min(80vh, 40rem);
+        overflow-x: hidden;
+        overflow-y: auto;
+    }
+
+    .paramgold-admin-shell .fi-ta-filters .fi-fo-field,
+    .paramgold-admin-shell .fi-ta-filters .fi-input-wrp {
+        min-height: 2.5rem;
+        width: 100%;
+    }
+
+    .paramgold-admin-shell .inventory-reports-filters {
+        width: 100%;
+        max-width: 100%;
+        overflow: hidden;
+    }
+
+    .paramgold-admin-shell .inventory-reports-table-wrap {
+        width: 100%;
+        max-width: 100%;
+        overflow-x: auto;
+    }
+
+    @media (max-width: 767px) {
+        .paramgold-admin-shell .fi-header:not(.pg-order-view-header):not(.pg-bom-view-header) {
+            align-items: stretch;
+        }
+
+        .paramgold-admin-shell .fi-header-actions-ctn {
+            justify-content: flex-start;
+            width: 100%;
+        }
+
+        .paramgold-admin-shell .fi-ta .fi-ta-search-field {
+            width: 100%;
+            flex: 1 1 100%;
+        }
+
+        .paramgold-admin-shell .fi-ta .fi-ta-header-toolbar > div:last-child {
+            width: 100%;
+            margin-left: 0;
+            justify-content: flex-start;
+        }
+
+        .paramgold-admin-shell .fi-dropdown-panel:has(.fi-ta-filters),
+        .paramgold-admin-shell .fi-modal-window:has(.fi-ta-filters) {
+            max-width: calc(100vw - 1rem);
+            width: calc(100vw - 1rem);
+        }
+    }
+
+    .dark .paramgold-summary-card,
+    .dark .paramgold-admin-shell .fi-wi-stats-overview-stat {
+        background: rgb(15 23 42);
+        border-color: rgb(51 65 85);
+    }
+
+    .dark .paramgold-summary-card__label,
+    .dark .paramgold-summary-card__meta,
+    .dark .paramgold-admin-shell .fi-wi-stats-overview-stat-label,
+    .dark .paramgold-admin-shell .fi-wi-stats-overview-stat-description {
+        color: rgb(148 163 184);
+    }
+
+    .dark .paramgold-summary-card__value,
+    .dark .paramgold-admin-shell .fi-wi-stats-overview-stat-value {
+        color: rgb(248 250 252);
+    }
+
+    .dark .paramgold-summary-card--active {
+        background: rgb(19 78 74);
+        box-shadow: 0 0 0 2px rgb(45 212 191);
     }
 
     .total-outstanding-page .paramgold-summary-grid {

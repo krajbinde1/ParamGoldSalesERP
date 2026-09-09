@@ -300,6 +300,21 @@ class DashboardMetricsService
     }
 
     /**
+     * Company-wide dispatched sales value for a period.
+     * Uses dispatch_date, then dispatched_at, so only actually dispatched orders count.
+     */
+    public function companyDispatchedSales(Carbon $start, Carbon $end): float
+    {
+        $from = $start->toDateString();
+        $to = $end->toDateString();
+
+        return round((float) Order::query()
+            ->where('status', Order::STATUS_DISPATCHED)
+            ->whereRaw('date(coalesce(dispatch_date, dispatched_at)) between ? and ?', [$from, $to])
+            ->sum('grand_total'), 2);
+    }
+
+    /**
      * Received collections whose collection date falls in the selected period.
      * Used for both Collection Achieved and the Collection detail list.
      *

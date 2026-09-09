@@ -8,6 +8,8 @@ use Filament\Widgets\StatsOverviewWidget\Stat;
 
 class DealerApplicationStats extends StatsOverviewWidget
 {
+    protected int|string|array $columnSpan = 'full';
+
     protected function getStats(): array
     {
         return [

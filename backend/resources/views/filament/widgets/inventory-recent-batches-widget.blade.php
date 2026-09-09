@@ -33,7 +33,7 @@
                                     {{ $batch->batch_number }}
                                 </a>
                             </td>
-                            <td class="px-3 py-2">{{ $batch->product?->product_name }}</td>
+                            <td class="px-3 py-2">{{ $batch->outputDisplayLabel() ?: '—' }}</td>
                             <td class="px-3 py-2">{{ $batch->production_date?->format('d M Y') }}</td>
                             <td class="px-3 py-2">{{ number_format((float) $batch->actual_output_quantity, 3) }}</td>
                             <td class="px-3 py-2">

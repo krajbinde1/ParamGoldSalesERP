@@ -26,16 +26,18 @@ class PermissionService {
   bool get canViewDealerLedger =>
       has('dealer_ledger_view') && !role.isProductionSupervisor;
 
-  /// Inventory & Manufacturing module (Production Supervisor).
-  bool get canViewInventory => has('inventory_view');
+  /// Inventory & Manufacturing module (Production Supervisor + Director view).
+  bool get canViewInventory =>
+      has('inventory_view') || has('inventory_full_access');
   bool get canAccessInventoryManufacturing => canViewInventory;
   bool get canViewActiveBom => has('bom_view_active');
-  bool get canCreateProduction => has('production_create');
-  bool get canCompleteProduction => has('production_complete');
+  bool get canCreateProduction => has('production_create') && !role.isDirector;
+  bool get canCompleteProduction =>
+      has('production_complete') && !role.isDirector;
   bool get canViewProductionHistory => has('production_history_view');
   bool get canViewShortageReport => has('shortage_report_view');
   bool get canViewStockReport =>
-      has('stock_report_view') || has('inventory_view');
+      has('stock_report_view') || canViewInventory;
   bool get canCreateRawMaterialInward => has('raw_material_inward_create');
   bool get canCreatePackagingMaterialInward =>
       has('packaging_material_inward_create') ||
@@ -44,12 +46,12 @@ class PermissionService {
   bool get canViewCompanyTransport =>
       has('company_transport_view') || role.isProductionSupervisor;
   bool get canCreateCompanyTransportExpense =>
-      has('company_transport_expense_create') || role.isProductionSupervisor;
+      has('company_transport_expense_create');
 
-  /// Stock adjustment — Director/Admin only unless explicitly granted.
-  bool get canAdjustStock => has('stock_adjustment');
+  /// Stock adjustment — Admin web / PS when granted. Director mobile is view-only.
+  bool get canAdjustStock => has('stock_adjustment') && !role.isDirector;
 
-  /// Director/Admin inventory master CRUD (matches Laravel canManageInventoryMasters).
+  /// Inventory master CRUD on mobile. Director mobile is view-only.
   bool get canManageInventoryMasters =>
-      has('inventory_full_access') || has('bom_manage');
+      !role.isDirector && (has('inventory_full_access') || has('bom_manage'));
 }

@@ -19,10 +19,6 @@ class ListFarmers extends ListRecords
 
     public function getHeaderWidgetsColumns(): int|array
     {
-        return [
-            'default' => 1,
-            'md' => 2,
-            'xl' => 5,
-        ];
+        return 1;
     }
 }

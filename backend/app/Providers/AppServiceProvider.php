@@ -57,6 +57,7 @@ use App\Policies\WhatsAppOutboundMessagePolicy;
 use App\Services\Dashboard\DirectorDashboardDataService;
 use App\Support\FilamentEditReturnUrl;
 use Filament\Actions\EditAction;
+use Filament\Support\Enums\Width;
 use Filament\Tables\Table;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
@@ -115,7 +116,9 @@ class AppServiceProvider extends ServiceProvider
                 ->persistFiltersInSession()
                 ->persistSearchInSession()
                 ->persistColumnSearchesInSession()
-                ->persistSortInSession();
+                ->persistSortInSession()
+                ->filtersFormWidth(Width::Small)
+                ->filtersFormMaxHeight('70vh');
         });
     }
 }

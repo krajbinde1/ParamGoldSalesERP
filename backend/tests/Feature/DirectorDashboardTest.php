@@ -1328,3 +1328,51 @@ it('shows employee-wise team performance on a dedicated page with period filters
         ->assertSee('ORD-OUT-OF-RANGE')
         ->assertDontSee('ORD-TEAM-PERF-1');
 });
+
+it('reports director total sales as dispatched value for the selected period', function (): void {
+    $director = directorDashDirector('Total Sales Director');
+    $employee = directorDashEmployee('Total Sales Emp', '9910000099');
+    $dealer = directorDashDealer();
+    $today = AttendanceCalendar::today()->toDateString();
+
+    directorDashOrder($employee->id, $dealer->id, [
+        'status' => Order::STATUS_APPROVED,
+        'order_date' => $today,
+        'grand_total' => 500000,
+    ]);
+
+    directorDashOrder($employee->id, $dealer->id, [
+        'status' => Order::STATUS_DISPATCHED,
+        'order_date' => AttendanceCalendar::today()->copy()->subDays(5)->toDateString(),
+        'dispatch_date' => $today,
+        'dispatched_at' => now('Asia/Kolkata'),
+        'grand_total' => 250000,
+    ]);
+
+    directorDashOrder($employee->id, $dealer->id, [
+        'status' => Order::STATUS_DISPATCHED,
+        'order_date' => AttendanceCalendar::today()->copy()->subMonth()->toDateString(),
+        'dispatch_date' => AttendanceCalendar::today()->copy()->subMonth()->toDateString(),
+        'dispatched_at' => now('Asia/Kolkata')->subMonth(),
+        'grand_total' => 100000,
+    ]);
+
+    $this->actingAs($director, 'sanctum');
+
+    $todayResponse = $this->getJson('/api/director/dashboard?period=today')
+        ->assertOk();
+
+    expect((float) $todayResponse->json('company_summary.total_sales'))->toBe(250000.0)
+        ->and($todayResponse->json('company_summary.start_date'))->toBe($today)
+        ->and($todayResponse->json('company_summary.end_date'))->toBe($today);
+
+    $listed = $this->getJson(
+        '/api/director/orders?status=dispatched&date_field=dispatch_date&date_from='.$today.'&date_to='.$today.'&per_page=100',
+    )->assertOk();
+
+    $totals = collect($listed->json('data'))
+        ->map(fn (array $row): float => (float) $row['grand_total'])
+        ->sum();
+
+    expect($totals)->toBe(250000.0);
+});

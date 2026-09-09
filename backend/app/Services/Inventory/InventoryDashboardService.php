@@ -39,6 +39,7 @@ final class InventoryDashboardService
             ->sum(DB::raw('current_finished_stock * weighted_average_cost'));
 
         $rawMaterialCount = RawMaterial::query()->where('status', true)->count();
+        $packagingCount = PackagingMaterial::query()->where('status', true)->count();
         $semiFinishedCount = SemiFinishedMaterial::query()->where('status', true)->count();
         $finishedProductCount = Product::query()
             ->where('manufacturing_enabled', true)
@@ -84,6 +85,10 @@ final class InventoryDashboardService
             'raw_material' => [
                 'item_count' => $rawMaterialCount,
                 'stock_value' => $rawMaterialValue,
+            ],
+            'packaging_material' => [
+                'item_count' => $packagingCount,
+                'stock_value' => $packagingValue,
             ],
             'semi_finished' => [
                 'item_count' => $semiFinishedCount,
@@ -168,7 +173,7 @@ final class InventoryDashboardService
     public function recentBatches(int $limit = 10): Collection
     {
         return ProductionBatch::query()
-            ->with(['product', 'semiFinished', 'supervisor'])
+            ->with(['product', 'semiFinished', 'bom.product', 'bom.semiFinished', 'supervisor'])
             ->latest('id')
             ->limit($limit)
             ->get();

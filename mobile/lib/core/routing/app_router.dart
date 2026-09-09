@@ -128,6 +128,10 @@ GoRouter createRouter(
     if (!RoutePermissions.canAccessPath(location, role)) {
       return '/dashboard';
     }
+    if (location == '/production/company-transport/expense' &&
+        !auth.permissions.canCreateCompanyTransportExpense) {
+      return '/production/company-transport';
+    }
 
     return null;
   },
@@ -872,6 +876,18 @@ GoRouter createRouter(
         title: "Today's Sales Orders",
         emptyMessage: 'No sales orders placed today.',
         todayOnly: true,
+      ),
+    ),
+    GoRoute(
+      path: '/director/total-sales',
+      builder: (_, state) => DirectorFilteredOrdersScreen(
+        auth: auth,
+        title: 'Total Sales',
+        emptyMessage: 'No dispatched sales in this period.',
+        status: 'dispatched',
+        dateFrom: state.uri.queryParameters['from'],
+        dateTo: state.uri.queryParameters['to'],
+        dateField: 'dispatch_date',
       ),
     ),
     GoRoute(

@@ -21,6 +21,8 @@ class InventoryDashboardApiController extends Controller
 
     public function __invoke(Request $request): JsonResponse
     {
+        abort_unless($request->user()?->canAccessInventoryModule(), 403);
+
         $user = $request->user();
 
         return $this->ok('Inventory dashboard loaded successfully.', self::buildPayload($this->dashboardService, $user));

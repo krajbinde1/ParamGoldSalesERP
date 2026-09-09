@@ -13,28 +13,45 @@
 
         @include('filament.pages.partials.payment-follow-up-timeline', ['detail' => $timeline])
     @else
-        <div class="paramgold-summary-grid">
-            <button type="button" class="paramgold-summary-card paramgold-summary-card--warning text-start" wire:click="$set('data.status', 'due_today')">
-                <p class="paramgold-summary-card__label">Due Today</p>
-                <p class="paramgold-summary-card__value">{{ $counts['due_today'] ?? 0 }}</p>
-            </button>
-            <button type="button" class="paramgold-summary-card paramgold-summary-card--danger text-start" wire:click="$set('data.status', 'overdue')">
-                <p class="paramgold-summary-card__label">Overdue</p>
-                <p class="paramgold-summary-card__value">{{ $counts['overdue'] ?? 0 }}</p>
-            </button>
-            <button type="button" class="paramgold-summary-card paramgold-summary-card--info text-start" wire:click="$set('data.status', 'upcoming')">
-                <p class="paramgold-summary-card__label">Upcoming</p>
-                <p class="paramgold-summary-card__value">{{ $counts['upcoming'] ?? 0 }}</p>
-            </button>
-            <button type="button" class="paramgold-summary-card paramgold-summary-card--primary text-start" wire:click="$set('data.status', 'no_follow_up')">
-                <p class="paramgold-summary-card__label">No Follow-up Set</p>
-                <p class="paramgold-summary-card__value">{{ $counts['no_follow_up'] ?? 0 }}</p>
-            </button>
-            <button type="button" class="paramgold-summary-card paramgold-summary-card--success text-start" wire:click="$set('data.status', 'closed')">
-                <p class="paramgold-summary-card__label">Payment Received / Closed</p>
-                <p class="paramgold-summary-card__value">{{ $counts['closed'] ?? 0 }}</p>
-            </button>
-        </div>
+        @include('filament.partials.paramgold-summary-cards', [
+            'cards' => [
+                [
+                    'label' => 'Due Today',
+                    'value' => $counts['due_today'] ?? 0,
+                    'tone' => 'warning',
+                    'active' => ($this->data['status'] ?? null) === \App\Services\PaymentFollowUps\PaymentFollowUpStatus::DUE_TODAY,
+                    'wireClick' => "\$set('data.status', 'due_today')",
+                ],
+                [
+                    'label' => 'Overdue',
+                    'value' => $counts['overdue'] ?? 0,
+                    'tone' => 'danger',
+                    'active' => ($this->data['status'] ?? null) === \App\Services\PaymentFollowUps\PaymentFollowUpStatus::OVERDUE,
+                    'wireClick' => "\$set('data.status', 'overdue')",
+                ],
+                [
+                    'label' => 'Upcoming',
+                    'value' => $counts['upcoming'] ?? 0,
+                    'tone' => 'info',
+                    'active' => ($this->data['status'] ?? null) === \App\Services\PaymentFollowUps\PaymentFollowUpStatus::UPCOMING,
+                    'wireClick' => "\$set('data.status', 'upcoming')",
+                ],
+                [
+                    'label' => 'No Follow-up Set',
+                    'value' => $counts['no_follow_up'] ?? 0,
+                    'tone' => 'primary',
+                    'active' => ($this->data['status'] ?? null) === \App\Services\PaymentFollowUps\PaymentFollowUpStatus::NO_FOLLOW_UP,
+                    'wireClick' => "\$set('data.status', 'no_follow_up')",
+                ],
+                [
+                    'label' => 'Payment Received / Closed',
+                    'value' => $counts['closed'] ?? 0,
+                    'tone' => 'success',
+                    'active' => ($this->data['status'] ?? null) === \App\Services\PaymentFollowUps\PaymentFollowUpStatus::CLOSED,
+                    'wireClick' => "\$set('data.status', 'closed')",
+                ],
+            ],
+        ])
 
         <div class="inventory-reports-filters mt-4 rounded-xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-900 sm:p-4">
             {{ $this->form }}

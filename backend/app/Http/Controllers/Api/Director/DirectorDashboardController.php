@@ -101,6 +101,9 @@ class DirectorDashboardController extends Controller
                         ? round(($collectionAchieved / $collectionTarget) * 100, 2)
                         : 0,
                 ],
+                'total_sales' => $this->metrics->companyDispatchedSales($range['start'], $range['end']),
+                'start_date' => $range['start']->toDateString(),
+                'end_date' => $range['end']->toDateString(),
                 'orders' => $this->metrics->orderSummary(null, $range['start'], $range['end']),
                 'ta_da' => $this->metrics->taDaSummary(),
                 'operations' => $this->metrics->operationalSummary($range['start'], $range['end']),

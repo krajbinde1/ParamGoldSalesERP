@@ -3,7 +3,6 @@
 namespace App\Filament\Resources\ProductionBatches\Tables;
 
 use App\Enums\ProductionBatchStatus;
-use App\Filament\Resources\ProductionBatches\ProductionBatchResource;
 use App\Models\ProductionBatch;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\DatePicker;
@@ -23,11 +22,38 @@ class ProductionBatchesTable
                     ->label('Batch Number')
                     ->searchable()
                     ->sortable(),
-                TextColumn::make('product.product_name')
+                TextColumn::make('product_display')
                     ->label('Product')
-                    ->formatStateUsing(fn ($state, ProductionBatch $record): string => $record->product?->displayLabel() ?? (string) $state)
-                    ->searchable()
-                    ->sortable(),
+                    ->state(fn (ProductionBatch $record): ?string => $record->outputDisplayLabel() ?: null)
+                    ->placeholder('—')
+                    ->searchable(query: function (Builder $query, string $search): Builder {
+                        $like = '%'.$search.'%';
+
+                        return $query->where(function (Builder $q) use ($like): void {
+                            $q->whereHas('product', function (Builder $productQuery) use ($like): void {
+                                $productQuery->withTrashed()
+                                    ->where(function (Builder $inner) use ($like): void {
+                                        $inner->where('product_name', 'like', $like)
+                                            ->orWhere('product_code', 'like', $like);
+                                    });
+                            })->orWhereHas('semiFinished', function (Builder $sfQuery) use ($like): void {
+                                $sfQuery->where(function (Builder $inner) use ($like): void {
+                                    $inner->where('material_name', 'like', $like)
+                                        ->orWhere('material_code', 'like', $like);
+                                });
+                            });
+                        });
+                    })
+                    ->sortable(query: function (Builder $query, string $direction): Builder {
+                        $dir = strtolower($direction) === 'desc' ? 'desc' : 'asc';
+
+                        return $query->orderByRaw(
+                            'COALESCE(
+                                (SELECT product_name FROM products WHERE products.id = production_batches.product_id LIMIT 1),
+                                (SELECT material_name FROM semi_finished_materials WHERE semi_finished_materials.id = production_batches.semi_finished_id LIMIT 1)
+                            ) '.$dir
+                        );
+                    }),
                 TextColumn::make('production_date')
                     ->date()
                     ->sortable(),

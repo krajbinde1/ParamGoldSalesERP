@@ -3,8 +3,11 @@
 use App\Enums\UserRole;
 use App\Filament\Resources\Attendances\Pages\ListAttendances;
 use App\Filament\Resources\Collections\Pages\ListCollections;
+use App\Filament\Resources\CompanyTransportLedgers\Pages\ListCompanyTransportLedgers;
+use App\Filament\Resources\DealerApplications\Pages\ListDealerApplications;
 use App\Filament\Resources\Dealers\Pages\ListDealers;
 use App\Filament\Resources\Employees\Pages\ListEmployees;
+use App\Filament\Resources\Farmers\Pages\ListFarmers;
 use App\Filament\Resources\FieldActivities\Pages\ListFieldActivities;
 use App\Filament\Resources\FinishedProducts\Pages\ListFinishedProducts;
 use App\Filament\Resources\Orders\Pages\ListOrders;
@@ -13,6 +16,7 @@ use App\Filament\Resources\PaymentRequests\Pages\ListPaymentRequests;
 use App\Filament\Resources\RawMaterials\Pages\ListRawMaterials;
 use App\Filament\Resources\SemiFinishedMaterials\Pages\ListSemiFinishedMaterials;
 use App\Filament\Resources\Targets\Pages\ListWeeklyTargets;
+use App\Filament\Resources\TransportFreightLedgers\Pages\ListTransportFreightLedgers;
 use App\Filament\Resources\WhatsAppOutboundMessages\Pages\ListWhatsAppOutboundMessages;
 use App\Models\User;
 use Livewire\Livewire;
@@ -37,6 +41,10 @@ it('applies the dealer list table layout as a shared admin theme', function (): 
         ->toContain('.paramgold-admin-shell .fi-ta .fi-ta-content')
         ->toContain('.paramgold-admin-shell .fi-ta .fi-pagination')
         ->toContain('.paramgold-admin-shell .fi-ta .fi-ta-cell:has(.fi-ta-actions)')
+        ->toContain('.paramgold-admin-shell .fi-ta .fi-ta-table:not(.erp-mat-table):not(.erp-cost-table)')
+        ->toContain('.paramgold-summary-card--clickable')
+        ->toContain('.paramgold-summary-card--active')
+        ->toContain('.paramgold-admin-shell .fi-ta-filters')
         ->not->toContain('.pg-payment-requests-page .fi-ta-table');
 });
 
@@ -57,6 +65,10 @@ it('keeps core admin list pages rendering with the shared table markup', functio
         ListFieldActivities::class,
         ListAttendances::class,
         ListWhatsAppOutboundMessages::class,
+        ListCompanyTransportLedgers::class,
+        ListTransportFreightLedgers::class,
+        ListFarmers::class,
+        ListDealerApplications::class,
     ] as $page) {
         Livewire::actingAs($admin)
             ->test($page)

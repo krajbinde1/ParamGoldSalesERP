@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\BomOutputType;
 use App\Enums\ProductionBatchStatus;
 use App\Enums\StockItemType;
 use App\Enums\StockTransactionType;
@@ -9,6 +10,7 @@ use App\Models\StockLedger;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Validation\ValidationException;
 
 class ProductionBatch extends Model
 {
@@ -55,6 +57,26 @@ class ProductionBatch extends Model
                 : ((int) substr((string) $lastCode, -4)) + 1;
 
             $batch->batch_number = $prefix.$datePart.str_pad((string) $nextNumber, 4, '0', STR_PAD_LEFT);
+        });
+
+        static::saving(function (ProductionBatch $batch): void {
+            $type = $batch->outputType();
+
+            if ($type === BomOutputType::SemiFinished) {
+                if ((int) $batch->semi_finished_id < 1) {
+                    throw ValidationException::withMessages([
+                        'semi_finished_id' => 'Select a semi-finished material to produce.',
+                    ]);
+                }
+
+                return;
+            }
+
+            if ((int) $batch->product_id < 1) {
+                throw ValidationException::withMessages([
+                    'product_id' => 'Select a finished product to produce.',
+                ]);
+            }
         });
     }
 
@@ -126,6 +148,7 @@ class ProductionBatch extends Model
             'production_date' => 'date',
             'manufacturing_date' => 'date',
             'expiry_date' => 'date',
+            'output_type' => BomOutputType::class,
             'planned_quantity' => 'decimal:3',
             'actual_output_quantity' => 'decimal:3',
             'finished_packs_produced' => 'decimal:3',
@@ -170,7 +193,54 @@ class ProductionBatch extends Model
 
     public function product(): BelongsTo
     {
-        return $this->belongsTo(Product::class);
+        return $this->belongsTo(Product::class)->withTrashed();
+    }
+
+    public function outputType(): BomOutputType
+    {
+        if ($this->output_type instanceof BomOutputType) {
+            return $this->output_type;
+        }
+
+        return BomOutputType::tryFrom((string) $this->output_type) ?? BomOutputType::FinishedProduct;
+    }
+
+    /**
+     * Always "Code — Name" for the produced item (finished product or bulk).
+     */
+    public function outputDisplayLabel(): string
+    {
+        $product = $this->product;
+        if ($product === null && (int) $this->product_id > 0) {
+            $product = Product::query()->withTrashed()->find($this->product_id);
+        }
+        if ($product !== null) {
+            return $product->displayLabel();
+        }
+
+        $this->loadMissing(['semiFinished', 'bom.product', 'bom.semiFinished']);
+
+        if ($this->semiFinished !== null) {
+            return self::semiFinishedLabel($this->semiFinished);
+        }
+
+        if ($this->bom?->product !== null) {
+            return $this->bom->product->displayLabel();
+        }
+
+        if ($this->bom?->semiFinished !== null) {
+            return self::semiFinishedLabel($this->bom->semiFinished);
+        }
+
+        return '';
+    }
+
+    public static function semiFinishedLabel(SemiFinishedMaterial $material): string
+    {
+        return trim(
+            ($material->material_code ? $material->material_code.' — ' : '')
+            .$material->material_name
+        );
     }
 
     public function semiFinished(): BelongsTo

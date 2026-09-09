@@ -28,11 +28,7 @@ class ListDealerApplications extends ListRecords
 
     public function getHeaderWidgetsColumns(): int|array
     {
-        return [
-            'default' => 1,
-            'md' => 2,
-            'xl' => 4,
-        ];
+        return 1;
     }
 
     public function getTabs(): array

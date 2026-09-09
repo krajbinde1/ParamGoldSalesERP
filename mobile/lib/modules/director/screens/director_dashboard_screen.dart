@@ -217,7 +217,17 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
                   ),
                   sliver: SliverList(
                     delegate: SliverChildListDelegate([
-                      _OverviewGrid(data: data, onOpen: _open),
+                      _OverviewGrid(
+                        data: data,
+                        onOpen: _open,
+                        canViewInventory: widget.auth.permissions.canViewInventory,
+                      ),
+                      const SizedBox(height: _dashSectionGap),
+                      _TotalSalesSection(
+                        auth: widget.auth,
+                        onOpen: _open,
+                        refreshNonce: _refreshNonce,
+                      ),
                       const SizedBox(height: _dashSectionGap),
                       _TotalOutstandingCard(data: data, onOpen: _open),
                       const SizedBox(height: _dashSectionGap),
@@ -494,10 +504,15 @@ class _DirectorProfileMenu extends StatelessWidget {
 }
 
 class _OverviewGrid extends StatelessWidget {
-  const _OverviewGrid({required this.data, required this.onOpen});
+  const _OverviewGrid({
+    required this.data,
+    required this.onOpen,
+    this.canViewInventory = false,
+  });
 
   final DirectorDashboardData data;
   final Future<void> Function(String path) onOpen;
+  final bool canViewInventory;
 
   @override
   Widget build(BuildContext context) {
@@ -509,12 +524,25 @@ class _OverviewGrid extends StatelessWidget {
         onTap: () => onOpen('/director/pending-orders'),
       ),
       _DashTile(
+        label: 'Approved Orders',
+        value: '${data.approvedOrders}',
+        icon: Icons.check_circle_outline,
+        onTap: () => onOpen('/director/orders?status=approved'),
+      ),
+      _DashTile(
         label: 'Payment Approval',
         value: '${data.myPendingPayments}',
         icon: Icons.payments_outlined,
         alert: data.myPendingPayments > 0,
         onTap: () => onOpen('/director/payment-requests?filter=pending'),
       ),
+      if (canViewInventory)
+        _DashTile(
+          label: 'Inventory Stock',
+          value: 'View',
+          icon: Icons.inventory_2_outlined,
+          onTap: () => onOpen('/production/inventory'),
+        ),
     ];
 
     return GridView.builder(
@@ -633,6 +661,239 @@ String _performanceHeading(String period) => switch (period) {
       'custom' => 'Custom Performance',
       _ => 'This Month Performance',
     };
+
+class _TotalSalesSection extends StatefulWidget {
+  const _TotalSalesSection({
+    required this.auth,
+    required this.onOpen,
+    this.refreshNonce = 0,
+  });
+
+  final AuthController auth;
+  final Future<void> Function(String path) onOpen;
+  final int refreshNonce;
+
+  @override
+  State<_TotalSalesSection> createState() => _TotalSalesSectionState();
+}
+
+class _TotalSalesSectionState extends State<_TotalSalesSection> {
+  String _period = 'month';
+  String? _startDate;
+  String? _endDate;
+  late Future<DirectorDashboardData> _future;
+
+  DirectorApi get _api => DirectorApi(
+    ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _load();
+  }
+
+  @override
+  void didUpdateWidget(_TotalSalesSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.refreshNonce != widget.refreshNonce) {
+      setState(() => _future = _load());
+    }
+  }
+
+  Future<DirectorDashboardData> _load() => _api.loadDashboard(
+        period: _period,
+        startDate: _startDate,
+        endDate: _endDate,
+      );
+
+  void _setPeriod(String period) {
+    if (_period == period) return;
+    setState(() {
+      _period = period;
+      _startDate = null;
+      _endDate = null;
+      _future = _load();
+    });
+  }
+
+  Future<void> _pickCustomRange() async {
+    final now = DateTime.now();
+    final range = await showDateRangePicker(
+      context: context,
+      firstDate: DateTime(now.year - 2),
+      lastDate: now,
+      initialDateRange: _startDate != null && _endDate != null
+          ? DateTimeRange(
+              start: DateTime.parse(_startDate!),
+              end: DateTime.parse(_endDate!),
+            )
+          : DateTimeRange(
+              start: DateTime(now.year, now.month, 1),
+              end: now,
+            ),
+    );
+    if (range == null || !mounted) return;
+
+    setState(() {
+      _period = 'custom';
+      _startDate = DateFormat('yyyy-MM-dd').format(range.start);
+      _endDate = DateFormat('yyyy-MM-dd').format(range.end);
+      _future = _load();
+    });
+  }
+
+  String _heading(String period) => switch (period) {
+        'today' => 'Today Total Sales',
+        'week' => 'This Week Total Sales',
+        'custom' => 'Custom Total Sales',
+        _ => 'This Month Total Sales',
+      };
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<DirectorDashboardData>(
+      future: _future,
+      builder: (context, snapshot) {
+        if (snapshot.connectionState == ConnectionState.waiting &&
+            !snapshot.hasData) {
+          return const Padding(
+            padding: EdgeInsets.symmetric(vertical: 24),
+            child: Center(child: CircularProgressIndicator()),
+          );
+        }
+        if (snapshot.hasError) {
+          return PgErrorState(
+            message: 'Unable to load total sales',
+            onRetry: () => setState(() => _future = _load()),
+          );
+        }
+
+        final data = snapshot.data!;
+        final from = data.periodStartDate ?? _startDate;
+        final to = data.periodEndDate ?? _endDate;
+        final drillPath = from != null && to != null
+            ? '/director/total-sales?from=$from&to=$to'
+            : '/director/total-sales';
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _DashHeading(_heading(_period)),
+            _TotalSalesPeriodFilters(
+              period: _period,
+              onSelect: _setPeriod,
+              onCustom: _pickCustomRange,
+            ),
+            if (_period == 'custom' &&
+                _startDate != null &&
+                _endDate != null) ...[
+              const SizedBox(height: 6),
+              Text(
+                '$_startDate → $_endDate',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: AppColors.textSecondary,
+                      fontWeight: FontWeight.w600,
+                    ),
+              ),
+            ],
+            const SizedBox(height: 10),
+            PgCard(
+              onTap: () => widget.onOpen(drillPath),
+              padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
+              child: Row(
+                children: [
+                  const _DashIconWell(
+                    icon: Icons.payments_outlined,
+                    color: AppColors.primary,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          'Dispatched sales value',
+                          style:
+                              Theme.of(context).textTheme.labelSmall?.copyWith(
+                                    color: AppColors.textSecondary,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                        ),
+                        const SizedBox(height: 4),
+                        FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text(
+                            _compactInr(data.totalSales),
+                            maxLines: 1,
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineSmall
+                                ?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.6,
+                                  height: 1.1,
+                                ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    Icons.chevron_right_rounded,
+                    color: AppColors.textMuted.withValues(alpha: 0.85),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _TotalSalesPeriodFilters extends StatelessWidget {
+  const _TotalSalesPeriodFilters({
+    required this.period,
+    required this.onSelect,
+    required this.onCustom,
+  });
+
+  final String period;
+  final ValueChanged<String> onSelect;
+  final VoidCallback onCustom;
+
+  static const _options = <(String label, String value)>[
+    ('Today', 'today'),
+    ('This Week', 'week'),
+    ('This Month', 'month'),
+    ('Custom', 'custom'),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final option in _options)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _PeriodChip(
+                label: option.$1,
+                selected: period == option.$2,
+                onTap: option.$2 == 'custom'
+                    ? onCustom
+                    : () => onSelect(option.$2),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
 
 class _MonthPerformanceSection extends StatefulWidget {
   const _MonthPerformanceSection({
@@ -2359,6 +2620,12 @@ class DirectorReportsScreen extends StatelessWidget {
         subtitle: 'Order monitoring by status',
         icon: Icons.fact_check_outlined,
         onTap: () => context.push('/director/orders'),
+      ),
+      _ModuleItem(
+        title: 'Inventory Stock',
+        subtitle: 'Raw, packing, semi-finished and finished stock',
+        icon: Icons.inventory_2_outlined,
+        onTap: () => context.push('/production/inventory'),
       ),
       _ModuleItem(
         title: 'Attendance / Activity',

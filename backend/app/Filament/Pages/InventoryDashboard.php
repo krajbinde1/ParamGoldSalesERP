@@ -52,6 +52,6 @@ class InventoryDashboard extends Page
 
     public function getHeaderWidgetsColumns(): int|array
     {
-        return 4;
+        return 1;
     }
 }
