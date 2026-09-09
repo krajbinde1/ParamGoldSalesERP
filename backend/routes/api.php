@@ -24,6 +24,7 @@ use App\Http\Controllers\Api\EmployeeCreditNoteController;
 use App\Http\Controllers\Api\EmployeeDashboardController;
 use App\Http\Controllers\Api\EmployeeDealerApplicationController;
 use App\Http\Controllers\Api\EmployeeDealerController;
+use App\Http\Controllers\Api\EmployeePaymentFollowUpController;
 use App\Http\Controllers\Api\EmployeeDealerVisitController;
 use App\Http\Controllers\Api\EmployeeFarmerLookupController;
 use App\Http\Controllers\Api\EmployeeFieldActivityController;
@@ -101,6 +102,9 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::get('employee/dashboard', EmployeeDashboardController::class);
         Route::get('employee/targets', [EmployeeDashboardController::class, 'targets']);
         Route::get('employee/dealers', EmployeeDealerController::class);
+        Route::get('employee/payment-follow-ups', [EmployeePaymentFollowUpController::class, 'index']);
+        Route::post('employee/payment-follow-ups/{dealer}', [EmployeePaymentFollowUpController::class, 'store']);
+        Route::get('employee/payment-follow-ups/{dealer}', [EmployeePaymentFollowUpController::class, 'show']);
         Route::get('employee/dealer-applications', [EmployeeDealerApplicationController::class, 'index']);
         Route::post('employee/dealer-applications', [EmployeeDealerApplicationController::class, 'store']);
         Route::get('employee/dealer-applications/{dealerApplication}', [EmployeeDealerApplicationController::class, 'show']);

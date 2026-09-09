@@ -26,6 +26,7 @@ class RoutePermissions {
     final employeeOnlyPrefixes = [
       '/orders',
       '/collections',
+      '/payment-follow-ups',
       '/credit-notes',
       '/field-activities',
       '/dealer-visits',

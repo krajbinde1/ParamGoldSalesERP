@@ -175,6 +175,16 @@ class Employee extends Authenticatable
         return $this->hasMany(Dealer::class, 'assigned_employee_id');
     }
 
+    public function paymentFollowUpCycles(): HasMany
+    {
+        return $this->hasMany(PaymentFollowUpCycle::class);
+    }
+
+    public function paymentFollowUpEntries(): HasMany
+    {
+        return $this->hasMany(PaymentFollowUpEntry::class);
+    }
+
     public function dealerApplications(): HasMany
     {
         return $this->hasMany(DealerApplication::class);

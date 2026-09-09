@@ -58,7 +58,8 @@ it('blocks login for an inactive employee', function () {
     $this->postJson('/api/login', [
         'login_id' => '9145433002',
         'password' => '3002',
-    ])->assertForbidden();
+    ])->assertForbidden()
+        ->assertJsonPath('message', 'This employee account is inactive.');
 });
 
 it('returns the linked employee from me', function () {
@@ -114,6 +115,68 @@ it('revokes only the current token on logout', function () {
 
     expect($user->tokens()->where('name', 'employee-mobile')->exists())->toBeFalse()
         ->and($user->tokens()->where('name', 'other-device')->exists())->toBeTrue();
+});
+
+it('returns inactive on me only when the linked employee is inactive', function () {
+    $result = app(CreateEmployeeWithUserAccount::class)->execute(employeeForAuthentication());
+    $user = $result->employee->user;
+    $token = $user->createToken('employee-mobile')->plainTextToken;
+
+    $this->withToken($token)->getJson('/api/me')->assertOk();
+
+    $result->employee->update(['status' => false]);
+
+    $this->withToken($token)
+        ->getJson('/api/me')
+        ->assertForbidden()
+        ->assertJsonPath('message', 'This employee account is inactive.');
+});
+
+it('completes temp-password login, mandatory password change, and me without inactive 403', function () {
+    $result = app(CreateEmployeeWithUserAccount::class)->execute(employeeForAuthentication([
+        'mobile' => '9604326999',
+        'email' => 'ganesh.auth.check@example.com',
+        'aadhaar_number' => '234567890321',
+        'pan_number' => 'ABCDE4321F',
+        'account_number' => '123456789021',
+    ]));
+    $loginId = $result->employee->user->login_id;
+
+    $login = $this->postJson('/api/login', [
+        'login_id' => $loginId,
+        'password' => '6999',
+        'device_id' => 'device-auth-check',
+    ])->assertOk();
+
+    expect($login->json('user.must_change_password'))->toBeTrue()
+        ->and($login->status())->not->toBe(403);
+
+    $token = $login->json('token');
+
+    $this->withToken($token)
+        ->withHeader('X-Device-Id', 'device-auth-check')
+        ->getJson('/api/me')
+        ->assertOk()
+        ->assertJsonPath('user.must_change_password', true);
+
+    $changed = $this->withToken($token)
+        ->withHeader('X-Device-Id', 'device-auth-check')
+        ->postJson('/api/change-password', [
+            'current_password' => '6999',
+            'password' => 'NewSecure@123',
+            'password_confirmation' => 'NewSecure@123',
+        ]);
+
+    $changed->assertOk()->assertJsonPath('user.must_change_password', false);
+    expect($changed->status())->not->toBe(403)
+        ->and($changed->json('message'))->not->toBe('This employee account is inactive.');
+
+    $this->withToken($token)
+        ->withHeader('X-Device-Id', 'device-auth-check')
+        ->getJson('/api/me')
+        ->assertOk()
+        ->assertJsonPath('user.must_change_password', false)
+        ->assertJsonPath('employee.active', true);
 });
 
 it('returns dashboard data only for the authenticated employee', function () {

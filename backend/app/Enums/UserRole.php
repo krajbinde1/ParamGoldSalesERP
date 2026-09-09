@@ -96,7 +96,7 @@ enum UserRole: string
         return match ($this) {
             self::Employee => [
                 'attendance', 'route_tracking', 'orders_create', 'orders_view_own',
-                'dealer_visits', 'field_activities', 'collections', 'ta_da_claims',
+                'dealer_visits', 'field_activities', 'collections', 'payment_follow_ups', 'ta_da_claims',
                 'dealers_create', 'dealer_ledger_view',
             ],
             self::Manager => [

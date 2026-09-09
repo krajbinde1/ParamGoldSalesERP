@@ -267,14 +267,20 @@ it('uses remaining finished stock after dispatch for FIFO pending allocation', f
         ->and($allocated[$firstPending->id][$product->id])->toMatchArray([
             'current_finished_stock' => 16.0,
             'allocated_to_earlier_orders' => 0.0,
+            'remaining_before_this_order' => 16.0,
+            'allocated_to_this_order' => 16.0,
             'available_for_this_order' => 16.0,
             'short_qty' => 14.0,
+            'stock_status' => 'short',
         ])
         ->and($allocated[$secondPending->id][$product->id])->toMatchArray([
             'current_finished_stock' => 16.0,
-            'allocated_to_earlier_orders' => 16.0,
+            'allocated_to_earlier_orders' => 30.0,
+            'remaining_before_this_order' => 0.0,
+            'allocated_to_this_order' => 0.0,
             'available_for_this_order' => 0.0,
             'short_qty' => 10.0,
+            'stock_status' => 'short',
         ]);
 });
 

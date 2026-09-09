@@ -116,6 +116,32 @@ class Dealer extends Model
         return $this->belongsTo(Employee::class, 'assigned_employee_id');
     }
 
+    public function paymentFollowUpCycles(): HasMany
+    {
+        return $this->hasMany(PaymentFollowUpCycle::class);
+    }
+
+    public function paymentFollowUpEntries(): HasMany
+    {
+        return $this->hasMany(PaymentFollowUpEntry::class);
+    }
+
+    public function openPaymentFollowUpCycle(): HasOne
+    {
+        return $this->hasOne(PaymentFollowUpCycle::class)
+            ->where('status', PaymentFollowUpCycle::STATUS_OPEN);
+    }
+
+    public function latestPaymentFollowUpCycle(): HasOne
+    {
+        return $this->hasOne(PaymentFollowUpCycle::class)->latestOfMany('id');
+    }
+
+    public function latestPaymentFollowUpEntry(): HasOne
+    {
+        return $this->hasOne(PaymentFollowUpEntry::class)->latestOfMany('id');
+    }
+
     public function orders(): HasMany
     {
         return $this->hasMany(Order::class);

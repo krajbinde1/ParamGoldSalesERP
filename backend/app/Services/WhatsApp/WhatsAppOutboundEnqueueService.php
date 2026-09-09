@@ -5,9 +5,11 @@ namespace App\Services\WhatsApp;
 use App\Jobs\SendWhatsAppOutboundMessage;
 use App\Models\Collection;
 use App\Models\Order;
+use App\Models\PaymentFollowUpEntry;
 use App\Models\WhatsAppOutboundMessage;
 use App\Services\Dealers\DealerLedgerService;
 use App\Support\IndianCurrency;
+use App\Support\PaymentFollowUpWhatsAppCopy;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -118,6 +120,28 @@ final class WhatsAppOutboundEnqueueService
         return $message;
     }
 
+    public function queuePaymentFollowUpReminder(PaymentFollowUpEntry $entry): ?WhatsAppOutboundMessage
+    {
+        $entry->loadMissing('dealer');
+        $phone = WhatsAppPhoneNumber::fromDealer($entry->dealer);
+        $error = $this->followUpError($entry, $phone);
+        $payload = $this->followUpPayload($entry, $phone);
+
+        $message = $this->insertOnce(
+            sourceType: WhatsAppOutboundMessage::SOURCE_PAYMENT_FOLLOWUP,
+            sourceId: (int) $entry->id,
+            erpReference: WhatsAppOutboundMessage::paymentFollowUpReference((int) $entry->id),
+            toNumber: $phone,
+            payload: $payload,
+            enqueueError: $error,
+            refreshIfUnsynced: true,
+        );
+
+        $this->dispatchIfPending($message);
+
+        return $message;
+    }
+
     private function billError(Order $order, ?string $phone): ?string
     {
         if ($order->dealer === null) {
@@ -143,6 +167,23 @@ final class WhatsAppOutboundEnqueueService
 
         if ($phone === null) {
             return self::ERROR_INVALID_MOBILE;
+        }
+
+        return null;
+    }
+
+    private function followUpError(PaymentFollowUpEntry $entry, ?string $phone): ?string
+    {
+        if ($entry->dealer === null) {
+            return self::ERROR_NO_DEALER;
+        }
+
+        if ($phone === null) {
+            return self::ERROR_INVALID_MOBILE;
+        }
+
+        if (trim((string) config('services.whatsapp.payment_reminder_template')) === '') {
+            return 'WhatsApp template payment_reminder is not configured yet.';
         }
 
         return null;
@@ -218,6 +259,36 @@ final class WhatsAppOutboundEnqueueService
                 $amount,
                 $receiptNo,
                 $date,
+            ),
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function followUpPayload(PaymentFollowUpEntry $entry, ?string $phone): array
+    {
+        $dealer = $entry->dealer;
+        $outstanding = round((float) $entry->outstanding_at_time, 2);
+        $expected = $entry->expected_amount !== null ? round((float) $entry->expected_amount, 2) : null;
+        $date = $entry->next_follow_up_date?->toDateString()
+            ?: Carbon::now('Asia/Kolkata')->toDateString();
+
+        return [
+            'type' => 'payment_followup',
+            'dealer_id' => $dealer?->id,
+            'dealer_name' => (string) ($dealer?->firm_name ?? ''),
+            'to_number' => $phone,
+            'entry_id' => (int) $entry->id,
+            'cycle_id' => (int) $entry->cycle_id,
+            'outstanding' => $outstanding,
+            'expected_amount' => $expected,
+            'follow_up_date' => $date,
+            'body' => PaymentFollowUpWhatsAppCopy::body(
+                (string) ($dealer?->firm_name ?? 'Dealer'),
+                $outstanding,
+                $expected,
+                $this->displayDate($date),
             ),
         ];
     }

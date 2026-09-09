@@ -1,0 +1,248 @@
+import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
+
+import '../../../core/api/api_client.dart';
+import '../../../core/api/api_errors.dart';
+import '../../../core/design/app_colors.dart';
+import '../../../core/design/app_spacing.dart';
+import '../../../core/storage/session_store.dart';
+import '../../../core/widgets/design/pg_card.dart';
+import '../../../core/widgets/design/pg_empty_state.dart';
+import '../../../core/widgets/design/pg_scaffold.dart';
+import '../../auth/providers/auth_controller.dart';
+import '../api/payment_follow_up_api.dart';
+import '../models/payment_follow_up.dart';
+
+final _date = DateFormat('dd MMM yyyy');
+
+class PaymentFollowUpListScreen extends StatefulWidget {
+  const PaymentFollowUpListScreen({super.key, required this.auth});
+  final AuthController auth;
+
+  @override
+  State<PaymentFollowUpListScreen> createState() =>
+      _PaymentFollowUpListScreenState();
+}
+
+class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
+  late Future<PaymentFollowUpListData> _future;
+  String _query = '';
+
+  PaymentFollowUpApi get _api => PaymentFollowUpApi(
+    ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
+  );
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _api.list();
+  }
+
+  Future<void> _reload() async {
+    setState(() => _future = _api.list());
+    await _future;
+  }
+
+  Color _statusColor(String status) {
+    return switch (status) {
+      'overdue' => AppColors.error,
+      'due_today' => AppColors.warning,
+      'upcoming' => AppColors.info,
+      'closed' => AppColors.success,
+      _ => AppColors.textSecondary,
+    };
+  }
+
+  String _formatDate(String? value) {
+    if (value == null || value.isEmpty) return '—';
+    final parsed = DateTime.tryParse(value);
+    return parsed == null ? value : _date.format(parsed);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return PgPageScaffold(
+      auth: widget.auth,
+      title: 'Payment Follow-up',
+      showBack: true,
+      body: RefreshIndicator(
+        onRefresh: _reload,
+        child: FutureBuilder<PaymentFollowUpListData>(
+          future: _future,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting &&
+                !snapshot.hasData) {
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                children: const [PgLoadingState()],
+              );
+            }
+
+            if (snapshot.hasError) {
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(AppSpacing.screenPadding),
+                children: [
+                  PgErrorState(
+                    message: errorMessage(snapshot.error),
+                    onRetry: _reload,
+                  ),
+                ],
+              );
+            }
+
+            final data = snapshot.data ??
+                const PaymentFollowUpListData(
+                  counts: PaymentFollowUpCounts(
+                    overdue: 0,
+                    dueToday: 0,
+                    upcoming: 0,
+                    noFollowUp: 0,
+                    closed: 0,
+                  ),
+                  dealers: [],
+                );
+            final dealers = data.dealers.where((dealer) {
+              if (_query.trim().isEmpty) return true;
+              return dealer.dealerName.toLowerCase().contains(
+                _query.trim().toLowerCase(),
+              );
+            }).toList();
+
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(AppSpacing.screenPadding),
+              children: [
+                Wrap(
+                  spacing: AppSpacing.sm,
+                  runSpacing: AppSpacing.sm,
+                  children: [
+                    _CountChip(
+                      label: 'Overdue',
+                      value: data.counts.overdue,
+                      color: AppColors.error,
+                    ),
+                    _CountChip(
+                      label: 'Due Today',
+                      value: data.counts.dueToday,
+                      color: AppColors.warning,
+                    ),
+                    _CountChip(
+                      label: 'Upcoming',
+                      value: data.counts.upcoming,
+                      color: AppColors.info,
+                    ),
+                    _CountChip(
+                      label: 'No Follow-up',
+                      value: data.counts.noFollowUp,
+                      color: AppColors.textSecondary,
+                    ),
+                  ],
+                ),
+                const SizedBox(height: AppSpacing.md),
+                TextField(
+                  decoration: const InputDecoration(
+                    hintText: 'Search dealer name',
+                    prefixIcon: Icon(Icons.search_rounded),
+                  ),
+                  onChanged: (value) => setState(() => _query = value),
+                ),
+                const SizedBox(height: AppSpacing.md),
+                if (dealers.isEmpty)
+                  const PgEmptyState(
+                    message: 'No assigned dealers found.',
+                    icon: Icon(Icons.storefront_outlined),
+                  )
+                else
+                  ...dealers.map(
+                    (dealer) => Padding(
+                      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                      child: PgCard(
+                        onTap: () async {
+                          await context.push(
+                            '/payment-follow-ups/${dealer.dealerId}',
+                          );
+                          if (mounted) await _reload();
+                        },
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              children: [
+                                Expanded(
+                                  child: Text(
+                                    dealer.dealerName,
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .titleMedium,
+                                  ),
+                                ),
+                                Text(
+                                  dealer.statusLabel,
+                                  style: Theme.of(context).textTheme.labelLarge
+                                      ?.copyWith(
+                                        color: _statusColor(dealer.status),
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              [
+                                if ((dealer.village ?? '').isNotEmpty)
+                                  dealer.village,
+                                dealer.currentOutstandingLabel,
+                              ].join(' · '),
+                              style: Theme.of(context).textTheme.bodySmall
+                                  ?.copyWith(color: AppColors.textSecondary),
+                            ),
+                            const SizedBox(height: 6),
+                            Text(
+                              'Last: ${_formatDate(dealer.lastFollowUpDate)}  ·  Next: ${_formatDate(dealer.nextFollowUpDate)}',
+                              style: Theme.of(context).textTheme.bodySmall,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _CountChip extends StatelessWidget {
+  const _CountChip({
+    required this.label,
+    required this.value,
+    required this.color,
+  });
+
+  final String label;
+  final int value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: 0.12),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Text(
+        '$label $value',
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+          color: color,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}

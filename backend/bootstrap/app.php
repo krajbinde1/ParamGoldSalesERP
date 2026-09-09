@@ -6,6 +6,7 @@ use App\Http\Middleware\EnsureTallyConnectorToken;
 use App\Http\Middleware\EnsureUserRole;
 use App\Services\Auth\MobileSessionService;
 use Illuminate\Auth\AuthenticationException;
+use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -57,4 +58,10 @@ return Application::configure(basePath: dirname(__DIR__))
 
             return null;
         });
+    })
+    ->withSchedule(function (Schedule $schedule): void {
+        $schedule->command('payment-follow-ups:send-due-reminders')
+            ->everyFifteenMinutes()
+            ->timezone('Asia/Kolkata')
+            ->withoutOverlapping();
     })->create();

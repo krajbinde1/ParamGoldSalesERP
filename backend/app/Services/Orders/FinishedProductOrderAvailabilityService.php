@@ -2,21 +2,26 @@
 
 namespace App\Services\Orders;
 
+use App\Enums\StockItemType;
 use App\Models\Order;
 use App\Models\OrderItem;
 use App\Models\Product;
+use App\Models\StockLedger;
+use Illuminate\Support\Facades\DB;
 
 /**
  * Live finished-product availability for open sales orders.
  *
- * Allocates current_finished_stock virtually, oldest eligible pending order
- * first (order_date, then order_no). Does not persist a reservation or deduct
- * stock. Eligibility is always recomputed from the current row — never from a
- * previous status.
+ * Virtual FIFO only: does not persist a reservation, deduct stock, or write
+ * ledger rows. Actual stock is the current physical finished balance from the
+ * stock ledger (latest stock_after), falling back to products.current_finished_stock
+ * when no ledger exists.
  *
- * Only orders still waiting for dispatch consume the virtual pool. Dispatched,
- * rejected, cancelled, delivered, reverted, and any row with dispatch/reject
- * timestamps is excluded, even if status was left stale.
+ * For each product, every active order is processed independently in date/id
+ * order. Earlier reserved qty is the FULL required qty of earlier active
+ * orders for that product_id — not the qty those orders were able to fill.
+ *
+ * Dispatched orders are excluded because dispatch is already posted in the ledger.
  */
 final class FinishedProductOrderAvailabilityService
 {
@@ -201,10 +206,17 @@ final class FinishedProductOrderAvailabilityService
             ->whereNull('dispatched_at')
             ->whereNull('rejected_at')
             ->orderBy('order_date')
-            ->orderBy('order_no')
             ->orderBy('id')
             ->with(['items' => function ($query) use ($productIds): void {
-                $query->select(['id', 'order_id', 'product_id', 'total_quantity_nos', 'quantity']);
+                $query->select([
+                    'id',
+                    'order_id',
+                    'product_id',
+                    'total_quantity_nos',
+                    'case_quantity',
+                    'nos_per_case',
+                    'quantity',
+                ]);
                 if ($productIds !== null) {
                     $query->whereIn('product_id', $productIds);
                 }
@@ -225,7 +237,7 @@ final class FinishedProductOrderAvailabilityService
                     continue;
                 }
 
-                $qty = (float) ($item->total_quantity_nos ?? $item->quantity ?? 0);
+                $qty = $this->lineQuantityNos($item);
                 if ($qty <= 0) {
                     continue;
                 }
@@ -248,7 +260,8 @@ final class FinishedProductOrderAvailabilityService
             ->get(['id', 'product_name', 'product_code', 'uom', 'production_unit', 'current_finished_stock'])
             ->keyBy('id');
 
-        $allocatedToEarlier = [];
+        $physicalStock = $this->physicalStockByProductIds($ids, $products);
+        $requiredByEarlier = [];
         $result = [];
 
         foreach ($openOrders as $openOrder) {
@@ -259,19 +272,19 @@ final class FinishedProductOrderAvailabilityService
             $orderId = (int) $openOrder->id;
             foreach ($orderProductQty[$orderId] ?? [] as $productId => $orderQty) {
                 $product = $products->get($productId);
-                $currentStock = max(0.0, round((float) ($product?->current_finished_stock ?? 0), 3));
-                $allocatedEarlier = round((float) ($allocatedToEarlier[$productId] ?? 0.0), 3);
-                $left = round(max(0.0, $currentStock - $allocatedEarlier), 3);
-                $availableForThis = round(min($orderQty, $left), 3);
-                $shortQty = round(max(0.0, $orderQty - $availableForThis), 3);
-                $allocatedToEarlier[$productId] = round($allocatedEarlier + $availableForThis, 3);
+                $currentStock = $physicalStock[$productId] ?? 0.0;
+                $earlierReserved = round((float) ($requiredByEarlier[$productId] ?? 0.0), 3);
+                $remainingBefore = round(max(0.0, $currentStock - $earlierReserved), 3);
+                $allocatedToThis = round(min($orderQty, $remainingBefore), 3);
+                $shortQty = round(max(0.0, $orderQty - $remainingBefore), 3);
+                $requiredByEarlier[$productId] = round($earlierReserved + $orderQty, 3);
 
                 $unit = trim((string) ($product?->production_unit ?: $product?->uom ?: 'Nos'));
                 if ($unit === '') {
                     $unit = 'Nos';
                 }
 
-                $status = $this->lineStatus($orderQty, $availableForThis, $shortQty);
+                $status = $shortQty > 0.0001 ? 'short' : 'available';
 
                 $result[$orderId][$productId] = [
                     'product_id' => $productId,
@@ -280,8 +293,10 @@ final class FinishedProductOrderAvailabilityService
                     'unit' => $unit,
                     'order_qty' => $orderQty,
                     'current_finished_stock' => $currentStock,
-                    'allocated_to_earlier_orders' => $allocatedEarlier,
-                    'available_for_this_order' => $availableForThis,
+                    'allocated_to_earlier_orders' => $earlierReserved,
+                    'remaining_before_this_order' => $remainingBefore,
+                    'allocated_to_this_order' => $allocatedToThis,
+                    'available_for_this_order' => $remainingBefore,
                     'short_qty' => $shortQty,
                     'stock_status' => $status,
                     'stock_status_label' => $this->statusLabel($status),
@@ -318,18 +333,9 @@ final class FinishedProductOrderAvailabilityService
         }
 
         $hasShort = false;
-        $allAvailable = true;
-        $allOut = true;
         $shortLabels = [];
 
         foreach ($rows as $row) {
-            $status = (string) ($row['stock_status'] ?? '');
-            if ($status !== 'available') {
-                $allAvailable = false;
-            }
-            if ($status !== 'out_of_stock') {
-                $allOut = false;
-            }
             $short = (float) ($row['short_qty'] ?? 0);
             if ($short > 0.0001) {
                 $hasShort = true;
@@ -339,10 +345,7 @@ final class FinishedProductOrderAvailabilityService
             }
         }
 
-        $status = $allAvailable
-            ? 'available'
-            : ($allOut ? 'out_of_stock' : 'partial_stock');
-
+        $status = $hasShort ? 'short' : 'available';
         $shortLabel = null;
         if ($hasShort) {
             $shortLabel = count($shortLabels) === 1
@@ -359,25 +362,11 @@ final class FinishedProductOrderAvailabilityService
         ];
     }
 
-    private function lineStatus(float $orderQty, float $available, float $short): string
-    {
-        if ($orderQty <= 0.0001 || $short <= 0.0001) {
-            return 'available';
-        }
-
-        if ($available <= 0.0001) {
-            return 'out_of_stock';
-        }
-
-        return 'partial_stock';
-    }
-
     private function statusLabel(string $status): string
     {
         return match ($status) {
             'available' => 'Available',
-            'partial_stock' => 'Partial Stock',
-            'out_of_stock' => 'Out of Stock',
+            'short' => 'Short',
             default => 'Available',
         };
     }
@@ -389,5 +378,68 @@ final class FinishedProductOrderAvailabilityService
         }
 
         return rtrim(rtrim(number_format($qty, 3, '.', ''), '0'), '.');
+    }
+
+    /**
+     * Order qty in the same Nos base unit as finished stock.
+     * Prefer stored total_quantity_nos; otherwise Cases × Qty Per Case.
+     */
+    private function lineQuantityNos(OrderItem $item): float
+    {
+        $nos = round((float) ($item->total_quantity_nos ?? 0), 3);
+        if ($nos > 0.0001) {
+            return $nos;
+        }
+
+        $cases = (float) ($item->case_quantity ?? 0);
+        $perCase = (float) ($item->nos_per_case ?? 0);
+        if ($cases > 0.0001 && $perCase > 0.0001) {
+            return round($cases * $perCase, 3);
+        }
+
+        return round((float) ($item->quantity ?? 0), 3);
+    }
+
+    /**
+     * @param  list<int>  $productIds
+     * @param  \Illuminate\Support\Collection<int, Product>  $products
+     * @return array<int, float>
+     */
+    private function physicalStockByProductIds(array $productIds, $products): array
+    {
+        $stock = [];
+        foreach ($productIds as $productId) {
+            $stock[$productId] = max(0.0, round((float) ($products->get($productId)?->current_finished_stock ?? 0), 3));
+        }
+
+        if ($productIds === []) {
+            return $stock;
+        }
+
+        $latestIds = StockLedger::query()
+            ->select('product_id', DB::raw('MAX(id) as latest_id'))
+            ->where('item_type', StockItemType::FinishedProduct)
+            ->whereIn('product_id', $productIds)
+            ->groupBy('product_id');
+
+        $rows = StockLedger::query()
+            ->joinSub($latestIds, 'latest_finished_stock', function ($join): void {
+                $join->on('stock_ledgers.id', '=', 'latest_finished_stock.latest_id');
+            })
+            ->get([
+                'stock_ledgers.product_id',
+                'stock_ledgers.stock_after',
+            ]);
+
+        foreach ($rows as $row) {
+            $productId = (int) $row->product_id;
+            if ($productId < 1) {
+                continue;
+            }
+
+            $stock[$productId] = max(0.0, round((float) $row->stock_after, 3));
+        }
+
+        return $stock;
     }
 }

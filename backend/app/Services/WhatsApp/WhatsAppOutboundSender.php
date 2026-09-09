@@ -37,9 +37,13 @@ final class WhatsAppOutboundSender
             }
 
             $type = (string) ($payload['type'] ?? $message->source_type);
-            $result = $type === 'collection' || $message->source_type === WhatsAppOutboundMessage::SOURCE_COLLECTION
-                ? $this->sendCollection($to, $payload)
-                : $this->sendBill($to, $payload);
+            $result = match (true) {
+                $type === 'payment_followup' || $message->source_type === WhatsAppOutboundMessage::SOURCE_PAYMENT_FOLLOWUP
+                    => $this->sendPaymentReminder($to, $payload),
+                $type === 'collection' || $message->source_type === WhatsAppOutboundMessage::SOURCE_COLLECTION
+                    => $this->sendCollection($to, $payload),
+                default => $this->sendBill($to, $payload),
+            };
 
             $message->update([
                 'status' => WhatsAppOutboundMessage::STATUS_SENT,
@@ -156,6 +160,30 @@ final class WhatsAppOutboundSender
                 $this->amountText($payload['outstanding'] ?? 0),
             ],
             (string) ($payload['body'] ?? $this->fallbackCollectionCaption($payload)),
+        );
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array{message_id: string, media_id: ?string}
+     */
+    private function sendPaymentReminder(string $to, array $payload): array
+    {
+        $expected = $payload['expected_amount'] ?? null;
+
+        return $this->sendSimple(
+            $to,
+            $payload,
+            'payment_reminder_template',
+            [
+                $payload['dealer_name'] ?? '',
+                $this->amountText($payload['outstanding'] ?? 0),
+                $expected === null || $expected === ''
+                    ? 'As discussed'
+                    : $this->amountText($expected),
+                $this->dateText($payload['follow_up_date'] ?? ''),
+            ],
+            (string) ($payload['body'] ?? ''),
         );
     }
 

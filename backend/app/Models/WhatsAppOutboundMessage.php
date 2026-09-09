@@ -12,6 +12,8 @@ class WhatsAppOutboundMessage extends Model
 
     public const SOURCE_COLLECTION = 'collection';
 
+    public const SOURCE_PAYMENT_FOLLOWUP = 'payment_followup';
+
     public const SEND_KIND_AUTO = 'auto';
 
     public const SEND_KIND_RESEND = 'resend';
@@ -72,6 +74,11 @@ class WhatsAppOutboundMessage extends Model
         return 'WA-RCV-'.$collectionId;
     }
 
+    public static function paymentFollowUpReference(int $entryId): string
+    {
+        return 'WA-PFU-'.$entryId;
+    }
+
     public function isPending(): bool
     {
         return $this->status === self::STATUS_PENDING;
@@ -123,6 +130,10 @@ class WhatsAppOutboundMessage extends Model
     {
         if ($this->source_type === self::SOURCE_COLLECTION) {
             return 'Collection Received';
+        }
+
+        if ($this->source_type === self::SOURCE_PAYMENT_FOLLOWUP) {
+            return 'Payment Reminder';
         }
 
         if ($this->send_kind === self::SEND_KIND_RESEND) {

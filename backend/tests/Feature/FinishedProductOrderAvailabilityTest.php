@@ -125,7 +125,9 @@ it('allocates finished stock to older pending orders before later ones', functio
         'order_qty' => 50.0,
         'current_finished_stock' => 100.0,
         'allocated_to_earlier_orders' => 0.0,
-        'available_for_this_order' => 50.0,
+        'remaining_before_this_order' => 100.0,
+        'allocated_to_this_order' => 50.0,
+        'available_for_this_order' => 100.0,
         'short_qty' => 0.0,
         'stock_status' => 'available',
         'stock_status_label' => 'Available',
@@ -134,10 +136,12 @@ it('allocates finished stock to older pending orders before later ones', functio
         'order_qty' => 60.0,
         'current_finished_stock' => 100.0,
         'allocated_to_earlier_orders' => 50.0,
+        'remaining_before_this_order' => 50.0,
+        'allocated_to_this_order' => 50.0,
         'available_for_this_order' => 50.0,
         'short_qty' => 10.0,
-        'stock_status' => 'partial_stock',
-        'stock_status_label' => 'Partial Stock',
+        'stock_status' => 'short',
+        'stock_status_label' => 'Short',
         'short_label' => 'Short 10 Nos',
     ]);
 
@@ -158,7 +162,7 @@ it('calculates shortage independently for each product on the same order', funct
 
     expect($rows[$nemax->id]['stock_status'])->toBe('available')
         ->and($rows[$nemax->id]['short_qty'])->toBe(0.0)
-        ->and($rows[$gold->id]['stock_status'])->toBe('out_of_stock')
+        ->and($rows[$gold->id]['stock_status'])->toBe('short')
         ->and($rows[$gold->id]['short_qty'])->toBe(12.0)
         ->and($rows[$gold->id]['short_label'])->toBe('Short 12 Nos');
 });
@@ -177,7 +181,9 @@ it('does not include the current order in allocated_to_earlier_orders', function
         'order_qty' => 80.0,
         'current_finished_stock' => 100.0,
         'allocated_to_earlier_orders' => 0.0,
-        'available_for_this_order' => 80.0,
+        'remaining_before_this_order' => 100.0,
+        'allocated_to_this_order' => 80.0,
+        'available_for_this_order' => 100.0,
         'short_qty' => 0.0,
         'stock_status' => 'available',
     ]);
@@ -210,7 +216,9 @@ it('drops dispatched, rejected, cancelled, and reverted orders from the virtual 
         ->and($allocated)->not->toHaveKey($delivered->id)
         ->and($allocated[$pending->id][$product->id])->toMatchArray([
             'allocated_to_earlier_orders' => 0.0,
-            'available_for_this_order' => 60.0,
+            'remaining_before_this_order' => 100.0,
+            'allocated_to_this_order' => 60.0,
+            'available_for_this_order' => 100.0,
             'short_qty' => 0.0,
             'stock_status' => 'available',
         ]);
@@ -242,7 +250,9 @@ it('ignores earlier orders whose status is still open but dispatch or reject alr
         ->and($allocated)->not->toHaveKey($staleRejected->id)
         ->and($allocated[$pending->id][$product->id])->toMatchArray([
             'allocated_to_earlier_orders' => 0.0,
-            'available_for_this_order' => 40.0,
+            'remaining_before_this_order' => 100.0,
+            'allocated_to_this_order' => 40.0,
+            'available_for_this_order' => 100.0,
             'short_qty' => 0.0,
             'stock_status' => 'available',
         ]);
@@ -262,9 +272,11 @@ it('releases allocation immediately when an earlier order is reverted, dispatche
 
     expect($service->allocate([(int) $product->id])[$later->id][$product->id])->toMatchArray([
         'allocated_to_earlier_orders' => 70.0,
+        'remaining_before_this_order' => 30.0,
+        'allocated_to_this_order' => 30.0,
         'available_for_this_order' => 30.0,
         'short_qty' => 20.0,
-        'stock_status' => 'partial_stock',
+        'stock_status' => 'short',
     ]);
 
     foreach ([
@@ -278,7 +290,9 @@ it('releases allocation immediately when an earlier order is reverted, dispatche
         expect($service->allocate([(int) $product->id]))->not->toHaveKey($earlier->id)
             ->and($service->allocate([(int) $product->id])[$later->id][$product->id])->toMatchArray([
                 'allocated_to_earlier_orders' => 0.0,
-                'available_for_this_order' => 50.0,
+                'remaining_before_this_order' => 100.0,
+                'allocated_to_this_order' => 50.0,
+                'available_for_this_order' => 100.0,
                 'short_qty' => 0.0,
                 'stock_status' => 'available',
             ]);
@@ -294,7 +308,9 @@ it('releases allocation immediately when an earlier order is reverted, dispatche
     expect($service->allocate([(int) $product->id]))->not->toHaveKey($earlier->id)
         ->and($service->allocate([(int) $product->id])[$later->id][$product->id])->toMatchArray([
             'allocated_to_earlier_orders' => 0.0,
-            'available_for_this_order' => 50.0,
+            'remaining_before_this_order' => 100.0,
+            'allocated_to_this_order' => 50.0,
+            'available_for_this_order' => 100.0,
             'short_qty' => 0.0,
             'stock_status' => 'available',
         ]);
@@ -317,6 +333,8 @@ it('recalculates when stock increases or order quantity changes', function () {
     $product->update(['current_finished_stock' => 100]);
 
     expect($service->allocate([(int) $product->id])[$second->id][$product->id])->toMatchArray([
+        'remaining_before_this_order' => 50.0,
+        'allocated_to_this_order' => 50.0,
         'available_for_this_order' => 50.0,
         'short_qty' => 10.0,
         'short_label' => 'Short 10 Nos',
@@ -326,7 +344,9 @@ it('recalculates when stock increases or order quantity changes', function () {
 
     expect($service->allocate([(int) $product->id])[$second->id][$product->id])->toMatchArray([
         'order_qty' => 40.0,
-        'available_for_this_order' => 40.0,
+        'remaining_before_this_order' => 50.0,
+        'allocated_to_this_order' => 40.0,
+        'available_for_this_order' => 50.0,
         'short_qty' => 0.0,
         'stock_status' => 'available',
     ]);
@@ -347,13 +367,15 @@ it('includes live stock availability on production supervisor order detail and l
         ->getJson("/api/production/orders/{$second->id}")
         ->assertOk()
         ->assertJsonPath('data.stock_availability_applies', true)
-        ->assertJsonPath('data.stock_status', 'partial_stock')
-        ->assertJsonPath('data.stock_status_label', 'Partial Stock')
+        ->assertJsonPath('data.stock_status', 'short')
+        ->assertJsonPath('data.stock_status_label', 'Short')
         ->assertJsonPath('data.has_stock_shortage', true)
         ->assertJsonPath('data.stock_short_label', 'Short 10 Nos')
         ->assertJsonPath('data.stock_availability.0.order_qty', 60)
         ->assertJsonPath('data.stock_availability.0.current_finished_stock', 100)
         ->assertJsonPath('data.stock_availability.0.allocated_to_earlier_orders', 50)
+        ->assertJsonPath('data.stock_availability.0.remaining_before_this_order', 50)
+        ->assertJsonPath('data.stock_availability.0.allocated_to_this_order', 50)
         ->assertJsonPath('data.stock_availability.0.available_for_this_order', 50)
         ->assertJsonPath('data.stock_availability.0.short_qty', 10)
         ->assertJsonPath('data.stock_availability.0.short_label', 'Short 10 Nos');
@@ -364,8 +386,8 @@ it('includes live stock availability on production supervisor order detail and l
         ->assertJsonFragment([
             'id' => $second->id,
             'stock_availability_applies' => true,
-            'stock_status' => 'partial_stock',
-            'stock_status_label' => 'Partial Stock',
+            'stock_status' => 'short',
+            'stock_status_label' => 'Short',
             'has_stock_shortage' => true,
             'stock_short_label' => 'Short 10 Nos',
         ]);
@@ -396,7 +418,9 @@ it('recalculates existing production supervisor orders after an earlier order is
         ->assertOk()
         ->assertJsonPath('data.stock_availability_applies', true)
         ->assertJsonPath('data.stock_availability.0.allocated_to_earlier_orders', 0)
-        ->assertJsonPath('data.stock_availability.0.available_for_this_order', 60)
+        ->assertJsonPath('data.stock_availability.0.remaining_before_this_order', 100)
+        ->assertJsonPath('data.stock_availability.0.allocated_to_this_order', 60)
+        ->assertJsonPath('data.stock_availability.0.available_for_this_order', 100)
         ->assertJsonPath('data.stock_availability.0.short_qty', 0)
         ->assertJsonPath('data.stock_status', 'available');
 
@@ -433,7 +457,9 @@ it('recalculates existing production supervisor orders after an earlier billed o
         ->assertOk()
         ->assertJsonPath('data.stock_availability_applies', true)
         ->assertJsonPath('data.stock_availability.0.allocated_to_earlier_orders', 0)
-        ->assertJsonPath('data.stock_availability.0.available_for_this_order', 60)
+        ->assertJsonPath('data.stock_availability.0.remaining_before_this_order', 100)
+        ->assertJsonPath('data.stock_availability.0.allocated_to_this_order', 60)
+        ->assertJsonPath('data.stock_availability.0.available_for_this_order', 100)
         ->assertJsonPath('data.stock_availability.0.short_qty', 0)
         ->assertJsonPath('data.stock_status', 'available');
 
@@ -459,20 +485,29 @@ it('reserves stock for placed, billed, and send-for-bill orders still in the pip
 
     $allocated = app(FinishedProductOrderAvailabilityService::class)->allocate([(int) $product->id]);
 
-    expect($allocated[$placed->id][$product->id]['available_for_this_order'])->toBe(20.0)
-        ->and($allocated[$billed->id][$product->id])->toMatchArray([
+    expect($allocated[$placed->id][$product->id])->toMatchArray([
+        'remaining_before_this_order' => 100.0,
+        'allocated_to_this_order' => 20.0,
+        'available_for_this_order' => 100.0,
+    ])->and($allocated[$billed->id][$product->id])->toMatchArray([
             'allocated_to_earlier_orders' => 20.0,
-            'available_for_this_order' => 25.0,
+            'remaining_before_this_order' => 80.0,
+            'allocated_to_this_order' => 25.0,
+            'available_for_this_order' => 80.0,
         ])
         ->and($allocated[$sentForBill->id][$product->id])->toMatchArray([
             'allocated_to_earlier_orders' => 45.0,
-            'available_for_this_order' => 15.0,
+            'remaining_before_this_order' => 55.0,
+            'allocated_to_this_order' => 15.0,
+            'available_for_this_order' => 55.0,
         ])
         ->and($allocated[$later->id][$product->id])->toMatchArray([
             'allocated_to_earlier_orders' => 60.0,
+            'remaining_before_this_order' => 40.0,
+            'allocated_to_this_order' => 40.0,
             'available_for_this_order' => 40.0,
             'short_qty' => 10.0,
-            'stock_status' => 'partial_stock',
+            'stock_status' => 'short',
         ]);
 });
 
@@ -490,39 +525,46 @@ it('reserves stock for on-hold orders that are still valid for production', func
 
     expect($allocated[$held->id][$product->id])->toMatchArray([
         'allocated_to_earlier_orders' => 0.0,
-        'available_for_this_order' => 40.0,
+        'remaining_before_this_order' => 100.0,
+        'allocated_to_this_order' => 40.0,
+        'available_for_this_order' => 100.0,
         'stock_status' => 'available',
     ])->and($allocated[$later->id][$product->id])->toMatchArray([
         'allocated_to_earlier_orders' => 40.0,
+        'remaining_before_this_order' => 60.0,
+        'allocated_to_this_order' => 60.0,
         'available_for_this_order' => 60.0,
         'short_qty' => 10.0,
-        'stock_status' => 'partial_stock',
+        'stock_status' => 'short',
     ]);
 });
 
-it('allocates same-day orders by order number and date before id', function () {
+it('allocates same-day orders by order date then order id, not order number', function () {
     $employee = fgStockAvailEmployee(UserRole::Employee, '9300000114');
     $dealer = fgStockAvailDealer($employee->id, '9300001114');
     $product = fgStockAvailProduct('NEMAX-FG-12', 'NEMAX', 100);
 
-    $laterNo = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-C002', '2026-09-01');
-    $earlierNo = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-C001', '2026-09-01');
+    $lowerIdLaterNo = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-C002', '2026-09-01');
+    $higherIdEarlierNo = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-C001', '2026-09-01');
     $olderDateLaterId = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FG-C003', '2026-08-31');
-    fgStockAvailLine($laterNo, $product, 30);
-    fgStockAvailLine($earlierNo, $product, 20);
+    fgStockAvailLine($lowerIdLaterNo, $product, 30);
+    fgStockAvailLine($higherIdEarlierNo, $product, 20);
     fgStockAvailLine($olderDateLaterId, $product, 40);
 
     $allocated = app(FinishedProductOrderAvailabilityService::class)->allocate([(int) $product->id]);
 
     expect($allocated[$olderDateLaterId->id][$product->id])->toMatchArray([
         'allocated_to_earlier_orders' => 0.0,
-        'available_for_this_order' => 40.0,
-    ])->and($allocated[$earlierNo->id][$product->id])->toMatchArray([
+        'allocated_to_this_order' => 40.0,
+        'remaining_before_this_order' => 100.0,
+    ])->and($allocated[$lowerIdLaterNo->id][$product->id])->toMatchArray([
         'allocated_to_earlier_orders' => 40.0,
-        'available_for_this_order' => 20.0,
-    ])->and($allocated[$laterNo->id][$product->id])->toMatchArray([
-        'allocated_to_earlier_orders' => 60.0,
-        'available_for_this_order' => 30.0,
+        'allocated_to_this_order' => 30.0,
+        'remaining_before_this_order' => 60.0,
+    ])->and($allocated[$higherIdEarlierNo->id][$product->id])->toMatchArray([
+        'allocated_to_earlier_orders' => 70.0,
+        'allocated_to_this_order' => 20.0,
+        'remaining_before_this_order' => 30.0,
         'short_qty' => 0.0,
     ]);
 });
@@ -548,24 +590,31 @@ it('does not double-count stock across multiple orders or duplicate lines', func
     expect($firstRow)->toMatchArray([
         'order_qty' => 50.0,
         'allocated_to_earlier_orders' => 0.0,
-        'available_for_this_order' => 50.0,
+        'remaining_before_this_order' => 100.0,
+        'allocated_to_this_order' => 50.0,
+        'available_for_this_order' => 100.0,
     ])->and($secondRow)->toMatchArray([
         'allocated_to_earlier_orders' => 50.0,
-        'available_for_this_order' => 40.0,
+        'remaining_before_this_order' => 50.0,
+        'allocated_to_this_order' => 40.0,
+        'available_for_this_order' => 50.0,
         'short_qty' => 0.0,
     ])->and($thirdRow)->toMatchArray([
         'allocated_to_earlier_orders' => 90.0,
+        'remaining_before_this_order' => 10.0,
+        'allocated_to_this_order' => 10.0,
         'available_for_this_order' => 10.0,
         'short_qty' => 40.0,
-        'stock_status' => 'partial_stock',
+        'stock_status' => 'short',
     ]);
 
-    $reserved = $firstRow['available_for_this_order']
-        + $secondRow['available_for_this_order']
-        + $thirdRow['available_for_this_order'];
+    $reserved = $firstRow['allocated_to_this_order']
+        + $secondRow['allocated_to_this_order']
+        + $thirdRow['allocated_to_this_order'];
 
     expect($reserved)->toBe(100.0)
         ->and($secondRow['allocated_to_earlier_orders'])->not->toBe(90.0)
+        ->and($thirdRow['allocated_to_earlier_orders'])->toBe(90.0)
         ->and($thirdRow['allocated_to_earlier_orders'])->not->toBe(140.0);
 });
 
@@ -581,11 +630,198 @@ it('lets a pending approval order consume stock ahead of a later approved order'
 
     $allocated = app(FinishedProductOrderAvailabilityService::class)->allocate([(int) $product->id]);
 
-    expect($allocated[$pending->id][$product->id]['available_for_this_order'])->toBe(80.0)
-        ->and($allocated[$approved->id][$product->id])->toMatchArray([
+    expect($allocated[$pending->id][$product->id])->toMatchArray([
+        'remaining_before_this_order' => 100.0,
+        'allocated_to_this_order' => 80.0,
+        'available_for_this_order' => 100.0,
+        'short_qty' => 0.0,
+    ])->and($allocated[$approved->id][$product->id])->toMatchArray([
+            'allocated_to_earlier_orders' => 80.0,
+            'remaining_before_this_order' => 20.0,
+            'allocated_to_this_order' => 20.0,
             'available_for_this_order' => 20.0,
             'short_qty' => 30.0,
-            'stock_status' => 'partial_stock',
+            'stock_status' => 'short',
             'short_label' => 'Short 30 Nos',
         ]);
+});
+
+it('reserves the full required qty of earlier orders, not only what they could fill', function () {
+    $employee = fgStockAvailEmployee(UserRole::Employee, '9300000120');
+    $dealer = fgStockAvailDealer($employee->id, '9300001120');
+    $product = fgStockAvailProduct('FIFO-46', 'SAMRUDDHI PLUS 5KG', 46);
+
+    $first = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FIFO-1', '2026-09-01');
+    $second = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FIFO-2', '2026-09-02');
+    $third = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-FIFO-3', '2026-09-03');
+    fgStockAvailLine($first, $product, 30);
+    fgStockAvailLine($second, $product, 30);
+    fgStockAvailLine($third, $product, 10);
+
+    $allocated = app(FinishedProductOrderAvailabilityService::class)->allocate([(int) $product->id]);
+
+    expect($allocated[$first->id][$product->id])->toMatchArray([
+        'order_qty' => 30.0,
+        'current_finished_stock' => 46.0,
+        'allocated_to_earlier_orders' => 0.0,
+        'remaining_before_this_order' => 46.0,
+        'allocated_to_this_order' => 30.0,
+        'short_qty' => 0.0,
+        'stock_status' => 'available',
+    ])->and($allocated[$second->id][$product->id])->toMatchArray([
+        'order_qty' => 30.0,
+        'allocated_to_earlier_orders' => 30.0,
+        'remaining_before_this_order' => 16.0,
+        'allocated_to_this_order' => 16.0,
+        'short_qty' => 14.0,
+        'stock_status' => 'short',
+    ])->and($allocated[$third->id][$product->id])->toMatchArray([
+        'order_qty' => 10.0,
+        'allocated_to_earlier_orders' => 60.0,
+        'remaining_before_this_order' => 0.0,
+        'allocated_to_this_order' => 0.0,
+        'short_qty' => 10.0,
+        'stock_status' => 'short',
+    ]);
+});
+
+it('uses cases x nos_per_case when total_quantity_nos is missing', function () {
+    $employee = fgStockAvailEmployee(UserRole::Employee, '9300000121');
+    $dealer = fgStockAvailDealer($employee->id, '9300001121');
+    $product = fgStockAvailProduct('FIFO-CASES', 'NUTRIFIT GOLD DF 5 LTR', 50);
+    $product->update(['nos_per_case' => 20]);
+
+    $first = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-CASE-1', '2026-09-01');
+    $second = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-CASE-2', '2026-09-02');
+    $first->items()->create([
+        'product_id' => $product->id,
+        'case_quantity' => 2,
+        'nos_per_case' => 20,
+        'total_quantity_nos' => 0,
+        'quantity' => 2,
+        'unit' => 'Nos',
+        'rate_per_no' => 10,
+        'rate' => 10,
+        'discount_percentage' => 0,
+        'discount_amount' => 0,
+        'gst_percentage' => 18,
+        'base_amount' => 400,
+        'taxable_amount' => 400,
+        'gst_amount' => 0,
+        'final_amount' => 400,
+        'line_total' => 400,
+    ]);
+    $first->items()->first()->forceFill([
+        'total_quantity_nos' => 0,
+        'quantity' => 2,
+        'case_quantity' => 2,
+        'nos_per_case' => 20,
+    ])->saveQuietly();
+    $second->items()->create([
+        'product_id' => $product->id,
+        'case_quantity' => 1,
+        'nos_per_case' => 20,
+        'total_quantity_nos' => 0,
+        'quantity' => 1,
+        'unit' => 'Nos',
+        'rate_per_no' => 10,
+        'rate' => 10,
+        'discount_percentage' => 0,
+        'discount_amount' => 0,
+        'gst_percentage' => 18,
+        'base_amount' => 200,
+        'taxable_amount' => 200,
+        'gst_amount' => 0,
+        'final_amount' => 200,
+        'line_total' => 200,
+    ]);
+    $second->items()->first()->forceFill([
+        'total_quantity_nos' => 0,
+        'quantity' => 1,
+        'case_quantity' => 1,
+        'nos_per_case' => 20,
+    ])->saveQuietly();
+
+    $allocated = app(FinishedProductOrderAvailabilityService::class)->allocate([(int) $product->id]);
+
+    expect($allocated[$first->id][$product->id]['order_qty'])->toBe(40.0)
+        ->and($allocated[$second->id][$product->id])->toMatchArray([
+            'order_qty' => 20.0,
+            'allocated_to_earlier_orders' => 40.0,
+            'remaining_before_this_order' => 10.0,
+            'allocated_to_this_order' => 10.0,
+            'short_qty' => 10.0,
+            'stock_status' => 'short',
+        ]);
+});
+
+it('reads actual finished stock from the latest ledger stock_after without writing stock', function () {
+    $employee = fgStockAvailEmployee(UserRole::Employee, '9300000122');
+    $dealer = fgStockAvailDealer($employee->id, '9300001122');
+    $product = fgStockAvailProduct('FIFO-LEDGER', 'SAMRUDDHI PLUS 5KG', 36);
+
+    \App\Models\StockLedger::query()->create([
+        'transaction_date' => now('Asia/Kolkata')->toDateString(),
+        'transaction_type' => \App\Enums\StockTransactionType::ProductionOutput,
+        'item_type' => \App\Enums\StockItemType::FinishedProduct,
+        'product_id' => $product->id,
+        'quantity_in' => 16,
+        'quantity_out' => 0,
+        'stock_before' => 0,
+        'stock_after' => 16,
+        'rate' => 0,
+        'transaction_value' => 0,
+        'remarks' => 'Ledger physical stock',
+    ]);
+
+    $first = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-LED-1', '2026-09-01');
+    $second = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-LED-2', '2026-09-02');
+    fgStockAvailLine($first, $product, 30);
+    fgStockAvailLine($second, $product, 10);
+
+    $allocated = app(FinishedProductOrderAvailabilityService::class)->allocate([(int) $product->id]);
+
+    expect((float) $product->fresh()->current_finished_stock)->toBe(36.0)
+        ->and($allocated[$first->id][$product->id])->toMatchArray([
+            'current_finished_stock' => 16.0,
+            'remaining_before_this_order' => 16.0,
+            'allocated_to_this_order' => 16.0,
+            'short_qty' => 14.0,
+        ])
+        ->and($allocated[$second->id][$product->id])->toMatchArray([
+            'allocated_to_earlier_orders' => 30.0,
+            'remaining_before_this_order' => 0.0,
+            'allocated_to_this_order' => 0.0,
+            'short_qty' => 10.0,
+        ]);
+});
+
+it('attaches the same FIFO payload on manager and director order detail APIs', function () {
+    $employee = fgStockAvailEmployee(UserRole::Employee, '9300000123');
+    $manager = fgStockAvailEmployee(UserRole::Manager, '9300000124');
+    $director = fgStockAvailEmployee(UserRole::Director, '9300000125');
+    $production = fgStockAvailEmployee(UserRole::ProductionSupervisor, '9300000126');
+    $employee->update(['reporting_manager_id' => $manager->id]);
+    $dealer = fgStockAvailDealer($employee->id, '9300001123');
+    $product = fgStockAvailProduct('FIFO-API', 'SAMRUDDHI PLUS 5KG', 46);
+
+    $first = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-API-1', '2026-09-01');
+    $second = fgStockAvailOrder($employee->id, $dealer->id, Order::STATUS_APPROVED, 'ORD-API-2', '2026-09-02');
+    fgStockAvailLine($first, $product, 30);
+    fgStockAvailLine($second, $product, 30);
+
+    foreach ([
+        [$manager->user, "/api/manager/orders/{$second->id}"],
+        [$director->user, "/api/director/orders/{$second->id}"],
+        [$production->user, "/api/production/orders/{$second->id}"],
+    ] as [$user, $url]) {
+        $this->actingAs($user, 'sanctum')
+            ->getJson($url)
+            ->assertOk()
+            ->assertJsonPath('data.stock_availability.0.allocated_to_earlier_orders', 30)
+            ->assertJsonPath('data.stock_availability.0.remaining_before_this_order', 16)
+            ->assertJsonPath('data.stock_availability.0.allocated_to_this_order', 16)
+            ->assertJsonPath('data.stock_availability.0.short_qty', 14)
+            ->assertJsonPath('data.stock_status', 'short');
+    }
 });

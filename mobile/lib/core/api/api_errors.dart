@@ -40,6 +40,13 @@ bool isSessionReplacedResponse(Object? data) {
   return message.contains('signed in on another device');
 }
 
+/// True only when the API body explicitly says the employee account is inactive.
+bool isEmployeeInactiveResponse(Object? data) {
+  if (data is! Map) return false;
+  final message = data['message']?.toString().toLowerCase() ?? '';
+  return message.contains('employee account is inactive');
+}
+
 bool isConnectionFailure(DioException error) {
   return error.response == null &&
       (error.type == DioExceptionType.connectionError ||

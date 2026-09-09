@@ -3,6 +3,7 @@
 namespace App\Support\Orders;
 
 use App\Models\Order;
+use App\Services\Orders\FinishedProductOrderAvailabilityService;
 use App\Services\Orders\OrderBillingTransportCalculator;
 use App\Services\Orders\OrderDispatchCalculationService;
 use App\Services\Orders\OrderLineCalculationService;
@@ -12,6 +13,7 @@ final class OrderDetailPresenter
     public function __construct(
         private readonly OrderDispatchCalculationService $calculator,
         private readonly OrderLineCalculationService $lineCalculator = new OrderLineCalculationService,
+        private readonly FinishedProductOrderAvailabilityService $stockAvailability = new FinishedProductOrderAvailabilityService,
     ) {}
 
     /**
@@ -69,7 +71,7 @@ final class OrderDetailPresenter
             : null;
         $billing = OrderBillingTransportCalculator::present($order);
 
-        return [
+        $payload = [
             'id' => $order->id,
             'order_no' => $order->order_no,
             'short_order_no' => $order->shortOrderNo(),
@@ -223,5 +225,7 @@ final class OrderDetailPresenter
             'can_reject' => $order->canBeRejected(),
             'can_edit' => $order->canBeEdited(),
         ];
+
+        return $this->stockAvailability->attachToPayload($payload, $order);
     }
 }

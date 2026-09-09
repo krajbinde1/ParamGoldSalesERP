@@ -182,8 +182,9 @@ class ProductionOrderListCard extends StatelessWidget {
                             label: '${order['stock_status_label']}',
                             tone: switch ('${order['stock_status']}') {
                               'available' => PgStatusTone.approved,
+                              'short' => PgStatusTone.rejected,
                               'out_of_stock' => PgStatusTone.rejected,
-                              'partial_stock' => PgStatusTone.pending,
+                              'partial_stock' => PgStatusTone.rejected,
                               _ => PgStatusTone.neutral,
                             },
                           ),

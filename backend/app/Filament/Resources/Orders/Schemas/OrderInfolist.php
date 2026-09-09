@@ -4,6 +4,7 @@ namespace App\Filament\Resources\Orders\Schemas;
 
 use App\Enums\TransportChargeType;
 use App\Models\Order;
+use App\Services\Orders\FinishedProductOrderAvailabilityService;
 use App\Services\Orders\OrderBillingTransportCalculator;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Grid;
@@ -164,6 +165,29 @@ class OrderInfolist
                             ->state(fn (Order $record): string => 'items')
                             ->formatStateUsing(fn ($state, Order $record): HtmlString => new HtmlString(
                                 view('filament.resources.orders.partials.order-items-table', [
+                                    'record' => $record,
+                                ])->render()
+                            ))
+                            ->columnSpanFull(),
+                    ]),
+
+                Section::make('Finished Product Stock Availability')
+                    ->columnSpanFull()
+                    ->visible(function (Order $record): bool {
+                        $availability = app(FinishedProductOrderAvailabilityService::class)
+                            ->attachToPayload([], $record);
+
+                        return ($availability['stock_availability_applies'] ?? false) === true
+                            && is_array($availability['stock_availability'] ?? null)
+                            && $availability['stock_availability'] !== [];
+                    })
+                    ->schema([
+                        TextEntry::make('stock_availability_table')
+                            ->hiddenLabel()
+                            ->html()
+                            ->state(fn (Order $record): string => 'stock')
+                            ->formatStateUsing(fn ($state, Order $record): HtmlString => new HtmlString(
+                                view('filament.resources.orders.partials.order-stock-availability', [
                                     'record' => $record,
                                 ])->render()
                             ))

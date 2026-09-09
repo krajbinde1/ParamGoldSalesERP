@@ -15,7 +15,8 @@ import '../../modules/auth/screens/login_screen.dart';
 import '../../modules/auth/screens/splash_screen.dart';
 import '../../modules/updates/screens/force_update_screen.dart';
 import '../updates/app_update_controller.dart';
-import '../../modules/collections/screens/collection_dashboard_screen.dart';
+import '../../modules/payment_follow_ups/screens/payment_follow_up_detail_screen.dart';
+import '../../modules/payment_follow_ups/screens/payment_follow_up_list_screen.dart';
 import '../../modules/collections/screens/collection_detail_screen.dart';
 import '../../modules/collections/screens/new_collection_screen.dart';
 import '../../modules/credit_notes/models/credit_note.dart';
@@ -238,6 +239,19 @@ GoRouter createRouter(
               ],
             ),
           ],
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/payment-follow-ups',
+      builder: (_, _) => PaymentFollowUpListScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':dealerId',
+          builder: (_, state) => PaymentFollowUpDetailScreen(
+            dealerId: int.parse(state.pathParameters['dealerId']!),
+            auth: auth,
+          ),
         ),
       ],
     ),

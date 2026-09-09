@@ -428,9 +428,6 @@ class ProductionOrderController extends Controller
         bool $includeDispatchPreview = false,
         ?array $previewCalculation = null,
     ): array {
-        return $this->stockAvailability->attachToPayload(
-            $this->presenter->present($order, $includeDispatchPreview, $previewCalculation),
-            $order,
-        );
+        return $this->presenter->present($order, $includeDispatchPreview, $previewCalculation);
     }
 }

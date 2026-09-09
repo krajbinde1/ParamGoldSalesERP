@@ -54,8 +54,8 @@ class FinishedProductStockAvailabilitySection extends StatelessWidget {
     switch (status) {
       case 'available':
         return PgStatusTone.approved;
+      case 'short':
       case 'partial_stock':
-        return PgStatusTone.pending;
       case 'out_of_stock':
         return PgStatusTone.rejected;
       default:
@@ -77,7 +77,7 @@ class FinishedProductStockAvailabilitySection extends StatelessWidget {
           const SizedBox(height: 4),
           if (!compact)
             Text(
-              'Oldest pending orders waiting for dispatch are allocated first. Dispatched, rejected, cancelled, and completed orders do not hold stock.',
+              'Oldest active orders waiting for dispatch are allocated first by order date, then order ID. Dispatched, rejected, cancelled, and reverted orders do not hold stock.',
               style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: AppColors.textSecondary,
                   ),
@@ -95,6 +95,15 @@ class _ProductAvailabilityCard extends StatelessWidget {
   const _ProductAvailabilityCard({required this.row});
 
   final Map<String, dynamic> row;
+
+  double _allocatedFallback(Map<String, dynamic> data) {
+    final orderQty = double.tryParse('${data['order_qty']}') ?? 0;
+    final remaining = double.tryParse(
+          '${data['remaining_before_this_order'] ?? data['available_for_this_order']}',
+        ) ??
+        0;
+    return orderQty < remaining ? orderQty : remaining;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -172,9 +181,18 @@ class _ProductAvailabilityCard extends StatelessWidget {
               ),
               _row(
                 context,
-                'Available for This Order',
+                'Remaining Stock Before This Order',
                 FinishedProductStockAvailabilitySection.formatQty(
-                  row['available_for_this_order'],
+                  row['remaining_before_this_order'] ?? row['available_for_this_order'],
+                  unit,
+                ),
+              ),
+              _row(
+                context,
+                'Allocated to This Order',
+                FinishedProductStockAvailabilitySection.formatQty(
+                  row['allocated_to_this_order'] ??
+                      _allocatedFallback(row),
                   unit,
                 ),
               ),

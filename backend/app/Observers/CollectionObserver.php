@@ -5,6 +5,7 @@ namespace App\Observers;
 use App\Models\Collection;
 use App\Services\Dealers\DealerLedgerPostingService;
 use App\Services\Notifications\CollectionPushNotifier;
+use App\Services\PaymentFollowUps\PaymentFollowUpService;
 use App\Services\TallySync\TallyOutboundEnqueueService;
 use App\Services\WhatsApp\WhatsAppOutboundEnqueueService;
 use Illuminate\Support\Facades\Log;
@@ -17,6 +18,7 @@ class CollectionObserver
         private readonly DealerLedgerPostingService $ledgerPosting,
         private readonly TallyOutboundEnqueueService $tallyOutbound,
         private readonly WhatsAppOutboundEnqueueService $whatsAppOutbound,
+        private readonly PaymentFollowUpService $paymentFollowUps,
     ) {}
 
     public function created(Collection $collection): void
@@ -26,6 +28,10 @@ class CollectionObserver
         $this->queueTallyReceipt($fresh);
         $this->queueWhatsAppReceipt($fresh);
         $this->safe(fn () => $this->notifier->notifyCreated($fresh));
+
+        if ($fresh->status === Collection::STATUS_RECEIVED) {
+            $this->safe(fn () => $this->paymentFollowUps->closeOpenCycleFromReceivedCollection($fresh));
+        }
     }
 
     public function updated(Collection $collection): void
@@ -50,7 +56,9 @@ class CollectionObserver
         }
 
         if ($collection->status === Collection::STATUS_RECEIVED) {
-            $this->safe(fn () => $this->notifier->notifyReceived($collection->fresh() ?? $collection));
+            $fresh = $collection->fresh() ?? $collection;
+            $this->safe(fn () => $this->notifier->notifyReceived($fresh));
+            $this->safe(fn () => $this->paymentFollowUps->closeOpenCycleFromReceivedCollection($fresh));
         }
     }
 

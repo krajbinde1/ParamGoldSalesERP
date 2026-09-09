@@ -296,6 +296,12 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                   onTap: () => _open('/collections'),
                                 ),
                                 _EmployeeModuleItem(
+                                  title: 'Payment Follow-up',
+                                  subtitle: 'Assigned dealer outstanding follow-up',
+                                  icon: Icons.notifications_active_outlined,
+                                  onTap: () => _open('/payment-follow-ups'),
+                                ),
+                                _EmployeeModuleItem(
                                   title: 'Credit Note',
                                   subtitle: 'Sales return / rate difference',
                                   icon: Icons.note_alt_outlined,

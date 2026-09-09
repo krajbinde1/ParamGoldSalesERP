@@ -120,7 +120,13 @@ class AuthApi {
       return const AuthApiException('Session expired. Please login again.');
     }
     if (error.response?.statusCode == 403) {
-      return const AuthApiException('Employee account is inactive');
+      if (isEmployeeInactiveResponse(body)) {
+        return const AuthApiException('Employee account is inactive');
+      }
+      final fallback = (message != null && message.trim().isNotEmpty)
+          ? message.trim()
+          : 'You do not have permission to perform this action.';
+      return AuthApiException(fallback, code: code);
     }
     if (error.response?.statusCode == 422) {
       return const AuthApiException('Invalid mobile number or password');
