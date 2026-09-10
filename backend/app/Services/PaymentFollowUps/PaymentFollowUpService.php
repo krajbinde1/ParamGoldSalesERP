@@ -228,6 +228,16 @@ final class PaymentFollowUpService
                 ? (string) $collection->receipt_no
                 : 'Collection #'.$collection->id;
 
+            $alreadyLogged = PaymentFollowUpEntry::query()
+                ->where('cycle_id', $cycle->id)
+                ->where('collection_id', $collection->id)
+                ->where('entry_type', PaymentFollowUpEntry::TYPE_PAYMENT_RECEIVED)
+                ->exists();
+
+            if ($alreadyLogged) {
+                return;
+            }
+
             PaymentFollowUpEntry::query()->create([
                 'cycle_id' => $cycle->id,
                 'dealer_id' => $dealer->id,
@@ -245,13 +255,19 @@ final class PaymentFollowUpService
                 'collection_id' => $collection->id,
             ]);
 
-            $cycle->update([
-                'status' => PaymentFollowUpCycle::STATUS_CLOSED,
-                'closed_at' => $now,
-                'payment_received_amount' => $receivedAmount,
-                'closing_outstanding' => $outstandingAfter,
-                'collection_id' => $collection->id,
-            ]);
+            $receivedToDate = round((float) ($cycle->payment_received_amount ?? 0) + $receivedAmount, 2);
+            $payload = [
+                'payment_received_amount' => $receivedToDate,
+            ];
+
+            if ($outstandingAfter <= 0) {
+                $payload['status'] = PaymentFollowUpCycle::STATUS_CLOSED;
+                $payload['closed_at'] = $now;
+                $payload['closing_outstanding'] = $outstandingAfter;
+                $payload['collection_id'] = $collection->id;
+            }
+
+            $cycle->update($payload);
         });
     }
 
@@ -355,19 +371,24 @@ final class PaymentFollowUpService
             'paymentFollowUpCycles' => fn ($query) => $query->orderBy('cycle_number'),
             'paymentFollowUpCycles.entries.employee:id,full_name',
             'paymentFollowUpCycles.entries.createdBy:id,name',
+            'paymentFollowUpCycles.entries.collection:id,receipt_no,amount,collection_date,status',
             'paymentFollowUpCycles.collection:id,receipt_no,amount,collection_date,status',
         ]);
 
         $outstanding = $this->currentOutstanding($dealer);
         $lastPayment = $this->lastReceivedPayment($dealer);
         $open = $dealer->paymentFollowUpCycles->firstWhere('status', PaymentFollowUpCycle::STATUS_OPEN);
+        $latestCycle = $dealer->paymentFollowUpCycles->sortByDesc('cycle_number')->first();
+        $currentCycleId = (int) ($open?->id ?? $latestCycle?->id ?? 0);
         $latestClosed = $dealer->paymentFollowUpCycles
             ->where('status', PaymentFollowUpCycle::STATUS_CLOSED)
             ->sortByDesc('cycle_number')
             ->first();
 
         $status = PaymentFollowUpStatus::fromOpenNextDate(
-            $open?->latestFollowUpEntry?->next_follow_up_date?->toDateString(),
+            $open?->entries
+                ?->filter(fn (PaymentFollowUpEntry $entry): bool => $entry->isFollowUp())
+                ->last()?->next_follow_up_date?->toDateString(),
             $open !== null,
             $latestClosed !== null,
             $outstanding,
@@ -385,6 +406,8 @@ final class PaymentFollowUpService
             ],
             'current_outstanding' => $outstanding,
             'current_outstanding_label' => IndianCurrency::format($outstanding),
+            'current_due' => $outstanding,
+            'current_due_label' => IndianCurrency::format($outstanding),
             'last_payment_date' => $lastPayment['date'] ?? null,
             'last_payment_amount' => $lastPayment['amount'] ?? null,
             'last_payment_amount_label' => isset($lastPayment['amount'])
@@ -395,7 +418,9 @@ final class PaymentFollowUpService
             'can_add_follow_up' => $open !== null || $outstanding > 0,
             'open_cycle_id' => $open?->id,
             'cycles' => $dealer->paymentFollowUpCycles
-                ->map(fn (PaymentFollowUpCycle $cycle): array => $this->formatCycle($cycle))
+                ->map(function (PaymentFollowUpCycle $cycle) use ($outstanding, $currentCycleId): array {
+                    return $this->formatCycle($cycle, $outstanding, (int) $cycle->id === $currentCycleId);
+                })
                 ->values()
                 ->all(),
         ];
@@ -453,29 +478,92 @@ final class PaymentFollowUpService
     /**
      * @return array<string, mixed>
      */
-    public function formatCycle(PaymentFollowUpCycle $cycle): array
+    public function formatCycle(PaymentFollowUpCycle $cycle, float $dealerCurrentOutstanding = 0.0, bool $isCurrent = false): array
     {
-        $cycle->loadMissing(['entries.employee:id,full_name', 'entries.createdBy:id,name']);
+        $cycle->loadMissing([
+            'entries.employee:id,full_name',
+            'entries.createdBy:id,name',
+            'entries.collection:id,receipt_no,amount,collection_date,status',
+        ]);
+
+        $entries = $cycle->entries->values();
+        $followUpNumber = 0;
+        $followUpCount = 0;
+        $commitmentCount = 0;
+        $missedCount = 0;
+        $paymentTotal = 0.0;
+        $formattedEntries = [];
+
+        foreach ($entries as $entry) {
+            $row = $this->formatEntry($entry);
+
+            if ($entry->isFollowUp()) {
+                $followUpNumber++;
+                $followUpCount++;
+                $row['follow_up_number'] = $followUpNumber;
+                $row['timeline_kind'] = PaymentFollowUpEntry::TYPE_FOLLOW_UP;
+                if ($entry->next_follow_up_date !== null || $entry->expected_amount !== null) {
+                    $commitmentCount++;
+                }
+                $commitmentStatus = $this->commitmentOutcome($entry, $entries, $cycle->isClosed());
+                $row['commitment_status'] = $commitmentStatus;
+                $row['commitment_status_label'] = $commitmentStatus !== null
+                    ? strtoupper($commitmentStatus)
+                    : null;
+                if ($commitmentStatus === PaymentFollowUpEntry::COMMITMENT_MISSED) {
+                    $missedCount++;
+                }
+            } else {
+                $paymentDate = $entry->collection?->collection_date?->toDateString()
+                    ?? $entry->followed_up_at?->timezone(PaymentFollowUpStatus::TIMEZONE)?->toDateString();
+                $paymentAmount = $entry->expected_amount !== null
+                    ? round((float) $entry->expected_amount, 2)
+                    : round((float) ($entry->collection?->amount ?? 0), 2);
+                $paymentTotal += $paymentAmount;
+                $row['follow_up_number'] = null;
+                $row['timeline_kind'] = PaymentFollowUpEntry::TYPE_PAYMENT_RECEIVED;
+                $row['commitment_status'] = null;
+                $row['commitment_status_label'] = null;
+                $row['payment_amount'] = $paymentAmount;
+                $row['payment_amount_label'] = IndianCurrency::format($paymentAmount);
+                $row['payment_date'] = $paymentDate;
+                $row['updated_current_due'] = round((float) $entry->outstanding_at_time, 2);
+                $row['updated_current_due_label'] = IndianCurrency::format((float) $entry->outstanding_at_time);
+            }
+
+            $formattedEntries[] = $row;
+        }
+
+        $displayStatus = $this->cycleDisplayStatus($cycle, $entries);
+        $currentDue = $cycle->isClosed()
+            ? round((float) ($cycle->closing_outstanding ?? 0), 2)
+            : round($dealerCurrentOutstanding, 2);
+        $paymentReceived = $cycle->payment_received_amount !== null
+            ? round((float) $cycle->payment_received_amount, 2)
+            : round($paymentTotal, 2);
 
         return [
             'id' => $cycle->id,
             'cycle_number' => $cycle->cycle_number,
             'dealer_id' => $cycle->dealer_id,
             'employee_id' => $cycle->employee_id,
+            'is_current' => $isCurrent,
             'opening_outstanding' => round((float) $cycle->opening_outstanding, 2),
             'opening_outstanding_label' => IndianCurrency::format((float) $cycle->opening_outstanding),
+            'current_due' => $currentDue,
+            'current_due_label' => IndianCurrency::format($currentDue),
             'started_at' => $cycle->started_at?->timezone(PaymentFollowUpStatus::TIMEZONE)?->toIso8601String(),
             'started_date' => $cycle->started_at?->timezone(PaymentFollowUpStatus::TIMEZONE)?->toDateString(),
             'status' => $cycle->status,
-            'status_label' => $cycle->isClosed() ? 'CLOSED' : 'OPEN',
+            'display_status' => $displayStatus,
+            'status_label' => strtoupper($displayStatus),
             'closed_at' => $cycle->closed_at?->timezone(PaymentFollowUpStatus::TIMEZONE)?->toIso8601String(),
             'closed_date' => $cycle->closed_at?->timezone(PaymentFollowUpStatus::TIMEZONE)?->toDateString(),
-            'payment_received_amount' => $cycle->payment_received_amount !== null
-                ? round((float) $cycle->payment_received_amount, 2)
-                : null,
-            'payment_received_amount_label' => $cycle->payment_received_amount !== null
-                ? IndianCurrency::format((float) $cycle->payment_received_amount)
-                : null,
+            'follow_up_count' => $followUpCount,
+            'commitment_count' => $commitmentCount,
+            'missed_commitment_count' => $missedCount,
+            'payment_received_amount' => $paymentReceived,
+            'payment_received_amount_label' => IndianCurrency::format($paymentReceived),
             'closing_outstanding' => $cycle->closing_outstanding !== null
                 ? round((float) $cycle->closing_outstanding, 2)
                 : null,
@@ -483,10 +571,7 @@ final class PaymentFollowUpService
                 ? IndianCurrency::format((float) $cycle->closing_outstanding)
                 : null,
             'collection_id' => $cycle->collection_id,
-            'entries' => $cycle->entries
-                ->map(fn (PaymentFollowUpEntry $entry): array => $this->formatEntry($entry))
-                ->values()
-                ->all(),
+            'entries' => $formattedEntries,
         ];
     }
 
@@ -495,7 +580,7 @@ final class PaymentFollowUpService
      */
     public function formatEntry(PaymentFollowUpEntry $entry): array
     {
-        $entry->loadMissing(['employee:id,full_name', 'createdBy:id,name']);
+        $entry->loadMissing(['employee:id,full_name', 'createdBy:id,name', 'collection:id,receipt_no,amount,collection_date,status']);
 
         return [
             'id' => $entry->id,
@@ -508,6 +593,9 @@ final class PaymentFollowUpService
             'entry_type' => $entry->entry_type,
             'followed_up_at' => $entry->followed_up_at?->timezone(PaymentFollowUpStatus::TIMEZONE)?->toIso8601String(),
             'follow_up_date' => $entry->followed_up_at?->timezone(PaymentFollowUpStatus::TIMEZONE)?->toDateString(),
+            'follow_up_at_label' => $entry->followed_up_at
+                ?->timezone(PaymentFollowUpStatus::TIMEZONE)
+                ?->format('d M Y, h:i A'),
             'remark' => $entry->remark,
             'outstanding_at_time' => round((float) $entry->outstanding_at_time, 2),
             'outstanding_at_time_label' => IndianCurrency::format((float) $entry->outstanding_at_time),
@@ -519,21 +607,89 @@ final class PaymentFollowUpService
                 : null,
             'next_follow_up_date' => $entry->next_follow_up_date?->toDateString(),
             'employee_notification_status' => $entry->employee_notification_status,
+            'employee_notification_status_label' => $this->reminderStatusLabel($entry->employee_notification_status),
             'employee_notification_sent_at' => $entry->employee_notification_sent_at
                 ?->timezone(PaymentFollowUpStatus::TIMEZONE)
                 ?->toIso8601String(),
             'whatsapp_status' => $entry->whatsapp_status,
+            'whatsapp_status_label' => $this->reminderStatusLabel($entry->whatsapp_status),
             'whatsapp_sent_at' => $entry->whatsapp_sent_at
                 ?->timezone(PaymentFollowUpStatus::TIMEZONE)
                 ?->toIso8601String(),
             'whatsapp_error' => $entry->whatsapp_error,
             'commitment_whatsapp_status' => $entry->commitment_whatsapp_status,
+            'commitment_whatsapp_status_label' => $this->reminderStatusLabel($entry->commitment_whatsapp_status),
             'commitment_whatsapp_sent_at' => $entry->commitment_whatsapp_sent_at
                 ?->timezone(PaymentFollowUpStatus::TIMEZONE)
                 ?->toIso8601String(),
             'commitment_whatsapp_error' => $entry->commitment_whatsapp_error,
             'collection_id' => $entry->collection_id,
         ];
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, PaymentFollowUpEntry>  $entries
+     */
+    private function commitmentOutcome(PaymentFollowUpEntry $entry, $entries, bool $cycleClosed): ?string
+    {
+        if (! $entry->isFollowUp() || $entry->next_follow_up_date === null) {
+            return null;
+        }
+
+        $commitmentDate = $entry->next_follow_up_date->toDateString();
+        $kept = $entries->contains(function (PaymentFollowUpEntry $other) use ($entry, $commitmentDate): bool {
+            if ($other->entry_type !== PaymentFollowUpEntry::TYPE_PAYMENT_RECEIVED || $other->id <= $entry->id) {
+                return false;
+            }
+
+            $paymentDate = $other->collection?->collection_date?->toDateString()
+                ?? $other->followed_up_at?->timezone(PaymentFollowUpStatus::TIMEZONE)?->toDateString();
+
+            return $paymentDate !== null && $paymentDate <= $commitmentDate;
+        });
+
+        if ($kept) {
+            return PaymentFollowUpEntry::COMMITMENT_KEPT;
+        }
+
+        $today = PaymentFollowUpStatus::todayDate();
+        if ($commitmentDate < $today || $cycleClosed) {
+            return PaymentFollowUpEntry::COMMITMENT_MISSED;
+        }
+
+        return PaymentFollowUpEntry::COMMITMENT_PENDING;
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, PaymentFollowUpEntry>  $entries
+     */
+    private function cycleDisplayStatus(PaymentFollowUpCycle $cycle, $entries): string
+    {
+        if ($cycle->isClosed()) {
+            return 'closed';
+        }
+
+        $latestFollowUp = $entries
+            ->filter(fn (PaymentFollowUpEntry $entry): bool => $entry->isFollowUp())
+            ->last();
+        $nextDate = $latestFollowUp?->next_follow_up_date?->toDateString();
+
+        if ($nextDate !== null && $nextDate < PaymentFollowUpStatus::todayDate()) {
+            return 'overdue';
+        }
+
+        return 'open';
+    }
+
+    private function reminderStatusLabel(?string $status): string
+    {
+        return match ($status) {
+            PaymentFollowUpEntry::REMINDER_SENT => 'Sent',
+            PaymentFollowUpEntry::REMINDER_FAILED => 'Failed',
+            PaymentFollowUpEntry::REMINDER_SKIPPED => 'Skipped',
+            PaymentFollowUpEntry::REMINDER_PENDING => 'Pending',
+            default => filled($status) ? ucfirst($status) : '—',
+        };
     }
 
     public function resolveAssignedDealer(User $user, int $dealerId): Dealer

@@ -19,6 +19,12 @@ class PaymentFollowUpEntry extends Model
 
     public const REMINDER_SKIPPED = 'skipped';
 
+    public const COMMITMENT_PENDING = 'pending';
+
+    public const COMMITMENT_KEPT = 'kept';
+
+    public const COMMITMENT_MISSED = 'missed';
+
     protected $fillable = [
         'cycle_id',
         'dealer_id',

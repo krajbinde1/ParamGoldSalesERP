@@ -138,7 +138,7 @@ it('lists only dealers assigned to the logged-in employee and reuses existing ou
     expect(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($assigned))->toBe(125000.0);
 });
 
-it('saves follow-up history without overwriting and closes the open cycle when collection is received', function (): void {
+it('saves follow-up history without overwriting and keeps the cycle open until outstanding is recovered', function (): void {
     $employee = paymentFollowUpEmployee('9811300003');
     $admin = paymentFollowUpAdmin();
     $dealer = paymentFollowUpDealer($employee, 'ABC Fertilizers');
@@ -182,24 +182,82 @@ it('saves follow-up history without overwriting and closes the open cycle when c
     app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_RECEIVED, $admin);
 
     $cycle = PaymentFollowUpCycle::query()->where('dealer_id', $dealer->id)->first();
-    expect($cycle?->status)->toBe(PaymentFollowUpCycle::STATUS_CLOSED)
+    expect($cycle?->status)->toBe(PaymentFollowUpCycle::STATUS_OPEN)
         ->and((float) $cycle->payment_received_amount)->toBe(50000.0)
-        ->and((float) $cycle->closing_outstanding)->toBe(75000.0)
+        ->and($cycle->closed_at)->toBeNull()
         ->and(PaymentFollowUpEntry::query()->where('cycle_id', $cycle->id)->count())->toBe(3)
         ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(75000.0);
 
     $this->actingAs($employee->user, 'sanctum')
         ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
-            'remark' => 'Start remaining outstanding follow-up',
+            'remark' => 'Continue remaining outstanding follow-up',
             'expected_amount' => 40000,
             'next_follow_up_date' => '2026-09-25',
         ])
         ->assertCreated()
-        ->assertJsonPath('cycles.0.status', 'closed')
-        ->assertJsonPath('cycles.1.cycle_number', 2)
-        ->assertJsonPath('cycles.1.status', 'open')
-        ->assertJsonPath('cycles.1.opening_outstanding', 75000)
-        ->assertJsonPath('cycles.0.entries.0.remark', 'Dealer requested 5 days');
+        ->assertJsonCount(1, 'cycles')
+        ->assertJsonPath('cycles.0.cycle_number', 1)
+        ->assertJsonPath('cycles.0.status', 'open')
+        ->assertJsonPath('cycles.0.entries.0.remark', 'Dealer requested 5 days')
+        ->assertJsonPath('cycles.0.entries.2.entry_type', 'payment_received')
+        ->assertJsonPath('cycles.0.entries.3.remark', 'Continue remaining outstanding follow-up');
+
+    $closing = Collection::query()->create([
+        'receipt_no' => 'RCP-PFU-2',
+        'collection_date' => '2026-09-25',
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'amount' => 75000,
+        'status' => Collection::STATUS_PENDING,
+        'remarks' => 'Remaining collection',
+    ]);
+
+    app(UpdateCollectionStatus::class)->execute($closing, Collection::STATUS_RECEIVED, $admin);
+
+    $cycle->refresh();
+    expect($cycle->status)->toBe(PaymentFollowUpCycle::STATUS_CLOSED)
+        ->and((float) $cycle->payment_received_amount)->toBe(125000.0)
+        ->and((float) $cycle->closing_outstanding)->toBe(0.0)
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(0.0);
+});
+
+it('marks a missed commitment without closing the cycle and continues follow-ups in the same cycle', function (): void {
+    $employee = paymentFollowUpEmployee('9811300011');
+    $dealer = paymentFollowUpDealer($employee, 'Missed Commitment Dealer');
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'Promised by 15 Sep',
+            'expected_amount' => 50000,
+            'next_follow_up_date' => '2026-09-15',
+        ])
+        ->assertCreated();
+
+    Carbon::setTestNow(Carbon::parse('2026-09-16 11:00:00', 'Asia/Kolkata'));
+
+    $overdue = app(\App\Services\PaymentFollowUps\PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
+
+    expect($overdue['cycles'])->toHaveCount(1)
+        ->and($overdue['cycles'][0]['status'])->toBe('open')
+        ->and($overdue['cycles'][0]['display_status'])->toBe('overdue')
+        ->and($overdue['cycles'][0]['status_label'])->toBe('OVERDUE')
+        ->and($overdue['cycles'][0]['entries'][0]['commitment_status'])->toBe('missed')
+        ->and($overdue['cycles'][0]['missed_commitment_count'])->toBe(1);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'Follow-up after missed date',
+            'expected_amount' => 40000,
+            'next_follow_up_date' => '2026-09-20',
+        ])
+        ->assertCreated()
+        ->assertJsonCount(1, 'cycles')
+        ->assertJsonPath('cycles.0.cycle_number', 1)
+        ->assertJsonPath('cycles.0.status', 'open')
+        ->assertJsonPath('cycles.0.display_status', 'open')
+        ->assertJsonPath('cycles.0.entries.0.commitment_status', 'missed')
+        ->assertJsonPath('cycles.0.entries.1.commitment_status', 'pending')
+        ->assertJsonPath('cycles.0.follow_up_count', 2);
 });
 
 it('does not list an unassigned dealer and does not change outstanding when adding a follow-up', function (): void {
@@ -372,7 +430,12 @@ it('lets admin view the assigned dealer follow-up timeline', function (): void {
         ->test(PaymentFollowUps::class, ['dealerId' => $dealer->id])
         ->assertOk()
         ->assertSee('Called dealer')
-        ->assertSee('Payment Follow-up Cycle #1');
+        ->assertSee('Payment Cycle #1')
+        ->assertSee('Current Due')
+        ->assertSee('Follow-up #1')
+        ->assertSee('PENDING')
+        ->assertDontSee('Opening Due')
+        ->assertDontSee('Opening Outstanding');
 });
 
 it('lets the director list assigned dealers after selecting an employee and view read-only history', function (): void {
