@@ -61,6 +61,7 @@ import '../../modules/director/screens/director_route_tracking_screen.dart';
 import '../../modules/director/screens/director_team_attendance_screen.dart';
 import '../../modules/director/screens/director_today_collections_screen.dart';
 import '../../modules/director/screens/director_today_field_visits_screen.dart';
+import '../../modules/director/screens/director_total_sales_screen.dart';
 import '../../modules/manager/screens/manager_dashboard_screen.dart';
 import '../../modules/manager/screens/manager_collection_detail_screen.dart';
 import '../../modules/manager/screens/manager_collections_screen.dart';
@@ -895,15 +896,24 @@ GoRouter createRouter(
     ),
     GoRoute(
       path: '/director/total-sales',
-      builder: (_, state) => DirectorFilteredOrdersScreen(
+      builder: (_, state) => DirectorTotalSalesScreen(
         auth: auth,
-        title: 'Total Sales',
-        emptyMessage: 'No dispatched sales in this period.',
-        status: 'dispatched',
+        period: state.uri.queryParameters['period'],
         dateFrom: state.uri.queryParameters['from'],
         dateTo: state.uri.queryParameters['to'],
-        dateField: 'dispatch_date',
       ),
+      routes: [
+        GoRoute(
+          path: ':dealerId',
+          builder: (_, state) => DirectorDealerSalesDetailScreen(
+            auth: auth,
+            dealerId: int.parse(state.pathParameters['dealerId']!),
+            period: state.uri.queryParameters['period'],
+            dateFrom: state.uri.queryParameters['from'],
+            dateTo: state.uri.queryParameters['to'],
+          ),
+        ),
+      ],
     ),
     GoRoute(
       path: '/director/today-collections',

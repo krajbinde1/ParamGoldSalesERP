@@ -9,6 +9,7 @@ use App\Http\Controllers\Api\DealerApplicationDocumentController;
 use App\Http\Controllers\Api\DeviceTokenController;
 use App\Http\Controllers\Api\Director\DirectorCollectionController;
 use App\Http\Controllers\Api\Director\DirectorDashboardController;
+use App\Http\Controllers\Api\Director\DirectorLedgerSalesController;
 use App\Http\Controllers\Api\Director\DirectorDealerVisitController;
 use App\Http\Controllers\Api\Director\DirectorFieldVisitController;
 use App\Http\Controllers\Api\Director\DirectorOrderController;
@@ -300,6 +301,8 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::get('field-visits/today', [DirectorFieldVisitController::class, 'today']);
         Route::get('field-visits/{fieldActivity}', [DirectorFieldVisitController::class, 'show']);
         Route::get('outstanding-dealers', [DirectorOutstandingDealerController::class, 'index']);
+        Route::get('ledger-sales', [DirectorLedgerSalesController::class, 'index']);
+        Route::get('ledger-sales/{dealer}', [DirectorLedgerSalesController::class, 'show']);
         Route::get('payment-follow-ups', [DirectorPaymentFollowUpController::class, 'index']);
         Route::get('payment-follow-ups/{dealer}', [DirectorPaymentFollowUpController::class, 'show']);
         Route::get('production-batches/pending-approvals', [DirectorProductionBatchController::class, 'pendingApprovals']);

@@ -141,7 +141,15 @@ final class PaymentFollowUpPerformanceService
             ->when($dealerId, fn (Builder $builder) => $builder->whereKey($dealerId));
 
         $rows = $query->get()->map(fn (Dealer $dealer): array => $this->followUps->listRow($dealer))->all();
+        $counts = $this->followUps->countByStatus($rows);
+        $overdue = (int) ($counts[PaymentFollowUpStatus::OVERDUE] ?? 0);
+        $dueToday = (int) ($counts[PaymentFollowUpStatus::DUE_TODAY] ?? 0);
+        $noFollowUp = (int) ($counts[PaymentFollowUpStatus::NO_FOLLOW_UP] ?? 0);
 
-        return $this->followUps->countByStatus($rows);
+        return [
+            ...$counts,
+            'attention' => $overdue + $dueToday,
+            'requires_follow_up' => $overdue + $dueToday + $noFollowUp,
+        ];
     }
 }

@@ -697,7 +697,7 @@ class _TotalSalesSection extends StatefulWidget {
 }
 
 class _TotalSalesSectionState extends State<_TotalSalesSection> {
-  String _period = 'month';
+  String _period = 'year';
   String? _startDate;
   String? _endDate;
   late Future<DirectorDashboardData> _future;
@@ -805,8 +805,8 @@ class _TotalSalesSectionState extends State<_TotalSalesSection> {
         final from = data.periodStartDate ?? _startDate;
         final to = data.periodEndDate ?? _endDate;
         final drillPath = from != null && to != null
-            ? '/director/total-sales?from=$from&to=$to'
-            : '/director/total-sales';
+            ? '/director/total-sales?period=$_period&from=$from&to=$to'
+            : '/director/total-sales?period=$_period';
 
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,

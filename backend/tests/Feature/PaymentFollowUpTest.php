@@ -314,6 +314,14 @@ it('classifies overdue dealers with multiple missed commitments as high risk for
         ->and($monitor->json('summary.overdue_dealers'))->toBe(1)
         ->and($monitor->json('today_actions.overdue.0.dealer_name'))->toBe('High Risk Dealer')
         ->and($monitor->json('employee_performance.0.missed_commitments'))->toBe(2);
+
+    $dashboard = $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/dashboard')
+        ->assertOk();
+
+    expect((int) $dashboard->json('company_summary.payment_follow_up.overdue'))->toBe(1)
+        ->and((int) $dashboard->json('company_summary.payment_follow_up.attention'))->toBe(1)
+        ->and((int) $dashboard->json('company_summary.payment_follow_up.requires_follow_up'))->toBeGreaterThanOrEqual(1);
 });
 
 it('does not list an unassigned dealer and does not change outstanding when adding a follow-up', function (): void {
@@ -549,6 +557,13 @@ it('lets the director list assigned dealers after selecting an employee and view
         ->and($history->json('cycles.0.entries.0.remark'))->toBe('Promised next week')
         ->and((float) $history->json('cycles.0.entries.0.expected_amount'))->toBe(40000.0)
         ->and($history->json('cycles.0.entries.0.employee_name'))->toBe($employee->full_name);
+
+    $dashboard = $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/dashboard')
+        ->assertOk();
+
+    expect((int) $dashboard->json('company_summary.payment_follow_up.no_follow_up'))->toBeGreaterThanOrEqual(1)
+        ->and((int) $dashboard->json('company_summary.payment_follow_up.requires_follow_up'))->toBeGreaterThanOrEqual(1);
 
     $this->actingAs($employee->user, 'sanctum')
         ->getJson('/api/director/payment-follow-ups?employee_id='.$employee->id)

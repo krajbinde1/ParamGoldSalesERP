@@ -5,6 +5,7 @@ namespace App\Services\Dashboard;
 use App\Enums\UserRole;
 use App\Models\Attendance;
 use App\Models\Collection;
+use App\Models\Dealer;
 use App\Models\DealerTallyEntry;
 use App\Models\DealerVisit;
 use App\Models\Employee;
@@ -14,6 +15,7 @@ use App\Models\Order;
 use App\Models\TaDaClaim;
 use App\Models\WeeklyTarget;
 use App\Services\TallyLedger\TallyLedgerConfig;
+use App\Support\IndianCurrency;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
@@ -331,6 +333,137 @@ class DashboardMetricsService
      */
     public function companyLedgerDebitSales(Carbon $start, Carbon $end): float
     {
+        $range = $this->clippedLedgerDebitRange($start, $end);
+        if ($range === null) {
+            return 0.0;
+        }
+
+        return round((float) $this->ledgerDebitQuery($range['from'], $range['to'])->sum('debit'), 2);
+    }
+
+    /**
+     * Dealer-wise Total Sales from ledger DEBIT entries for the selected period.
+     *
+     * @return array{total_sales: float, total_sales_label: string, start_date: string, end_date: string, data: list<array<string, mixed>>}
+     */
+    public function dealerLedgerDebitSales(Carbon $start, Carbon $end): array
+    {
+        $range = $this->clippedLedgerDebitRange($start, $end);
+        if ($range === null) {
+            return [
+                'total_sales' => 0.0,
+                'total_sales_label' => IndianCurrency::format(0),
+                'start_date' => $start->toDateString() < TallyLedgerConfig::FINANCIAL_START_DATE
+                    ? TallyLedgerConfig::FINANCIAL_START_DATE
+                    : $start->toDateString(),
+                'end_date' => $end->toDateString(),
+                'data' => [],
+            ];
+        }
+
+        $totals = $this->ledgerDebitQuery($range['from'], $range['to'])
+            ->selectRaw('dealer_id, SUM(debit) as sales_amount')
+            ->groupBy('dealer_id')
+            ->orderByDesc('sales_amount')
+            ->get();
+
+        $dealers = Dealer::query()
+            ->with('assignedEmployee:id,full_name')
+            ->whereIn('id', $totals->pluck('dealer_id')->filter()->all())
+            ->get()
+            ->keyBy('id');
+
+        $data = [];
+        foreach ($totals as $row) {
+            $dealer = $dealers->get((int) $row->dealer_id);
+            $amount = round((float) $row->sales_amount, 2);
+            $data[] = [
+                'dealer_id' => (int) $row->dealer_id,
+                'dealer_name' => $dealer?->firm_name ?? 'Unknown Dealer',
+                'dealer_code' => $dealer?->dealer_code,
+                'village' => $dealer?->village,
+                'employee_name' => $dealer?->assignedEmployee?->full_name,
+                'sales_amount' => $amount,
+                'sales_amount_label' => IndianCurrency::format($amount),
+            ];
+        }
+
+        $total = round(array_sum(array_column($data, 'sales_amount')), 2);
+
+        return [
+            'total_sales' => $total,
+            'total_sales_label' => IndianCurrency::format($total),
+            'start_date' => $range['from'],
+            'end_date' => $range['to'],
+            'data' => $data,
+        ];
+    }
+
+    /**
+     * A dealer's debit/sales ledger entries for the selected period.
+     *
+     * @return array<string, mixed>
+     */
+    public function dealerLedgerDebitEntries(int $dealerId, Carbon $start, Carbon $end): array
+    {
+        $dealer = Dealer::query()
+            ->with('assignedEmployee:id,full_name')
+            ->findOrFail($dealerId);
+        $summary = $this->dealerLedgerDebitSales($start, $end);
+        $range = $this->clippedLedgerDebitRange($start, $end);
+        $entries = [];
+
+        if ($range !== null) {
+            $entries = $this->ledgerDebitQuery($range['from'], $range['to'])
+                ->where('dealer_id', $dealerId)
+                ->orderByDesc('entry_date')
+                ->orderByDesc('id')
+                ->get()
+                ->map(function (DealerTallyEntry $entry): array {
+                    $amount = round((float) $entry->debit, 2);
+                    $voucher = filled($entry->voucher_no)
+                        ? (string) $entry->voucher_no
+                        : (string) ($entry->tally_voucher_no ?? '');
+
+                    return [
+                        'id' => $entry->id,
+                        'entry_date' => $entry->entry_date?->toDateString(),
+                        'particulars' => $entry->particulars,
+                        'voucher_type' => $entry->voucher_type ?: $entry->tally_voucher_type,
+                        'voucher_no' => $voucher !== '' ? $voucher : null,
+                        'debit' => $amount,
+                        'debit_label' => IndianCurrency::format($amount),
+                    ];
+                })
+                ->values()
+                ->all();
+        }
+
+        $total = round(array_sum(array_column($entries, 'debit')), 2);
+        $from = $summary['start_date'];
+        $to = $summary['end_date'];
+
+        return [
+            'dealer' => [
+                'dealer_id' => $dealer->id,
+                'dealer_name' => $dealer->firm_name,
+                'dealer_code' => $dealer->dealer_code,
+                'village' => $dealer->village,
+                'employee_name' => $dealer->assignedEmployee?->full_name,
+            ],
+            'total_sales' => $total,
+            'total_sales_label' => IndianCurrency::format($total),
+            'start_date' => $from,
+            'end_date' => $to,
+            'data' => $entries,
+        ];
+    }
+
+    /**
+     * @return array{from: string, to: string}|null
+     */
+    private function clippedLedgerDebitRange(Carbon $start, Carbon $end): ?array
+    {
         $from = $start->toDateString();
         $to = $end->toDateString();
         $fyStart = TallyLedgerConfig::FINANCIAL_START_DATE;
@@ -340,14 +473,21 @@ class DashboardMetricsService
         }
 
         if ($from > $to) {
-            return 0.0;
+            return null;
         }
 
-        return round((float) DealerTallyEntry::query()
+        return ['from' => $from, 'to' => $to];
+    }
+
+    /**
+     * @return Builder<DealerTallyEntry>
+     */
+    private function ledgerDebitQuery(string $from, string $to): Builder
+    {
+        return DealerTallyEntry::query()
             ->whereDate('entry_date', '>=', $from)
             ->whereDate('entry_date', '<=', $to)
-            ->whereRaw('COALESCE(debit, 0) > 0')
-            ->sum('debit'), 2);
+            ->whereRaw('COALESCE(debit, 0) > 0');
     }
 
     /**

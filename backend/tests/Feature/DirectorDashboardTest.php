@@ -1404,6 +1404,18 @@ it('reports director total sales from dealer ledger debit entries for the select
     )->assertOk();
 
     expect((float) $custom->json('company_summary.total_sales'))->toBe(308000.0);
+
+    $salesList = $this->getJson('/api/director/ledger-sales?period=today')->assertOk();
+    expect((float) $salesList->json('total_sales'))->toBe(180000.0)
+        ->and($salesList->json('data.0.dealer_name'))->toBe($dealer->firm_name)
+        ->and((float) $salesList->json('data.0.sales_amount'))->toBe(180000.0);
+
+    $salesDetail = $this->getJson('/api/director/ledger-sales/'.$dealer->id.'?period=today')
+        ->assertOk();
+    expect((float) $salesDetail->json('total_sales'))->toBe(180000.0)
+        ->and($salesDetail->json('dealer.dealer_name'))->toBe($dealer->firm_name)
+        ->and($salesDetail->json('data.0.voucher_no'))->not->toBeEmpty()
+        ->and((float) $salesDetail->json('data.0.debit'))->toBe(180000.0);
 });
 
 it('includes live inventory stock valuation on the director dashboard', function (): void {

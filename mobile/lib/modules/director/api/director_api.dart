@@ -11,6 +11,24 @@ double _asMoney(dynamic value) {
   return double.tryParse(cleaned) ?? 0;
 }
 
+int _asInt(dynamic value, [int fallback = 0]) {
+  if (value is int) return value;
+  if (value is num) return value.round();
+  return int.tryParse('${value ?? ''}') ?? fallback;
+}
+
+int _paymentFollowUpAttention(Map summary) {
+  final raw = summary['payment_follow_up'];
+  if (raw is! Map) return 0;
+  final followUp = Map<String, dynamic>.from(raw);
+  final overdue = _asInt(followUp['overdue']);
+  final dueToday = _asInt(followUp['due_today']);
+  final noFollowUp = _asInt(followUp['no_follow_up']);
+  final requires = _asInt(followUp['requires_follow_up'], -1);
+  if (requires >= 0) return requires;
+  return overdue + dueToday + noFollowUp;
+}
+
 class DirectorOrderListResult {
   const DirectorOrderListResult({
     required this.orders,
@@ -306,10 +324,7 @@ class DirectorDashboardData {
       hasMonitoring: hasMonitoring,
       totalSales: _asMoney(summary['total_sales']),
       totalStockValue: _directorStockValue(json, summary),
-      paymentFollowUpOverdue: int.tryParse(
-            '${summary['payment_follow_up'] is Map ? (summary['payment_follow_up'] as Map)['overdue'] : 0}',
-          ) ??
-          0,
+      paymentFollowUpOverdue: _paymentFollowUpAttention(summary),
       periodStartDate: summary['start_date']?.toString(),
       periodEndDate: summary['end_date']?.toString(),
     );
@@ -754,6 +769,47 @@ class DirectorApi {
   Future<Map<String, dynamic>> getPaymentFollowUp(int dealerId) async {
     try {
       final response = await _dio.get('/director/payment-follow-ups/$dealerId');
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> listLedgerSales({
+    String? period,
+    String? dateFrom,
+    String? dateTo,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '/director/ledger-sales',
+        queryParameters: {
+          if (period != null && period.isNotEmpty) 'period': period,
+          if (dateFrom != null && dateFrom.isNotEmpty) 'from': dateFrom,
+          if (dateTo != null && dateTo.isNotEmpty) 'to': dateTo,
+        },
+      );
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> getDealerLedgerSales({
+    required int dealerId,
+    String? period,
+    String? dateFrom,
+    String? dateTo,
+  }) async {
+    try {
+      final response = await _dio.get(
+        '/director/ledger-sales/$dealerId',
+        queryParameters: {
+          if (period != null && period.isNotEmpty) 'period': period,
+          if (dateFrom != null && dateFrom.isNotEmpty) 'from': dateFrom,
+          if (dateTo != null && dateTo.isNotEmpty) 'to': dateTo,
+        },
+      );
       return Map<String, dynamic>.from(response.data as Map);
     } on DioException catch (error) {
       throw mapApiError(error);
