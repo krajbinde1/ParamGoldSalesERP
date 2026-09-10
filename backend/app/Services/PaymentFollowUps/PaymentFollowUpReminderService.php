@@ -111,7 +111,7 @@ final class PaymentFollowUpReminderService
                 return $result;
             }
 
-            if ($entry->whatsappNeedsSend()) {
+            if ($entry->whatsappNeedsSend() && $this->whatsAppReminderWindowIsOpen($due)) {
                 $whatsApp = $this->sendWhatsApp($entry);
                 if ($whatsApp === 'sent') {
                     $result['whatsapp_sent'] = true;
@@ -124,6 +124,26 @@ final class PaymentFollowUpReminderService
 
             return $result;
         });
+    }
+
+    /**
+     * WhatsApp Payment Reminder: 09:00 Asia/Kolkata on the commitment date.
+     * Overdue commitments (date already passed) send on the next scheduler run.
+     */
+    private function whatsAppReminderWindowIsOpen(string $commitmentDate): bool
+    {
+        $now = Carbon::now(PaymentFollowUpStatus::TIMEZONE);
+        $today = $now->toDateString();
+
+        if ($commitmentDate < $today) {
+            return true;
+        }
+
+        if ($commitmentDate > $today) {
+            return false;
+        }
+
+        return $now->gte($now->copy()->setTime(9, 0, 0));
     }
 
     private function sendEmployeeNotification(PaymentFollowUpEntry $entry): bool

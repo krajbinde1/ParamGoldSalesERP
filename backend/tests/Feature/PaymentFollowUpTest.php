@@ -373,6 +373,53 @@ it('sends an employee reminder once and skips WhatsApp until the payment_reminde
         ->and(AppNotification::query()->where('type', 'payment_follow_up_due')->count())->toBe(1);
 });
 
+it('sends WhatsApp payment reminder at 9am on the commitment date and overdue on the next run', function (): void {
+    config()->set('services.whatsapp.payment_reminder_template', 'payment_reminder');
+
+    $employee = paymentFollowUpEmployee('9811300016');
+    $dealer = paymentFollowUpDealer($employee, 'Reminder Time Dealer');
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'Promised today',
+            'expected_amount' => 25000,
+            'next_follow_up_date' => '2026-09-09',
+        ])
+        ->assertCreated();
+
+    $entry = PaymentFollowUpEntry::query()->first();
+    expect($entry)->not->toBeNull();
+
+    Carbon::setTestNow(Carbon::parse('2026-09-09 08:59:00', 'Asia/Kolkata'));
+    $beforeNine = app(PaymentFollowUpReminderService::class)->sendDueReminders();
+    expect($beforeNine['whatsapp_sent'])->toBe(0)
+        ->and($entry->fresh()->whatsapp_status)->toBe(PaymentFollowUpEntry::REMINDER_PENDING)
+        ->and(WhatsAppOutboundMessage::query()->where('source_type', WhatsAppOutboundMessage::SOURCE_PAYMENT_FOLLOWUP)->count())->toBe(0);
+
+    Carbon::setTestNow(Carbon::parse('2026-09-09 09:00:00', 'Asia/Kolkata'));
+    app(PaymentFollowUpReminderService::class)->sendDueReminders();
+    expect(WhatsAppOutboundMessage::query()->where('source_type', WhatsAppOutboundMessage::SOURCE_PAYMENT_FOLLOWUP)->count())->toBe(1);
+
+    app(PaymentFollowUpReminderService::class)->sendDueReminders();
+    expect(WhatsAppOutboundMessage::query()->where('source_type', WhatsAppOutboundMessage::SOURCE_PAYMENT_FOLLOWUP)->count())->toBe(1);
+
+    $overdueEmployee = paymentFollowUpEmployee('9811300017');
+    $overdueDealer = paymentFollowUpDealer($overdueEmployee, 'Overdue Reminder Dealer');
+    $this->actingAs($overdueEmployee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$overdueDealer->id, [
+            'remark' => 'Promised yesterday',
+            'expected_amount' => 15000,
+            'next_follow_up_date' => '2026-09-10',
+        ])
+        ->assertCreated();
+
+    Carbon::setTestNow(Carbon::parse('2026-09-11 08:10:00', 'Asia/Kolkata'));
+    app(PaymentFollowUpReminderService::class)->sendDueReminders();
+    expect(WhatsAppOutboundMessage::query()
+        ->where('source_type', WhatsAppOutboundMessage::SOURCE_PAYMENT_FOLLOWUP)
+        ->count())->toBe(2);
+});
+
 it('queues a payment_commitment whatsapp immediately when a follow-up is saved and does not duplicate the same entry', function (): void {
     config()->set('services.whatsapp.payment_commitment_template', 'payment_commitment');
 

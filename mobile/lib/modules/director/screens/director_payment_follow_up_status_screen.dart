@@ -160,45 +160,35 @@ class _DirectorPaymentFollowUpStatusScreenState
           child: FutureBuilder<Map<String, dynamic>>(
             future: _future,
             builder: (context, snapshot) {
+              final children = <Widget>[];
               if (snapshot.connectionState == ConnectionState.waiting &&
                   !snapshot.hasData) {
-                return ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  children: const [PgLoadingState()],
+                children.add(const PgLoadingState());
+              } else if (snapshot.hasError) {
+                children.add(
+                  PgErrorState(
+                    message: errorMessage(snapshot.error),
+                    onRetry: _reload,
+                  ),
                 );
-              }
+              } else {
+                final payload = snapshot.data ?? const <String, dynamic>{};
+                final dealers = _maps(payload['data']);
+                final employees = _maps(payload['employees']);
+                final performance = _maps(payload['employee_performance']);
+                final summary = payload['summary'] is Map
+                    ? Map<String, dynamic>.from(payload['summary'] as Map)
+                    : const <String, dynamic>{};
+                final actions = payload['today_actions'] is Map
+                    ? Map<String, dynamic>.from(
+                        payload['today_actions'] as Map,
+                      )
+                    : const <String, dynamic>{};
+                final overdue = _maps(actions['overdue']);
+                final dueToday = _maps(actions['due_today']);
+                final paidToday = _maps(actions['payments_received_today']);
 
-              if (snapshot.hasError) {
-                return ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(AppSpacing.screenPadding),
-                  children: [
-                    PgErrorState(
-                      message: errorMessage(snapshot.error),
-                      onRetry: _reload,
-                    ),
-                  ],
-                );
-              }
-
-              final payload = snapshot.data ?? const <String, dynamic>{};
-              final dealers = _maps(payload['data']);
-              final employees = _maps(payload['employees']);
-              final performance = _maps(payload['employee_performance']);
-              final summary = payload['summary'] is Map
-                  ? Map<String, dynamic>.from(payload['summary'] as Map)
-                  : const <String, dynamic>{};
-              final actions = payload['today_actions'] is Map
-                  ? Map<String, dynamic>.from(payload['today_actions'] as Map)
-                  : const <String, dynamic>{};
-              final overdue = _maps(actions['overdue']);
-              final dueToday = _maps(actions['due_today']);
-              final paidToday = _maps(actions['payments_received_today']);
-
-              return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(AppSpacing.screenPadding),
-                children: [
+                children.addAll([
                   _SummaryBlock(summary: summary),
                   const SizedBox(height: AppSpacing.md),
                   _EmployeeFilter(
@@ -207,7 +197,7 @@ class _DirectorPaymentFollowUpStatusScreenState
                     onSelect: _selectEmployee,
                   ),
                   const SizedBox(height: AppSpacing.lg),
-                  _SectionTitle('Today\'s Action'),
+                  const _SectionTitle('Today\'s Action'),
                   const SizedBox(height: 8),
                   _ActionTile(
                     emoji: '🔴',
@@ -244,7 +234,7 @@ class _DirectorPaymentFollowUpStatusScreenState
                   const SizedBox(height: AppSpacing.lg),
                   _EmployeePerformanceBlock(rows: performance),
                   const SizedBox(height: AppSpacing.lg),
-                  _SectionTitle('Dealers'),
+                  const _SectionTitle('Dealers'),
                   const SizedBox(height: 8),
                   if (dealers.isEmpty)
                     const PgEmptyState(
@@ -253,6 +243,9 @@ class _DirectorPaymentFollowUpStatusScreenState
                   else
                     ...dealers.map(
                       (dealer) => Padding(
+                        key: ValueKey(
+                          'recovery-dealer-${dealer['dealer_id']}',
+                        ),
                         padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                         child: _DealerRecoveryCard(
                           dealer: dealer,
@@ -260,7 +253,13 @@ class _DirectorPaymentFollowUpStatusScreenState
                         ),
                       ),
                     ),
-                ],
+                ]);
+              }
+
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(AppSpacing.screenPadding),
+                children: children,
               );
             },
           ),
@@ -536,44 +535,67 @@ class _ActionTile extends StatelessWidget {
   }
 }
 
-class _EmployeePerformanceBlock extends StatelessWidget {
+class _EmployeePerformanceBlock extends StatefulWidget {
   const _EmployeePerformanceBlock({required this.rows});
 
   final List<Map<String, dynamic>> rows;
 
   @override
+  State<_EmployeePerformanceBlock> createState() =>
+      _EmployeePerformanceBlockState();
+}
+
+class _EmployeePerformanceBlockState extends State<_EmployeePerformanceBlock> {
+  late bool _expanded = widget.rows.length <= 3;
+
+  @override
   Widget build(BuildContext context) {
-    return Theme(
-      data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-      child: PgCard(
-        padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-        child: ExpansionTile(
-          initiallyExpanded: rows.length <= 3,
-          tilePadding: const EdgeInsets.symmetric(horizontal: 8),
-          childrenPadding: const EdgeInsets.fromLTRB(8, 0, 8, 8),
-          title: Text(
-            'Employee Performance',
-            style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  fontWeight: FontWeight.w800,
-                ),
+    return PgCard(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: () => setState(() => _expanded = !_expanded),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      'Employee Performance',
+                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                  ),
+                  Icon(
+                    _expanded
+                        ? Icons.expand_less_rounded
+                        : Icons.expand_more_rounded,
+                    color: AppColors.textSecondary,
+                  ),
+                ],
+              ),
+            ),
           ),
-          children: [
-            if (rows.isEmpty)
-              const Padding(
-                padding: EdgeInsets.only(bottom: 8),
-                child: PgEmptyState(
-                  message: 'No employee recovery data for this filter.',
-                ),
+          if (_expanded) ...[
+            const SizedBox(height: 8),
+            if (widget.rows.isEmpty)
+              const PgEmptyState(
+                message: 'No employee recovery data for this filter.',
               )
             else
-              ...rows.map(
+              ...widget.rows.map(
                 (row) => Padding(
+                  key: ValueKey('perf-${row['employee_id']}'),
                   padding: const EdgeInsets.only(bottom: 8),
                   child: _EmployeePerformanceCard(row: row),
                 ),
               ),
           ],
-        ),
+        ],
       ),
     );
   }
@@ -807,6 +829,7 @@ class _FilteredDealerListPage extends StatelessWidget {
         onBack: () => Navigator.of(context).pop(),
       ),
       body: ListView(
+        physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(AppSpacing.screenPadding),
         children: [
           if (dealers.isEmpty)
@@ -814,6 +837,7 @@ class _FilteredDealerListPage extends StatelessWidget {
           else
             ...dealers.map(
               (dealer) => Padding(
+                key: ValueKey('filtered-dealer-${dealer['dealer_id']}'),
                 padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                 child: _DealerRecoveryCard(
                   dealer: dealer,
@@ -906,40 +930,28 @@ class _DirectorPaymentFollowUpHistoryScreenState
           child: FutureBuilder<PaymentFollowUpDetail>(
             future: _future,
             builder: (context, snapshot) {
+              final children = <Widget>[];
               if (snapshot.connectionState == ConnectionState.waiting &&
                   !snapshot.hasData) {
-                return ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  children: const [PgLoadingState()],
+                children.add(const PgLoadingState());
+              } else if (snapshot.hasError) {
+                children.add(
+                  PgErrorState(
+                    message: errorMessage(snapshot.error),
+                    onRetry: _reload,
+                  ),
                 );
-              }
-
-              if (snapshot.hasError) {
-                return ListView(
-                  physics: const AlwaysScrollableScrollPhysics(),
-                  padding: const EdgeInsets.all(AppSpacing.screenPadding),
-                  children: [
-                    PgErrorState(
-                      message: errorMessage(snapshot.error),
-                      onRetry: _reload,
-                    ),
-                  ],
-                );
-              }
-
-              final detail = snapshot.data;
-              if (detail == null) {
-                return const PgEmptyState(message: 'Dealer not found.');
-              }
-
-              final timeline = _chronological(detail);
-              final status = detail.displayStatus.toLowerCase();
-
-              return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(AppSpacing.screenPadding),
-                children: [
-                  PgCard(
+              } else {
+                final detail = snapshot.data;
+                if (detail == null) {
+                  children.add(
+                    const PgEmptyState(message: 'Dealer not found.'),
+                  );
+                } else {
+                  final timeline = _chronological(detail);
+                  final status = detail.displayStatus.toLowerCase();
+                  children.addAll([
+                    PgCard(
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1036,11 +1048,21 @@ class _DirectorPaymentFollowUpHistoryScreenState
                   else
                     ...timeline.map(
                       (item) => Padding(
+                        key: ValueKey(
+                          'timeline-${item.$1.cycleNumber}-${item.$2.entryType}-${item.$2.followUpNumber}-${item.$2.followUpDate}',
+                        ),
                         padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                         child: _TimelineCard(entry: item.$2),
                       ),
                     ),
-                ],
+                  ]);
+                }
+              }
+
+              return ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.all(AppSpacing.screenPadding),
+                children: children,
               );
             },
           ),

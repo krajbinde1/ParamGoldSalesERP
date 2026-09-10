@@ -159,50 +159,39 @@ class _PaymentFollowUpDetailScreenState
         child: FutureBuilder<PaymentFollowUpDetail>(
           future: _future,
           builder: (context, snapshot) {
+            final children = <Widget>[];
             if (snapshot.connectionState == ConnectionState.waiting &&
                 !snapshot.hasData) {
-              return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: const [PgLoadingState()],
+              children.add(const PgLoadingState());
+            } else if (snapshot.hasError) {
+              children.add(
+                PgErrorState(
+                  message: errorMessage(snapshot.error),
+                  onRetry: _reload,
+                ),
               );
-            }
+            } else {
+              final detail = snapshot.data;
+              if (detail == null) {
+                children.add(
+                  const PgEmptyState(message: 'Dealer not found.'),
+                );
+              } else {
+                final openCycles = detail.cycles
+                    .where((cycle) => !cycle.isClosed)
+                    .toList();
+                final previousCycles = detail.cycles
+                    .where((cycle) => cycle.isClosed)
+                    .toList()
+                    .reversed
+                    .toList();
+                final hasOpenCycle = openCycles.isNotEmpty;
+                final blockedMessage =
+                    (detail.nextFollowUpAvailableMessage ?? '').trim();
+                final canFollowUpAgain = detail.canAddFollowUp && hasOpenCycle;
+                final canAddFirst = detail.canAddFollowUp && !hasOpenCycle;
 
-            if (snapshot.hasError) {
-              return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(AppSpacing.screenPadding),
-                children: [
-                  PgErrorState(
-                    message: errorMessage(snapshot.error),
-                    onRetry: _reload,
-                  ),
-                ],
-              );
-            }
-
-            final detail = snapshot.data;
-            if (detail == null) {
-              return const PgEmptyState(message: 'Dealer not found.');
-            }
-
-            final openCycles = detail.cycles
-                .where((cycle) => !cycle.isClosed)
-                .toList();
-            final previousCycles = detail.cycles
-                .where((cycle) => cycle.isClosed)
-                .toList()
-                .reversed
-                .toList();
-            final hasOpenCycle = openCycles.isNotEmpty;
-            final blockedMessage =
-                (detail.nextFollowUpAvailableMessage ?? '').trim();
-            final canFollowUpAgain = detail.canAddFollowUp && hasOpenCycle;
-            final canAddFirst = detail.canAddFollowUp && !hasOpenCycle;
-
-            return ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(AppSpacing.screenPadding),
-              children: [
+                children.addAll([
                 PgCard(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -279,8 +268,12 @@ class _PaymentFollowUpDetailScreenState
                   ],
                 ],
                 if (_showForm && (canFollowUpAgain || canAddFirst)) ...[
-                  const SizedBox(height: AppSpacing.md),
+                  const SizedBox(
+                    key: ValueKey('follow-up-form-gap'),
+                    height: AppSpacing.md,
+                  ),
                   PgCard(
+                    key: const ValueKey('follow-up-form'),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -358,7 +351,14 @@ class _PaymentFollowUpDetailScreenState
                   ...previousCycles.map(
                     (cycle) => _cycleCard(cycle, isCurrent: false),
                   ),
-              ],
+                ]);
+              }
+            }
+
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(AppSpacing.screenPadding),
+              children: children,
             );
           },
         ),
@@ -368,45 +368,38 @@ class _PaymentFollowUpDetailScreenState
 
   Widget _cycleCard(PaymentFollowUpCycle cycle, {required bool isCurrent}) {
     return Padding(
+      key: ValueKey(
+        'cycle-${cycle.cycleNumber}-${isCurrent ? 'open' : 'closed'}',
+      ),
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
       child: PgCard(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Expanded(
-                  child: Text(
-                    'Cycle #${cycle.cycleNumber}',
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                          fontWeight: FontWeight.w800,
-                        ),
+            Text(
+              'Cycle #${cycle.cycleNumber}',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w800,
                   ),
-                ),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Wrap(
-                    spacing: 6,
-                    runSpacing: 6,
-                    alignment: WrapAlignment.end,
-                    children: [
-                      if (isCurrent)
-                        const PgStatusBadge(
-                          label: 'CURRENT',
-                          tone: PgStatusTone.info,
-                        ),
-                      PgStatusBadge(
-                        label: cycle.statusLabel,
-                        tone: _statusTone(
-                          cycle.displayStatus.isEmpty
-                              ? cycle.statusLabel
-                              : cycle.displayStatus,
-                        ),
-                      ),
-                    ],
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                if (isCurrent)
+                  const PgStatusBadge(
+                    label: 'CURRENT',
+                    tone: PgStatusTone.info,
+                  ),
+                PgStatusBadge(
+                  label: cycle.statusLabel,
+                  tone: _statusTone(
+                    cycle.displayStatus.isEmpty
+                        ? cycle.statusLabel
+                        : cycle.displayStatus,
                   ),
                 ),
               ],
@@ -456,6 +449,9 @@ class _PaymentFollowUpDetailScreenState
         : (entry.commitmentStatusLabel ?? 'FOLLOW-UP');
 
     return Padding(
+      key: ValueKey(
+        'entry-${entry.entryType}-${entry.followUpNumber}-${entry.followUpDate}',
+      ),
       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
       child: Container(
         width: double.infinity,

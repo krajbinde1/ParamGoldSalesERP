@@ -78,52 +78,40 @@ class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
         child: FutureBuilder<PaymentFollowUpListData>(
           future: _future,
           builder: (context, snapshot) {
+            final children = <Widget>[];
             if (snapshot.connectionState == ConnectionState.waiting &&
                 !snapshot.hasData) {
-              return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                children: const [PgLoadingState()],
+              children.add(const PgLoadingState());
+            } else if (snapshot.hasError) {
+              children.add(
+                PgErrorState(
+                  message: errorMessage(snapshot.error),
+                  onRetry: _reload,
+                ),
               );
-            }
-
-            if (snapshot.hasError) {
-              return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(AppSpacing.screenPadding),
-                children: [
-                  PgErrorState(
-                    message: errorMessage(snapshot.error),
-                    onRetry: _reload,
-                  ),
-                ],
-              );
-            }
-
-            final data = snapshot.data ??
-                const PaymentFollowUpListData(
-                  counts: PaymentFollowUpCounts(
-                    overdue: 0,
-                    dueToday: 0,
-                    upcoming: 0,
-                    noFollowUp: 0,
-                    closed: 0,
-                  ),
-                  dealers: [],
-                );
-            final dealers = data.dealers.where((dealer) {
-              if (_statusFilter != null && dealer.status != _statusFilter) {
-                return false;
-              }
-              if (_query.trim().isEmpty) return true;
-              return dealer.dealerName.toLowerCase().contains(
-                    _query.trim().toLowerCase(),
+            } else {
+              final data = snapshot.data ??
+                  const PaymentFollowUpListData(
+                    counts: PaymentFollowUpCounts(
+                      overdue: 0,
+                      dueToday: 0,
+                      upcoming: 0,
+                      noFollowUp: 0,
+                      closed: 0,
+                    ),
+                    dealers: [],
                   );
-            }).toList();
+              final dealers = data.dealers.where((dealer) {
+                if (_statusFilter != null && dealer.status != _statusFilter) {
+                  return false;
+                }
+                if (_query.trim().isEmpty) return true;
+                return dealer.dealerName.toLowerCase().contains(
+                      _query.trim().toLowerCase(),
+                    );
+              }).toList();
 
-            return ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.all(AppSpacing.screenPadding),
-              children: [
+              children.addAll([
                 Wrap(
                   spacing: AppSpacing.sm,
                   runSpacing: AppSpacing.sm,
@@ -160,6 +148,7 @@ class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
                 ),
                 const SizedBox(height: AppSpacing.md),
                 TextField(
+                  key: const ValueKey('payment-follow-up-search'),
                   decoration: const InputDecoration(
                     hintText: 'Search dealer name',
                     prefixIcon: Icon(Icons.search_rounded),
@@ -177,6 +166,7 @@ class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
                 else
                   ...dealers.map(
                     (dealer) => Padding(
+                      key: ValueKey('follow-up-dealer-${dealer.dealerId}'),
                       padding: const EdgeInsets.only(bottom: AppSpacing.sm),
                       child: PgCard(
                         onTap: () async {
@@ -237,7 +227,13 @@ class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
                       ),
                     ),
                   ),
-              ],
+              ]);
+            }
+
+            return ListView(
+              physics: const AlwaysScrollableScrollPhysics(),
+              padding: const EdgeInsets.all(AppSpacing.screenPadding),
+              children: children,
             );
           },
         ),
@@ -264,17 +260,15 @@ class _CountChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Material(
-      color: Colors.transparent,
+      color: selected ? color : color.withValues(alpha: 0.12),
+      shape: StadiumBorder(
+        side: BorderSide(color: color, width: selected ? 1.5 : 1),
+      ),
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(999),
-        child: Ink(
+        customBorder: const StadiumBorder(),
+        child: Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-          decoration: BoxDecoration(
-            color: selected ? color : color.withValues(alpha: 0.12),
-            borderRadius: BorderRadius.circular(999),
-            border: Border.all(color: color, width: selected ? 1.5 : 1),
-          ),
           child: Text(
             '$label $value',
             maxLines: 1,
