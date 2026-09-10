@@ -4,6 +4,13 @@ import 'package:flutter/foundation.dart';
 import '../../../core/api/api_errors.dart';
 import '../../manager/api/manager_api.dart';
 
+double _asMoney(dynamic value) {
+  if (value is num) return value.toDouble();
+  if (value == null) return 0;
+  final cleaned = '$value'.replaceAll(',', '').replaceAll('₹', '').trim();
+  return double.tryParse(cleaned) ?? 0;
+}
+
 class DirectorOrderListResult {
   const DirectorOrderListResult({
     required this.orders,
@@ -77,6 +84,8 @@ class DirectorDashboardData {
     this.needsAttention = const [],
     this.hasMonitoring = false,
     this.totalSales = 0,
+    this.totalStockValue = 0,
+    this.paymentFollowUpOverdue = 0,
     this.periodStartDate,
     this.periodEndDate,
   });
@@ -128,6 +137,8 @@ class DirectorDashboardData {
   final List<Map<String, dynamic>> needsAttention;
   final bool hasMonitoring;
   final double totalSales;
+  final double totalStockValue;
+  final int paymentFollowUpOverdue;
   final String? periodStartDate;
   final String? periodEndDate;
 
@@ -293,11 +304,30 @@ class DirectorDashboardData {
       topPerformers: top,
       needsAttention: needs,
       hasMonitoring: hasMonitoring,
-      totalSales: double.tryParse('${summary['total_sales'] ?? 0}') ?? 0,
+      totalSales: _asMoney(summary['total_sales']),
+      totalStockValue: _directorStockValue(json, summary),
+      paymentFollowUpOverdue: int.tryParse(
+            '${summary['payment_follow_up'] is Map ? (summary['payment_follow_up'] as Map)['overdue'] : 0}',
+          ) ??
+          0,
       periodStartDate: summary['start_date']?.toString(),
       periodEndDate: summary['end_date']?.toString(),
     );
   }
+}
+
+double _directorStockValue(Map json, Map summary) {
+  final breakdown = summary['stock_value_breakdown'] is Map
+      ? Map<String, dynamic>.from(summary['stock_value_breakdown'] as Map)
+      : const <String, dynamic>{};
+  final fromBreakdown = _asMoney(breakdown['raw_material']) +
+      _asMoney(breakdown['packaging_material']) +
+      _asMoney(breakdown['semi_finished']) +
+      _asMoney(breakdown['finished_product']);
+  final direct = _asMoney(summary['total_stock_value']);
+  if (direct > 0) return direct;
+  if (fromBreakdown > 0) return fromBreakdown;
+  return _asMoney(json['total_stock_value']);
 }
 
 class DirectorApi {
@@ -701,6 +731,29 @@ class DirectorApi {
           if (employeeId != null && employeeId > 0) 'employee_id': employeeId,
         },
       );
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> listPaymentFollowUps({int? employeeId}) async {
+    try {
+      final response = await _dio.get(
+        '/director/payment-follow-ups',
+        queryParameters: {
+          if (employeeId != null && employeeId > 0) 'employee_id': employeeId,
+        },
+      );
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> getPaymentFollowUp(int dealerId) async {
+    try {
+      final response = await _dio.get('/director/payment-follow-ups/$dealerId');
       return Map<String, dynamic>.from(response.data as Map);
     } on DioException catch (error) {
       throw mapApiError(error);

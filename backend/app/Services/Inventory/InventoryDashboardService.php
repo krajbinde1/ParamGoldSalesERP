@@ -113,6 +113,27 @@ final class InventoryDashboardService
     }
 
     /**
+     * Live ERP stock valuation: same Total Stock Value as Inventory Stock Report.
+     *
+     * @return array{
+     *     raw_material: float,
+     *     packaging_material: float,
+     *     semi_finished: float,
+     *     finished_product: float,
+     *     total: float
+     * }
+     */
+    public function stockValueTotals(): array
+    {
+        return app(InventoryReportService::class)->stockValueTotals();
+    }
+
+    public function totalStockValue(?User $user = null): float
+    {
+        return $this->stockValueTotals()['total'];
+    }
+
+    /**
      * Sum produced qty only when every completed batch shares the same output unit.
      *
      * @param  Collection<int, ProductionBatch>  $batches

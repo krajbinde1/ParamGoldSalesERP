@@ -15,6 +15,7 @@ use App\Models\Attendance;
 use App\Models\Collection;
 use App\Models\Crop;
 use App\Models\Dealer;
+use App\Models\DealerTallyEntry;
 use App\Models\DealerTallyLedger;
 use App\Models\DealerVisit;
 use App\Models\Employee;
@@ -22,7 +23,10 @@ use App\Models\FieldActivity;
 use App\Models\FieldActivityRecommendation;
 use App\Models\Order;
 use App\Models\PaymentRequest;
+use App\Models\PackagingMaterial;
 use App\Models\Product;
+use App\Models\RawMaterial;
+use App\Models\SemiFinishedMaterial;
 use App\Models\User;
 use App\Models\WeeklyTarget;
 use App\Services\Dashboard\DashboardMetricsService;
@@ -1329,50 +1333,136 @@ it('shows employee-wise team performance on a dedicated page with period filters
         ->assertDontSee('ORD-TEAM-PERF-1');
 });
 
-it('reports director total sales as dispatched value for the selected period', function (): void {
+function directorDashLedgerDebit(Dealer $dealer, string $date, float $debit, float $credit = 0, string $voucherNo = ''): DealerTallyEntry
+{
+    $particulars = $debit > 0 ? 'Sales' : 'Receipt';
+    $voucherType = $debit > 0 ? 'Sales' : 'Receipt';
+    $voucher = $voucherNo !== '' ? $voucherNo : 'LED-'.$dealer->id.'-'.$date.'-'.uniqid();
+
+    return DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'entry_date' => $date,
+        'particulars' => $particulars,
+        'voucher_type' => $voucherType,
+        'voucher_no' => $voucher,
+        'debit' => $debit,
+        'credit' => $credit,
+        'source' => 'tally_import',
+        'fingerprint' => DealerTallyEntry::makeFingerprint(
+            (int) $dealer->id,
+            $date,
+            $voucherType,
+            $voucher,
+            $debit,
+            $credit,
+            $particulars,
+        ),
+    ]);
+}
+
+it('reports director total sales from dealer ledger debit entries for the selected period', function (): void {
     $director = directorDashDirector('Total Sales Director');
     $employee = directorDashEmployee('Total Sales Emp', '9910000099');
     $dealer = directorDashDealer();
     $today = AttendanceCalendar::today()->toDateString();
 
+    // Dispatched order value must not be used for Total Sales.
     directorDashOrder($employee->id, $dealer->id, [
         'status' => Order::STATUS_APPROVED,
         'order_date' => $today,
-        'grand_total' => 500000,
-    ]);
-
-    directorDashOrder($employee->id, $dealer->id, [
-        'status' => Order::STATUS_DISPATCHED,
-        'order_date' => AttendanceCalendar::today()->copy()->subDays(5)->toDateString(),
-        'dispatch_date' => $today,
-        'dispatched_at' => now('Asia/Kolkata'),
         'grand_total' => 250000,
     ]);
 
-    directorDashOrder($employee->id, $dealer->id, [
-        'status' => Order::STATUS_DISPATCHED,
-        'order_date' => AttendanceCalendar::today()->copy()->subMonth()->toDateString(),
-        'dispatch_date' => AttendanceCalendar::today()->copy()->subMonth()->toDateString(),
-        'dispatched_at' => now('Asia/Kolkata')->subMonth(),
-        'grand_total' => 100000,
-    ]);
+    directorDashLedgerDebit($dealer, $today, 180000);
+    directorDashLedgerDebit($dealer, $today, 0, 20000, 'RCP-TODAY');
+    directorDashLedgerDebit($dealer, AttendanceCalendar::today()->copy()->subDays(2)->toDateString(), 40000);
+    directorDashLedgerDebit($dealer, '2026-03-31', 90000, 0, 'PRE-FY');
 
     $this->actingAs($director, 'sanctum');
 
     $todayResponse = $this->getJson('/api/director/dashboard?period=today')
         ->assertOk();
 
-    expect((float) $todayResponse->json('company_summary.total_sales'))->toBe(250000.0)
+    expect((float) $todayResponse->json('company_summary.total_sales'))->toBe(180000.0)
         ->and($todayResponse->json('company_summary.start_date'))->toBe($today)
         ->and($todayResponse->json('company_summary.end_date'))->toBe($today);
 
-    $listed = $this->getJson(
-        '/api/director/orders?status=dispatched&date_field=dispatch_date&date_from='.$today.'&date_to='.$today.'&per_page=100',
+    $custom = $this->getJson(
+        '/api/director/dashboard?period=custom&start_date=2026-03-01&end_date='.$today,
     )->assertOk();
 
-    $totals = collect($listed->json('data'))
-        ->map(fn (array $row): float => (float) $row['grand_total'])
-        ->sum();
+    expect((float) $custom->json('company_summary.total_sales'))->toBe(220000.0);
+});
 
-    expect($totals)->toBe(250000.0);
+it('includes live inventory stock valuation on the director dashboard', function (): void {
+    $director = directorDashDirector('Stock Value Director');
+
+    RawMaterial::query()->create([
+        'material_name' => 'Dash Raw',
+        'unit' => 'Kg',
+        'opening_stock' => 10,
+        'average_rate' => 100,
+        'status' => true,
+    ]);
+    PackagingMaterial::query()->create([
+        'packaging_name' => 'Dash Pack',
+        'unit' => 'Nos',
+        'opening_stock' => 20,
+        'average_rate' => 5,
+        'status' => true,
+    ]);
+    SemiFinishedMaterial::query()->create([
+        'material_name' => 'Dash Semi',
+        'unit' => 'Kg',
+        'opening_stock' => 4,
+        'current_stock' => 4,
+        'average_production_cost' => 50,
+        'current_stock_value' => 200,
+        'status' => true,
+    ]);
+    Product::query()->create([
+        'product_name' => 'Dash Finished',
+        'dealer_price' => 100,
+        'status' => true,
+        'manufacturing_enabled' => true,
+        'current_finished_stock' => 8,
+        'weighted_average_cost' => 25,
+    ]);
+    Product::query()->create([
+        'product_name' => 'Trading Finished',
+        'dealer_price' => 80,
+        'status' => true,
+        'manufacturing_enabled' => false,
+        'current_finished_stock' => 4,
+        'weighted_average_cost' => 50,
+    ]);
+
+    $this->actingAs($director, 'sanctum');
+
+    $this->getJson('/api/director/dashboard')
+        ->assertOk()
+        ->assertJsonPath('company_summary.total_stock_value', 1700)
+        ->assertJsonPath('company_summary.stock_value_breakdown.raw_material', 1000)
+        ->assertJsonPath('company_summary.stock_value_breakdown.packaging_material', 100)
+        ->assertJsonPath('company_summary.stock_value_breakdown.semi_finished', 200)
+        ->assertJsonPath('company_summary.stock_value_breakdown.finished_product', 400);
+});
+
+it('reports director this year total sales from financial year ledger debits', function (): void {
+    $director = directorDashDirector('Year Sales Director');
+    $dealer = directorDashDealer();
+
+    directorDashLedgerDebit($dealer, '2026-04-02', 75000, 0, 'FY-OPEN');
+    directorDashLedgerDebit($dealer, AttendanceCalendar::today()->toDateString(), 25000, 0, 'FY-TODAY');
+    directorDashLedgerDebit($dealer, '2026-03-31', 90000, 0, 'PRE-FY');
+
+    $this->actingAs($director, 'sanctum');
+
+    $year = $this->getJson('/api/director/dashboard?period=year')
+        ->assertOk();
+
+    expect((float) $year->json('company_summary.total_sales'))->toBe(100000.0)
+        ->and($year->json('company_summary.start_date'))->toBe('2026-04-01')
+        ->and($year->json('company_summary.end_date'))->toBe(AttendanceCalendar::today()->toDateString())
+        ->and($year->json('period'))->toBe('This Year');
 });

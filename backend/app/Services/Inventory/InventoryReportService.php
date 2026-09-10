@@ -169,6 +169,41 @@ final class InventoryReportService
     }
 
     /**
+     * Live ERP stock valuation used by Inventory Stock Report Total Stock Value.
+     *
+     * @return array{
+     *     raw_material: float,
+     *     packaging_material: float,
+     *     semi_finished: float,
+     *     finished_product: float,
+     *     total: float
+     * }
+     */
+    public function stockValueTotals(): array
+    {
+        $rawValue = round((float) RawMaterial::query()->where('status', true)->sum('current_stock_value'), 2);
+        $packagingValue = round((float) PackagingMaterial::query()->where('status', true)->sum('current_stock_value'), 2);
+        $semiFinishedValue = round((float) SemiFinishedMaterial::query()->where('status', true)->sum('current_stock_value'), 2);
+        $finishedValue = round((float) Product::query()
+            ->where('status', true)
+            ->inFinishedInventory()
+            ->sum(DB::raw('current_finished_stock * weighted_average_cost')), 2);
+
+        return [
+            'raw_material' => $rawValue,
+            'packaging_material' => $packagingValue,
+            'semi_finished' => $semiFinishedValue,
+            'finished_product' => $finishedValue,
+            'total' => round($rawValue + $packagingValue + $semiFinishedValue + $finishedValue, 2),
+        ];
+    }
+
+    public function totalStockValue(): float
+    {
+        return $this->stockValueTotals()['total'];
+    }
+
+    /**
      * Summary KPIs. Value cards stay global navigational totals.
      * Low / Out counts are scoped to the selected inventory type when not "All".
      *
@@ -180,15 +215,12 @@ final class InventoryReportService
             ? $inventoryType
             : self::TYPE_ALL;
 
-        $rawValue = (float) RawMaterial::query()->where('status', true)->sum('current_stock_value');
-        $packagingValue = (float) PackagingMaterial::query()->where('status', true)->sum('current_stock_value');
-        $semiFinishedValue = (float) SemiFinishedMaterial::query()->where('status', true)->sum('current_stock_value');
-        $finishedValue = (float) Product::query()
-            ->where('status', true)
-            ->inFinishedInventory()
-            ->sum(DB::raw('current_finished_stock * weighted_average_cost'));
-
-        $totalValue = $rawValue + $packagingValue + $semiFinishedValue + $finishedValue;
+        $totals = $this->stockValueTotals();
+        $rawValue = $totals['raw_material'];
+        $packagingValue = $totals['packaging_material'];
+        $semiFinishedValue = $totals['semi_finished'];
+        $finishedValue = $totals['finished_product'];
+        $totalValue = $totals['total'];
 
         $lowStockCount = $this->lowStockCount($type);
         $outOfStockCount = $this->outOfStockCount($type);

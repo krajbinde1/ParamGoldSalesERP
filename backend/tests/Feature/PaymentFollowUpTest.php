@@ -77,6 +77,16 @@ function paymentFollowUpDealer(Employee $employee, string $firmName, float $open
     return $dealer;
 }
 
+function paymentFollowUpDirector(): User
+{
+    return User::query()->create([
+        'name' => 'Follow-up Director',
+        'email' => 'followup.director.'.uniqid().'@example.com',
+        'password' => 'password',
+        'role' => UserRole::Director->value,
+    ]);
+}
+
 function paymentFollowUpAdmin(): User
 {
     return User::query()->create([
@@ -363,4 +373,58 @@ it('lets admin view the assigned dealer follow-up timeline', function (): void {
         ->assertOk()
         ->assertSee('Called dealer')
         ->assertSee('Payment Follow-up Cycle #1');
+});
+
+it('lets the director list assigned dealers after selecting an employee and view read-only history', function (): void {
+    $director = paymentFollowUpDirector();
+    $employee = paymentFollowUpEmployee('9811300091');
+    $other = paymentFollowUpEmployee('9811300092');
+    $assigned = paymentFollowUpDealer($employee, 'Director Follow Dealer');
+    paymentFollowUpDealer($other, 'Other Employee Dealer');
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$assigned->id, [
+            'remark' => 'Promised next week',
+            'expected_amount' => 40000,
+            'next_follow_up_date' => '2026-09-16',
+        ])
+        ->assertCreated();
+
+    $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/payment-follow-ups')
+        ->assertOk()
+        ->assertJsonCount(0, 'data')
+        ->assertJsonPath('counts.overdue', 0);
+
+    $list = $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/payment-follow-ups?employee_id='.$employee->id)
+        ->assertOk();
+
+    $names = collect($list->json('data'))->pluck('dealer_name')->all();
+
+    expect($names)->toContain('Director Follow Dealer')
+        ->and($names)->not->toContain('Other Employee Dealer')
+        ->and($list->json('data.0.status'))->toBe('upcoming')
+        ->and($list->json('data.0.next_follow_up_date'))->toBe('2026-09-16');
+
+    $history = $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/payment-follow-ups/'.$assigned->id)
+        ->assertOk();
+
+    expect($history->json('can_add_follow_up'))->toBeFalse()
+        ->and($history->json('cycles.0.entries.0.remark'))->toBe('Promised next week')
+        ->and((float) $history->json('cycles.0.entries.0.expected_amount'))->toBe(40000.0)
+        ->and($history->json('cycles.0.entries.0.employee_name'))->toBe($employee->full_name);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/director/payment-follow-ups?employee_id='.$employee->id)
+        ->assertForbidden();
+
+    $blocked = $this->actingAs($director, 'sanctum')
+        ->postJson('/api/director/payment-follow-ups/'.$assigned->id, [
+            'remark' => 'Director must not save',
+            'next_follow_up_date' => '2026-09-20',
+        ]);
+
+    expect($blocked->status())->toBeIn([404, 405]);
 });

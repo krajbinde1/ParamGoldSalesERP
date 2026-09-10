@@ -5,6 +5,7 @@ namespace App\Services\Dashboard;
 use App\Enums\UserRole;
 use App\Models\Attendance;
 use App\Models\Collection;
+use App\Models\DealerTallyEntry;
 use App\Models\DealerVisit;
 use App\Models\Employee;
 use App\Models\FieldActivity;
@@ -12,6 +13,7 @@ use App\Models\MonthlyTarget;
 use App\Models\Order;
 use App\Models\TaDaClaim;
 use App\Models\WeeklyTarget;
+use App\Services\TallyLedger\TallyLedgerConfig;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
@@ -21,7 +23,7 @@ class DashboardMetricsService
     private const BUSINESS_TIMEZONE = 'Asia/Kolkata';
 
     /** @var list<string> */
-    public const PERIOD_KEYS = ['today', 'week', 'last_week', 'last_month', 'month', 'custom'];
+    public const PERIOD_KEYS = ['today', 'week', 'last_week', 'last_month', 'month', 'year', 'custom'];
 
     public static function periodValidationRule(): string
     {
@@ -35,6 +37,7 @@ class DashboardMetricsService
             'week', 'weekly' => 'This Week',
             'last_week' => 'Last Week',
             'last_month' => 'Last Month',
+            'year' => 'This Year',
             'custom' => 'Custom',
             default => 'This Month',
         };
@@ -89,6 +92,7 @@ class DashboardMetricsService
                 'end' => $today->copy()->endOfMonth(),
                 'label' => 'This Month',
             ],
+            'year' => $this->currentFinancialYearRange($today),
             'custom' => [
                 'start' => Carbon::parse($startDate, self::BUSINESS_TIMEZONE)->startOfDay(),
                 'end' => Carbon::parse($endDate, self::BUSINESS_TIMEZONE)->endOfDay(),
@@ -100,6 +104,27 @@ class DashboardMetricsService
                 'label' => 'This Month',
             ],
         };
+    }
+
+    /**
+     * Financial year from 01 April (or ledger start 01-04-2026) through today.
+     *
+     * @return array{start: Carbon, end: Carbon, label: string}
+     */
+    private function currentFinancialYearRange(Carbon $today): array
+    {
+        $ledgerStart = Carbon::parse(TallyLedgerConfig::FINANCIAL_START_DATE, self::BUSINESS_TIMEZONE)->startOfDay();
+        $fyYear = $today->month >= 4 ? $today->year : $today->year - 1;
+        $start = Carbon::create($fyYear, 4, 1, 0, 0, 0, self::BUSINESS_TIMEZONE)->startOfDay();
+        if ($start->lt($ledgerStart)) {
+            $start = $ledgerStart->copy();
+        }
+
+        return [
+            'start' => $start,
+            'end' => $today->copy()->endOfDay(),
+            'label' => 'This Year',
+        ];
     }
 
     /**
@@ -300,18 +325,29 @@ class DashboardMetricsService
     }
 
     /**
-     * Company-wide dispatched sales value for a period.
-     * Uses dispatch_date, then dispatched_at, so only actually dispatched orders count.
+     * Company-wide Total Sales from dealer ledger DEBIT entries in the selected period.
+     * Ledger rows before the financial year start (01-04-2026) are excluded.
+     * Dispatched orders are not used.
      */
-    public function companyDispatchedSales(Carbon $start, Carbon $end): float
+    public function companyLedgerDebitSales(Carbon $start, Carbon $end): float
     {
         $from = $start->toDateString();
         $to = $end->toDateString();
+        $fyStart = TallyLedgerConfig::FINANCIAL_START_DATE;
 
-        return round((float) Order::query()
-            ->where('status', Order::STATUS_DISPATCHED)
-            ->whereRaw('date(coalesce(dispatch_date, dispatched_at)) between ? and ?', [$from, $to])
-            ->sum('grand_total'), 2);
+        if ($from < $fyStart) {
+            $from = $fyStart;
+        }
+
+        if ($from > $to) {
+            return 0.0;
+        }
+
+        return round((float) DealerTallyEntry::query()
+            ->whereDate('entry_date', '>=', $from)
+            ->whereDate('entry_date', '<=', $to)
+            ->whereRaw('COALESCE(debit, 0) > 0')
+            ->sum('debit'), 2);
     }
 
     /**

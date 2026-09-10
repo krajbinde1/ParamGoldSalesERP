@@ -55,6 +55,7 @@ import '../../modules/director/screens/director_dashboard_screen.dart';
 import '../../modules/director/screens/director_dealer_visits_screen.dart';
 import '../../modules/director/screens/director_orders_screen.dart';
 import '../../modules/director/screens/director_outstanding_dealers_screen.dart';
+import '../../modules/director/screens/director_payment_follow_up_status_screen.dart';
 import '../../modules/director/screens/director_payment_requests_screen.dart';
 import '../../modules/director/screens/director_route_tracking_screen.dart';
 import '../../modules/director/screens/director_team_attendance_screen.dart';
@@ -831,6 +832,19 @@ GoRouter createRouter(
     GoRoute(
       path: '/director/outstanding-dealers',
       builder: (_, _) => DirectorOutstandingDealersScreen(auth: auth),
+    ),
+    GoRoute(
+      path: '/director/payment-follow-ups',
+      builder: (_, _) => DirectorPaymentFollowUpStatusScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':dealerId',
+          builder: (_, state) => DirectorPaymentFollowUpHistoryScreen(
+            auth: auth,
+            dealerId: int.parse(state.pathParameters['dealerId']!),
+          ),
+        ),
+      ],
     ),
     GoRoute(
       path: '/director/collections',

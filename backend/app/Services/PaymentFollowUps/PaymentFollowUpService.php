@@ -40,7 +40,17 @@ final class PaymentFollowUpService
             ]);
         }
 
-        $dealers = $this->assignedDealersQuery($employee->id, $search)->get();
+        return $this->listForAssignedEmployee((int) $employee->id, $search);
+    }
+
+    /**
+     * Director / assigned-employee dealer list. Does not change follow-up workflow.
+     *
+     * @return array<string, mixed>
+     */
+    public function listForAssignedEmployee(int $employeeId, ?string $search = null): array
+    {
+        $dealers = $this->assignedDealersQuery($employeeId, $search)->get();
         $rows = $dealers->map(fn (Dealer $dealer): array => $this->listRow($dealer))->all();
 
         usort($rows, function (array $left, array $right): int {
@@ -61,6 +71,20 @@ final class PaymentFollowUpService
             'counts' => $this->countByStatus($rows),
             'data' => array_values($rows),
         ];
+    }
+
+    /**
+     * Director read-only history. Never allows adding follow-ups.
+     *
+     * @return array<string, mixed>
+     */
+    public function showForDirector(int $dealerId): array
+    {
+        $dealer = Dealer::query()->findOrFail($dealerId);
+        $detail = $this->dealerDetail($dealer);
+        $detail['can_add_follow_up'] = false;
+
+        return $detail;
     }
 
     /**

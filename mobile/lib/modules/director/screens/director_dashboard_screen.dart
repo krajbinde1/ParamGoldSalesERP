@@ -524,12 +524,6 @@ class _OverviewGrid extends StatelessWidget {
         onTap: () => onOpen('/director/pending-orders'),
       ),
       _DashTile(
-        label: 'Approved Orders',
-        value: '${data.approvedOrders}',
-        icon: Icons.check_circle_outline,
-        onTap: () => onOpen('/director/orders?status=approved'),
-      ),
-      _DashTile(
         label: 'Payment Approval',
         value: '${data.myPendingPayments}',
         icon: Icons.payments_outlined,
@@ -539,10 +533,17 @@ class _OverviewGrid extends StatelessWidget {
       if (canViewInventory)
         _DashTile(
           label: 'Inventory Stock',
-          value: 'View',
+          value: _inr.format(data.totalStockValue),
           icon: Icons.inventory_2_outlined,
           onTap: () => onOpen('/production/inventory'),
         ),
+      _DashTile(
+        label: 'Payment Follow-up',
+        value: '${data.paymentFollowUpOverdue}',
+        icon: Icons.support_agent_outlined,
+        alert: data.paymentFollowUpOverdue > 0,
+        onTap: () => onOpen('/director/payment-follow-ups'),
+      ),
     ];
 
     return GridView.builder(
@@ -601,53 +602,68 @@ class _DashTile extends StatelessWidget {
               ),
             ],
           ),
-          const Spacer(),
-          FittedBox(
-            fit: BoxFit.scaleDown,
-            alignment: Alignment.centerLeft,
-            child: Text(
-              value,
-              maxLines: 1,
-              style: theme.textTheme.headlineSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-                letterSpacing: -0.7,
-                height: 1.05,
-                fontSize: 24,
-                color: valueColor,
-              ),
-            ),
-          ),
-          const SizedBox(height: 4),
-          Text(
-            label,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.labelSmall?.copyWith(
-              color: AppColors.textSecondary,
-              fontWeight: FontWeight.w600,
-              fontSize: 12,
-              height: 1.15,
-            ),
-          ),
-          if (subtitle != null || reserveSubtitle) ...[
-            const SizedBox(height: 3),
-            SizedBox(
-              height: 14,
-              child: subtitle == null
-                  ? const SizedBox.shrink()
-                  : Text(
-                      subtitle!,
+          const SizedBox(height: 8),
+          Expanded(
+            child: ClipRect(
+              child: Align(
+                alignment: Alignment.bottomLeft,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        value,
+                        maxLines: 1,
+                        style: theme.textTheme.headlineSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                          letterSpacing: -0.7,
+                          height: 1.05,
+                          fontSize: 24,
+                          color: valueColor,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 4),
+                    Text(
+                      label,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
                       style: theme.textTheme.labelSmall?.copyWith(
-                        color: alert ? AppColors.warning : AppColors.textMuted,
-                        fontWeight: FontWeight.w700,
-                        fontSize: 11,
-                        height: 1.1,
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 12,
+                        height: 1.15,
                       ),
                     ),
+                    if (subtitle != null || reserveSubtitle) ...[
+                      const SizedBox(height: 3),
+                      SizedBox(
+                        height: 14,
+                        child: subtitle == null
+                            ? const SizedBox.shrink()
+                            : Text(
+                                subtitle!,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: theme.textTheme.labelSmall?.copyWith(
+                                  color: alert
+                                      ? AppColors.warning
+                                      : AppColors.textMuted,
+                                  fontWeight: FontWeight.w700,
+                                  fontSize: 11,
+                                  height: 1.1,
+                                ),
+                              ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
             ),
-          ],
+          ),
         ],
       ),
     );
@@ -721,7 +737,7 @@ class _TotalSalesSectionState extends State<_TotalSalesSection> {
     final now = DateTime.now();
     final range = await showDateRangePicker(
       context: context,
-      firstDate: DateTime(now.year - 2),
+      firstDate: DateTime(2026, 4, 1),
       lastDate: now,
       initialDateRange: _startDate != null && _endDate != null
           ? DateTimeRange(
@@ -746,6 +762,7 @@ class _TotalSalesSectionState extends State<_TotalSalesSection> {
   String _heading(String period) => switch (period) {
         'today' => 'Today Total Sales',
         'week' => 'This Week Total Sales',
+        'year' => 'This Year Total Sales',
         'custom' => 'Custom Total Sales',
         _ => 'This Month Total Sales',
       };
@@ -813,7 +830,7 @@ class _TotalSalesSectionState extends State<_TotalSalesSection> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'Dispatched sales value',
+                          'Total Sales',
                           style:
                               Theme.of(context).textTheme.labelSmall?.copyWith(
                                     color: AppColors.textSecondary,
@@ -869,6 +886,7 @@ class _TotalSalesPeriodFilters extends StatelessWidget {
     ('Today', 'today'),
     ('This Week', 'week'),
     ('This Month', 'month'),
+    ('This Year', 'year'),
     ('Custom', 'custom'),
   ];
 

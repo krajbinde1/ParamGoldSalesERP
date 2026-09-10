@@ -7,6 +7,8 @@ use App\Http\Controllers\Controller;
 use App\Models\PaymentRequest;
 use App\Services\Dashboard\DashboardMetricsService;
 use App\Services\Dashboard\DirectorDashboardDataService;
+use App\Services\Inventory\InventoryDashboardService;
+use App\Services\PaymentFollowUps\PaymentFollowUpPerformanceService;
 use App\Services\PaymentRequests\PaymentRequestApproverResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -23,6 +25,8 @@ class DirectorDashboardController extends Controller
         private readonly DashboardMetricsService $metrics,
         private readonly PaymentRequestApproverResolver $approvers,
         private readonly DirectorDashboardDataService $monitoring,
+        private readonly InventoryDashboardService $inventory,
+        private readonly PaymentFollowUpPerformanceService $paymentFollowUps,
     ) {}
 
     public function __invoke(Request $request): JsonResponse
@@ -82,6 +86,7 @@ class DirectorDashboardController extends Controller
         $collectionAchieved = round(collect($employeePerformance)->sum(
             fn (array $row): float => (float) ($row['collection_achieved'] ?? 0),
         ), 2);
+        $stockTotals = $this->inventory->stockValueTotals();
 
         return response()->json([
             'success' => true,
@@ -101,7 +106,10 @@ class DirectorDashboardController extends Controller
                         ? round(($collectionAchieved / $collectionTarget) * 100, 2)
                         : 0,
                 ],
-                'total_sales' => $this->metrics->companyDispatchedSales($range['start'], $range['end']),
+                'total_sales' => $this->metrics->companyLedgerDebitSales($range['start'], $range['end']),
+                'total_stock_value' => $stockTotals['total'],
+                'stock_value_breakdown' => $stockTotals,
+                'payment_follow_up' => $this->paymentFollowUps->dashboardCounts(),
                 'start_date' => $range['start']->toDateString(),
                 'end_date' => $range['end']->toDateString(),
                 'orders' => $this->metrics->orderSummary(null, $range['start'], $range['end']),
