@@ -98,6 +98,91 @@ final class PaymentFollowUpService
     }
 
     /**
+     * Director recovery monitoring. Does not change employee follow-up workflow.
+     *
+     * @return array<string, mixed>
+     */
+    public function directorMonitoringDashboard(?int $employeeId = null): array
+    {
+        $query = $this->adminDealersQuery()
+            ->with([
+                'paymentFollowUpCycles' => fn ($cycles) => $cycles->orderBy('cycle_number'),
+                'paymentFollowUpCycles.entries.collection:id,collection_date,amount,status',
+            ]);
+
+        if ($employeeId !== null) {
+            $query->where('assigned_employee_id', $employeeId);
+        }
+
+        $rows = $query->get()
+            ->map(function (Dealer $dealer): array {
+                $base = $this->listRow($dealer);
+
+                return [
+                    ...$base,
+                    ...$this->dealerMonitoringMetrics($dealer, (string) $base['status'], (float) $base['current_outstanding']),
+                ];
+            })
+            ->all();
+
+        usort($rows, function (array $left, array $right): int {
+            $overdueLeft = ($left['display_status'] ?? '') === 'overdue' ? 0 : 1;
+            $overdueRight = ($right['display_status'] ?? '') === 'overdue' ? 0 : 1;
+            if ($overdueLeft !== $overdueRight) {
+                return $overdueLeft <=> $overdueRight;
+            }
+
+            $due = ((float) $right['current_outstanding']) <=> ((float) $left['current_outstanding']);
+            if ($due !== 0) {
+                return $due;
+            }
+
+            $missed = ((int) ($right['missed_count'] ?? 0)) <=> ((int) ($left['missed_count'] ?? 0));
+            if ($missed !== 0) {
+                return $missed;
+            }
+
+            return strcmp(
+                (string) ($left['next_follow_up_date'] ?? '9999-12-31'),
+                (string) ($right['next_follow_up_date'] ?? '9999-12-31'),
+            );
+        });
+
+        $rows = array_values($rows);
+        $today = PaymentFollowUpStatus::todayDate();
+        $overdue = array_values(array_filter($rows, fn (array $row): bool => ($row['display_status'] ?? '') === 'overdue'));
+        $dueToday = array_values(array_filter($rows, fn (array $row): bool => ($row['display_status'] ?? '') === 'due_today'));
+        $paidToday = array_values(array_filter($rows, fn (array $row): bool => (bool) ($row['paid_today'] ?? false)));
+        $totalDue = round(array_reduce(
+            $rows,
+            fn (float $sum, array $row): float => $sum + max((float) $row['current_outstanding'], 0),
+            0.0,
+        ), 2);
+
+        return [
+            'counts' => $this->countByStatus($rows),
+            'summary' => [
+                'total_current_due' => $totalDue,
+                'total_current_due_label' => IndianCurrency::format($totalDue),
+                'overdue_dealers' => count($overdue),
+                'commitments_due_today' => count($dueToday),
+                'payments_received_today' => (int) array_sum(array_map(
+                    fn (array $row): int => (int) ($row['payments_received_today'] ?? 0),
+                    $rows,
+                )),
+                'as_of' => $today,
+            ],
+            'today_actions' => [
+                'overdue' => $overdue,
+                'due_today' => $dueToday,
+                'payments_received_today' => $paidToday,
+            ],
+            'employee_performance' => $this->employeeRecoveryPerformance($rows),
+            'data' => $rows,
+        ];
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function addFollowUp(
@@ -169,6 +254,14 @@ final class PaymentFollowUpService
                     'status' => PaymentFollowUpCycle::STATUS_OPEN,
                     'created_by' => $user->id,
                 ]);
+            } else {
+                $open->load(['entries.collection']);
+                $gate = $this->followUpAgainAvailability($open);
+                if (! $gate['can_add_now']) {
+                    throw ValidationException::withMessages([
+                        'next_follow_up_date' => $gate['next_follow_up_available_message'],
+                    ]);
+                }
             }
 
             $entry = PaymentFollowUpEntry::query()->create([
@@ -393,6 +486,7 @@ final class PaymentFollowUpService
             $latestClosed !== null,
             $outstanding,
         );
+        $gate = $this->followUpAgainAvailability($open);
 
         return [
             'dealer' => [
@@ -415,7 +509,6 @@ final class PaymentFollowUpService
                 : null,
             'status' => $status,
             'status_label' => PaymentFollowUpStatus::label($status),
-            'can_add_follow_up' => $open !== null || $outstanding > 0,
             'open_cycle_id' => $open?->id,
             'cycles' => $dealer->paymentFollowUpCycles
                 ->map(function (PaymentFollowUpCycle $cycle) use ($outstanding, $currentCycleId): array {
@@ -423,6 +516,11 @@ final class PaymentFollowUpService
                 })
                 ->values()
                 ->all(),
+            ...$this->dealerMonitoringMetrics($dealer, $status, $outstanding),
+            'can_add_follow_up' => ($open !== null || $outstanding > 0) && $gate['can_add_now'],
+            'next_follow_up_available_on' => $gate['next_follow_up_available_on'],
+            'next_follow_up_available_on_label' => $gate['next_follow_up_available_on_label'],
+            'next_follow_up_available_message' => $gate['next_follow_up_available_message'],
         ];
     }
 
@@ -681,6 +779,55 @@ final class PaymentFollowUpService
         return 'open';
     }
 
+    /**
+     * Follow-up Again is blocked while the latest commitment date is still in the future.
+     * Missed commitments and dates that have been reached remain allowed.
+     *
+     * @return array{can_add_now: bool, next_follow_up_available_on: ?string, next_follow_up_available_on_label: ?string, next_follow_up_available_message: ?string}
+     */
+    private function followUpAgainAvailability(?PaymentFollowUpCycle $open): array
+    {
+        $allowed = [
+            'can_add_now' => true,
+            'next_follow_up_available_on' => null,
+            'next_follow_up_available_on_label' => null,
+            'next_follow_up_available_message' => null,
+        ];
+
+        if ($open === null) {
+            return $allowed;
+        }
+
+        $open->loadMissing(['entries.collection']);
+        $entries = $open->entries;
+        $latestFollowUp = $entries
+            ->filter(fn (PaymentFollowUpEntry $entry): bool => $entry->isFollowUp())
+            ->last();
+
+        if ($latestFollowUp === null || $latestFollowUp->next_follow_up_date === null) {
+            return $allowed;
+        }
+
+        $outcome = $this->commitmentOutcome($latestFollowUp, $entries, $open->isClosed());
+        if ($outcome === PaymentFollowUpEntry::COMMITMENT_MISSED) {
+            return $allowed;
+        }
+
+        $commitmentDate = $latestFollowUp->next_follow_up_date->toDateString();
+        if ($commitmentDate <= PaymentFollowUpStatus::todayDate()) {
+            return $allowed;
+        }
+
+        $label = Carbon::parse($commitmentDate, PaymentFollowUpStatus::TIMEZONE)->format('d M Y');
+
+        return [
+            'can_add_now' => false,
+            'next_follow_up_available_on' => $commitmentDate,
+            'next_follow_up_available_on_label' => $label,
+            'next_follow_up_available_message' => 'Next follow-up available on '.$label.'.',
+        ];
+    }
+
     private function reminderStatusLabel(?string $status): string
     {
         return match ($status) {
@@ -728,6 +875,219 @@ final class PaymentFollowUpService
         }
 
         return $counts;
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    private function employeeRecoveryPerformance(array $rows): array
+    {
+        $grouped = [];
+        foreach ($rows as $row) {
+            $employeeId = (int) ($row['assigned_employee_id'] ?? 0);
+            if ($employeeId <= 0) {
+                continue;
+            }
+            if (! isset($grouped[$employeeId])) {
+                $grouped[$employeeId] = [
+                    'employee_id' => $employeeId,
+                    'employee_name' => (string) ($row['assigned_employee_name'] ?? 'Employee'),
+                    'current_due' => 0.0,
+                    'total_committed' => 0.0,
+                    'total_received' => 0.0,
+                    'open_cycles' => 0,
+                    'closed_cycles' => 0,
+                    'missed_commitments' => 0,
+                ];
+            }
+
+            $grouped[$employeeId]['current_due'] += max((float) ($row['current_outstanding'] ?? 0), 0);
+            $grouped[$employeeId]['total_committed'] += (float) ($row['total_committed'] ?? 0);
+            $grouped[$employeeId]['total_received'] += (float) ($row['total_received'] ?? 0);
+            $grouped[$employeeId]['open_cycles'] += (int) ($row['open_cycle_count'] ?? 0);
+            $grouped[$employeeId]['closed_cycles'] += (int) ($row['closed_cycle_count'] ?? 0);
+            $grouped[$employeeId]['missed_commitments'] += (int) ($row['missed_count_total'] ?? $row['missed_count'] ?? 0);
+        }
+
+        $performance = [];
+        foreach ($grouped as $row) {
+            $currentDue = round((float) $row['current_due'], 2);
+            $committed = round((float) $row['total_committed'], 2);
+            $received = round((float) $row['total_received'], 2);
+            $recovery = $this->recoveryPercentage($received, $committed);
+            $performance[] = [
+                'employee_id' => $row['employee_id'],
+                'employee_name' => $row['employee_name'],
+                'current_due' => $currentDue,
+                'current_due_label' => IndianCurrency::format($currentDue),
+                'total_committed' => $committed,
+                'total_committed_label' => IndianCurrency::format($committed),
+                'total_received' => $received,
+                'total_received_label' => IndianCurrency::format($received),
+                'recovery_percentage' => $recovery,
+                'open_cycles' => (int) $row['open_cycles'],
+                'closed_cycles' => (int) $row['closed_cycles'],
+                'missed_commitments' => (int) $row['missed_commitments'],
+            ];
+        }
+
+        usort($performance, fn (array $left, array $right): int => strcasecmp(
+            (string) $left['employee_name'],
+            (string) $right['employee_name'],
+        ));
+
+        return array_values($performance);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function dealerMonitoringMetrics(Dealer $dealer, string $status, float $outstanding): array
+    {
+        $dealer->loadMissing(['paymentFollowUpCycles.entries.collection']);
+        $cycles = $dealer->paymentFollowUpCycles;
+        $today = PaymentFollowUpStatus::todayDate();
+        [$displayStatus, $displayLabel] = $this->monitoringDisplayStatus($status);
+
+        $openCycleCount = 0;
+        $closedCycleCount = 0;
+        $totalFollowUps = 0;
+        $totalCommitments = 0;
+        $totalMissed = 0;
+        $committedAmount = 0.0;
+        $receivedAmount = 0.0;
+        $paymentsToday = 0;
+        $currentFollowUps = 0;
+        $currentCommitments = 0;
+        $currentMissed = 0;
+        $currentStatusLabel = $displayLabel;
+
+        $currentCycle = $cycles->firstWhere('status', PaymentFollowUpCycle::STATUS_OPEN)
+            ?? $cycles->sortByDesc('cycle_number')->first();
+
+        foreach ($cycles as $cycle) {
+            if ($cycle->isOpen()) {
+                $openCycleCount++;
+            } else {
+                $closedCycleCount++;
+            }
+
+            $entries = $cycle->entries;
+            $cycleFollowUps = 0;
+            $cycleCommitments = 0;
+            $cycleMissed = 0;
+
+            foreach ($entries as $entry) {
+                if ($entry->isFollowUp()) {
+                    $cycleFollowUps++;
+                    $totalFollowUps++;
+                    if ($entry->next_follow_up_date !== null || $entry->expected_amount !== null) {
+                        $cycleCommitments++;
+                        $totalCommitments++;
+                    }
+                    if ($entry->expected_amount !== null) {
+                        $committedAmount += (float) $entry->expected_amount;
+                    }
+                    if ($this->commitmentOutcome($entry, $entries, $cycle->isClosed()) === PaymentFollowUpEntry::COMMITMENT_MISSED) {
+                        $cycleMissed++;
+                        $totalMissed++;
+                    }
+                } else {
+                    $receivedAmount += (float) ($entry->expected_amount ?? $entry->collection?->amount ?? 0);
+                    $paymentDate = $entry->collection?->collection_date?->toDateString()
+                        ?? $entry->followed_up_at?->timezone(PaymentFollowUpStatus::TIMEZONE)?->toDateString();
+                    if ($paymentDate === $today) {
+                        $paymentsToday++;
+                    }
+                }
+            }
+
+            if ($currentCycle !== null && (int) $cycle->id === (int) $currentCycle->id) {
+                $currentFollowUps = $cycleFollowUps;
+                $currentCommitments = $cycleCommitments;
+                $currentMissed = $cycleMissed;
+                $currentStatusLabel = strtoupper($this->cycleDisplayStatus($cycle, $entries));
+            }
+        }
+
+        $receivedAmount = round($receivedAmount, 2);
+        $committedAmount = round($committedAmount, 2);
+        $recovery = $this->recoveryPercentage($receivedAmount, $committedAmount);
+        $riskMissed = $currentMissed > 0 ? $currentMissed : $totalMissed;
+        [$risk, $riskLabel] = $this->monitoringRisk($displayStatus, $riskMissed);
+
+        return [
+            'current_due' => round($outstanding, 2),
+            'current_due_label' => IndianCurrency::format($outstanding),
+            'display_status' => $displayStatus,
+            'display_status_label' => $displayLabel,
+            'current_cycle_status' => $currentCycle !== null
+                ? $this->cycleDisplayStatus($currentCycle, $currentCycle->entries)
+                : $displayStatus,
+            'current_cycle_status_label' => $currentStatusLabel,
+            'risk' => $risk,
+            'risk_label' => $riskLabel,
+            'follow_up_count' => $currentFollowUps,
+            'commitment_count' => $currentCommitments,
+            'missed_count' => $currentMissed,
+            'missed_count_total' => $totalMissed,
+            'open_cycle_count' => $openCycleCount,
+            'closed_cycle_count' => $closedCycleCount,
+            'total_committed' => $committedAmount,
+            'total_committed_label' => IndianCurrency::format($committedAmount),
+            'total_received' => $receivedAmount,
+            'total_received_label' => IndianCurrency::format($receivedAmount),
+            'recovery_percentage' => $recovery,
+            'paid_today' => $paymentsToday > 0,
+            'payments_received_today' => $paymentsToday,
+        ];
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function monitoringDisplayStatus(string $status): array
+    {
+        $key = match ($status) {
+            PaymentFollowUpStatus::OVERDUE => 'overdue',
+            PaymentFollowUpStatus::DUE_TODAY => 'due_today',
+            PaymentFollowUpStatus::CLOSED => 'closed',
+            default => 'pending',
+        };
+
+        $label = match ($key) {
+            'overdue' => 'OVERDUE',
+            'due_today' => 'DUE TODAY',
+            'closed' => 'CLOSED',
+            default => 'PENDING',
+        };
+
+        return [$key, $label];
+    }
+
+    /**
+     * @return array{0: string, 1: string}
+     */
+    private function monitoringRisk(string $displayStatus, int $missedCount): array
+    {
+        if ($displayStatus === 'overdue' && $missedCount >= 2) {
+            return ['high', 'HIGH RISK'];
+        }
+        if ($displayStatus === 'overdue' || $missedCount >= 1) {
+            return ['medium', 'MEDIUM RISK'];
+        }
+
+        return ['low', 'LOW RISK'];
+    }
+
+    private function recoveryPercentage(float $received, float $committed): float
+    {
+        if ($committed <= 0) {
+            return 0.0;
+        }
+
+        return round(($received / $committed) * 100, 1);
     }
 
     /**

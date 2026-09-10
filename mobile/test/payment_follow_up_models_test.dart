@@ -55,6 +55,7 @@ void main() {
     });
 
     expect(detail.canAddFollowUp, isTrue);
+    expect(detail.nextFollowUpAvailableMessage, isNull);
     expect(detail.cycles.single.entries.single.remark, 'Dealer requested 5 days');
     expect(detail.cycles.single.isClosed, isFalse);
   });

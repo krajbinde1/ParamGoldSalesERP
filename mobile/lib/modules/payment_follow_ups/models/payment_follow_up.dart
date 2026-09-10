@@ -97,10 +97,22 @@ class PaymentFollowUpDetail {
   const PaymentFollowUpDetail({
     required this.dealerName,
     this.village,
+    this.assignedEmployeeName,
     required this.currentOutstandingLabel,
     this.lastPaymentDate,
     this.lastPaymentAmountLabel,
     required this.statusLabel,
+    this.displayStatus = '',
+    this.currentCycleStatusLabel = '',
+    this.riskLabel,
+    this.followUpCount = 0,
+    this.commitmentCount = 0,
+    this.missedCount = 0,
+    this.totalReceivedLabel = '',
+    this.recoveryPercentage = 0,
+    this.nextFollowUpAvailableOn,
+    this.nextFollowUpAvailableOnLabel,
+    this.nextFollowUpAvailableMessage,
     required this.canAddFollowUp,
     required this.cycles,
   });
@@ -114,11 +126,33 @@ class PaymentFollowUpDetail {
     return PaymentFollowUpDetail(
       dealerName: dealer['firm_name']?.toString() ?? '',
       village: dealer['village']?.toString(),
+      assignedEmployeeName: dealer['assigned_employee_name']?.toString(),
       currentOutstandingLabel:
-          json['current_outstanding_label']?.toString() ?? '',
+          json['current_due_label']?.toString() ??
+          json['current_outstanding_label']?.toString() ??
+          '',
       lastPaymentDate: json['last_payment_date']?.toString(),
       lastPaymentAmountLabel: json['last_payment_amount_label']?.toString(),
-      statusLabel: json['status_label']?.toString() ?? '',
+      statusLabel: json['status_label']?.toString() ??
+          json['display_status_label']?.toString() ??
+          '',
+      displayStatus: json['display_status']?.toString() ??
+          json['status']?.toString() ??
+          '',
+      currentCycleStatusLabel:
+          json['current_cycle_status_label']?.toString() ?? '',
+      riskLabel: json['risk_label']?.toString(),
+      followUpCount: int.tryParse('${json['follow_up_count'] ?? 0}') ?? 0,
+      commitmentCount: int.tryParse('${json['commitment_count'] ?? 0}') ?? 0,
+      missedCount: int.tryParse('${json['missed_count'] ?? 0}') ?? 0,
+      totalReceivedLabel: json['total_received_label']?.toString() ?? '',
+      recoveryPercentage:
+          double.tryParse('${json['recovery_percentage'] ?? 0}') ?? 0,
+      nextFollowUpAvailableOn: json['next_follow_up_available_on']?.toString(),
+      nextFollowUpAvailableOnLabel:
+          json['next_follow_up_available_on_label']?.toString(),
+      nextFollowUpAvailableMessage:
+          json['next_follow_up_available_message']?.toString(),
       canAddFollowUp: json['can_add_follow_up'] == true,
       cycles: cycles
           .whereType<Map>()
@@ -133,10 +167,22 @@ class PaymentFollowUpDetail {
 
   final String dealerName;
   final String? village;
+  final String? assignedEmployeeName;
   final String currentOutstandingLabel;
   final String? lastPaymentDate;
   final String? lastPaymentAmountLabel;
   final String statusLabel;
+  final String displayStatus;
+  final String currentCycleStatusLabel;
+  final String? riskLabel;
+  final int followUpCount;
+  final int commitmentCount;
+  final int missedCount;
+  final String totalReceivedLabel;
+  final double recoveryPercentage;
+  final String? nextFollowUpAvailableOn;
+  final String? nextFollowUpAvailableOnLabel;
+  final String? nextFollowUpAvailableMessage;
   final bool canAddFollowUp;
   final List<PaymentFollowUpCycle> cycles;
 }
@@ -146,9 +192,16 @@ class PaymentFollowUpCycle {
     required this.cycleNumber,
     required this.openingOutstandingLabel,
     required this.statusLabel,
+    this.displayStatus = '',
+    this.isCurrent = false,
+    this.currentDueLabel,
+    this.startedDate,
     this.closedDate,
     this.paymentReceivedAmountLabel,
     this.closingOutstandingLabel,
+    this.followUpCount = 0,
+    this.commitmentCount = 0,
+    this.missedCount = 0,
     required this.entries,
   });
 
@@ -160,10 +213,17 @@ class PaymentFollowUpCycle {
       openingOutstandingLabel:
           json['opening_outstanding_label']?.toString() ?? '',
       statusLabel: json['status_label']?.toString() ?? '',
+      displayStatus: json['display_status']?.toString() ?? '',
+      isCurrent: json['is_current'] == true,
+      currentDueLabel: json['current_due_label']?.toString(),
+      startedDate: json['started_date']?.toString(),
       closedDate: json['closed_date']?.toString(),
       paymentReceivedAmountLabel:
           json['payment_received_amount_label']?.toString(),
       closingOutstandingLabel: json['closing_outstanding_label']?.toString(),
+      followUpCount: int.tryParse('${json['follow_up_count'] ?? 0}') ?? 0,
+      commitmentCount: int.tryParse('${json['commitment_count'] ?? 0}') ?? 0,
+      missedCount: int.tryParse('${json['missed_commitment_count'] ?? 0}') ?? 0,
       entries: entries
           .whereType<Map>()
           .map(
@@ -178,12 +238,21 @@ class PaymentFollowUpCycle {
   final int cycleNumber;
   final String openingOutstandingLabel;
   final String statusLabel;
+  final String displayStatus;
+  final bool isCurrent;
+  final String? currentDueLabel;
+  final String? startedDate;
   final String? closedDate;
   final String? paymentReceivedAmountLabel;
   final String? closingOutstandingLabel;
+  final int followUpCount;
+  final int commitmentCount;
+  final int missedCount;
   final List<PaymentFollowUpEntry> entries;
 
-  bool get isClosed => statusLabel.toUpperCase() == 'CLOSED';
+  bool get isClosed =>
+      displayStatus.toLowerCase() == 'closed' ||
+      statusLabel.toUpperCase() == 'CLOSED';
 }
 
 class PaymentFollowUpEntry {
@@ -195,6 +264,15 @@ class PaymentFollowUpEntry {
     this.expectedAmountLabel,
     this.nextFollowUpDate,
     this.employeeName,
+    this.followUpNumber,
+    this.followUpAtLabel,
+    this.commitmentStatus,
+    this.commitmentStatusLabel,
+    this.paymentAmountLabel,
+    this.paymentDate,
+    this.updatedCurrentDueLabel,
+    this.whatsappStatusLabel,
+    this.commitmentWhatsappStatusLabel,
   });
 
   factory PaymentFollowUpEntry.fromJson(Map<String, dynamic> json) {
@@ -206,6 +284,16 @@ class PaymentFollowUpEntry {
       expectedAmountLabel: json['expected_amount_label']?.toString(),
       nextFollowUpDate: json['next_follow_up_date']?.toString(),
       employeeName: json['employee_name']?.toString(),
+      followUpNumber: int.tryParse('${json['follow_up_number'] ?? ''}'),
+      followUpAtLabel: json['follow_up_at_label']?.toString(),
+      commitmentStatus: json['commitment_status']?.toString(),
+      commitmentStatusLabel: json['commitment_status_label']?.toString(),
+      paymentAmountLabel: json['payment_amount_label']?.toString(),
+      paymentDate: json['payment_date']?.toString(),
+      updatedCurrentDueLabel: json['updated_current_due_label']?.toString(),
+      whatsappStatusLabel: json['whatsapp_status_label']?.toString(),
+      commitmentWhatsappStatusLabel:
+          json['commitment_whatsapp_status_label']?.toString(),
     );
   }
 
@@ -216,6 +304,15 @@ class PaymentFollowUpEntry {
   final String? expectedAmountLabel;
   final String? nextFollowUpDate;
   final String? employeeName;
+  final int? followUpNumber;
+  final String? followUpAtLabel;
+  final String? commitmentStatus;
+  final String? commitmentStatusLabel;
+  final String? paymentAmountLabel;
+  final String? paymentDate;
+  final String? updatedCurrentDueLabel;
+  final String? whatsappStatusLabel;
+  final String? commitmentWhatsappStatusLabel;
 
   bool get isPaymentReceived => entryType == 'payment_received';
 }

@@ -27,20 +27,11 @@ class DirectorPaymentFollowUpController extends Controller
 
         $employees = $this->outstanding->salesEmployeeList();
         $employeeId = isset($validated['employee_id']) ? (int) $validated['employee_id'] : null;
-
-        if ($employeeId === null) {
-            return response()->json([
-                'employees' => $employees,
-                'counts' => $this->followUps->countByStatus([]),
-                'data' => [],
-            ]);
-        }
-
-        $payload = $this->followUps->listForAssignedEmployee($employeeId);
+        $dashboard = $this->followUps->directorMonitoringDashboard($employeeId);
 
         return response()->json([
             'employees' => $employees,
-            ...$payload,
+            ...$dashboard,
         ]);
     }
 

@@ -28,6 +28,7 @@ class PaymentFollowUpListScreen extends StatefulWidget {
 class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
   late Future<PaymentFollowUpListData> _future;
   String _query = '';
+  String? _statusFilter;
 
   PaymentFollowUpApi get _api => PaymentFollowUpApi(
     ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
@@ -42,6 +43,12 @@ class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
   Future<void> _reload() async {
     setState(() => _future = _api.list());
     await _future;
+  }
+
+  void _toggleStatus(String status) {
+    setState(() {
+      _statusFilter = _statusFilter == status ? null : status;
+    });
   }
 
   Color _statusColor(String status) {
@@ -104,10 +111,13 @@ class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
                   dealers: [],
                 );
             final dealers = data.dealers.where((dealer) {
+              if (_statusFilter != null && dealer.status != _statusFilter) {
+                return false;
+              }
               if (_query.trim().isEmpty) return true;
               return dealer.dealerName.toLowerCase().contains(
-                _query.trim().toLowerCase(),
-              );
+                    _query.trim().toLowerCase(),
+                  );
             }).toList();
 
             return ListView(
@@ -122,21 +132,29 @@ class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
                       label: 'Overdue',
                       value: data.counts.overdue,
                       color: AppColors.error,
+                      selected: _statusFilter == 'overdue',
+                      onTap: () => _toggleStatus('overdue'),
                     ),
                     _CountChip(
                       label: 'Due Today',
                       value: data.counts.dueToday,
                       color: AppColors.warning,
+                      selected: _statusFilter == 'due_today',
+                      onTap: () => _toggleStatus('due_today'),
                     ),
                     _CountChip(
                       label: 'Upcoming',
                       value: data.counts.upcoming,
                       color: AppColors.info,
+                      selected: _statusFilter == 'upcoming',
+                      onTap: () => _toggleStatus('upcoming'),
                     ),
                     _CountChip(
                       label: 'No Follow-up',
                       value: data.counts.noFollowUp,
                       color: AppColors.textSecondary,
+                      selected: _statusFilter == 'no_follow_up',
+                      onTap: () => _toggleStatus('no_follow_up'),
                     ),
                   ],
                 ),
@@ -150,9 +168,11 @@ class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
                 ),
                 const SizedBox(height: AppSpacing.md),
                 if (dealers.isEmpty)
-                  const PgEmptyState(
-                    message: 'No assigned dealers found.',
-                    icon: Icon(Icons.storefront_outlined),
+                  PgEmptyState(
+                    message: _statusFilter == null
+                        ? 'No assigned dealers found.'
+                        : 'No dealers in this status.',
+                    icon: const Icon(Icons.storefront_outlined),
                   )
                 else
                   ...dealers.map(
@@ -173,13 +193,18 @@ class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
                                 Expanded(
                                   child: Text(
                                     dealer.dealerName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: Theme.of(context)
                                         .textTheme
                                         .titleMedium,
                                   ),
                                 ),
+                                const SizedBox(width: 8),
                                 Text(
                                   dealer.statusLabel,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
                                   style: Theme.of(context).textTheme.labelLarge
                                       ?.copyWith(
                                         color: _statusColor(dealer.status),
@@ -195,12 +220,16 @@ class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
                                   dealer.village,
                                 dealer.currentOutstandingLabel,
                               ].join(' · '),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
                               style: Theme.of(context).textTheme.bodySmall
                                   ?.copyWith(color: AppColors.textSecondary),
                             ),
                             const SizedBox(height: 6),
                             Text(
                               'Last: ${_formatDate(dealer.lastFollowUpDate)}  ·  Next: ${_formatDate(dealer.nextFollowUpDate)}',
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
                               style: Theme.of(context).textTheme.bodySmall,
                             ),
                           ],
@@ -222,25 +251,39 @@ class _CountChip extends StatelessWidget {
     required this.label,
     required this.value,
     required this.color,
+    required this.selected,
+    required this.onTap,
   });
 
   final String label;
   final int value;
   final Color color;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-      decoration: BoxDecoration(
-        color: color.withValues(alpha: 0.12),
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
         borderRadius: BorderRadius.circular(999),
-      ),
-      child: Text(
-        '$label $value',
-        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-          color: color,
-          fontWeight: FontWeight.w700,
+        child: Ink(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: selected ? color : color.withValues(alpha: 0.12),
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: color, width: selected ? 1.5 : 1),
+          ),
+          child: Text(
+            '$label $value',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: selected ? Colors.white : color,
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
         ),
       ),
     );

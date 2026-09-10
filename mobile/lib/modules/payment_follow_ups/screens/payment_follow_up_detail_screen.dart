@@ -10,6 +10,7 @@ import '../../../core/storage/session_store.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
 import '../../../core/widgets/design/pg_scaffold.dart';
+import '../../../core/widgets/design/pg_status_badge.dart';
 import '../../auth/providers/auth_controller.dart';
 import '../api/payment_follow_up_api.dart';
 import '../models/payment_follow_up.dart';
@@ -66,6 +67,19 @@ class _PaymentFollowUpDetailScreenState
     if (value == null || value.isEmpty) return '—';
     final parsed = DateTime.tryParse(value);
     return parsed == null ? value : _date.format(parsed);
+  }
+
+  PgStatusTone _statusTone(String? status) {
+    final key = (status ?? '')
+        .toLowerCase()
+        .replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+    return switch (key) {
+      'overdue' || 'missed' => PgStatusTone.rejected,
+      'due_today' || 'pending' => PgStatusTone.pending,
+      'closed' || 'kept' || 'open' => PgStatusTone.paid,
+      'upcoming' => PgStatusTone.info,
+      _ => PgStatusTone.neutral,
+    };
   }
 
   Future<void> _pickDate() async {
@@ -171,7 +185,19 @@ class _PaymentFollowUpDetailScreenState
               return const PgEmptyState(message: 'Dealer not found.');
             }
 
-            final hasOpenCycle = detail.cycles.any((cycle) => !cycle.isClosed);
+            final openCycles = detail.cycles
+                .where((cycle) => !cycle.isClosed)
+                .toList();
+            final previousCycles = detail.cycles
+                .where((cycle) => cycle.isClosed)
+                .toList()
+                .reversed
+                .toList();
+            final hasOpenCycle = openCycles.isNotEmpty;
+            final blockedMessage =
+                (detail.nextFollowUpAvailableMessage ?? '').trim();
+            final canFollowUpAgain = detail.canAddFollowUp && hasOpenCycle;
+            final canAddFirst = detail.canAddFollowUp && !hasOpenCycle;
 
             return ListView(
               physics: const AlwaysScrollableScrollPhysics(),
@@ -183,50 +209,76 @@ class _PaymentFollowUpDetailScreenState
                     children: [
                       Text(
                         detail.dealerName,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.titleLarge,
                       ),
                       if ((detail.village ?? '').isNotEmpty) ...[
                         const SizedBox(height: 4),
                         Text(
                           detail.village!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
                           style: Theme.of(context).textTheme.bodyMedium
                               ?.copyWith(color: AppColors.textSecondary),
                         ),
                       ],
                       const SizedBox(height: AppSpacing.md),
                       Text(
-                        'Current Outstanding',
-                        style: Theme.of(context).textTheme.bodySmall,
+                        'Current Due',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
                       ),
-                      Text(
-                        detail.currentOutstandingLabel,
-                        style: Theme.of(context).textTheme.headlineSmall
-                            ?.copyWith(fontWeight: FontWeight.w800),
+                      FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerLeft,
+                        child: Text(
+                          detail.currentOutstandingLabel,
+                          maxLines: 1,
+                          style: Theme.of(context).textTheme.headlineSmall
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
                       ),
                       const SizedBox(height: AppSpacing.sm),
                       Text(
                         'Last payment: ${detail.lastPaymentAmountLabel ?? '—'} on ${_formatDate(detail.lastPaymentDate)}',
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
-                      const SizedBox(height: 4),
-                      Text(
-                        detail.statusLabel,
-                        style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                          fontWeight: FontWeight.w700,
-                        ),
+                      const SizedBox(height: 8),
+                      PgStatusBadge(
+                        label: detail.statusLabel,
+                        tone: _statusTone(detail.statusLabel),
                       ),
                     ],
                   ),
                 ),
                 const SizedBox(height: AppSpacing.md),
-                if (detail.canAddFollowUp)
+                if (hasOpenCycle || canAddFirst) ...[
                   FilledButton(
-                    onPressed: () => setState(() => _showForm = !_showForm),
+                    onPressed: (canFollowUpAgain || canAddFirst) && !_saving
+                        ? () => setState(() => _showForm = !_showForm)
+                        : null,
                     child: Text(
                       hasOpenCycle ? 'Follow-up Again' : 'Add Follow-up',
                     ),
                   ),
-                if (_showForm) ...[
+                  if (hasOpenCycle &&
+                      !detail.canAddFollowUp &&
+                      blockedMessage.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      blockedMessage,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AppColors.warning,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                  ],
+                ],
+                if (_showForm && (canFollowUpAgain || canAddFirst)) ...[
                   const SizedBox(height: AppSpacing.md),
                   PgCard(
                     child: Column(
@@ -276,19 +328,36 @@ class _PaymentFollowUpDetailScreenState
                     ),
                   ),
                 ],
+                if (openCycles.isNotEmpty) ...[
+                  const SizedBox(height: AppSpacing.lg),
+                  Text(
+                    'Current Open Cycle',
+                    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                  ...openCycles.map(
+                    (cycle) => _cycleCard(cycle, isCurrent: true),
+                  ),
+                ],
                 const SizedBox(height: AppSpacing.lg),
                 Text(
                   'Previous Follow-up History',
-                  style: Theme.of(context).textTheme.titleMedium,
+                  style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
                 ),
                 const SizedBox(height: AppSpacing.sm),
-                if (detail.cycles.isEmpty)
+                if (previousCycles.isEmpty)
                   const PgEmptyState(
-                    message: 'No follow-up history yet.',
+                    message: 'No previous follow-up history yet.',
                     icon: Icon(Icons.history),
                   )
                 else
-                  ...detail.cycles.reversed.map(_cycleCard),
+                  ...previousCycles.map(
+                    (cycle) => _cycleCard(cycle, isCurrent: false),
+                  ),
               ],
             );
           },
@@ -297,62 +366,225 @@ class _PaymentFollowUpDetailScreenState
     );
   }
 
-  Widget _cycleCard(PaymentFollowUpCycle cycle) {
+  Widget _cycleCard(PaymentFollowUpCycle cycle, {required bool isCurrent}) {
     return Padding(
       padding: const EdgeInsets.only(bottom: AppSpacing.md),
       child: PgCard(
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              'PAYMENT FOLLOW-UP CYCLE #${cycle.cycleNumber}',
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                fontWeight: FontWeight.w800,
-              ),
-            ),
-            const SizedBox(height: 4),
-            Text('Opening Outstanding: ${cycle.openingOutstandingLabel}'),
-            const SizedBox(height: AppSpacing.sm),
-            ...cycle.entries.map(
-              (entry) => Padding(
-                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      '${_formatDate(entry.followUpDate)}  ·  ${entry.isPaymentReceived ? 'Payment Received' : 'Follow-up'}',
-                      style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                    Text(entry.remark),
-                    Text(
-                      [
-                        'Outstanding: ${entry.outstandingLabel}',
-                        if ((entry.expectedAmountLabel ?? '').isNotEmpty)
-                          'Expected: ${entry.expectedAmountLabel}',
-                        if ((entry.nextFollowUpDate ?? '').isNotEmpty)
-                          'Next: ${_formatDate(entry.nextFollowUpDate)}',
-                      ].join('  ·  '),
-                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                  ],
+            Row(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Expanded(
+                  child: Text(
+                    'Cycle #${cycle.cycleNumber}',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
                 ),
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    alignment: WrapAlignment.end,
+                    children: [
+                      if (isCurrent)
+                        const PgStatusBadge(
+                          label: 'CURRENT',
+                          tone: PgStatusTone.info,
+                        ),
+                      PgStatusBadge(
+                        label: cycle.statusLabel,
+                        tone: _statusTone(
+                          cycle.displayStatus.isEmpty
+                              ? cycle.statusLabel
+                              : cycle.displayStatus,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Text(
+              'Current Due',
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w700,
+                  ),
+            ),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerLeft,
+              child: Text(
+                cycle.currentDueLabel ?? cycle.openingOutstandingLabel,
+                maxLines: 1,
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
               ),
             ),
+            const SizedBox(height: AppSpacing.sm),
+            ...cycle.entries.map(_entryCard),
             if (cycle.isClosed)
               Text(
-                'Closing Outstanding: ${cycle.closingOutstandingLabel ?? '—'}  ·  ${cycle.statusLabel}',
+                'Closing Outstanding: ${cycle.closingOutstandingLabel ?? '—'}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                  color: AppColors.success,
-                  fontWeight: FontWeight.w700,
-                ),
+                      color: AppColors.success,
+                      fontWeight: FontWeight.w700,
+                    ),
               ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _entryCard(PaymentFollowUpEntry entry) {
+    final isPayment = entry.isPaymentReceived;
+    final title = isPayment
+        ? 'Payment Received'
+        : 'Follow-up #${entry.followUpNumber ?? '—'}';
+    final statusLabel = isPayment
+        ? 'PAYMENT'
+        : (entry.commitmentStatusLabel ?? 'FOLLOW-UP');
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(12),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF8FAFC),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppColors.border),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                PgStatusBadge(
+                  label: statusLabel,
+                  tone: isPayment
+                      ? PgStatusTone.paid
+                      : _statusTone(entry.commitmentStatus),
+                ),
+              ],
+            ),
+            const SizedBox(height: 6),
+            Text(
+              entry.followUpAtLabel ?? _formatDate(entry.followUpDate),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            if (!isPayment && entry.remark.trim().isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Text(
+                entry.remark,
+                style: Theme.of(context).textTheme.bodyMedium,
+              ),
+            ],
+            const SizedBox(height: 10),
+            if (isPayment)
+              _MetricWrap(
+                items: [
+                  (
+                    'Amount',
+                    entry.paymentAmountLabel ?? entry.expectedAmountLabel ?? '—'
+                  ),
+                  ('Date', _formatDate(entry.paymentDate ?? entry.followUpDate)),
+                  (
+                    'Updated Current Due',
+                    entry.updatedCurrentDueLabel ?? entry.outstandingLabel
+                  ),
+                ],
+              )
+            else
+              _MetricWrap(
+                items: [
+                  ('Current Due', entry.outstandingLabel),
+                  (
+                    'Commitment Amount',
+                    (entry.expectedAmountLabel ?? '').trim().isEmpty
+                        ? '—'
+                        : entry.expectedAmountLabel!
+                  ),
+                  (
+                    'Commitment Date',
+                    _formatDate(entry.nextFollowUpDate),
+                  ),
+                  ('Status', entry.commitmentStatusLabel ?? '—'),
+                ],
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MetricWrap extends StatelessWidget {
+  const _MetricWrap({required this.items});
+
+  final List<(String, String)> items;
+
+  @override
+  Widget build(BuildContext context) {
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        for (final item in items)
+          ConstrainedBox(
+            constraints: const BoxConstraints(minWidth: 96, maxWidth: 160),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  item.$1,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                        color: AppColors.textMuted,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+                Text(
+                  item.$2,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ],
+            ),
+          ),
+      ],
     );
   }
 }
