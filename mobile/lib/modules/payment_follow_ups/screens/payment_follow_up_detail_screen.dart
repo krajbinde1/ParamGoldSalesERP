@@ -411,27 +411,25 @@ class _PaymentFollowUpDetailScreenState
                 ),
               ],
             ),
-            const SizedBox(height: 8),
-            Text(
-              'Current Due',
-              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                    color: AppColors.textSecondary,
-                    fontWeight: FontWeight.w700,
-                  ),
+            const SizedBox(height: 12),
+            _CycleSummaryTable(
+              rows: [
+                (
+                  'Current Due',
+                  cycle.currentDueLabel ?? cycle.openingOutstandingLabel,
+                  true,
+                ),
+                ('Follow-ups', '${cycle.followUpCount}', false),
+                ('Commitments', '${cycle.commitmentCount}', false),
+                ('Missed', '${cycle.missedCount}', false),
+              ],
             ),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              alignment: Alignment.centerLeft,
-              child: Text(
-                cycle.currentDueLabel ?? cycle.openingOutstandingLabel,
-                maxLines: 1,
-                style: Theme.of(context).textTheme.titleLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                    ),
-              ),
-            ),
-            const SizedBox(height: AppSpacing.sm),
-            ...cycle.entries.map(_entryCard),
+            if (cycle.entries.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.md),
+              const Divider(height: 1, color: AppColors.border),
+              const SizedBox(height: AppSpacing.md),
+              ...cycle.entries.map(_entryCard),
+            ],
             if (cycle.isClosed)
               Text(
                 'Closing Outstanding: ${cycle.closingOutstandingLabel ?? '—'}',
@@ -543,6 +541,60 @@ class _PaymentFollowUpDetailScreenState
           ],
         ),
       ),
+    );
+  }
+}
+
+class _CycleSummaryTable extends StatelessWidget {
+  const _CycleSummaryTable({required this.rows});
+
+  final List<(String, String, bool)> rows;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        for (var index = 0; index < rows.length; index++) ...[
+          if (index > 0) const SizedBox(height: 8),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              SizedBox(
+                width: 110,
+                child: Text(
+                  rows[index].$1,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: AppColors.textSecondary,
+                        fontWeight: FontWeight.w700,
+                      ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Align(
+                  alignment: Alignment.centerRight,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerRight,
+                    child: Text(
+                      rows[index].$2,
+                      maxLines: 1,
+                      style: (rows[index].$3
+                              ? Theme.of(context).textTheme.titleMedium
+                              : Theme.of(context).textTheme.bodyLarge)
+                          ?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 }
