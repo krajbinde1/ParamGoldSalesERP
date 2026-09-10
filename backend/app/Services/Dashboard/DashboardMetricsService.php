@@ -80,8 +80,8 @@ class DashboardMetricsService
                 'end' => $today->copy()->endOfDay(),
                 'label' => 'Today',
             ],
-            'week' => $this->monthBoundWeeklyRange(thisWeek: true),
-            'last_week' => $this->monthBoundWeeklyRange(thisWeek: false),
+            'week' => $this->monthBoundWeeklyRange(),
+            'last_week' => $this->previousCalendarWeekRange(),
             'last_month' => [
                 'start' => $today->copy()->subMonthNoOverflow()->startOfMonth(),
                 'end' => $today->copy()->subMonthNoOverflow()->endOfMonth(),
@@ -815,31 +815,35 @@ class DashboardMetricsService
 
     /**
      * This Week: later of (week Monday, start of current month) through today.
-     * Last Week: later of (previous Monday, start of the month that contains that Sunday)
-     * through that Sunday. Never includes dates from another month.
+     * Never includes dates from another month.
      *
      * @return array{start: Carbon, end: Carbon, label: string}
      */
-    private function monthBoundWeeklyRange(bool $thisWeek): array
+    private function monthBoundWeeklyRange(): array
     {
         $today = Carbon::now(self::BUSINESS_TIMEZONE)->startOfDay();
-
-        if ($thisWeek) {
-            $clipped = $this->monthClippedWeekContaining($today);
-
-            return [
-                'start' => $clipped['start'],
-                'end' => $today->copy()->endOfDay(),
-                'label' => 'This Week',
-            ];
-        }
-
-        $lastSunday = $today->copy()->subWeek()->startOfWeek(Carbon::MONDAY)->endOfWeek(Carbon::SUNDAY);
-        $clipped = $this->monthClippedWeekContaining($lastSunday);
+        $clipped = $this->monthClippedWeekContaining($today);
 
         return [
             'start' => $clipped['start'],
-            'end' => $lastSunday,
+            'end' => $today->copy()->endOfDay(),
+            'label' => 'This Week',
+        ];
+    }
+
+    /**
+     * Previous calendar week: Monday through Sunday before the current week.
+     *
+     * @return array{start: Carbon, end: Carbon, label: string}
+     */
+    private function previousCalendarWeekRange(): array
+    {
+        $today = Carbon::now(self::BUSINESS_TIMEZONE)->startOfDay();
+        $start = $today->copy()->subWeek()->startOfWeek(Carbon::MONDAY)->startOfDay();
+
+        return [
+            'start' => $start,
+            'end' => $start->copy()->endOfWeek(Carbon::SUNDAY)->endOfDay(),
             'label' => 'Last Week',
         ];
     }

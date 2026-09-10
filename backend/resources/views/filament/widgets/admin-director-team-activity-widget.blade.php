@@ -11,7 +11,7 @@
             <div class="pg-team__strip">
                 @foreach ($metrics as $metric)
                     <a href="{{ $metric['url'] }}" class="pg-team__cell" aria-label="{{ $metric['label'] }}: {{ $metric['value'] }}">
-                        <div>
+                        <div class="pg-team__body">
                             <p class="pg-team__label">{{ $metric['label'] }}</p>
                             <p class="pg-team__value">{{ $metric['value'] }}</p>
                         </div>

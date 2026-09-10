@@ -88,6 +88,15 @@ it('resolves last week as the previous monday through sunday', function (): void
         ->and(app(DashboardMetricsService::class)->periodHeading('today'))->toBe('Today Performance');
 });
 
+it('resolves last week as a full calendar week even when it crosses a month', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-08-04 12:00:00', 'Asia/Kolkata'));
+
+    $range = app(DashboardMetricsService::class)->resolveDateRange('last_week');
+
+    expect($range['start']->toDateString())->toBe('2026-07-27')
+        ->and($range['end']->toDateString())->toBe('2026-08-02');
+});
+
 it('resolves last month as the previous calendar month', function (): void {
     $range = app(DashboardMetricsService::class)->resolveDateRange('last_month');
 

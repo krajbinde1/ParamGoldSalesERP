@@ -346,21 +346,10 @@
 
     .paramgold-summary-grid {
         display: grid;
-        grid-template-columns: minmax(0, 1fr);
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 13.75rem), 1fr));
         gap: 0.875rem;
         width: 100%;
-    }
-
-    @media (min-width: 640px) {
-        .paramgold-summary-grid {
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-        }
-    }
-
-    @media (min-width: 1024px) {
-        .paramgold-summary-grid {
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        }
+        align-items: stretch;
     }
 
     .paramgold-summary-card {
@@ -368,6 +357,8 @@
         min-height: 6.5rem;
         height: 100%;
         width: 100%;
+        min-width: 0;
+        overflow: hidden;
         flex-direction: column;
         justify-content: space-between;
         border: 1px solid rgb(226 232 240);
@@ -407,6 +398,10 @@
         font-size: 0.75rem;
         font-weight: 600;
         color: rgb(100 116 139);
+        line-height: 1.35;
+        overflow-wrap: break-word;
+        word-break: break-word;
+        white-space: normal;
     }
 
     .paramgold-summary-card__value {
@@ -415,7 +410,11 @@
         font-weight: 800;
         color: rgb(15 23 42);
         line-height: 1.2;
-        word-break: break-word;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        word-break: normal;
+        overflow-wrap: normal;
     }
 
     .paramgold-summary-card__meta {
@@ -527,12 +526,11 @@
         width: 100%;
         max-width: 100%;
         gap: 0.875rem;
+        align-items: stretch;
     }
 
-    @media (min-width: 640px) {
-        .paramgold-admin-shell .fi-wi-stats-overview .fi-grid {
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-        }
+    .paramgold-admin-shell .fi-wi-stats-overview .fi-grid {
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 13.75rem), 1fr));
     }
 
     .paramgold-admin-shell .fi-wi-paramgold-summary .fi-section,
@@ -547,6 +545,8 @@
         display: flex;
         min-height: 6.5rem;
         height: 100%;
+        min-width: 0;
+        overflow: hidden;
         flex-direction: column;
         justify-content: space-between;
         border: 1px solid rgb(226 232 240);
@@ -565,6 +565,9 @@
         font-size: 0.75rem;
         font-weight: 600;
         color: rgb(100 116 139);
+        line-height: 1.35;
+        overflow-wrap: break-word;
+        word-break: break-word;
     }
 
     .paramgold-admin-shell .fi-wi-stats-overview-stat-value {
@@ -573,7 +576,11 @@
         font-weight: 800;
         line-height: 1.2;
         color: rgb(15 23 42);
-        word-break: break-word;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        word-break: normal;
+        overflow-wrap: normal;
     }
 
     .paramgold-admin-shell .fi-wi-stats-overview-stat-description {

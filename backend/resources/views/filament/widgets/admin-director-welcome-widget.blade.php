@@ -26,7 +26,7 @@
                     <div class="pg-icon pg-icon--{{ $kpi['tone'] }}" aria-hidden="true">
                         <x-filament::icon :icon="$kpi['icon']" />
                     </div>
-                    <div>
+                    <div class="pg-kpi__body">
                         <p class="pg-kpi__label">{{ $kpi['label'] }}</p>
                         <p class="pg-kpi__value">{{ $kpi['value'] }}</p>
                         @if (filled($kpi['hint'] ?? null))

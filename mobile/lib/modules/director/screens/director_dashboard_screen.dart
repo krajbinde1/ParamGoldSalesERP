@@ -22,6 +22,9 @@ String _compactInr(double amount) {
   if (abs >= 100000) {
     return '$sign₹${(abs / 100000).toStringAsFixed(2)} L';
   }
+  if (abs >= 1000) {
+    return '$sign₹${(abs / 1000).toStringAsFixed(2)} K';
+  }
   return _inr.format(amount);
 }
 
@@ -533,7 +536,7 @@ class _OverviewGrid extends StatelessWidget {
       if (canViewInventory)
         _DashTile(
           label: 'Inventory Stock',
-          value: _inr.format(data.totalStockValue),
+          value: _compactInr(data.totalStockValue),
           icon: Icons.inventory_2_outlined,
           onTap: () => onOpen('/production/inventory'),
         ),
@@ -761,10 +764,22 @@ class _TotalSalesSectionState extends State<_TotalSalesSection> {
 
   String _heading(String period) => switch (period) {
         'today' => 'Today Total Sales',
+        'last_week' => 'Last Week Total Sales',
         'week' => 'This Week Total Sales',
+        'last_month' => 'Last Month Total Sales',
         'year' => 'This Year Total Sales',
         'custom' => 'Custom Total Sales',
         _ => 'This Month Total Sales',
+      };
+
+  String _subtitle(String period) => switch (period) {
+        'today' => 'Today',
+        'last_week' => 'Last Week',
+        'week' => 'This Week',
+        'last_month' => 'Last Month',
+        'year' => 'This Year',
+        'custom' => 'Custom range',
+        _ => 'This Month',
       };
 
   @override
@@ -815,54 +830,12 @@ class _TotalSalesSectionState extends State<_TotalSalesSection> {
               ),
             ],
             const SizedBox(height: 10),
-            PgCard(
+            _HighlightMetricCard(
+              label: 'Total Sales',
+              value: _compactInr(data.totalSales),
+              subtitle: _subtitle(_period),
+              icon: Icons.payments_outlined,
               onTap: () => widget.onOpen(drillPath),
-              padding: const EdgeInsets.fromLTRB(14, 13, 14, 13),
-              child: Row(
-                children: [
-                  const _DashIconWell(
-                    icon: Icons.payments_outlined,
-                    color: AppColors.primary,
-                  ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Total Sales',
-                          style:
-                              Theme.of(context).textTheme.labelSmall?.copyWith(
-                                    color: AppColors.textSecondary,
-                                    fontWeight: FontWeight.w600,
-                                  ),
-                        ),
-                        const SizedBox(height: 4),
-                        FittedBox(
-                          fit: BoxFit.scaleDown,
-                          alignment: Alignment.centerLeft,
-                          child: Text(
-                            _compactInr(data.totalSales),
-                            maxLines: 1,
-                            style: Theme.of(context)
-                                .textTheme
-                                .headlineSmall
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w800,
-                                  letterSpacing: -0.6,
-                                  height: 1.1,
-                                ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Icon(
-                    Icons.chevron_right_rounded,
-                    color: AppColors.textMuted.withValues(alpha: 0.85),
-                  ),
-                ],
-              ),
             ),
           ],
         );
@@ -884,7 +857,9 @@ class _TotalSalesPeriodFilters extends StatelessWidget {
 
   static const _options = <(String label, String value)>[
     ('Today', 'today'),
+    ('Last Week', 'last_week'),
     ('This Week', 'week'),
+    ('Last Month', 'last_month'),
     ('This Month', 'month'),
     ('This Year', 'year'),
     ('Custom', 'custom'),
@@ -892,22 +867,27 @@ class _TotalSalesPeriodFilters extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: Row(
-        children: [
-          for (final option in _options)
-            Padding(
-              padding: const EdgeInsets.only(right: 8),
-              child: _PeriodChip(
-                label: option.$1,
-                selected: period == option.$2,
-                onTap: option.$2 == 'custom'
-                    ? onCustom
-                    : () => onSelect(option.$2),
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        clipBehavior: Clip.hardEdge,
+        physics: const BouncingScrollPhysics(),
+        child: Row(
+          children: [
+            for (final option in _options)
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: _PeriodChip(
+                  label: option.$1,
+                  selected: period == option.$2,
+                  onTap: option.$2 == 'custom'
+                      ? onCustom
+                      : () => onSelect(option.$2),
+                ),
               ),
-            ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -1286,6 +1266,33 @@ class _TotalOutstandingCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return _HighlightMetricCard(
+      label: 'Total Outstanding',
+      value: _compactInr(data.totalOutstanding),
+      subtitle: 'Receivable position',
+      icon: Icons.account_balance_outlined,
+      onTap: () => onOpen('/director/outstanding-dealers'),
+    );
+  }
+}
+
+class _HighlightMetricCard extends StatelessWidget {
+  const _HighlightMetricCard({
+    required this.label,
+    required this.value,
+    required this.subtitle,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final String subtitle;
+  final IconData icon;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
     final theme = Theme.of(context);
     return Container(
       decoration: BoxDecoration(
@@ -1303,7 +1310,7 @@ class _TotalOutstandingCard extends StatelessWidget {
       child: Material(
         color: Colors.transparent,
         child: InkWell(
-          onTap: () => onOpen('/director/outstanding-dealers'),
+          onTap: onTap,
           child: Stack(
             children: [
               Positioned(
@@ -1329,8 +1336,8 @@ class _TotalOutstandingCard extends StatelessWidget {
                         color: Colors.white.withValues(alpha: 0.16),
                         borderRadius: BorderRadius.circular(12),
                       ),
-                      child: const Icon(
-                        Icons.account_balance_outlined,
+                      child: Icon(
+                        icon,
                         color: Colors.white,
                         size: 22,
                       ),
@@ -1341,7 +1348,7 @@ class _TotalOutstandingCard extends StatelessWidget {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'Total Outstanding',
+                            label,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.labelMedium?.copyWith(
@@ -1355,7 +1362,7 @@ class _TotalOutstandingCard extends StatelessWidget {
                             fit: BoxFit.scaleDown,
                             alignment: Alignment.centerLeft,
                             child: Text(
-                              _compactInr(data.totalOutstanding),
+                              value,
                               maxLines: 1,
                               style: theme.textTheme.headlineSmall?.copyWith(
                                 fontWeight: FontWeight.w800,
@@ -1367,7 +1374,7 @@ class _TotalOutstandingCard extends StatelessWidget {
                           ),
                           const SizedBox(height: 3),
                           Text(
-                            'Receivable position',
+                            subtitle,
                             maxLines: 1,
                             overflow: TextOverflow.ellipsis,
                             style: theme.textTheme.labelSmall?.copyWith(
@@ -1875,6 +1882,8 @@ class _PeriodChip extends StatelessWidget {
       label: Text(label),
       selected: selected,
       onSelected: (_) => onTap(),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
       selectedColor: AppColors.primary.withValues(alpha: 0.18),
       labelStyle: TextStyle(
         fontWeight: FontWeight.w700,

@@ -1376,6 +1376,7 @@ it('reports director total sales from dealer ledger debit entries for the select
     directorDashLedgerDebit($dealer, $today, 180000);
     directorDashLedgerDebit($dealer, $today, 0, 20000, 'RCP-TODAY');
     directorDashLedgerDebit($dealer, AttendanceCalendar::today()->copy()->subDays(2)->toDateString(), 40000);
+    directorDashLedgerDebit($dealer, '2026-08-12', 33000, 0, 'LAST-WEEK');
     directorDashLedgerDebit($dealer, '2026-03-31', 90000, 0, 'PRE-FY');
 
     $this->actingAs($director, 'sanctum');
@@ -1387,11 +1388,22 @@ it('reports director total sales from dealer ledger debit entries for the select
         ->and($todayResponse->json('company_summary.start_date'))->toBe($today)
         ->and($todayResponse->json('company_summary.end_date'))->toBe($today);
 
+    $lastWeek = $this->getJson('/api/director/dashboard?period=last_week')->assertOk();
+    expect((float) $lastWeek->json('company_summary.total_sales'))->toBe(33000.0)
+        ->and($lastWeek->json('company_summary.start_date'))->toBe('2026-08-10')
+        ->and($lastWeek->json('company_summary.end_date'))->toBe('2026-08-16');
+
+    directorDashLedgerDebit($dealer, '2026-07-15', 55000, 0, 'JUL-SALE');
+    $lastMonth = $this->getJson('/api/director/dashboard?period=last_month')->assertOk();
+    expect((float) $lastMonth->json('company_summary.total_sales'))->toBe(55000.0)
+        ->and($lastMonth->json('company_summary.start_date'))->toBe('2026-07-01')
+        ->and($lastMonth->json('company_summary.end_date'))->toBe('2026-07-31');
+
     $custom = $this->getJson(
         '/api/director/dashboard?period=custom&start_date=2026-03-01&end_date='.$today,
     )->assertOk();
 
-    expect((float) $custom->json('company_summary.total_sales'))->toBe(220000.0);
+    expect((float) $custom->json('company_summary.total_sales'))->toBe(308000.0);
 });
 
 it('includes live inventory stock valuation on the director dashboard', function (): void {
