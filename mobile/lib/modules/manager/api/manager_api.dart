@@ -25,6 +25,7 @@ class ManagerDashboardData {
     required this.pendingOrderApprovals,
     required this.pendingTaDaApprovals,
     required this.employeePerformance,
+    this.paymentFollowUpActionRequired = 0,
   });
 
   final String period;
@@ -49,6 +50,7 @@ class ManagerDashboardData {
   final List<Map<String, dynamic>> pendingOrderApprovals;
   final List<Map<String, dynamic>> pendingTaDaApprovals;
   final List<Map<String, dynamic>> employeePerformance;
+  final int paymentFollowUpActionRequired;
 
   factory ManagerDashboardData.fromJson(Map<String, dynamic> json) {
     final targets = json['targets'] as Map? ?? {};
@@ -109,8 +111,22 @@ class ManagerDashboardData {
               ?.map((item) => Map<String, dynamic>.from(item as Map))
               .toList() ??
           const [],
+      paymentFollowUpActionRequired: _managerPaymentFollowUpActionRequired(json),
     );
   }
+}
+
+int _managerPaymentFollowUpActionRequired(Map json) {
+  final raw = json['payment_follow_up'];
+  if (raw is! Map) return 0;
+  final followUp = Map<String, dynamic>.from(raw);
+  final actionRequired = int.tryParse('${followUp['action_required'] ?? ''}');
+  if (actionRequired != null && actionRequired >= 0) return actionRequired;
+  final attention = int.tryParse('${followUp['attention'] ?? ''}');
+  if (attention != null && attention >= 0) return attention;
+  final overdue = int.tryParse('${followUp['overdue'] ?? 0}') ?? 0;
+  final dueToday = int.tryParse('${followUp['due_today'] ?? 0}') ?? 0;
+  return overdue + dueToday;
 }
 
 class ManagerOrderListResult {

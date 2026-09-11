@@ -88,6 +88,22 @@ final class PaymentFollowUpService
     }
 
     /**
+     * Manager read-only history for dealers assigned to direct reports.
+     *
+     * @return array<string, mixed>
+     */
+    public function showForManager(User $user, int $dealerId): array
+    {
+        $dealer = Dealer::query()->findOrFail($dealerId);
+
+        if (! $this->dealerAccess->canAccessDealer($user, $dealer)) {
+            abort(403, 'You can only view payment follow-up of dealers assigned to your team.');
+        }
+
+        return $this->showForDirector($dealerId);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function showForEmployee(User $user, int $dealerId): array
@@ -98,17 +114,26 @@ final class PaymentFollowUpService
     }
 
     /**
-     * Director recovery monitoring. Does not change employee follow-up workflow.
+     * Read-only recovery monitoring. Optionally limited to assigned employees.
      *
+     * @param  list<int>|null  $assignedEmployeeIds
      * @return array<string, mixed>
      */
-    public function directorMonitoringDashboard(?int $employeeId = null): array
+    public function directorMonitoringDashboard(?int $employeeId = null, ?array $assignedEmployeeIds = null): array
     {
         $query = $this->adminDealersQuery()
             ->with([
                 'paymentFollowUpCycles' => fn ($cycles) => $cycles->orderBy('cycle_number'),
                 'paymentFollowUpCycles.entries.collection:id,collection_date,amount,status',
             ]);
+
+        if ($assignedEmployeeIds !== null) {
+            if ($assignedEmployeeIds === []) {
+                $query->whereRaw('1 = 0');
+            } else {
+                $query->whereIn('assigned_employee_id', $assignedEmployeeIds);
+            }
+        }
 
         if ($employeeId !== null) {
             $query->where('assigned_employee_id', $employeeId);

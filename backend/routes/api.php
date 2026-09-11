@@ -44,6 +44,7 @@ use App\Http\Controllers\Api\Manager\ManagerDealerApplicationController;
 use App\Http\Controllers\Api\Manager\ManagerEmployeePerformanceController;
 use App\Http\Controllers\Api\Manager\ManagerFieldActivityController;
 use App\Http\Controllers\Api\Manager\ManagerOrderController;
+use App\Http\Controllers\Api\Manager\ManagerPaymentFollowUpController;
 use App\Http\Controllers\Api\Manager\ManagerRouteTrackingController;
 use App\Http\Controllers\Api\Manager\ManagerTaDaClaimController;
 use App\Http\Controllers\Api\Manager\ManagerTeamActivityController;
@@ -200,6 +201,8 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::get('ta-da-claims/{taDaClaim}', [ManagerTaDaClaimController::class, 'show']);
         Route::post('ta-da-claims/{taDaClaim}/approve', [ManagerTaDaClaimController::class, 'approve']);
         Route::post('ta-da-claims/{taDaClaim}/reject', [ManagerTaDaClaimController::class, 'reject']);
+        Route::get('payment-follow-ups', [ManagerPaymentFollowUpController::class, 'index']);
+        Route::get('payment-follow-ups/{dealer}', [ManagerPaymentFollowUpController::class, 'show']);
     });
 
     Route::middleware('role:production_supervisor,director')->prefix('production')->group(function () {

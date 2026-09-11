@@ -622,6 +622,24 @@ GoRouter createRouter(
       ],
     ),
     GoRoute(
+      path: '/manager/payment-follow-ups',
+      builder: (_, _) => DirectorPaymentFollowUpStatusScreen(
+        auth: auth,
+        apiPrefix: '/manager/payment-follow-ups',
+        routePrefix: '/manager/payment-follow-ups',
+      ),
+      routes: [
+        GoRoute(
+          path: ':dealerId',
+          builder: (_, state) => DirectorPaymentFollowUpHistoryScreen(
+            auth: auth,
+            dealerId: int.parse(state.pathParameters['dealerId']!),
+            apiPrefix: '/manager/payment-follow-ups',
+          ),
+        ),
+      ],
+    ),
+    GoRoute(
       path: '/production/orders/by-status/:status',
       builder: (_, state) => ProductionStatusOrdersScreen(
         auth: auth,

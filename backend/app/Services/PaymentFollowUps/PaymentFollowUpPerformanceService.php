@@ -132,13 +132,34 @@ final class PaymentFollowUpPerformanceService
     }
 
     /**
+     * @param  list<int>|null  $assignedEmployeeIds
      * @return array<string, int>
      */
-    public function dashboardCounts(?int $employeeId = null, ?int $dealerId = null): array
-    {
+    public function dashboardCounts(
+        ?int $employeeId = null,
+        ?int $dealerId = null,
+        ?array $assignedEmployeeIds = null,
+    ): array {
+        if ($assignedEmployeeIds !== null && $assignedEmployeeIds === []) {
+            return [
+                PaymentFollowUpStatus::OVERDUE => 0,
+                PaymentFollowUpStatus::DUE_TODAY => 0,
+                PaymentFollowUpStatus::UPCOMING => 0,
+                PaymentFollowUpStatus::NO_FOLLOW_UP => 0,
+                PaymentFollowUpStatus::CLOSED => 0,
+                'attention' => 0,
+                'action_required' => 0,
+                'requires_follow_up' => 0,
+            ];
+        }
+
         $query = $this->followUps->adminDealersQuery()
             ->when($employeeId, fn (Builder $builder) => $builder->where('assigned_employee_id', $employeeId))
-            ->when($dealerId, fn (Builder $builder) => $builder->whereKey($dealerId));
+            ->when($dealerId, fn (Builder $builder) => $builder->whereKey($dealerId))
+            ->when(
+                $assignedEmployeeIds !== null,
+                fn (Builder $builder) => $builder->whereIn('assigned_employee_id', $assignedEmployeeIds),
+            );
 
         $rows = $query->get()->map(fn (Dealer $dealer): array => $this->followUps->listRow($dealer))->all();
         $counts = $this->followUps->countByStatus($rows);
@@ -146,9 +167,27 @@ final class PaymentFollowUpPerformanceService
         $dueToday = (int) ($counts[PaymentFollowUpStatus::DUE_TODAY] ?? 0);
         $noFollowUp = (int) ($counts[PaymentFollowUpStatus::NO_FOLLOW_UP] ?? 0);
 
+        $actionRequiredIds = [];
+        foreach ($rows as $row) {
+            $status = (string) ($row['status'] ?? '');
+            if (
+                $status !== PaymentFollowUpStatus::OVERDUE
+                && $status !== PaymentFollowUpStatus::DUE_TODAY
+            ) {
+                continue;
+            }
+
+            $rowDealerId = (int) ($row['dealer_id'] ?? 0);
+            if ($rowDealerId > 0) {
+                $actionRequiredIds[$rowDealerId] = true;
+            }
+        }
+        $actionRequired = count($actionRequiredIds);
+
         return [
             ...$counts,
-            'attention' => $overdue + $dueToday,
+            'attention' => $actionRequired,
+            'action_required' => $actionRequired,
             'requires_follow_up' => $overdue + $dueToday + $noFollowUp,
         ];
     }

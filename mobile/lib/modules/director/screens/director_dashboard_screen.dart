@@ -46,7 +46,7 @@ String _directorGreeting() {
 }
 
 const _dashSectionGap = 16.0;
-const _dashTileExtent = 114.0;
+const _dashTileExtent = 132.0;
 const _activityTileExtent = 136.0;
 const _dashIconSize = 36.0;
 const _dashGlyphSize = 18.0;
@@ -542,9 +542,10 @@ class _OverviewGrid extends StatelessWidget {
         ),
       _DashTile(
         label: 'Payment Follow-up',
-        value: '${data.paymentFollowUpOverdue}',
+        value: '${data.paymentFollowUpActionRequired}',
+        subtitle: 'Action Required',
         icon: Icons.support_agent_outlined,
-        alert: data.paymentFollowUpOverdue > 0,
+        alert: data.paymentFollowUpActionRequired > 0,
         onTap: () => onOpen('/director/payment-follow-ups'),
       ),
     ];

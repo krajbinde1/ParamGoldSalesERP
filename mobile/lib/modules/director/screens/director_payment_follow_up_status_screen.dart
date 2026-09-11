@@ -1,3 +1,4 @@
+import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -14,7 +15,6 @@ import '../../../core/widgets/design/pg_status_badge.dart';
 import '../../../core/widgets/role_shell_widgets.dart';
 import '../../auth/providers/auth_controller.dart';
 import '../../payment_follow_ups/models/payment_follow_up.dart';
-import '../api/director_api.dart';
 
 final _inr = NumberFormat.currency(
   locale: 'en_IN',
@@ -68,9 +68,16 @@ PgStatusTone _statusTone(String status) => switch (status) {
     };
 
 class DirectorPaymentFollowUpStatusScreen extends StatefulWidget {
-  const DirectorPaymentFollowUpStatusScreen({super.key, required this.auth});
+  const DirectorPaymentFollowUpStatusScreen({
+    super.key,
+    required this.auth,
+    this.apiPrefix = '/director/payment-follow-ups',
+    this.routePrefix = '/director/payment-follow-ups',
+  });
 
   final AuthController auth;
+  final String apiPrefix;
+  final String routePrefix;
 
   @override
   State<DirectorPaymentFollowUpStatusScreen> createState() =>
@@ -82,18 +89,29 @@ class _DirectorPaymentFollowUpStatusScreenState
   late Future<Map<String, dynamic>> _future;
   int? _employeeId;
 
-  DirectorApi get _api => DirectorApi(
-    ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
-  );
-
   @override
   void initState() {
     super.initState();
     _future = _load();
   }
 
-  Future<Map<String, dynamic>> _load() =>
-      _api.listPaymentFollowUps(employeeId: _employeeId);
+  Future<Map<String, dynamic>> _load() async {
+    try {
+      final dio = ApiClient(
+        SessionStore(),
+        onUnauthorized: widget.auth.sessionExpired,
+      ).dio;
+      final response = await dio.get(
+        widget.apiPrefix,
+        queryParameters: {
+          if (_employeeId != null && _employeeId! > 0) 'employee_id': _employeeId,
+        },
+      );
+      return Map<String, dynamic>.from(response.data as Map);
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
 
   Future<void> _reload() async {
     setState(() => _future = _load());
@@ -110,7 +128,7 @@ class _DirectorPaymentFollowUpStatusScreenState
   Future<void> _openDealer(Map<String, dynamic> dealer) async {
     final dealerId = int.tryParse('${dealer['dealer_id'] ?? 0}') ?? 0;
     if (dealerId <= 0) return;
-    await context.push('/director/payment-follow-ups/$dealerId');
+    await context.push('${widget.routePrefix}/$dealerId');
     if (!mounted) return;
     await _reload();
   }
@@ -856,10 +874,12 @@ class DirectorPaymentFollowUpHistoryScreen extends StatefulWidget {
     super.key,
     required this.auth,
     required this.dealerId,
+    this.apiPrefix = '/director/payment-follow-ups',
   });
 
   final AuthController auth;
   final int dealerId;
+  final String apiPrefix;
 
   @override
   State<DirectorPaymentFollowUpHistoryScreen> createState() =>
@@ -870,10 +890,6 @@ class _DirectorPaymentFollowUpHistoryScreenState
     extends State<DirectorPaymentFollowUpHistoryScreen> {
   late Future<PaymentFollowUpDetail> _future;
 
-  DirectorApi get _api => DirectorApi(
-    ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
-  );
-
   @override
   void initState() {
     super.initState();
@@ -881,8 +897,18 @@ class _DirectorPaymentFollowUpHistoryScreenState
   }
 
   Future<PaymentFollowUpDetail> _load() async {
-    final json = await _api.getPaymentFollowUp(widget.dealerId);
-    return PaymentFollowUpDetail.fromJson(json);
+    try {
+      final dio = ApiClient(
+        SessionStore(),
+        onUnauthorized: widget.auth.sessionExpired,
+      ).dio;
+      final response = await dio.get('${widget.apiPrefix}/${widget.dealerId}');
+      return PaymentFollowUpDetail.fromJson(
+        Map<String, dynamic>.from(response.data as Map),
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
   }
 
   Future<void> _reload() async {

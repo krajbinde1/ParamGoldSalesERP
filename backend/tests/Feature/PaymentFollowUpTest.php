@@ -320,8 +320,61 @@ it('classifies overdue dealers with multiple missed commitments as high risk for
         ->assertOk();
 
     expect((int) $dashboard->json('company_summary.payment_follow_up.overdue'))->toBe(1)
+        ->and((int) $dashboard->json('company_summary.payment_follow_up.due_today'))->toBe(0)
         ->and((int) $dashboard->json('company_summary.payment_follow_up.attention'))->toBe(1)
+        ->and((int) $dashboard->json('company_summary.payment_follow_up.action_required'))->toBe(1)
         ->and((int) $dashboard->json('company_summary.payment_follow_up.requires_follow_up'))->toBeGreaterThanOrEqual(1);
+});
+
+it('counts director dashboard action required as unique overdue plus due-today dealers only', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-08 10:00:00', 'Asia/Kolkata'));
+
+    $director = paymentFollowUpDirector();
+    $employee = paymentFollowUpEmployee('9811300021');
+    $overdueDealer = paymentFollowUpDealer($employee, 'Overdue Action Dealer');
+    $dueTodayDealer = paymentFollowUpDealer($employee, 'Due Today Action Dealer');
+    $upcomingDealer = paymentFollowUpDealer($employee, 'Upcoming Action Dealer');
+    paymentFollowUpDealer($employee, 'No Follow-up Action Dealer');
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$overdueDealer->id, [
+            'remark' => 'Missed commitment',
+            'expected_amount' => 20000,
+            'next_follow_up_date' => '2026-09-08',
+        ])
+        ->assertCreated();
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dueTodayDealer->id, [
+            'remark' => 'Due today',
+            'expected_amount' => 15000,
+            'next_follow_up_date' => '2026-09-10',
+        ])
+        ->assertCreated();
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$upcomingDealer->id, [
+            'remark' => 'Later this week',
+            'expected_amount' => 10000,
+            'next_follow_up_date' => '2026-09-18',
+        ])
+        ->assertCreated();
+
+    Carbon::setTestNow(Carbon::parse('2026-09-10 10:00:00', 'Asia/Kolkata'));
+
+    $dashboard = $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/dashboard')
+        ->assertOk();
+
+    $followUp = $dashboard->json('company_summary.payment_follow_up');
+
+    expect((int) $followUp['overdue'])->toBe(1)
+        ->and((int) $followUp['due_today'])->toBe(1)
+        ->and((int) $followUp['upcoming'])->toBe(1)
+        ->and((int) $followUp['no_follow_up'])->toBeGreaterThanOrEqual(1)
+        ->and((int) $followUp['action_required'])->toBe(2)
+        ->and((int) $followUp['attention'])->toBe(2)
+        ->and((int) $followUp['requires_follow_up'])->toBeGreaterThan(2);
 });
 
 it('does not list an unassigned dealer and does not change outstanding when adding a follow-up', function (): void {
@@ -610,6 +663,7 @@ it('lets the director list assigned dealers after selecting an employee and view
         ->assertOk();
 
     expect((int) $dashboard->json('company_summary.payment_follow_up.no_follow_up'))->toBeGreaterThanOrEqual(1)
+        ->and((int) $dashboard->json('company_summary.payment_follow_up.action_required'))->toBe(0)
         ->and((int) $dashboard->json('company_summary.payment_follow_up.requires_follow_up'))->toBeGreaterThanOrEqual(1);
 
     $this->actingAs($employee->user, 'sanctum')
@@ -623,4 +677,192 @@ it('lets the director list assigned dealers after selecting an employee and view
         ]);
 
     expect($blocked->status())->toBeIn([404, 405]);
+});
+
+function paymentFollowUpManager(string $mobile): Employee
+{
+    return app(CreateEmployeeWithUserAccount::class)->execute([
+        'full_name' => 'Follow-up Manager '.$mobile,
+        'mobile' => $mobile,
+        'email' => $mobile.'@example.com',
+        'department' => 'Sales',
+        'designation' => 'Manager',
+        'joining_date' => '2026-01-01',
+        'salary' => 45000,
+        'base_location' => 'Pune',
+        'daily_allowance' => 0,
+        'travel_allowance_type' => 'actual_expense',
+        'company_card_issued' => false,
+        'monthly_travel_expense_limit' => 500,
+        'aadhaar_number' => str_pad(substr($mobile, -12), 12, '5', STR_PAD_LEFT),
+        'pan_number' => 'MNGDE'.substr($mobile, -4).'F',
+        'bank_name' => 'Test Bank',
+        'account_number' => str_pad($mobile, 12, '7', STR_PAD_LEFT),
+        'ifsc_code' => 'TEST0123456',
+        'status' => true,
+        'role' => UserRole::Manager->value,
+    ])->employee;
+}
+
+it('scopes manager payment recovery and dashboard action required to direct-report dealers only', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-08 10:00:00', 'Asia/Kolkata'));
+
+    $manager = paymentFollowUpManager('9811300301');
+    $otherManager = paymentFollowUpManager('9811300302');
+    $report = paymentFollowUpEmployee('9811300303');
+    $foreignReport = paymentFollowUpEmployee('9811300304');
+    $report->update(['reporting_manager_id' => $manager->id]);
+    $foreignReport->update(['reporting_manager_id' => $otherManager->id]);
+
+    $overdueDealer = paymentFollowUpDealer($report, 'Manager Overdue Dealer');
+    $dueTodayDealer = paymentFollowUpDealer($report, 'Manager Due Today Dealer');
+    $upcomingDealer = paymentFollowUpDealer($report, 'Manager Upcoming Dealer');
+    $noFollowUpDealer = paymentFollowUpDealer($report, 'Manager No Follow-up Dealer');
+    $foreignOverdue = paymentFollowUpDealer($foreignReport, 'Other Manager Overdue Dealer');
+
+    $this->actingAs($report->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$overdueDealer->id, [
+            'remark' => 'Missed commitment',
+            'expected_amount' => 20000,
+            'next_follow_up_date' => '2026-09-08',
+        ])
+        ->assertCreated();
+
+    $this->actingAs($report->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dueTodayDealer->id, [
+            'remark' => 'Due today',
+            'expected_amount' => 15000,
+            'next_follow_up_date' => '2026-09-10',
+        ])
+        ->assertCreated();
+
+    $this->actingAs($report->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$upcomingDealer->id, [
+            'remark' => 'Later this week',
+            'expected_amount' => 10000,
+            'next_follow_up_date' => '2026-09-18',
+        ])
+        ->assertCreated();
+
+    $this->actingAs($foreignReport->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$foreignOverdue->id, [
+            'remark' => 'Other team missed',
+            'expected_amount' => 18000,
+            'next_follow_up_date' => '2026-09-08',
+        ])
+        ->assertCreated();
+
+    Carbon::setTestNow(Carbon::parse('2026-09-10 10:00:00', 'Asia/Kolkata'));
+
+    $dashboard = $this->actingAs($manager->user, 'sanctum')
+        ->getJson('/api/manager/dashboard')
+        ->assertOk();
+
+    $followUp = $dashboard->json('payment_follow_up');
+
+    expect((int) $followUp['overdue'])->toBe(1)
+        ->and((int) $followUp['due_today'])->toBe(1)
+        ->and((int) $followUp['upcoming'])->toBe(1)
+        ->and((int) $followUp['no_follow_up'])->toBeGreaterThanOrEqual(1)
+        ->and((int) $followUp['action_required'])->toBe(2)
+        ->and((int) $followUp['attention'])->toBe(2)
+        ->and((int) $followUp['requires_follow_up'])->toBeGreaterThan(2);
+
+    $otherDashboard = $this->actingAs($otherManager->user, 'sanctum')
+        ->getJson('/api/manager/dashboard')
+        ->assertOk();
+
+    expect((int) $otherDashboard->json('payment_follow_up.action_required'))->toBe(1)
+        ->and((int) $otherDashboard->json('payment_follow_up.overdue'))->toBe(1)
+        ->and((int) $otherDashboard->json('payment_follow_up.due_today'))->toBe(0);
+
+    $director = paymentFollowUpDirector();
+    $directorDashboard = $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/dashboard')
+        ->assertOk();
+
+    expect((int) $directorDashboard->json('company_summary.payment_follow_up.action_required'))->toBeGreaterThanOrEqual(3);
+
+    $list = $this->actingAs($manager->user, 'sanctum')
+        ->getJson('/api/manager/payment-follow-ups')
+        ->assertOk();
+
+    $names = collect($list->json('data'))->pluck('dealer_name')->all();
+    $employeeNames = collect($list->json('employees'))->pluck('employee_name')->all();
+
+    expect($names)->toContain('Manager Overdue Dealer')
+        ->and($names)->toContain('Manager Due Today Dealer')
+        ->and($names)->toContain('Manager Upcoming Dealer')
+        ->and($names)->not->toContain('Other Manager Overdue Dealer')
+        ->and($list->json('summary.overdue_dealers'))->toBe(1)
+        ->and($list->json('summary.commitments_due_today'))->toBe(1)
+        ->and($employeeNames)->toContain($report->full_name)
+        ->and($employeeNames)->not->toContain($foreignReport->full_name)
+        ->and($employeeNames)->not->toContain($otherManager->full_name);
+
+    $filtered = $this->actingAs($manager->user, 'sanctum')
+        ->getJson('/api/manager/payment-follow-ups?employee_id='.$report->id)
+        ->assertOk();
+
+    expect(collect($filtered->json('data'))->pluck('dealer_name')->all())
+        ->toContain('Manager Overdue Dealer')
+        ->and(collect($filtered->json('data'))->pluck('dealer_name')->all())
+        ->not->toContain('Other Manager Overdue Dealer');
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->getJson('/api/manager/payment-follow-ups?employee_id='.$foreignReport->id)
+        ->assertForbidden();
+
+    $history = $this->actingAs($manager->user, 'sanctum')
+        ->getJson('/api/manager/payment-follow-ups/'.$overdueDealer->id)
+        ->assertOk();
+
+    expect($history->json('can_add_follow_up'))->toBeFalse()
+        ->and($history->json('follow_up_count'))->toBe(1)
+        ->and($history->json('cycles.0.entries.0.remark'))->toBe('Missed commitment');
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->getJson('/api/manager/payment-follow-ups/'.$foreignOverdue->id)
+        ->assertForbidden();
+
+    $blocked = $this->actingAs($manager->user, 'sanctum')
+        ->postJson('/api/manager/payment-follow-ups/'.$overdueDealer->id, [
+            'remark' => 'Manager must not save',
+            'next_follow_up_date' => '2026-09-20',
+        ]);
+
+    expect($blocked->status())->toBeIn([404, 405]);
+
+    $this->actingAs($report->user, 'sanctum')
+        ->getJson('/api/manager/payment-follow-ups')
+        ->assertForbidden();
+
+    $this->actingAs($report->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$noFollowUpDealer->id, [
+            'remark' => 'Employee workflow still works',
+            'expected_amount' => 8000,
+            'next_follow_up_date' => '2026-09-22',
+        ])
+        ->assertCreated();
+});
+
+it('returns zero manager payment follow-up action required when the manager has no reports', function (): void {
+    $manager = paymentFollowUpManager('9811300311');
+    $other = paymentFollowUpEmployee('9811300312');
+    paymentFollowUpDealer($other, 'Unrelated Overdue Dealer');
+
+    $dashboard = $this->actingAs($manager->user, 'sanctum')
+        ->getJson('/api/manager/dashboard')
+        ->assertOk();
+
+    expect((int) $dashboard->json('payment_follow_up.action_required'))->toBe(0)
+        ->and((int) $dashboard->json('payment_follow_up.overdue'))->toBe(0)
+        ->and((int) $dashboard->json('payment_follow_up.due_today'))->toBe(0);
+
+    $list = $this->actingAs($manager->user, 'sanctum')
+        ->getJson('/api/manager/payment-follow-ups')
+        ->assertOk();
+
+    expect($list->json('data'))->toBe([])
+        ->and($list->json('employees'))->toBe([]);
 });

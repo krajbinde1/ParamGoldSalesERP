@@ -137,6 +137,11 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                             _open('/manager/team-attendance'),
                         onSales: () => _open('/manager/targets'),
                       ),
+                      const SizedBox(height: AppSpacing.sm),
+                      _PaymentFollowUpCard(
+                        count: data.paymentFollowUpActionRequired,
+                        onTap: () => _open('/manager/payment-follow-ups'),
+                      ),
                       const SizedBox(height: AppSpacing.lg),
                       const PgSectionHeader(title: 'Quick Access'),
                       const SizedBox(height: AppSpacing.sm),
@@ -386,6 +391,121 @@ class _ManagerHeader extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+class _PaymentFollowUpCard extends StatelessWidget {
+  const _PaymentFollowUpCard({
+    required this.count,
+    required this.onTap,
+  });
+
+  final int count;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final alert = count > 0;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final tileWidth = (constraints.maxWidth - AppSpacing.sm) / 2;
+        return Align(
+          alignment: Alignment.centerLeft,
+          child: SizedBox(
+            width: tileWidth,
+            height: 132,
+            child: PgCard(
+              onTap: onTap,
+              padding: const EdgeInsets.fromLTRB(14, 13, 12, 12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.10),
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: const Icon(
+                          Icons.support_agent_outlined,
+                          size: 18,
+                          color: AppColors.primary,
+                        ),
+                      ),
+                      const Spacer(),
+                      Icon(
+                        Icons.chevron_right_rounded,
+                        size: 18,
+                        color: AppColors.textMuted.withValues(alpha: 0.85),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: ClipRect(
+                      child: Align(
+                        alignment: Alignment.bottomLeft,
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            FittedBox(
+                              fit: BoxFit.scaleDown,
+                              alignment: Alignment.centerLeft,
+                              child: Text(
+                                '$count',
+                                maxLines: 1,
+                                style: theme.textTheme.headlineSmall?.copyWith(
+                                  fontWeight: FontWeight.w800,
+                                  letterSpacing: -0.7,
+                                  height: 1.05,
+                                  fontSize: 24,
+                                  color: AppColors.textPrimary,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Payment Follow-up',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: AppColors.textSecondary,
+                                fontWeight: FontWeight.w600,
+                                fontSize: 12,
+                                height: 1.15,
+                              ),
+                            ),
+                            const SizedBox(height: 3),
+                            Text(
+                              'Action Required',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.labelSmall?.copyWith(
+                                color: alert
+                                    ? AppColors.warning
+                                    : AppColors.textMuted,
+                                fontWeight: FontWeight.w700,
+                                fontSize: 11,
+                                height: 1.1,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }

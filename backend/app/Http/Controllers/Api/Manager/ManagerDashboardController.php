@@ -10,6 +10,7 @@ use App\Models\Order;
 use App\Models\TaDaClaim;
 use App\Services\Dashboard\DashboardMetricsService;
 use App\Services\Orders\ManagerOrderAccessService;
+use App\Services\PaymentFollowUps\PaymentFollowUpPerformanceService;
 use App\Support\AttendanceCalendar;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -19,6 +20,7 @@ class ManagerDashboardController extends Controller
     public function __construct(
         private readonly DashboardMetricsService $metrics,
         private readonly ManagerOrderAccessService $orderAccess,
+        private readonly PaymentFollowUpPerformanceService $paymentFollowUps,
     ) {}
 
     public function __invoke(Request $request): JsonResponse
@@ -146,6 +148,9 @@ class ManagerDashboardController extends Controller
                         'total_amount' => (float) $claim->total_amount,
                         'status' => $claim->status,
                     ]),
+            'payment_follow_up' => $this->paymentFollowUps->dashboardCounts(
+                assignedEmployeeIds: $reportIds,
+            ),
         ]);
     }
 }

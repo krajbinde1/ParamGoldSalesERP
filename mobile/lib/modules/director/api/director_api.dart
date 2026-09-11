@@ -17,16 +17,15 @@ int _asInt(dynamic value, [int fallback = 0]) {
   return int.tryParse('${value ?? ''}') ?? fallback;
 }
 
-int _paymentFollowUpAttention(Map summary) {
+int _paymentFollowUpActionRequired(Map summary) {
   final raw = summary['payment_follow_up'];
   if (raw is! Map) return 0;
   final followUp = Map<String, dynamic>.from(raw);
-  final overdue = _asInt(followUp['overdue']);
-  final dueToday = _asInt(followUp['due_today']);
-  final noFollowUp = _asInt(followUp['no_follow_up']);
-  final requires = _asInt(followUp['requires_follow_up'], -1);
-  if (requires >= 0) return requires;
-  return overdue + dueToday + noFollowUp;
+  final actionRequired = _asInt(followUp['action_required'], -1);
+  if (actionRequired >= 0) return actionRequired;
+  final attention = _asInt(followUp['attention'], -1);
+  if (attention >= 0) return attention;
+  return _asInt(followUp['overdue']) + _asInt(followUp['due_today']);
 }
 
 class DirectorOrderListResult {
@@ -103,7 +102,7 @@ class DirectorDashboardData {
     this.hasMonitoring = false,
     this.totalSales = 0,
     this.totalStockValue = 0,
-    this.paymentFollowUpOverdue = 0,
+    this.paymentFollowUpActionRequired = 0,
     this.periodStartDate,
     this.periodEndDate,
   });
@@ -156,7 +155,7 @@ class DirectorDashboardData {
   final bool hasMonitoring;
   final double totalSales;
   final double totalStockValue;
-  final int paymentFollowUpOverdue;
+  final int paymentFollowUpActionRequired;
   final String? periodStartDate;
   final String? periodEndDate;
 
@@ -324,7 +323,7 @@ class DirectorDashboardData {
       hasMonitoring: hasMonitoring,
       totalSales: _asMoney(summary['total_sales']),
       totalStockValue: _directorStockValue(json, summary),
-      paymentFollowUpOverdue: _paymentFollowUpAttention(summary),
+      paymentFollowUpActionRequired: _paymentFollowUpActionRequired(summary),
       periodStartDate: summary['start_date']?.toString(),
       periodEndDate: summary['end_date']?.toString(),
     );

@@ -51,4 +51,44 @@ void main() {
       }
     });
   });
+
+  group('Manager payment follow-up route access', () {
+    test('allows manager payment recovery screens and blocks director recovery', () {
+      expect(
+        RoutePermissions.canAccessPath(
+          '/manager/payment-follow-ups',
+          UserRole.manager,
+        ),
+        isTrue,
+      );
+      expect(
+        RoutePermissions.canAccessPath(
+          '/manager/payment-follow-ups/12',
+          UserRole.manager,
+        ),
+        isTrue,
+      );
+      expect(
+        RoutePermissions.canAccessPath(
+          '/director/payment-follow-ups',
+          UserRole.manager,
+        ),
+        isFalse,
+      );
+      expect(
+        RoutePermissions.canAccessPath(
+          '/manager/payment-follow-ups',
+          UserRole.director,
+        ),
+        isFalse,
+      );
+      expect(
+        RoutePermissions.canAccessPath(
+          '/manager/payment-follow-ups',
+          UserRole.employee,
+        ),
+        isFalse,
+      );
+    });
+  });
 }
