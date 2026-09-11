@@ -87,6 +87,7 @@ class DirectorPaymentFollowUpStatusScreen extends StatefulWidget {
 class _DirectorPaymentFollowUpStatusScreenState
     extends State<DirectorPaymentFollowUpStatusScreen> {
   late Future<Map<String, dynamic>> _future;
+  Map<String, dynamic>? _payload;
   int? _employeeId;
 
   @override
@@ -107,7 +108,9 @@ class _DirectorPaymentFollowUpStatusScreenState
           if (_employeeId != null && _employeeId! > 0) 'employee_id': _employeeId,
         },
       );
-      return Map<String, dynamic>.from(response.data as Map);
+      final data = Map<String, dynamic>.from(response.data as Map);
+      _payload = data;
+      return data;
     } on DioException catch (error) {
       throw mapApiError(error);
     }
@@ -179,18 +182,17 @@ class _DirectorPaymentFollowUpStatusScreenState
             future: _future,
             builder: (context, snapshot) {
               final children = <Widget>[];
-              if (snapshot.connectionState == ConnectionState.waiting &&
-                  !snapshot.hasData) {
-                children.add(const PgLoadingState());
-              } else if (snapshot.hasError) {
+              final payload = snapshot.data ?? _payload;
+              if (payload == null && snapshot.hasError) {
                 children.add(
                   PgErrorState(
                     message: errorMessage(snapshot.error),
                     onRetry: _reload,
                   ),
                 );
+              } else if (payload == null) {
+                children.add(const PgLoadingState());
               } else {
-                final payload = snapshot.data ?? const <String, dynamic>{};
                 final dealers = _maps(payload['data']);
                 final employees = _maps(payload['employees']);
                 final performance = _maps(payload['employee_performance']);
@@ -275,6 +277,7 @@ class _DirectorPaymentFollowUpStatusScreenState
               }
 
               return ListView(
+                key: PageStorageKey('payment-recovery-${widget.routePrefix}'),
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(AppSpacing.screenPadding),
                 children: children,
@@ -847,6 +850,7 @@ class _FilteredDealerListPage extends StatelessWidget {
         onBack: () => Navigator.of(context).pop(),
       ),
       body: ListView(
+        key: const PageStorageKey('payment-recovery-filtered-dealers'),
         physics: const AlwaysScrollableScrollPhysics(),
         padding: const EdgeInsets.all(AppSpacing.screenPadding),
         children: [
@@ -889,6 +893,7 @@ class DirectorPaymentFollowUpHistoryScreen extends StatefulWidget {
 class _DirectorPaymentFollowUpHistoryScreenState
     extends State<DirectorPaymentFollowUpHistoryScreen> {
   late Future<PaymentFollowUpDetail> _future;
+  PaymentFollowUpDetail? _detail;
 
   @override
   void initState() {
@@ -903,9 +908,11 @@ class _DirectorPaymentFollowUpHistoryScreenState
         onUnauthorized: widget.auth.sessionExpired,
       ).dio;
       final response = await dio.get('${widget.apiPrefix}/${widget.dealerId}');
-      return PaymentFollowUpDetail.fromJson(
+      final detail = PaymentFollowUpDetail.fromJson(
         Map<String, dynamic>.from(response.data as Map),
       );
+      _detail = detail;
+      return detail;
     } on DioException catch (error) {
       throw mapApiError(error);
     }
@@ -957,23 +964,17 @@ class _DirectorPaymentFollowUpHistoryScreenState
             future: _future,
             builder: (context, snapshot) {
               final children = <Widget>[];
-              if (snapshot.connectionState == ConnectionState.waiting &&
-                  !snapshot.hasData) {
-                children.add(const PgLoadingState());
-              } else if (snapshot.hasError) {
+              final detail = snapshot.data ?? _detail;
+              if (detail == null && snapshot.hasError) {
                 children.add(
                   PgErrorState(
                     message: errorMessage(snapshot.error),
                     onRetry: _reload,
                   ),
                 );
+              } else if (detail == null) {
+                children.add(const PgLoadingState());
               } else {
-                final detail = snapshot.data;
-                if (detail == null) {
-                  children.add(
-                    const PgEmptyState(message: 'Dealer not found.'),
-                  );
-                } else {
                   final timeline = _chronological(detail);
                   final status = detail.displayStatus.toLowerCase();
                   children.addAll([
@@ -1082,10 +1083,12 @@ class _DirectorPaymentFollowUpHistoryScreenState
                       ),
                     ),
                   ]);
-                }
               }
 
               return ListView(
+                key: PageStorageKey(
+                  'payment-recovery-history-${widget.apiPrefix}-${widget.dealerId}',
+                ),
                 physics: const AlwaysScrollableScrollPhysics(),
                 padding: const EdgeInsets.all(AppSpacing.screenPadding),
                 children: children,

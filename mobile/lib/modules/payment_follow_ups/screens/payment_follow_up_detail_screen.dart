@@ -35,6 +35,7 @@ class PaymentFollowUpDetailScreen extends StatefulWidget {
 class _PaymentFollowUpDetailScreenState
     extends State<PaymentFollowUpDetailScreen> {
   late Future<PaymentFollowUpDetail> _future;
+  PaymentFollowUpDetail? _cached;
   final _remark = TextEditingController();
   final _expected = TextEditingController();
   DateTime? _nextDate;
@@ -48,7 +49,7 @@ class _PaymentFollowUpDetailScreenState
   @override
   void initState() {
     super.initState();
-    _future = _api.show(widget.dealerId);
+    _future = _fetch();
   }
 
   @override
@@ -58,8 +59,14 @@ class _PaymentFollowUpDetailScreenState
     super.dispose();
   }
 
+  Future<PaymentFollowUpDetail> _fetch() async {
+    final detail = await _api.show(widget.dealerId);
+    _cached = detail;
+    return detail;
+  }
+
   Future<void> _reload() async {
-    setState(() => _future = _api.show(widget.dealerId));
+    setState(() => _future = _fetch());
     await _future;
   }
 
@@ -160,23 +167,17 @@ class _PaymentFollowUpDetailScreenState
           future: _future,
           builder: (context, snapshot) {
             final children = <Widget>[];
-            if (snapshot.connectionState == ConnectionState.waiting &&
-                !snapshot.hasData) {
-              children.add(const PgLoadingState());
-            } else if (snapshot.hasError) {
+            final detail = snapshot.data ?? _cached;
+            if (detail == null && snapshot.hasError) {
               children.add(
                 PgErrorState(
                   message: errorMessage(snapshot.error),
                   onRetry: _reload,
                 ),
               );
+            } else if (detail == null) {
+              children.add(const PgLoadingState());
             } else {
-              final detail = snapshot.data;
-              if (detail == null) {
-                children.add(
-                  const PgEmptyState(message: 'Dealer not found.'),
-                );
-              } else {
                 final openCycles = detail.cycles
                     .where((cycle) => !cycle.isClosed)
                     .toList();
@@ -352,10 +353,12 @@ class _PaymentFollowUpDetailScreenState
                     (cycle) => _cycleCard(cycle, isCurrent: false),
                   ),
                 ]);
-              }
             }
 
             return ListView(
+              key: PageStorageKey(
+                'employee-payment-follow-up-detail-${widget.dealerId}',
+              ),
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(AppSpacing.screenPadding),
               children: children,

@@ -27,6 +27,7 @@ class PaymentFollowUpListScreen extends StatefulWidget {
 
 class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
   late Future<PaymentFollowUpListData> _future;
+  PaymentFollowUpListData? _cached;
   String _query = '';
   String? _statusFilter;
 
@@ -37,11 +38,17 @@ class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
   @override
   void initState() {
     super.initState();
-    _future = _api.list();
+    _future = _fetch();
+  }
+
+  Future<PaymentFollowUpListData> _fetch() async {
+    final data = await _api.list();
+    _cached = data;
+    return data;
   }
 
   Future<void> _reload() async {
-    setState(() => _future = _api.list());
+    setState(() => _future = _fetch());
     await _future;
   }
 
@@ -79,28 +86,17 @@ class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
           future: _future,
           builder: (context, snapshot) {
             final children = <Widget>[];
-            if (snapshot.connectionState == ConnectionState.waiting &&
-                !snapshot.hasData) {
-              children.add(const PgLoadingState());
-            } else if (snapshot.hasError) {
+            final data = snapshot.data ?? _cached;
+            if (data == null && snapshot.hasError) {
               children.add(
                 PgErrorState(
                   message: errorMessage(snapshot.error),
                   onRetry: _reload,
                 ),
               );
+            } else if (data == null) {
+              children.add(const PgLoadingState());
             } else {
-              final data = snapshot.data ??
-                  const PaymentFollowUpListData(
-                    counts: PaymentFollowUpCounts(
-                      overdue: 0,
-                      dueToday: 0,
-                      upcoming: 0,
-                      noFollowUp: 0,
-                      closed: 0,
-                    ),
-                    dealers: [],
-                  );
               final dealers = data.dealers.where((dealer) {
                 if (_statusFilter != null && dealer.status != _statusFilter) {
                   return false;
@@ -231,6 +227,7 @@ class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
             }
 
             return ListView(
+              key: const PageStorageKey('employee-payment-follow-up-list'),
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.all(AppSpacing.screenPadding),
               children: children,

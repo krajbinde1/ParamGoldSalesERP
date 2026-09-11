@@ -122,4 +122,98 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'manager dashboard payment follow-up layout does not nest scrollables',
+    (tester) async {
+      final future = Future<int>.delayed(
+        const Duration(milliseconds: 20),
+        () => 3,
+      );
+
+      await tester.pumpWidget(
+        wrap(
+          RefreshIndicator(
+            onRefresh: () async {},
+            child: FutureBuilder<int>(
+              future: future,
+              builder: (context, snapshot) {
+                final value = snapshot.data;
+                return CustomScrollView(
+                  key: const PageStorageKey('manager-dashboard-scroll'),
+                  physics: const AlwaysScrollableScrollPhysics(),
+                  slivers: [
+                    if (value == null)
+                      const SliverFillRemaining(
+                        hasScrollBody: false,
+                        child: PgLoadingState(),
+                      )
+                    else
+                      SliverPadding(
+                        padding: const EdgeInsets.all(16),
+                        sliver: SliverList(
+                          delegate: SliverChildListDelegate([
+                            const SizedBox(
+                              height: 120,
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: PgCard(child: Text('Pending')),
+                                  ),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: PgCard(child: Text('Targets')),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            SizedBox(
+                              height: 132,
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: PgCard(
+                                      child: Text('Payment Follow-up $value'),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 8),
+                                  const Expanded(child: SizedBox.shrink()),
+                                ],
+                              ),
+                            ),
+                            const SizedBox(height: 8),
+                            const SizedBox(
+                              height: 120,
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: PgCard(child: Text('Attendance')),
+                                  ),
+                                  SizedBox(width: 8),
+                                  Expanded(
+                                    child: PgCard(child: Text('Orders')),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ]),
+                        ),
+                      ),
+                  ],
+                );
+              },
+            ),
+          ),
+        ),
+      );
+
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      await tester.pumpAndSettle();
+      expect(find.text('Payment Follow-up 3'), findsOneWidget);
+      expect(find.byType(GridView), findsNothing);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

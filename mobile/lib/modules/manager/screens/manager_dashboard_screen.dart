@@ -21,7 +21,8 @@ class ManagerDashboardScreen extends StatefulWidget {
 }
 
 class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
-  late Future<ManagerDashboardData> _future;
+  ManagerDashboardData? _data;
+  Object? _error;
 
   ManagerApi get _api => ManagerApi(
     ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
@@ -30,20 +31,31 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
   @override
   void initState() {
     super.initState();
-    _future = _load();
+    _reload();
   }
 
   Future<ManagerDashboardData> _load() => _api.loadDashboard(period: 'month');
 
   Future<void> _reload() async {
-    setState(() => _future = _load());
-    await _future;
+    try {
+      final data = await _load();
+      if (!mounted) return;
+      setState(() {
+        _data = data;
+        _error = null;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error;
+      });
+    }
   }
 
   Future<void> _open(String path) async {
     await context.push(path);
     if (!mounted) return;
-    _reload();
+    await _reload();
   }
 
   @override
@@ -52,195 +64,180 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
     final initial = employee.fullName.trim().isNotEmpty
         ? employee.fullName.trim()[0].toUpperCase()
         : 'M';
+    final data = _data;
+    final dateLabel = DateFormat('EEE, d MMM yyyy').format(DateTime.now());
 
     return Scaffold(
       backgroundColor: AppColors.background,
       body: RefreshIndicator(
         color: AppColors.primary,
         onRefresh: _reload,
-        child: FutureBuilder<ManagerDashboardData>(
-          future: _future,
-          builder: (context, snapshot) {
-            if (snapshot.connectionState == ConnectionState.waiting &&
-                !snapshot.hasData) {
-              return const PgLoadingState();
-            }
-            if (snapshot.hasError) {
-              return ListView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(AppSpacing.screenPadding),
-                children: [
-                  SizedBox(height: MediaQuery.paddingOf(context).top),
-                  PgErrorState(
-                    message: errorMessage(snapshot.error),
+        child: CustomScrollView(
+          key: const PageStorageKey('manager-dashboard-scroll'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          slivers: [
+            if (data == null && _error != null)
+              SliverFillRemaining(
+                hasScrollBody: false,
+                child: Padding(
+                  padding: const EdgeInsets.all(AppSpacing.screenPadding),
+                  child: PgErrorState(
+                    message: errorMessage(_error),
                     onRetry: _reload,
                   ),
-                ],
-              );
-            }
-
-            final data = snapshot.data!;
-            final teamSize = data.employeePerformance.length;
-            final salesPct = _teamSalesAchievement(data);
-            final dateLabel =
-                DateFormat('EEE, d MMM yyyy').format(DateTime.now());
-
-            return CustomScrollView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              slivers: [
-                SliverToBoxAdapter(
-                  child: _ManagerHeader(
-                    auth: widget.auth,
-                    name: employee.fullName,
-                    initial: initial,
-                    dateLabel: dateLabel,
-                    photoUrl: employee.profilePhotoUrl,
-                  ),
                 ),
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(
-                    AppSpacing.screenPadding,
-                    AppSpacing.md,
-                    AppSpacing.screenPadding,
-                    AppSpacing.xxl,
-                  ),
-                  sliver: SliverList(
-                    delegate: SliverChildListDelegate([
-                      if (data.returnedByProduction > 0) ...[
-                        PgCard(
-                          child: ListTile(
-                            contentPadding: EdgeInsets.zero,
-                            leading: const Icon(Icons.undo_rounded),
-                            title: Text(
-                              'Returned by Production: ${data.returnedByProduction}',
-                            ),
-                            subtitle: const Text(
-                              'Orders waiting for manager re-approval',
-                            ),
-                            trailing: const Icon(Icons.chevron_right),
-                            onTap: () => _open(
-                              '/manager/orders?tab=returned',
-                            ),
+              )
+            else if (data == null)
+              const SliverFillRemaining(
+                hasScrollBody: false,
+                child: PgLoadingState(),
+              )
+            else ...[
+              SliverToBoxAdapter(
+                child: _ManagerHeader(
+                  auth: widget.auth,
+                  name: employee.fullName,
+                  initial: initial,
+                  dateLabel: dateLabel,
+                  photoUrl: employee.profilePhotoUrl,
+                ),
+              ),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(
+                  AppSpacing.screenPadding,
+                  AppSpacing.md,
+                  AppSpacing.screenPadding,
+                  AppSpacing.xxl,
+                ),
+                sliver: SliverList(
+                  delegate: SliverChildListDelegate([
+                    if (data.returnedByProduction > 0) ...[
+                      PgCard(
+                        child: ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.undo_rounded),
+                          title: Text(
+                            'Returned by Production: ${data.returnedByProduction}',
                           ),
+                          subtitle: const Text(
+                            'Orders waiting for manager re-approval',
+                          ),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => _open('/manager/orders?tab=returned'),
                         ),
-                        const SizedBox(height: AppSpacing.md),
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                    ],
+                    _SummaryGrid(
+                      pendingOrders: data.pendingOrders,
+                      presentToday: data.presentToday,
+                      teamSize: data.employeePerformance.length,
+                      salesPct: _teamSalesAchievement(data),
+                      onOrders: () => _open('/manager/orders?tab=pending'),
+                      onTargets: () => _open('/manager/targets'),
+                      onTeamAttendance: () => _open('/manager/team-attendance'),
+                      onSales: () => _open('/manager/targets'),
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    _PaymentFollowUpCard(
+                      count: data.paymentFollowUpActionRequired,
+                      onTap: () => _open('/manager/payment-follow-ups'),
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    const PgSectionHeader(title: 'Quick Access'),
+                    const SizedBox(height: AppSpacing.sm),
+                    _ModuleGrid(
+                      items: [
+                        _ModuleItem(
+                          title: 'Attendance',
+                          subtitle: 'My punch in/out',
+                          icon: Icons.fingerprint_rounded,
+                          onTap: () => _open('/attendance'),
+                        ),
+                        _ModuleItem(
+                          title: 'Orders',
+                          subtitle: data.pendingOrders > 0
+                              ? '${data.pendingOrders} pending approval'
+                              : 'Review team orders',
+                          icon: Icons.shopping_cart_checkout_rounded,
+                          onTap: () => _open('/manager/orders?tab=pending'),
+                        ),
+                        _ModuleItem(
+                          title: 'Credit Notes',
+                          subtitle: data.pendingCreditNotes > 0
+                              ? '${data.pendingCreditNotes} pending approval'
+                              : 'Review team credit notes',
+                          icon: Icons.note_alt_outlined,
+                          onTap: () =>
+                              _open('/manager/credit-notes?tab=pending'),
+                        ),
+                        _ModuleItem(
+                          title: 'Collections',
+                          subtitle: 'View team collections',
+                          icon: Icons.payments_rounded,
+                          onTap: () => _open('/manager/collections'),
+                        ),
+                        _ModuleItem(
+                          title: 'Team Attendance',
+                          subtitle: data.employeePerformance.isNotEmpty
+                              ? '${data.presentToday} present today'
+                              : 'View team attendance',
+                          icon: Icons.groups_rounded,
+                          onTap: () => _open('/manager/team-attendance'),
+                        ),
+                        _ModuleItem(
+                          title: 'Employee Route Tracking',
+                          subtitle: 'Team routes & stoppages',
+                          icon: Icons.route_outlined,
+                          onTap: () => _open('/manager/route-tracking'),
+                        ),
+                        _ModuleItem(
+                          title: 'Team Performance',
+                          subtitle: data.employeePerformance.isNotEmpty
+                              ? '${data.employeePerformance.length} employees'
+                              : 'View team results',
+                          icon: Icons.insights_rounded,
+                          onTap: () => _open('/manager/employees'),
+                        ),
+                        _ModuleItem(
+                          title: 'TA Approval',
+                          subtitle: data.pendingClaims > 0
+                              ? '${data.pendingClaims} pending'
+                              : 'Review TA claims',
+                          icon: Icons.receipt_long_rounded,
+                          onTap: () => _open('/manager/ta-da-claims'),
+                        ),
+                        _ModuleItem(
+                          title: 'Dealer Approvals',
+                          subtitle: 'Review team dealer applications',
+                          icon: Icons.assignment_turned_in_outlined,
+                          onTap: () => _open('/manager/dealer-approvals'),
+                        ),
+                        _ModuleItem(
+                          title: 'Dealer Accounts',
+                          subtitle: 'Team outstanding & ledger',
+                          icon: Icons.account_balance_wallet_outlined,
+                          onTap: () => _open('/dealers'),
+                        ),
+                        _ModuleItem(
+                          title: 'Team Activity',
+                          subtitle: "Dealer visits & field activities",
+                          icon: Icons.travel_explore_rounded,
+                          onTap: () => _open('/manager/team-activity'),
+                        ),
+                        _ModuleItem(
+                          title: 'Field Activities',
+                          subtitle: 'Team farmer visits & recommendations',
+                          icon: Icons.agriculture_outlined,
+                          onTap: () => _open('/manager/field-activities'),
+                        ),
                       ],
-                      _SummaryGrid(
-                        pendingOrders: data.pendingOrders,
-                        presentToday: data.presentToday,
-                        teamSize: teamSize,
-                        salesPct: salesPct,
-                        onOrders: () =>
-                            _open('/manager/orders?tab=pending'),
-                        onTargets: () => _open('/manager/targets'),
-                        onTeamAttendance: () =>
-                            _open('/manager/team-attendance'),
-                        onSales: () => _open('/manager/targets'),
-                      ),
-                      const SizedBox(height: AppSpacing.sm),
-                      _PaymentFollowUpCard(
-                        count: data.paymentFollowUpActionRequired,
-                        onTap: () => _open('/manager/payment-follow-ups'),
-                      ),
-                      const SizedBox(height: AppSpacing.lg),
-                      const PgSectionHeader(title: 'Quick Access'),
-                      const SizedBox(height: AppSpacing.sm),
-                      _ModuleGrid(
-                        items: [
-                          _ModuleItem(
-                            title: 'Attendance',
-                            subtitle: 'My punch in/out',
-                            icon: Icons.fingerprint_rounded,
-                            onTap: () => _open('/attendance'),
-                          ),
-                          _ModuleItem(
-                            title: 'Orders',
-                            subtitle: data.pendingOrders > 0
-                                ? '${data.pendingOrders} pending approval'
-                                : 'Review team orders',
-                            icon: Icons.shopping_cart_checkout_rounded,
-                            onTap: () =>
-                                _open('/manager/orders?tab=pending'),
-                          ),
-                          _ModuleItem(
-                            title: 'Credit Notes',
-                            subtitle: data.pendingCreditNotes > 0
-                                ? '${data.pendingCreditNotes} pending approval'
-                                : 'Review team credit notes',
-                            icon: Icons.note_alt_outlined,
-                            onTap: () =>
-                                _open('/manager/credit-notes?tab=pending'),
-                          ),
-                          _ModuleItem(
-                            title: 'Collections',
-                            subtitle: 'View team collections',
-                            icon: Icons.payments_rounded,
-                            onTap: () => _open('/manager/collections'),
-                          ),
-                          _ModuleItem(
-                            title: 'Team Attendance',
-                            subtitle: teamSize > 0
-                                ? '${data.presentToday} present today'
-                                : 'View team attendance',
-                            icon: Icons.groups_rounded,
-                            onTap: () =>
-                                _open('/manager/team-attendance'),
-                          ),
-                          _ModuleItem(
-                            title: 'Employee Route Tracking',
-                            subtitle: 'Team routes & stoppages',
-                            icon: Icons.route_outlined,
-                            onTap: () =>
-                                _open('/manager/route-tracking'),
-                          ),
-                          _ModuleItem(
-                            title: 'Team Performance',
-                            subtitle: teamSize > 0
-                                ? '$teamSize employees'
-                                : 'View team results',
-                            icon: Icons.insights_rounded,
-                            onTap: () => _open('/manager/employees'),
-                          ),
-                          _ModuleItem(
-                            title: 'TA Approval',
-                            subtitle: data.pendingClaims > 0
-                                ? '${data.pendingClaims} pending'
-                                : 'Review TA claims',
-                            icon: Icons.receipt_long_rounded,
-                            onTap: () => _open('/manager/ta-da-claims'),
-                          ),
-                          _ModuleItem(
-                            title: 'Dealer Approvals',
-                            subtitle: 'Review team dealer applications',
-                            icon: Icons.assignment_turned_in_outlined,
-                            onTap: () => _open('/manager/dealer-approvals'),
-                          ),
-                          _ModuleItem(
-                            title: 'Dealer Accounts',
-                            subtitle: 'Team outstanding & ledger',
-                            icon: Icons.account_balance_wallet_outlined,
-                            onTap: () => _open('/dealers'),
-                          ),
-                          _ModuleItem(
-                            title: 'Team Activity',
-                            subtitle: "Dealer visits & field activities",
-                            icon: Icons.travel_explore_rounded,
-                            onTap: () => _open('/manager/team-activity'),
-                          ),
-                          _ModuleItem(
-                            title: 'Field Activities',
-                            subtitle: 'Team farmer visits & recommendations',
-                            icon: Icons.agriculture_outlined,
-                            onTap: () => _open('/manager/field-activities'),
-                          ),
-                        ],
-                      ),
-                    ]),
-                  ),
+                    ),
+                  ]),
                 ),
-              ],
-            );
-          },
+              ),
+            ],
+          ],
         ),
       ),
     );
@@ -408,14 +405,11 @@ class _PaymentFollowUpCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final alert = count > 0;
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final tileWidth = (constraints.maxWidth - AppSpacing.sm) / 2;
-        return Align(
-          alignment: Alignment.centerLeft,
-          child: SizedBox(
-            width: tileWidth,
-            height: 132,
+    return SizedBox(
+      height: 132,
+      child: Row(
+        children: [
+          Expanded(
             child: PgCard(
               onTap: onTap,
               padding: const EdgeInsets.fromLTRB(14, 13, 12, 12),
@@ -504,8 +498,10 @@ class _PaymentFollowUpCard extends StatelessWidget {
               ),
             ),
           ),
-        );
-      },
+          const SizedBox(width: AppSpacing.sm),
+          const Expanded(child: SizedBox.shrink()),
+        ],
+      ),
     );
   }
 }
@@ -573,6 +569,49 @@ class _HeaderAccountMenu extends StatelessWidget {
   }
 }
 
+double _twoColumnTileHeight(BuildContext context, double aspectRatio) {
+  final width = MediaQuery.sizeOf(context).width - AppSpacing.screenPadding * 2;
+  final tileWidth = (width - AppSpacing.sm) / 2;
+  return tileWidth / aspectRatio;
+}
+
+class _TwoColumn extends StatelessWidget {
+  const _TwoColumn({
+    required this.children,
+    required this.rowHeight,
+  });
+
+  final List<Widget> children;
+  final double rowHeight;
+
+  @override
+  Widget build(BuildContext context) {
+    const spacing = AppSpacing.sm;
+    final rows = <Widget>[];
+    for (var i = 0; i < children.length; i += 2) {
+      if (i > 0) rows.add(SizedBox(height: spacing));
+      final right = i + 1 < children.length ? children[i + 1] : null;
+      rows.add(
+        SizedBox(
+          height: rowHeight,
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Expanded(child: children[i]),
+              SizedBox(width: spacing),
+              Expanded(child: right ?? const SizedBox.shrink()),
+            ],
+          ),
+        ),
+      );
+    }
+    return Column(
+      mainAxisSize: MainAxisSize.min,
+      children: rows,
+    );
+  }
+}
+
 class _SummaryGrid extends StatelessWidget {
   const _SummaryGrid({
     required this.pendingOrders,
@@ -601,49 +640,41 @@ class _SummaryGrid extends StatelessWidget {
         : '$presentToday';
     final salesValue =
         salesPct != null ? '${salesPct!.round()}%' : '—';
+    final width = MediaQuery.sizeOf(context).width;
+    final aspect = width >= 400 ? 1.85 : 1.45;
 
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final aspect = constraints.maxWidth >= 400 ? 1.85 : 1.45;
-        return GridView.count(
-          crossAxisCount: 2,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          mainAxisSpacing: AppSpacing.sm,
-          crossAxisSpacing: AppSpacing.sm,
-          childAspectRatio: aspect,
-          children: [
-            _SummaryCard(
-              label: 'Pending Orders',
-              value: '$pendingOrders',
-              icon: Icons.pending_actions_rounded,
-              accent: AppColors.warning,
-              onTap: onOrders,
-            ),
-            _SummaryCard(
-              label: 'Sales & Collection',
-              value: 'Targets',
-              icon: Icons.flag_outlined,
-              accent: AppColors.accent,
-              onTap: onTargets,
-            ),
-            _SummaryCard(
-              label: 'Team Present Today',
-              value: teamPresentValue,
-              icon: Icons.groups_outlined,
-              accent: AppColors.success,
-              onTap: onTeamAttendance,
-            ),
-            _SummaryCard(
-              label: 'Sales Achievement %',
-              value: salesValue,
-              icon: Icons.trending_up_rounded,
-              accent: AppColors.primary,
-              onTap: onSales,
-            ),
-          ],
-        );
-      },
+    return _TwoColumn(
+      rowHeight: _twoColumnTileHeight(context, aspect),
+      children: [
+        _SummaryCard(
+          label: 'Pending Orders',
+          value: '$pendingOrders',
+          icon: Icons.pending_actions_rounded,
+          accent: AppColors.warning,
+          onTap: onOrders,
+        ),
+        _SummaryCard(
+          label: 'Sales & Collection',
+          value: 'Targets',
+          icon: Icons.flag_outlined,
+          accent: AppColors.accent,
+          onTap: onTargets,
+        ),
+        _SummaryCard(
+          label: 'Team Present Today',
+          value: teamPresentValue,
+          icon: Icons.groups_outlined,
+          accent: AppColors.success,
+          onTap: onTeamAttendance,
+        ),
+        _SummaryCard(
+          label: 'Sales Achievement %',
+          value: salesValue,
+          icon: Icons.trending_up_rounded,
+          accent: AppColors.primary,
+          onTap: onSales,
+        ),
+      ],
     );
   }
 }
@@ -735,25 +766,11 @@ class _ModuleGrid extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        final aspect = constraints.maxWidth >= 400 ? 1.35 : 1.15;
-        return GridView.builder(
-          itemCount: items.length,
-          shrinkWrap: true,
-          physics: const NeverScrollableScrollPhysics(),
-          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 2,
-            mainAxisSpacing: AppSpacing.sm,
-            crossAxisSpacing: AppSpacing.sm,
-            childAspectRatio: aspect,
-          ),
-          itemBuilder: (context, index) {
-            final item = items[index];
-            return _ModuleCard(item: item);
-          },
-        );
-      },
+    final width = MediaQuery.sizeOf(context).width;
+    final aspect = width >= 400 ? 1.35 : 1.15;
+    return _TwoColumn(
+      rowHeight: _twoColumnTileHeight(context, aspect),
+      children: [for (final item in items) _ModuleCard(item: item)],
     );
   }
 }
