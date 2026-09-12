@@ -121,9 +121,7 @@ GoRouter createRouter(
     if (auth.mustChangePassword) {
       return location == '/change-password' ? null : '/change-password';
     }
-    if (location == '/login' ||
-        location == '/change-password' ||
-        location == '/splash') {
+    if (location == '/login' || location == '/splash') {
       return '/dashboard';
     }
 

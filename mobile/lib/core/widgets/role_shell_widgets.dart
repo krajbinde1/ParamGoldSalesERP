@@ -8,7 +8,7 @@ import 'design/pg_metric_card.dart';
 
 /// Shared role shell app bar. Extends [AppBar] (does not wrap it) so Scaffold
 /// lays out [actions] correctly — custom actions appear immediately before the
-/// profile avatar.
+/// account menu.
 class RoleAppBar extends AppBar {
   RoleAppBar({
     super.key,
@@ -38,7 +38,7 @@ class RoleAppBar extends AppBar {
           actions: [
             ...?actions,
             _RoleNotificationsButton(auth: auth),
-            _RoleProfileMenuButton(auth: auth),
+            const _RoleAccountMenuButton(),
           ],
         );
 }
@@ -58,30 +58,26 @@ class _RoleNotificationsButton extends StatelessWidget {
   }
 }
 
-class _RoleProfileMenuButton extends StatelessWidget {
-  const _RoleProfileMenuButton({required this.auth});
-
-  final AuthController auth;
+class _RoleAccountMenuButton extends StatelessWidget {
+  const _RoleAccountMenuButton();
 
   @override
   Widget build(BuildContext context) {
-    final employee = auth.session?.employee;
     return PopupMenuButton<String>(
       tooltip: 'Account',
-      onSelected: (value) async {
+      onSelected: (value) {
         switch (value) {
           case 'profile':
             context.push('/profile');
           case 'password':
             context.push('/change-password');
-          case 'logout':
-            await auth.logout();
         }
       },
       itemBuilder: (_) => const [
         PopupMenuItem(
           value: 'profile',
           child: ListTile(
+            dense: true,
             leading: Icon(Icons.person_outline),
             title: Text('My Profile'),
           ),
@@ -89,39 +85,13 @@ class _RoleProfileMenuButton extends StatelessWidget {
         PopupMenuItem(
           value: 'password',
           child: ListTile(
+            dense: true,
             leading: Icon(Icons.password_outlined),
             title: Text('Change Password'),
           ),
         ),
-        PopupMenuDivider(),
-        PopupMenuItem(
-          value: 'logout',
-          child: ListTile(
-            leading: Icon(Icons.logout),
-            title: Text('Logout'),
-          ),
-        ),
-      ], // Icons above are const via the surrounding const list.
-      child: Padding(
-        padding: const EdgeInsets.only(right: 12),
-        child: CircleAvatar(
-          backgroundColor: AppColors.primary.withValues(alpha: 0.12),
-          backgroundImage: employee?.profilePhotoUrl != null
-              ? NetworkImage(employee!.profilePhotoUrl!)
-              : null,
-          child: employee?.profilePhotoUrl == null
-              ? Text(
-                  employee?.fullName.isNotEmpty == true
-                      ? employee!.fullName.trim()[0].toUpperCase()
-                      : '?',
-                  style: const TextStyle(
-                    color: AppColors.primary,
-                    fontWeight: FontWeight.w700,
-                  ),
-                )
-              : null,
-        ),
-      ),
+      ],
+      icon: const Icon(Icons.more_vert_rounded),
     );
   }
 }

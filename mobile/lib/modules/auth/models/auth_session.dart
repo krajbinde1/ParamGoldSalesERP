@@ -96,6 +96,34 @@ class EmployeeProfile {
         active: json['active'] == true,
       );
 
+  EmployeeProfile copyWith({
+    int? id,
+    String? employeeCode,
+    String? fullName,
+    String? mobile,
+    String? email,
+    String? department,
+    String? designation,
+    String? reportingManager,
+    String? baseLocation,
+    String? joiningDate,
+    String? profilePhotoUrl,
+    bool? active,
+  }) => EmployeeProfile(
+        id: id ?? this.id,
+        employeeCode: employeeCode ?? this.employeeCode,
+        fullName: fullName ?? this.fullName,
+        mobile: mobile ?? this.mobile,
+        email: email ?? this.email,
+        department: department ?? this.department,
+        designation: designation ?? this.designation,
+        reportingManager: reportingManager ?? this.reportingManager,
+        baseLocation: baseLocation ?? this.baseLocation,
+        joiningDate: joiningDate ?? this.joiningDate,
+        profilePhotoUrl: profilePhotoUrl ?? this.profilePhotoUrl,
+        active: active ?? this.active,
+      );
+
   Map<String, dynamic> toJson() => {
         'id': id,
         'employee_code': employeeCode,

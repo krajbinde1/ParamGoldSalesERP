@@ -5,6 +5,7 @@ import '../../../core/api/api_client.dart';
 import '../../../core/api/api_errors.dart';
 import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
+import '../../../core/navigation/navigation_guard.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
@@ -54,8 +55,8 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
 
   Future<void> _open(String path) async {
     await context.push(path);
-    if (!mounted) return;
-    await _reload();
+    if (!context.mounted) return;
+    await afterNavigation(context, _reload);
   }
 
   @override

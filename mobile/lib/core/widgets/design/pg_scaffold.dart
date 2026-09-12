@@ -69,6 +69,7 @@ class PgPageScaffold extends StatelessWidget {
   final PreferredSizeWidget? bottom;
 
   void _handleBack(BuildContext context) {
+    if (!context.mounted) return;
     if (onBack != null) {
       onBack!();
       return;
@@ -90,7 +91,6 @@ class PgPageScaffold extends StatelessWidget {
       );
     }
 
-    final canPop = context.canPop();
     final scaffold = Scaffold(
       appBar: title == null
           ? null
@@ -112,12 +112,9 @@ class PgPageScaffold extends StatelessWidget {
 
     if (!showBack) return scaffold;
 
-    return PopScope(
-      canPop: canPop,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        _handleBack(context);
-      },
+    return SafeBackScope(
+      onBack: () => _handleBack(context),
+      fallback: backFallback,
       child: scaffold,
     );
   }

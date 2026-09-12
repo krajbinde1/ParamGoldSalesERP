@@ -57,6 +57,7 @@ String _moneyLabel(Map<String, dynamic> row, String numberKey, String labelKey) 
 PgStatusTone _statusTone(String status) => switch (status) {
       'overdue' => PgStatusTone.rejected,
       'due_today' => PgStatusTone.pending,
+      'upcoming' => PgStatusTone.info,
       'closed' => PgStatusTone.paid,
       'high' => PgStatusTone.rejected,
       'medium' => PgStatusTone.pending,
@@ -117,6 +118,7 @@ class _DirectorPaymentFollowUpStatusScreenState
   }
 
   Future<void> _reload() async {
+    if (!mounted) return;
     setState(() => _future = _load());
     await _future;
   }
@@ -132,8 +134,8 @@ class _DirectorPaymentFollowUpStatusScreenState
     final dealerId = int.tryParse('${dealer['dealer_id'] ?? 0}') ?? 0;
     if (dealerId <= 0) return;
     await context.push('${widget.routePrefix}/$dealerId');
-    if (!mounted) return;
-    await _reload();
+    if (!context.mounted) return;
+    await afterNavigation(context, _reload);
   }
 
   void _openActionList({
@@ -152,6 +154,18 @@ class _DirectorPaymentFollowUpStatusScreenState
     );
   }
 
+  void _openUpcomingList(List<Map<String, dynamic>> dealers) {
+    Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _UpcomingCommitmentsPage(
+          auth: widget.auth,
+          dealers: dealers,
+          onOpenDealer: _openDealer,
+        ),
+      ),
+    );
+  }
+
   List<Map<String, dynamic>> _maps(dynamic raw) {
     return (raw as List? ?? const [])
         .whereType<Map>()
@@ -161,13 +175,8 @@ class _DirectorPaymentFollowUpStatusScreenState
 
   @override
   Widget build(BuildContext context) {
-    final canPop = context.canPop();
-    return PopScope(
-      canPop: canPop,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        smartBack(context);
-      },
+    return SafeBackScope(
+      onBack: () => smartBack(context),
       child: Scaffold(
         appBar: RoleAppBar(
           title: 'Payment Recovery',
@@ -206,6 +215,7 @@ class _DirectorPaymentFollowUpStatusScreenState
                     : const <String, dynamic>{};
                 final overdue = _maps(actions['overdue']);
                 final dueToday = _maps(actions['due_today']);
+                final upcoming = _maps(actions['upcoming']);
                 final paidToday = _maps(actions['payments_received_today']);
 
                 children.addAll([
@@ -239,6 +249,14 @@ class _DirectorPaymentFollowUpStatusScreenState
                       title: 'Commitments Due Today',
                       dealers: dueToday,
                     ),
+                  ),
+                  const SizedBox(height: 8),
+                  _ActionTile(
+                    emoji: '🔵',
+                    title: 'Upcoming Commitments',
+                    count: upcoming.length,
+                    color: AppColors.info,
+                    onTap: () => _openUpcomingList(upcoming),
                   ),
                   const SizedBox(height: 8),
                   _ActionTile(
@@ -842,31 +860,172 @@ class _FilteredDealerListPage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: RoleAppBar(
-        title: title,
-        auth: auth,
-        showBack: true,
-        onBack: () => Navigator.of(context).pop(),
-      ),
-      body: ListView(
-        key: const PageStorageKey('payment-recovery-filtered-dealers'),
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.all(AppSpacing.screenPadding),
-        children: [
-          if (dealers.isEmpty)
-            const PgEmptyState(message: 'No dealers in this list.')
-          else
-            ...dealers.map(
-              (dealer) => Padding(
-                key: ValueKey('filtered-dealer-${dealer['dealer_id']}'),
-                padding: const EdgeInsets.only(bottom: AppSpacing.sm),
-                child: _DealerRecoveryCard(
-                  dealer: dealer,
-                  onTap: () => onOpenDealer(dealer),
+    return SafeBackScope(
+      onBack: () => smartBack(context),
+      child: Scaffold(
+        appBar: RoleAppBar(
+          title: title,
+          auth: auth,
+          showBack: true,
+          onBack: () => smartBack(context),
+        ),
+        body: ListView(
+          key: const PageStorageKey('payment-recovery-filtered-dealers'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(AppSpacing.screenPadding),
+          children: [
+            if (dealers.isEmpty)
+              const PgEmptyState(message: 'No dealers in this list.')
+            else
+              ...dealers.map(
+                (dealer) => Padding(
+                  key: ValueKey('filtered-dealer-${dealer['dealer_id']}'),
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: _DealerRecoveryCard(
+                    dealer: dealer,
+                    onTap: () => onOpenDealer(dealer),
+                  ),
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+String _daysRemainingLabel(Map<String, dynamic> row) {
+  final parsedDays = int.tryParse('${row['days_remaining'] ?? ''}');
+  final days = parsedDays ?? _daysUntil(row['next_follow_up_date']?.toString());
+  if (days <= 0) return 'Today';
+  if (days == 1) return '1 day';
+  return '$days days';
+}
+
+int _daysUntil(String? value) {
+  if (value == null || value.isEmpty) return 0;
+  final parsed = DateTime.tryParse(value);
+  if (parsed == null) return 0;
+  final today = DateTime.now();
+  final start = DateTime(today.year, today.month, today.day);
+  final target = DateTime(parsed.year, parsed.month, parsed.day);
+  return target.difference(start).inDays;
+}
+
+class _UpcomingCommitmentsPage extends StatelessWidget {
+  const _UpcomingCommitmentsPage({
+    required this.auth,
+    required this.dealers,
+    required this.onOpenDealer,
+  });
+
+  final AuthController auth;
+  final List<Map<String, dynamic>> dealers;
+  final Future<void> Function(Map<String, dynamic> dealer) onOpenDealer;
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeBackScope(
+      onBack: () => smartBack(context),
+      child: Scaffold(
+        appBar: RoleAppBar(
+          title: 'Upcoming Commitments',
+          auth: auth,
+          showBack: true,
+          onBack: () => smartBack(context),
+        ),
+        body: ListView(
+          key: const PageStorageKey('payment-recovery-upcoming-commitments'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(AppSpacing.screenPadding),
+          children: [
+            if (dealers.isEmpty)
+              const PgEmptyState(message: 'No upcoming commitments.')
+            else
+              ...dealers.map(
+                (dealer) => Padding(
+                  key: ValueKey('upcoming-dealer-${dealer['dealer_id']}'),
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: _UpcomingCommitmentCard(
+                    dealer: dealer,
+                    onTap: () => onOpenDealer(dealer),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _UpcomingCommitmentCard extends StatelessWidget {
+  const _UpcomingCommitmentCard({
+    required this.dealer,
+    required this.onTap,
+  });
+
+  final Map<String, dynamic> dealer;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final employeeName =
+        (dealer['employee_name'] ?? dealer['assigned_employee_name'])
+            ?.toString()
+            .trim() ??
+        '';
+    final daysLabel = _daysRemainingLabel(dealer);
+    final amountValue = double.tryParse('${dealer['expected_amount'] ?? ''}');
+    final amount = amountValue != null && amountValue > 0
+        ? _moneyLabel(dealer, 'expected_amount', 'expected_amount_label')
+        : '—';
+
+    return PgCard(
+      onTap: onTap,
+      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Expanded(
+                child: Text(
+                  dealer['dealer_name']?.toString() ?? '-',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                      ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              PgStatusBadge(label: daysLabel, tone: PgStatusTone.info),
+            ],
+          ),
+          if (employeeName.isNotEmpty) ...[
+            const SizedBox(height: 6),
+            Text(
+              employeeName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
             ),
+          ],
+          const SizedBox(height: 10),
+          _MetricWrap(
+            items: [
+              ('Commitment Amount', amount),
+              (
+                'Commitment Date',
+                _formatDate(dealer['next_follow_up_date']?.toString()),
+              ),
+              ('Days Remaining', daysLabel),
+            ],
+          ),
         ],
       ),
     );
@@ -919,6 +1078,7 @@ class _DirectorPaymentFollowUpHistoryScreenState
   }
 
   Future<void> _reload() async {
+    if (!mounted) return;
     setState(() => _future = _load());
     await _future;
   }
@@ -943,13 +1103,8 @@ class _DirectorPaymentFollowUpHistoryScreenState
 
   @override
   Widget build(BuildContext context) {
-    final canPop = context.canPop();
-    return PopScope(
-      canPop: canPop,
-      onPopInvokedWithResult: (didPop, _) {
-        if (didPop) return;
-        smartBack(context);
-      },
+    return SafeBackScope(
+      onBack: () => smartBack(context),
       child: Scaffold(
         appBar: RoleAppBar(
           title: 'Recovery Details',

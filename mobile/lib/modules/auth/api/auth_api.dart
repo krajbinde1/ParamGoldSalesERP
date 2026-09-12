@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 
@@ -88,6 +90,27 @@ class AuthApi {
     }
   }
 
+  Future<EmployeeProfile> uploadProfilePhoto(String filePath) async {
+    try {
+      final formData = FormData.fromMap({
+        'photo': await MultipartFile.fromFile(
+          filePath,
+          filename: File(filePath).uri.pathSegments.last,
+        ),
+      });
+      final response = await _dio.post('/profile-photo', data: formData);
+      final body = response.data;
+      if (body is! Map || body['employee'] is! Map) {
+        throw const AuthApiException('Unexpected profile photo response.');
+      }
+      return EmployeeProfile.fromJson(
+        Map<String, dynamic>.from(body['employee'] as Map),
+      );
+    } on DioException catch (error) {
+      throw _exception(error);
+    }
+  }
+
   Future<void> logout() async {
     try {
       await _dio.post('/logout');
@@ -129,6 +152,10 @@ class AuthApi {
       return AuthApiException(fallback, code: code);
     }
     if (error.response?.statusCode == 422) {
+      final trimmed = message?.trim();
+      if (trimmed != null && trimmed.isNotEmpty) {
+        return AuthApiException(trimmed, code: code);
+      }
       return const AuthApiException('Invalid mobile number or password');
     }
     return AuthApiException(message ?? connectionFailureMessage(), code: code);

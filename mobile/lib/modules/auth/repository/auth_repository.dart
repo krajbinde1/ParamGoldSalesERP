@@ -86,6 +86,16 @@ class AuthRepository {
     return updated;
   }
 
+  Future<AuthSession> updateProfilePhoto(
+    AuthSession session,
+    String filePath,
+  ) async {
+    final employee = await api.uploadProfilePhoto(filePath);
+    final updated = session.copyWith(employee: employee);
+    await store.write(updated);
+    return updated;
+  }
+
   Future<void> logout() async {
     try {
       await api.logout().timeout(restoreTimeout);

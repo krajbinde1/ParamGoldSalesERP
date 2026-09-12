@@ -6,6 +6,7 @@ import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
+import '../../../core/navigation/navigation_guard.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_empty_state.dart'
@@ -80,18 +81,25 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
 
   Future<void> _openAttendance() async {
     await context.push('/attendance');
-    if (!mounted) return;
-    ref.invalidate(todayAttendanceProvider);
-    await _reload();
+    if (!context.mounted) return;
+    await afterNavigation(context, () async {
+      if (!mounted) return;
+      ref.invalidate(todayAttendanceProvider);
+      await _reload();
+    });
   }
 
   Future<void> _open(String path) async {
     await context.push(path);
-    if (!mounted) return;
-    await _reload();
+    if (!context.mounted) return;
+    await afterNavigation(context, () async {
+      if (!mounted) return;
+      await _reload();
+    });
   }
 
   Future<void> _reload() async {
+    if (!mounted) return;
     _loadAll();
     setState(() {});
     await Future.wait([_dashboardFuture, _ordersFuture]);

@@ -1,7 +1,10 @@
 <?php
 
 use App\Actions\Employees\CreateEmployeeWithUserAccount;
+use App\Enums\UserRole;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Storage;
 
 function employeeForAuthentication(array $overrides = []): array
 {
@@ -100,7 +103,8 @@ it('keeps must change password true until password change succeeds', function ()
             'current_password' => 'incorrect',
             'password' => 'NewSecure@123',
             'password_confirmation' => 'NewSecure@123',
-        ])->assertUnprocessable();
+        ])->assertUnprocessable()
+        ->assertJsonPath('message', 'The current password is incorrect.');
 
     expect($result->employee->user->fresh()->must_change_password)->toBeTrue();
 });
@@ -188,4 +192,65 @@ it('returns dashboard data only for the authenticated employee', function () {
         ->assertJsonPath('employee.id', $result->employee->id)
         ->assertJsonPath('summary.today_orders', 0)
         ->assertJsonPath('permissions.attendance', true);
+});
+
+it('allows every mobile role to update their own profile photo', function (string $role, string $mobile) {
+    Storage::fake('public');
+
+    $result = app(CreateEmployeeWithUserAccount::class)->execute(employeeForAuthentication([
+        'role' => $role,
+        'mobile' => $mobile,
+        'email' => "photo.{$role}@example.com",
+        'full_name' => "Photo {$role}",
+    ]));
+
+    $response = $this->actingAs($result->employee->user, 'sanctum')
+        ->post('/api/profile-photo', [
+            'photo' => UploadedFile::fake()->image('avatar.jpg'),
+        ], ['Accept' => 'application/json']);
+
+    $response->assertOk()
+        ->assertJsonPath('success', true)
+        ->assertJsonPath('employee.id', $result->employee->id);
+
+    $employee = $result->employee->fresh();
+    expect($employee->profile_photo_path)->not->toBeNull()
+        ->and($response->json('employee.profile_photo_url'))->toContain('v=');
+
+    Storage::disk('public')->assertExists($employee->profile_photo_path);
+})->with([
+    [UserRole::Employee->value, '9145433010'],
+    [UserRole::Manager->value, '9145433011'],
+    [UserRole::ProductionSupervisor->value, '9145433012'],
+    [UserRole::Director->value, '9145433013'],
+]);
+
+it('replaces the previous profile photo when a new one is uploaded', function () {
+    Storage::fake('public');
+    $result = app(CreateEmployeeWithUserAccount::class)->execute(employeeForAuthentication());
+    $oldPath = UploadedFile::fake()->image('old.jpg')->store('employees/profile-photos', 'public');
+    $result->employee->update(['profile_photo_path' => $oldPath]);
+
+    $this->actingAs($result->employee->user, 'sanctum')
+        ->post('/api/profile-photo', [
+            'photo' => UploadedFile::fake()->image('new.jpg'),
+        ], ['Accept' => 'application/json'])
+        ->assertOk();
+
+    Storage::disk('public')->assertMissing($oldPath);
+    Storage::disk('public')->assertExists($result->employee->fresh()->profile_photo_path);
+});
+
+it('rejects unauthenticated profile photo uploads', function () {
+    $this->post('/api/profile-photo', [
+        'photo' => UploadedFile::fake()->image('avatar.jpg'),
+    ], ['Accept' => 'application/json'])->assertUnauthorized();
+});
+
+it('rejects profile photo uploads without a file', function () {
+    $result = app(CreateEmployeeWithUserAccount::class)->execute(employeeForAuthentication());
+
+    $this->actingAs($result->employee->user, 'sanctum')
+        ->postJson('/api/profile-photo', [])
+        ->assertUnprocessable();
 });

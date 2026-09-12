@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:go_router/go_router.dart';
 import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/widgets/design/pg_card.dart';
@@ -52,6 +53,11 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('Password updated successfully.')),
       );
+      if (context.canPop()) {
+        context.pop();
+      } else {
+        context.go('/dashboard');
+      }
       return;
     }
 
@@ -63,99 +69,106 @@ class _ChangePasswordScreenState extends State<ChangePasswordScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => PgPageScaffold(
-    title: 'Change Password',
-    body: SafeArea(
-      child: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(AppSpacing.xl),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 480),
-            child: PgCard(
-              padding: const EdgeInsets.all(AppSpacing.xl),
-              child: Form(
-                key: _formKey,
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Container(
-                      width: 72,
-                      height: 72,
-                      decoration: BoxDecoration(
-                        color: AppColors.primary.withValues(alpha: 0.1),
-                        shape: BoxShape.circle,
-                      ),
-                      child: const Icon(
-                        Icons.password_rounded,
-                        size: 36,
-                        color: AppColors.primary,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    Text(
-                      'Secure your account',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.sm),
-                    Text(
-                      'You must replace your temporary password before continuing.',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                        color: AppColors.textSecondary,
-                      ),
-                    ),
-                    const SizedBox(height: AppSpacing.xl),
-                    TextFormField(
-                      controller: _current,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Current Password',
-                        prefixIcon: Icon(Icons.lock_outline_rounded),
-                      ),
-                      validator: LoginValidators.password,
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    TextFormField(
-                      controller: _password,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'New Password',
-                        prefixIcon: Icon(Icons.lock_rounded),
-                      ),
-                      validator: _newPassword,
-                    ),
-                    const SizedBox(height: AppSpacing.md),
-                    TextFormField(
-                      controller: _confirmation,
-                      obscureText: true,
-                      decoration: const InputDecoration(
-                        labelText: 'Confirm Password',
-                        prefixIcon: Icon(Icons.lock_rounded),
-                      ),
-                      validator: (value) => value != _password.text
-                          ? 'Passwords do not match.'
-                          : null,
-                    ),
-                    const SizedBox(height: AppSpacing.lg),
-                    ListenableBuilder(
-                      listenable: widget.auth,
-                      builder: (_, _) => FilledButton(
-                        onPressed: widget.auth.loading ? null : _submit,
-                        child: Text(
-                          widget.auth.loading ? 'Updating…' : 'Change Password',
+  Widget build(BuildContext context) {
+    final forced = widget.auth.mustChangePassword;
+    return PgPageScaffold(
+      title: 'Change Password',
+      showBack: !forced,
+      body: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(AppSpacing.xl),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 480),
+              child: PgCard(
+                padding: const EdgeInsets.all(AppSpacing.xl),
+                child: Form(
+                  key: _formKey,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Container(
+                        width: 72,
+                        height: 72,
+                        decoration: BoxDecoration(
+                          color: AppColors.primary.withValues(alpha: 0.1),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.password_rounded,
+                          size: 36,
+                          color: AppColors.primary,
                         ),
                       ),
-                    ),
-                  ],
+                      const SizedBox(height: AppSpacing.md),
+                      Text(
+                        'Secure your account',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.headlineSmall
+                            ?.copyWith(fontWeight: FontWeight.w800),
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        forced
+                            ? 'You must replace your temporary password before continuing.'
+                            : 'Enter your current password, then choose a new one.',
+                        textAlign: TextAlign.center,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: AppColors.textSecondary,
+                        ),
+                      ),
+                      const SizedBox(height: AppSpacing.xl),
+                      TextFormField(
+                        controller: _current,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Current Password',
+                          prefixIcon: Icon(Icons.lock_outline_rounded),
+                        ),
+                        validator: LoginValidators.password,
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      TextFormField(
+                        controller: _password,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'New Password',
+                          prefixIcon: Icon(Icons.lock_rounded),
+                        ),
+                        validator: _newPassword,
+                      ),
+                      const SizedBox(height: AppSpacing.md),
+                      TextFormField(
+                        controller: _confirmation,
+                        obscureText: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Confirm New Password',
+                          prefixIcon: Icon(Icons.lock_rounded),
+                        ),
+                        validator: (value) => value != _password.text
+                            ? 'Passwords do not match.'
+                            : null,
+                      ),
+                      const SizedBox(height: AppSpacing.lg),
+                      ListenableBuilder(
+                        listenable: widget.auth,
+                        builder: (_, _) => FilledButton(
+                          onPressed: widget.auth.loading ? null : _submit,
+                          child: Text(
+                            widget.auth.loading
+                                ? 'Updating…'
+                                : 'Change Password',
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }

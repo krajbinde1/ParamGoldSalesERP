@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 import '../../../core/api/api_client.dart';
 import '../../../core/design/app_colors.dart';
 import '../../../core/design/app_spacing.dart';
+import '../../../core/navigation/navigation_guard.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
@@ -146,6 +147,7 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
   Future<DirectorDashboardData> _load() => _api.loadDashboard(period: 'month');
 
   Future<void> _reload() async {
+    if (!mounted) return;
     setState(() {
       _future = _load();
       _refreshNonce++;
@@ -155,8 +157,11 @@ class _DirectorDashboardScreenState extends State<DirectorDashboardScreen> {
 
   Future<void> _open(String path) async {
     await context.push(path);
-    if (!mounted) return;
-    _reload();
+    if (!context.mounted) return;
+    await afterNavigation(context, () async {
+      if (!mounted) return;
+      await _reload();
+    });
   }
 
   @override
@@ -348,6 +353,8 @@ class _DirectorHeader extends StatelessWidget {
                           size: 22,
                         ),
                       ),
+                      const SizedBox(width: 8),
+                      _HeaderAccountMenu(auth: auth),
                     ],
                   ),
                   const SizedBox(height: 16),
@@ -419,6 +426,58 @@ class _DirectorHeader extends StatelessWidget {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _HeaderAccountMenu extends StatelessWidget {
+  const _HeaderAccountMenu({required this.auth});
+
+  final AuthController auth;
+
+  @override
+  Widget build(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Account',
+      onSelected: (value) async {
+        switch (value) {
+          case 'profile':
+            context.push('/profile');
+          case 'password':
+            context.push('/change-password');
+        }
+      },
+      itemBuilder: (_) => const [
+        PopupMenuItem(
+          value: 'profile',
+          child: ListTile(
+            dense: true,
+            leading: Icon(Icons.person_outline),
+            title: Text('My Profile'),
+          ),
+        ),
+        PopupMenuItem(
+          value: 'password',
+          child: ListTile(
+            dense: true,
+            leading: Icon(Icons.password_outlined),
+            title: Text('Change Password'),
+          ),
+        ),
+      ],
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.16),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.22)),
+        ),
+        child: const Icon(
+          Icons.more_horiz_rounded,
+          color: Colors.white,
         ),
       ),
     );

@@ -178,6 +178,7 @@ final class PaymentFollowUpService
         $overdue = array_values(array_filter($rows, fn (array $row): bool => ($row['display_status'] ?? '') === 'overdue'));
         $dueToday = array_values(array_filter($rows, fn (array $row): bool => ($row['display_status'] ?? '') === 'due_today'));
         $paidToday = array_values(array_filter($rows, fn (array $row): bool => (bool) ($row['paid_today'] ?? false)));
+        $upcoming = $this->upcomingCommitments($rows, $today);
         $totalDue = round(array_reduce(
             $rows,
             fn (float $sum, array $row): float => $sum + max((float) $row['current_outstanding'], 0),
@@ -200,11 +201,65 @@ final class PaymentFollowUpService
             'today_actions' => [
                 'overdue' => $overdue,
                 'due_today' => $dueToday,
+                'upcoming' => $upcoming,
                 'payments_received_today' => $paidToday,
             ],
             'employee_performance' => $this->employeeRecoveryPerformance($rows),
             'data' => $rows,
         ];
+    }
+
+    /**
+     * Future-dated open commitments only (after today), nearest date first.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    private function upcomingCommitments(array $rows, string $today): array
+    {
+        $upcoming = array_values(array_filter(
+            $rows,
+            function (array $row) use ($today): bool {
+                if (($row['status'] ?? '') !== PaymentFollowUpStatus::UPCOMING) {
+                    return false;
+                }
+                $date = (string) ($row['next_follow_up_date'] ?? '');
+
+                return $date !== '' && $date > $today;
+            },
+        ));
+
+        usort($upcoming, function (array $left, array $right): int {
+            $date = strcmp(
+                (string) ($left['next_follow_up_date'] ?? '9999-12-31'),
+                (string) ($right['next_follow_up_date'] ?? '9999-12-31'),
+            );
+            if ($date !== 0) {
+                return $date;
+            }
+
+            return strcasecmp(
+                (string) ($left['dealer_name'] ?? ''),
+                (string) ($right['dealer_name'] ?? ''),
+            );
+        });
+
+        $todayStart = Carbon::parse($today, PaymentFollowUpStatus::TIMEZONE)->startOfDay()->getTimestamp();
+
+        return array_map(function (array $row) use ($todayStart): array {
+            $date = (string) ($row['next_follow_up_date'] ?? '');
+            $days = 0;
+            if ($date !== '') {
+                $commitmentStart = Carbon::parse($date, PaymentFollowUpStatus::TIMEZONE)
+                    ->startOfDay()
+                    ->getTimestamp();
+                $days = (int) round(($commitmentStart - $todayStart) / 86400);
+            }
+            $row['days_remaining'] = max($days, 0);
+            $row['employee_name'] = (string) ($row['assigned_employee_name'] ?? $row['employee_name'] ?? '');
+
+            return $row;
+        }, array_values($upcoming));
     }
 
     /**

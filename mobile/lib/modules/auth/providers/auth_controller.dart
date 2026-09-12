@@ -157,6 +157,27 @@ class AuthController extends ChangeNotifier {
     }
   }
 
+  Future<bool> updateProfilePhoto(String filePath) async {
+    final current = session;
+    if (current == null || loading) return false;
+
+    loading = true;
+    message = null;
+    _notify();
+    try {
+      session = await _repository.updateProfilePhoto(current, filePath);
+      return true;
+    } catch (error) {
+      message = error is AuthApiException
+          ? _shortConnectionMessage(error.message)
+          : _shortConnectionMessage(errorMessage(error));
+      return false;
+    } finally {
+      loading = false;
+      _notify();
+    }
+  }
+
   Future<void> logout() async {
     if (loading) return;
 

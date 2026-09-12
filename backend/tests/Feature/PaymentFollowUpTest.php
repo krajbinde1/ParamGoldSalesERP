@@ -866,3 +866,111 @@ it('returns zero manager payment follow-up action required when the manager has 
     expect($list->json('data'))->toBe([])
         ->and($list->json('employees'))->toBe([]);
 });
+
+it('lists upcoming commitments on director and manager payment recovery', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-10 10:00:00', 'Asia/Kolkata'));
+
+    $director = paymentFollowUpDirector();
+    $manager = paymentFollowUpManager('9811300401');
+    $otherManager = paymentFollowUpManager('9811300402');
+    $report = paymentFollowUpEmployee('9811300403');
+    $peer = paymentFollowUpEmployee('9811300404');
+    $foreign = paymentFollowUpEmployee('9811300405');
+    $report->update(['reporting_manager_id' => $manager->id]);
+    $foreign->update(['reporting_manager_id' => $otherManager->id]);
+
+    $soon = paymentFollowUpDealer($report, 'Soon Commitment Dealer');
+    $later = paymentFollowUpDealer($report, 'Later Commitment Dealer');
+    $peerDealer = paymentFollowUpDealer($peer, 'Peer Upcoming Dealer');
+    $foreignDealer = paymentFollowUpDealer($foreign, 'Foreign Upcoming Dealer');
+    $dueTodayDealer = paymentFollowUpDealer($report, 'Due Today Not Upcoming');
+
+    $this->actingAs($report->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$soon->id, [
+            'remark' => 'Nearest promise',
+            'expected_amount' => 12000,
+            'next_follow_up_date' => '2026-09-12',
+        ])
+        ->assertCreated();
+
+    $this->actingAs($report->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$later->id, [
+            'remark' => 'Later promise',
+            'expected_amount' => 18000,
+            'next_follow_up_date' => '2026-09-20',
+        ])
+        ->assertCreated();
+
+    $this->actingAs($peer->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$peerDealer->id, [
+            'remark' => 'Peer promise',
+            'expected_amount' => 9000,
+            'next_follow_up_date' => '2026-09-14',
+        ])
+        ->assertCreated();
+
+    $this->actingAs($foreign->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$foreignDealer->id, [
+            'remark' => 'Other team promise',
+            'expected_amount' => 7000,
+            'next_follow_up_date' => '2026-09-13',
+        ])
+        ->assertCreated();
+
+    $this->actingAs($report->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dueTodayDealer->id, [
+            'remark' => 'Due today',
+            'expected_amount' => 5000,
+            'next_follow_up_date' => '2026-09-10',
+        ])
+        ->assertCreated();
+
+    $directorAll = $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/payment-follow-ups')
+        ->assertOk();
+
+    $directorUpcoming = collect($directorAll->json('today_actions.upcoming'));
+    $directorNames = $directorUpcoming->pluck('dealer_name')->all();
+
+    expect($directorNames)->toBe([
+        'Soon Commitment Dealer',
+        'Foreign Upcoming Dealer',
+        'Peer Upcoming Dealer',
+        'Later Commitment Dealer',
+    ])
+        ->and($directorNames)->not->toContain('Due Today Not Upcoming')
+        ->and($directorAll->json('today_actions.due_today.0.dealer_name'))->toBe('Due Today Not Upcoming')
+        ->and((int) $directorUpcoming[0]['days_remaining'])->toBe(2)
+        ->and((float) $directorUpcoming[0]['expected_amount'])->toBe(12000.0)
+        ->and($directorUpcoming[0]['employee_name'])->toBe($report->full_name)
+        ->and($directorUpcoming[0]['next_follow_up_date'])->toBe('2026-09-12');
+
+    $directorFiltered = $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/payment-follow-ups?employee_id='.$report->id)
+        ->assertOk();
+
+    expect(collect($directorFiltered->json('today_actions.upcoming'))->pluck('dealer_name')->all())
+        ->toBe(['Soon Commitment Dealer', 'Later Commitment Dealer']);
+
+    $managerList = $this->actingAs($manager->user, 'sanctum')
+        ->getJson('/api/manager/payment-follow-ups')
+        ->assertOk();
+
+    expect(collect($managerList->json('today_actions.upcoming'))->pluck('dealer_name')->all())
+        ->toBe(['Soon Commitment Dealer', 'Later Commitment Dealer'])
+        ->and(collect($managerList->json('today_actions.upcoming'))->pluck('dealer_name')->all())
+        ->not->toContain('Peer Upcoming Dealer')
+        ->and(collect($managerList->json('today_actions.upcoming'))->pluck('dealer_name')->all())
+        ->not->toContain('Foreign Upcoming Dealer');
+
+    $managerFiltered = $this->actingAs($manager->user, 'sanctum')
+        ->getJson('/api/manager/payment-follow-ups?employee_id='.$report->id)
+        ->assertOk();
+
+    expect(collect($managerFiltered->json('today_actions.upcoming'))->pluck('dealer_name')->all())
+        ->toBe(['Soon Commitment Dealer', 'Later Commitment Dealer']);
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->getJson('/api/manager/payment-follow-ups?employee_id='.$foreign->id)
+        ->assertForbidden();
+});

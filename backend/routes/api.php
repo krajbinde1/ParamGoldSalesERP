@@ -81,6 +81,7 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
     Route::post('logout', [EmployeeAuthController::class, 'logout']);
     Route::get('me', [EmployeeAuthController::class, 'me']);
     Route::post('change-password', [EmployeeAuthController::class, 'changePassword']);
+    Route::post('profile-photo', [EmployeeAuthController::class, 'updateProfilePhoto']);
 
     Route::post('device-tokens', [DeviceTokenController::class, 'store']);
     Route::delete('device-tokens', [DeviceTokenController::class, 'destroy']);

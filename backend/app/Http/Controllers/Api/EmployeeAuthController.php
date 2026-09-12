@@ -118,6 +118,34 @@ class EmployeeAuthController extends Controller
         ]);
     }
 
+    public function updateProfilePhoto(Request $request): JsonResponse
+    {
+        $request->validate([
+            'photo' => ['required', 'file', 'image', 'max:2048', 'mimes:jpeg,jpg,png,webp'],
+        ]);
+
+        $user = $request->user()->load('employee');
+        $employee = $user->employee;
+        abort_if($employee === null, 403, 'Employee profile not found.');
+
+        $oldPath = $employee->profile_photo_path;
+        $path = $request->file('photo')->store('employees/profile-photos', 'public');
+
+        $employee->update(['profile_photo_path' => $path]);
+
+        if (is_string($oldPath) && $oldPath !== '' && $oldPath !== $path) {
+            Storage::disk('public')->delete($oldPath);
+        }
+
+        $employee = $employee->fresh(['reportingManager']);
+
+        return response()->json([
+            'success' => true,
+            'message' => 'Profile photo updated.',
+            'employee' => $this->employeeData($employee),
+        ]);
+    }
+
     public function logout(Request $request): JsonResponse
     {
         $user = $request->user();
@@ -181,10 +209,20 @@ class EmployeeAuthController extends Controller
             'reporting_manager' => $employee->reportingManager?->full_name,
             'base_location' => $employee->base_location,
             'joining_date' => $employee->joining_date?->toDateString(),
-            'profile_photo_url' => $employee->profile_photo_path
-                ? Storage::disk('public')->url($employee->profile_photo_path)
-                : null,
+            'profile_photo_url' => $this->profilePhotoUrl($employee),
             'active' => (bool) $employee->status,
         ];
+    }
+
+    private function profilePhotoUrl(Employee $employee): ?string
+    {
+        if (! $employee->profile_photo_path) {
+            return null;
+        }
+
+        $url = Storage::disk('public')->url($employee->profile_photo_path);
+        $version = $employee->updated_at?->getTimestamp() ?? time();
+
+        return $url.(str_contains($url, '?') ? '&' : '?').'v='.$version;
     }
 }
