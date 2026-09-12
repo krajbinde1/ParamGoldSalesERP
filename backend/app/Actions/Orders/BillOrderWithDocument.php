@@ -52,7 +52,12 @@ final class BillOrderWithDocument
         )->validate();
 
         return DB::transaction(function () use ($order, $actor, $bill, $billNumber, $remark, $billDate): array {
-            $path = str_replace('\\', '/', $bill->store('order-bills', 'public'));
+            $filename = $this->originalBillFilename($bill);
+            $path = str_replace('\\', '/', $bill->storeAs(
+                'order-bills/'.$order->id,
+                $filename,
+                'public',
+            ));
 
             $order->markAsBilled(
                 userId: $actor->id,
@@ -66,5 +71,22 @@ final class BillOrderWithDocument
                 'order' => $order->fresh(),
             ];
         });
+    }
+
+    /**
+     * Keep the uploaded document name exactly as the stored/WhatsApp filename.
+     * Collision safety comes from the per-order directory, not a generated name.
+     */
+    private function originalBillFilename(UploadedFile $bill): string
+    {
+        $name = str_replace(["\0", '/', '\\'], '', basename((string) $bill->getClientOriginalName()));
+        $name = trim($name);
+
+        if ($name === '' || $name === '.' || $name === '..') {
+            $extension = strtolower((string) $bill->getClientOriginalExtension());
+            $name = $extension !== '' ? 'bill.'.$extension : 'bill.pdf';
+        }
+
+        return $name;
     }
 }

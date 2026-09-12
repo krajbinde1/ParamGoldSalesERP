@@ -313,6 +313,76 @@ it('allows admin to reject pending and approved orders with remarks', function (
         ->and($fresh->displayStatusLabel())->toBe('Rejected by Admin');
 });
 
+it('stores billed pdfs using the original uploaded filename', function () {
+    Storage::fake('public');
+
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000091');
+    $manager = orderWorkflowEmployee(UserRole::Manager, '9200000092');
+    $production = orderWorkflowEmployee(UserRole::ProductionSupervisor, '9200000093');
+    $admin = orderWorkflowAdmin();
+
+    $first = orderWorkflowPending($employee->id);
+    $first->approve($manager->user->id);
+    app(SendOrderForBilling::class)->execute(
+        order: $first->fresh(),
+        actor: $production->user,
+        vehicleNumber: 'MH12FN0001',
+        transportFreight: 50,
+        transportChargeType: 'transport_extra',
+    );
+
+    app(BillOrderWithDocument::class)->execute(
+        order: $first->fresh(),
+        actor: $admin,
+        bill: UploadedFile::fake()->create('PG-26-27-0528.pdf', 100, 'application/pdf'),
+        billNumber: 'PG-26-27-0528',
+    );
+
+    $first = $first->fresh();
+    $expectedFirst = 'order-bills/'.$first->id.'/PG-26-27-0528.pdf';
+
+    expect($first->bill_path)->toBe($expectedFirst)
+        ->and($first->billDocumentFilename())->toBe('PG-26-27-0528.pdf');
+    Storage::disk('public')->assertExists($expectedFirst);
+
+    $second = orderWorkflowPending($employee->id);
+    $second->approve($manager->user->id);
+    app(SendOrderForBilling::class)->execute(
+        order: $second->fresh(),
+        actor: $production->user,
+        vehicleNumber: 'MH12FN0002',
+        transportFreight: 50,
+        transportChargeType: 'transport_extra',
+    );
+
+    app(BillOrderWithDocument::class)->execute(
+        order: $second->fresh(),
+        actor: $admin,
+        bill: UploadedFile::fake()->create('PG-26-27-0528.pdf', 100, 'application/pdf'),
+        billNumber: 'PG-26-27-0528-B',
+    );
+
+    $second = $second->fresh();
+    $expectedSecond = 'order-bills/'.$second->id.'/PG-26-27-0528.pdf';
+
+    expect($second->bill_path)->toBe($expectedSecond)
+        ->and($second->bill_path)->not->toBe($first->bill_path)
+        ->and($second->billDocumentFilename())->toBe('PG-26-27-0528.pdf');
+    Storage::disk('public')->assertExists($expectedFirst);
+    Storage::disk('public')->assertExists($expectedSecond);
+});
+
+it('keeps previously stored hashed bill filenames unchanged', function () {
+    $employee = orderWorkflowEmployee(UserRole::Employee, '9200000094');
+    $order = orderWorkflowPending($employee->id);
+    $hashedPath = 'order-bills/a1b2c3d4e5f6g7h8i9j0k1l2.pdf';
+
+    $order->forceFill(['bill_path' => $hashedPath])->saveQuietly();
+
+    expect($order->fresh()->billDocumentFilename())->toBe('a1b2c3d4e5f6g7h8i9j0k1l2.pdf')
+        ->and($order->fresh()->bill_path)->toBe($hashedPath);
+});
+
 it('allows admin to reject billed and dispatched orders with remarks', function () {
     Storage::fake('public');
 

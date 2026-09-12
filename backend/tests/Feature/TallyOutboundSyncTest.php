@@ -238,6 +238,7 @@ it('does not enqueue a sales voucher when an order is created already dispatched
 
 it('rejects unauthenticated tally connector requests', function (): void {
     $this->getJson('/api/tally-connector/pending')->assertUnauthorized();
+    $this->getJson('/api/tally-connector/heartbeat')->assertUnauthorized();
 });
 
 it('rejects sanctum actingAs without a connector token', function (): void {
@@ -251,6 +252,17 @@ it('rejects mobile session tokens for the tally API', function (): void {
     $mobileToken = $user->createToken(MobileSessionService::TOKEN_NAME, [MobileSessionService::TOKEN_NAME])->plainTextToken;
 
     $this->withToken($mobileToken)->getJson('/api/tally-connector/pending')->assertForbidden();
+});
+
+it('authenticates the tally connector heartbeat without querying vouchers', function (): void {
+    $user = tallySyncConnectorUser();
+    $token = tallySyncConnectorToken($user);
+
+    $this->withToken($token)
+        ->getJson('/api/tally-connector/heartbeat')
+        ->assertOk()
+        ->assertJsonPath('success', true)
+        ->assertJsonPath('message', 'Tally connector authenticated.');
 });
 
 it('claims and marks a pending sales voucher as synced', function (): void {

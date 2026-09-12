@@ -1,6 +1,7 @@
 <?php
 
 use App\Actions\Employees\CreateEmployeeWithUserAccount;
+use App\Actions\Orders\BillOrderWithDocument;
 use App\Enums\UserRole;
 use App\Filament\Resources\Orders\Pages\ViewOrder;
 use App\Filament\Resources\WhatsAppOutboundMessages\Pages\ListWhatsAppOutboundMessages;
@@ -16,6 +17,7 @@ use App\Models\User;
 use App\Models\WhatsAppOutboundMessage;
 use App\Services\PaymentFollowUps\PaymentFollowUpCommitmentService;
 use App\Services\WhatsApp\WhatsAppOutboundEnqueueService;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
@@ -147,6 +149,39 @@ it('queues one bill whatsapp message when an order is marked billed', function (
 
     app(WhatsAppOutboundEnqueueService::class)->queueBilledOrder($order->fresh());
     expect(WhatsAppOutboundMessage::query()->where('source_id', $order->id)->where('source_type', WhatsAppOutboundMessage::SOURCE_BILL)->count())->toBe(1);
+});
+
+it('uses the original uploaded bill pdf name as the whatsapp document filename', function (): void {
+    Queue::fake();
+    Http::fake();
+    Storage::fake('public');
+
+    $employee = waEmployee('9814000099');
+    $dealer = waDealer($employee, ['firm_name' => 'Filename Dealer', 'mobile' => '9000000099']);
+    $order = waPendingOrder($dealer, $employee);
+    $admin = User::query()->create([
+        'name' => 'WA Admin',
+        'email' => 'admin.wa.'.uniqid().'@example.com',
+        'password' => 'password',
+        'role' => UserRole::Director->value,
+        'job_role' => 'Admin',
+    ]);
+
+    app(BillOrderWithDocument::class)->execute(
+        order: $order,
+        actor: $admin,
+        bill: UploadedFile::fake()->create('PG-26-27-0528.pdf', 100, 'application/pdf'),
+        billNumber: 'PG-26-27-0528',
+    );
+
+    $message = WhatsAppOutboundMessage::query()
+        ->where('erp_reference', 'WA-BILL-'.$order->id)
+        ->first();
+
+    expect($message)->not->toBeNull()
+        ->and($order->fresh()->bill_path)->toBe('order-bills/'.$order->id.'/PG-26-27-0528.pdf')
+        ->and($message->payload['filename'])->toBe('PG-26-27-0528.pdf')
+        ->and($message->payload['bill_path'])->toBe('order-bills/'.$order->id.'/PG-26-27-0528.pdf');
 });
 
 it('does not call meta when credentials are missing and leaves the message pending', function (): void {

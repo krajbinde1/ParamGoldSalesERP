@@ -324,7 +324,7 @@ class OrderInfolist
                         TextEntry::make('bill_path')
                             ->label('Bill PDF')
                             ->formatStateUsing(fn (?string $state, Order $record): string => filled($record->billUrl())
-                                ? 'View Bill / Download PDF'
+                                ? ($record->billDocumentFilename() ?? 'View Bill / Download PDF')
                                 : '—')
                             ->url(fn (?string $state, Order $record): ?string => $record->billUrl())
                             ->openUrlInNewTab()

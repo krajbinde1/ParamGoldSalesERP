@@ -21,6 +21,7 @@ use App\Http\Controllers\Api\Director\DirectorRouteTrackingController;
 use App\Http\Controllers\Api\Director\DirectorTaDaClaimController;
 use App\Http\Controllers\Api\Director\PaymentRequestSupportingDocumentController;
 use App\Http\Controllers\Api\EmployeeAuthController;
+use App\Http\Controllers\Api\TallyConnectorController;
 use App\Http\Controllers\Api\EmployeeCollectionController;
 use App\Http\Controllers\Api\EmployeeCreditNoteController;
 use App\Http\Controllers\Api\EmployeeDashboardController;
@@ -341,9 +342,10 @@ Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
     Route::get('employee-routes/{attendance}', [AdminEmployeeRouteController::class, 'show']);
 });
 
-Route::middleware(['auth:sanctum', 'tally.connector', 'throttle:60,1'])
+Route::middleware(['auth:sanctum', 'tally.connector'])
     ->prefix('tally-connector')
     ->group(function (): void {
+        Route::get('heartbeat', [TallyConnectorController::class, 'heartbeat']);
         Route::get('pending', [TallyConnectorController::class, 'pending']);
         Route::get('live-balances', [TallyConnectorController::class, 'liveBalancesPoll']);
         Route::post('live-balances', [TallyConnectorController::class, 'liveBalances']);

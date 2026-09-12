@@ -10,6 +10,7 @@ import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
 import '../../../core/widgets/role_shell_widgets.dart';
 import '../../auth/providers/auth_controller.dart';
+import '../../auth/confirm_logout.dart';
 import '../api/director_api.dart';
 
 final _inr = NumberFormat.currency(locale: 'en_IN', symbol: '₹', decimalDigits: 0);
@@ -447,6 +448,8 @@ class _HeaderAccountMenu extends StatelessWidget {
             context.push('/profile');
           case 'password':
             context.push('/change-password');
+          case 'logout':
+            await confirmAndLogout(context, auth);
         }
       },
       itemBuilder: (_) => const [
@@ -464,6 +467,15 @@ class _HeaderAccountMenu extends StatelessWidget {
             dense: true,
             leading: Icon(Icons.password_outlined),
             title: Text('Change Password'),
+          ),
+        ),
+        PopupMenuDivider(),
+        PopupMenuItem(
+          value: 'logout',
+          child: ListTile(
+            dense: true,
+            leading: Icon(Icons.logout),
+            title: Text('Logout'),
           ),
         ),
       ],

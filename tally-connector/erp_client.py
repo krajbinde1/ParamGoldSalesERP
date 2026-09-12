@@ -35,6 +35,17 @@ class ErpClient:
             return {}
         return payload if isinstance(payload, dict) else {"data": payload}
 
+    def heartbeat(self) -> dict[str, Any]:
+        try:
+            response = self.session.get(self._url("heartbeat"), timeout=self.timeout)
+        except requests.RequestException as exc:
+            raise ErpApiError(f"ERP heartbeat request failed: {exc}") from exc
+
+        if response.status_code != 200:
+            raise ErpApiError(self._error_message(response), response.status_code)
+
+        return self._json(response)
+
     def pending(self, limit: int) -> list[dict[str, Any]]:
         try:
             response = self.session.get(
@@ -106,19 +117,22 @@ class ErpClient:
         return self._json(response)
 
     def _error_message(self, response: requests.Response) -> str:
+        url = response.url or self._url("")
         payload = self._json(response) if response.content else {}
         errors = payload.get("errors")
+        details: list[str] = []
         if isinstance(errors, dict):
-            parts: list[str] = []
             for value in errors.values():
                 if isinstance(value, list):
-                    parts.extend(str(item) for item in value)
+                    details.extend(str(item) for item in value)
                 else:
-                    parts.append(str(value))
-            if parts:
-                return " ".join(parts)
+                    details.append(str(value))
         message = payload.get("message")
         if isinstance(message, str) and message.strip():
-            return message.strip()
-        text = (response.text or "").strip()
-        return text[:500] if text else f"ERP HTTP {response.status_code}"
+            details.append(message.strip())
+        if not details:
+            text = (response.text or "").strip()
+            if text:
+                details.append(text[:800])
+        body = " ".join(details) if details else "no response body"
+        return f"HTTP {response.status_code} {url} — {body}"

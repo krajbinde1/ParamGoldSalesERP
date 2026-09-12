@@ -118,8 +118,10 @@ class _LoginScreenState extends State<LoginScreen> {
     final compact = media.height < 720;
     final topPad = compact ? AppSpacing.md : AppSpacing.xl;
 
-    return Scaffold(
-      body: PgAuthBackdrop(
+    return PopScope(
+      canPop: false,
+      child: Scaffold(
+        body: PgAuthBackdrop(
         child: SafeArea(
           child: Center(
             child: SingleChildScrollView(
@@ -298,6 +300,7 @@ class _LoginScreenState extends State<LoginScreen> {
             ),
           ),
         ),
+      ),
       ),
     );
   }

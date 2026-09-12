@@ -11,6 +11,7 @@ import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_empty_state.dart';
 import '../../../core/widgets/design/pg_quick_action.dart';
 import '../../auth/providers/auth_controller.dart';
+import '../../auth/confirm_logout.dart';
 import '../api/manager_api.dart';
 
 class ManagerDashboardScreen extends StatefulWidget {
@@ -523,7 +524,7 @@ class _HeaderAccountMenu extends StatelessWidget {
           case 'password':
             context.push('/change-password');
           case 'logout':
-            await auth.logout();
+            await confirmAndLogout(context, auth);
         }
       },
       itemBuilder: (_) => const [

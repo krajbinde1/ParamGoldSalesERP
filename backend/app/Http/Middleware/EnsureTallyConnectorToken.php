@@ -25,8 +25,16 @@ final class EnsureTallyConnectorToken
             abort(403, 'A Tally connector token is required.');
         }
 
-        if ($token->name !== TallyConnectorAuth::TOKEN_NAME
-            || ! $token->can(TallyConnectorAuth::ABILITY)) {
+        $hasAbility = false;
+        try {
+            $hasAbility = is_array($token->abilities)
+                && $token->name === TallyConnectorAuth::TOKEN_NAME
+                && $token->can(TallyConnectorAuth::ABILITY);
+        } catch (\Throwable) {
+            $hasAbility = false;
+        }
+
+        if (! $hasAbility) {
             abort(403, 'A Tally connector token is required.');
         }
 

@@ -18,6 +18,7 @@ import '../../attendance/models/attendance.dart';
 import '../../attendance/models/attendance_format.dart';
 import '../../attendance/providers/attendance_provider.dart';
 import '../../auth/providers/auth_controller.dart';
+import '../../auth/confirm_logout.dart';
 import '../../orders/api/order_api.dart';
 import '../../orders/models/order_dashboard_data.dart';
 import '../api/dashboard_api.dart';
@@ -623,7 +624,7 @@ class _HeaderAccountMenu extends StatelessWidget {
           case 'password':
             context.push('/change-password');
           case 'logout':
-            await auth.logout();
+            await confirmAndLogout(context, auth);
         }
       },
       itemBuilder: (_) => const [

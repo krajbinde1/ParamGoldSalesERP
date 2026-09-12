@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
+import '../../modules/auth/confirm_logout.dart';
 import '../../modules/auth/providers/auth_controller.dart';
 import '../design/app_colors.dart';
 import '../design/app_spacing.dart';
@@ -38,7 +39,7 @@ class RoleAppBar extends AppBar {
           actions: [
             ...?actions,
             _RoleNotificationsButton(auth: auth),
-            const _RoleAccountMenuButton(),
+            _RoleAccountMenuButton(auth: auth),
           ],
         );
 }
@@ -59,18 +60,22 @@ class _RoleNotificationsButton extends StatelessWidget {
 }
 
 class _RoleAccountMenuButton extends StatelessWidget {
-  const _RoleAccountMenuButton();
+  const _RoleAccountMenuButton({required this.auth});
+
+  final AuthController auth;
 
   @override
   Widget build(BuildContext context) {
     return PopupMenuButton<String>(
       tooltip: 'Account',
-      onSelected: (value) {
+      onSelected: (value) async {
         switch (value) {
           case 'profile':
             context.push('/profile');
           case 'password':
             context.push('/change-password');
+          case 'logout':
+            await confirmAndLogout(context, auth);
         }
       },
       itemBuilder: (_) => const [
@@ -88,6 +93,15 @@ class _RoleAccountMenuButton extends StatelessWidget {
             dense: true,
             leading: Icon(Icons.password_outlined),
             title: Text('Change Password'),
+          ),
+        ),
+        PopupMenuDivider(),
+        PopupMenuItem(
+          value: 'logout',
+          child: ListTile(
+            dense: true,
+            leading: Icon(Icons.logout),
+            title: Text('Logout'),
           ),
         ),
       ],

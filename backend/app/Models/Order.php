@@ -853,6 +853,17 @@ class Order extends Model
         return url('storage/'.ltrim(str_replace('\\', '/', $this->bill_path), '/'));
     }
 
+    public function billDocumentFilename(): ?string
+    {
+        if (blank($this->bill_path)) {
+            return null;
+        }
+
+        $name = basename(str_replace('\\', '/', (string) $this->bill_path));
+
+        return $name !== '' ? $name : null;
+    }
+
     public function receivedCopyUrl(): ?string
     {
         return PublicMediaUrl::fromPublicPath($this->received_copy_path);

@@ -31,10 +31,17 @@ def main() -> int:
     tally = TallyClient(settings.tally_url, settings.tally_company)
 
     try:
-        erp.pending(1)
+        erp.heartbeat()
     except ErpApiError as exc:
-        log("Failed", f"ERP connection failed: {exc}")
-        return 1
+        if exc.status_code == 404:
+            try:
+                erp.pending(1)
+            except ErpApiError as pending_exc:
+                log("Failed", f"ERP connection failed: {pending_exc}")
+                return 1
+        else:
+            log("Failed", f"ERP connection failed: {exc}")
+            return 1
 
     log(
         "Connected",
