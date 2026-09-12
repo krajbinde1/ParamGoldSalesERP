@@ -216,4 +216,67 @@ void main() {
       expect(tester.takeException(), isNull);
     },
   );
+
+  testWidgets(
+    'payment recovery no follow-up set card shows dealer, employee, outstanding, and set action',
+    (tester) async {
+      var setFollowUpTapped = false;
+
+      await tester.pumpWidget(
+        wrap(
+          ListView(
+            padding: const EdgeInsets.all(16),
+            children: [
+              PgCard(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 12,
+                ),
+                child: const Row(
+                  children: [
+                    Text('⚪'),
+                    SizedBox(width: 10),
+                    Expanded(child: Text('No Follow-up Set')),
+                    Text('2'),
+                    Icon(Icons.chevron_right_rounded),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 8),
+              PgCard(
+                padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Unset Recovery Dealer A'),
+                    const Text('Follow-up Employee 9811300503'),
+                    const Text('Current Outstanding'),
+                    const Text('₹80,000'),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: FilledButton(
+                        onPressed: () => setFollowUpTapped = true,
+                        child: const Text('Set Follow-up'),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+
+      expect(find.text('No Follow-up Set'), findsOneWidget);
+      expect(find.text('Unset Recovery Dealer A'), findsOneWidget);
+      expect(find.text('Follow-up Employee 9811300503'), findsOneWidget);
+      expect(find.text('Current Outstanding'), findsOneWidget);
+      expect(find.text('Set Follow-up'), findsOneWidget);
+
+      await tester.tap(find.text('Set Follow-up'));
+      await tester.pump();
+      expect(setFollowUpTapped, isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
 }

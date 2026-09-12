@@ -338,6 +338,14 @@ it('claims and marks a pending sales voucher as synced', function (): void {
         ->assertJsonPath('data.tally_voucher_no', 'SL-9001');
 
     expect($voucher->fresh()->payload['order']['bill_number'])->toBe('BILL-API');
+
+    $ledger = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $order->id)
+        ->first();
+    expect($ledger?->tally_voucher_no)->toBe('SL-9001')
+        ->and($ledger?->tally_master_id)->toBe('remote-1')
+        ->and($ledger?->erp_reference)->toBe(DealerTallyEntry::salesErpReference((int) $order->id));
 });
 
 it('omits failed unmapped vouchers from pending and rejects claim', function (): void {
@@ -541,3 +549,135 @@ it('does not reset a tally xml failure when mapping is saved', function (): void
         ->and(app(TallyOutboundEnqueueService::class)->postingStatus($collection->fresh())['label'])->toBe('Failed')
         ->and(app(TallyOutboundEnqueueService::class)->postingStatus($collection->fresh())['error'])->toBe('Could not find ledger Cash');
 });
+
+function tallySyncHistoricalReceivedCollection(Dealer $dealer, Employee $employee): Collection
+{
+    $collection = tallySyncPendingCollection($dealer, $employee);
+
+    Collection::withoutEvents(function () use ($collection): void {
+        $collection->forceFill([
+            'status' => Collection::STATUS_RECEIVED,
+            'received_at' => null,
+        ])->save();
+    });
+
+    return $collection->fresh() ?? $collection;
+}
+
+it('does not queue a tally receipt for collections already received before 12 sep 2026', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-12 10:00:00', 'Asia/Kolkata'));
+    $employee = tallySyncEmployee('9813000201');
+    $dealer = tallySyncDealer($employee);
+    tallySyncMapDealer($dealer, 'Historical Receipt Party');
+    $collection = tallySyncHistoricalReceivedCollection($dealer, $employee);
+    $ledgerBefore = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_COLLECTION)
+        ->where('source_id', $collection->id)
+        ->count();
+
+    app(TallyOutboundEnqueueService::class)->queueReceivedCollection($collection->fresh());
+    app(TallyOutboundEnqueueService::class)->requeueReceivedCollectionsForDealer($dealer);
+
+    expect($collection->fresh()->status)->toBe(Collection::STATUS_RECEIVED)
+        ->and($collection->fresh()->received_at)->toBeNull()
+        ->and($collection->fresh()->amount)->toEqual(5000.0)
+        ->and(TallyOutboundVoucher::query()->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(0)
+        ->and(app(TallyOutboundEnqueueService::class)->postingStatus($collection->fresh())['label'])->toBe('Not sent (before 12 Sep 2026)')
+        ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe($ledgerBefore);
+
+    Carbon::setTestNow();
+});
+
+it('does not requeue historical received collections after mapping is saved or live tally sync', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-12 10:00:00', 'Asia/Kolkata'));
+    $employee = tallySyncEmployee('9813000202');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Historical Mapped Collection']);
+    $collection = tallySyncHistoricalReceivedCollection($dealer, $employee);
+
+    TallyConnectorLedger::query()->create([
+        'tally_ledger_guid' => 'aaaaaaaa-bbbb-cccc-dddd-666666666666',
+        'tally_ledger_name' => 'Historical Mapped Party',
+        'tally_ledger_name_normalized' => 'historical mapped party',
+        'last_seen_at' => now('Asia/Kolkata'),
+    ]);
+    app(TallyDealerMappingService::class)->assign($dealer, 'aaaaaaaa-bbbb-cccc-dddd-666666666666');
+
+    expect(TallyOutboundVoucher::query()->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(0);
+
+    app(TallyLiveBalanceService::class)->ingest('office-pc-hist', true, [[
+        'tally_ledger_name' => 'Historical Mapped Party',
+        'tally_ledger_guid' => 'aaaaaaaa-bbbb-cccc-dddd-666666666666',
+        'closing_balance' => 100,
+        'closing_balance_type' => 'debit',
+    ]]);
+
+    expect(TallyOutboundVoucher::query()->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(0);
+
+    Carbon::setTestNow();
+});
+
+it('skips leftover historical receipt outbox rows so deleted tally vouchers are not resent', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-12 10:00:00', 'Asia/Kolkata'));
+    $user = tallySyncConnectorUser();
+    $employee = tallySyncEmployee('9813000203');
+    $dealer = tallySyncDealer($employee);
+    tallySyncMapDealer($dealer, 'Stale Receipt Party');
+    $collection = tallySyncHistoricalReceivedCollection($dealer, $employee);
+
+    $voucher = TallyOutboundVoucher::query()->create([
+        'source_type' => TallyOutboundVoucher::SOURCE_COLLECTION,
+        'source_id' => $collection->id,
+        'voucher_type' => TallyOutboundVoucher::VOUCHER_RECEIPT,
+        'erp_reference' => TallyOutboundVoucher::receiptReference((int) $collection->id),
+        'payload' => ['erp_reference' => TallyOutboundVoucher::receiptReference((int) $collection->id)],
+        'status' => TallyOutboundVoucher::STATUS_PENDING,
+        'attempts' => 0,
+    ]);
+    $token = tallySyncConnectorToken($user);
+
+    $this->withToken($token)
+        ->getJson('/api/tally-connector/pending')
+        ->assertOk()
+        ->assertJsonMissing(['id' => $voucher->id]);
+
+    expect($voucher->fresh()->status)->toBe(TallyOutboundVoucher::STATUS_SKIPPED)
+        ->and(TallyOutboundVoucher::query()->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(1);
+
+    app(TallyOutboundEnqueueService::class)->queueReceivedCollection($collection->fresh());
+
+    expect(TallyOutboundVoucher::query()->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(1)
+        ->and($voucher->fresh()->status)->toBe(TallyOutboundVoucher::STATUS_SKIPPED);
+
+    $this->withToken($token)
+        ->postJson('/api/tally-connector/vouchers/'.$voucher->id.'/claim')
+        ->assertUnprocessable();
+
+    Carbon::setTestNow();
+});
+
+it('queues one tally receipt only when a collection is newly marked received on or after 12 sep 2026', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-11 23:59:00', 'Asia/Kolkata'));
+    $employee = tallySyncEmployee('9813000204');
+    $dealer = tallySyncDealer($employee);
+    tallySyncMapDealer($dealer, 'Cutoff Receipt Party');
+    $tooEarly = tallySyncPendingCollection($dealer, $employee);
+    $tooEarly->transitionTo(Collection::STATUS_RECEIVED);
+
+    expect(TallyOutboundVoucher::query()->where('source_id', $tooEarly->id)->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)->count())->toBe(0)
+        ->and($tooEarly->fresh()->received_at?->timezone('Asia/Kolkata')->toDateString())->toBe('2026-09-11');
+
+    Carbon::setTestNow(Carbon::parse('2026-09-12 00:00:00', 'Asia/Kolkata'));
+    app(TallyOutboundEnqueueService::class)->queueReceivedCollection($tooEarly->fresh());
+    expect(TallyOutboundVoucher::query()->where('source_id', $tooEarly->id)->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)->count())->toBe(0);
+
+    $onCutoff = tallySyncPendingCollection($dealer, $employee);
+    $onCutoff->transitionTo(Collection::STATUS_RECEIVED);
+    app(TallyOutboundEnqueueService::class)->queueReceivedCollection($onCutoff->fresh());
+
+    expect(TallyOutboundVoucher::query()->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)->where('source_id', $onCutoff->id)->count())->toBe(1)
+        ->and(TallyOutboundVoucher::query()->where('erp_reference', 'ERP-COL-'.$onCutoff->id)->value('status'))->toBe(TallyOutboundVoucher::STATUS_PENDING)
+        ->and($onCutoff->fresh()->received_at?->timezone('Asia/Kolkata')->toDateTimeString())->toBe('2026-09-12 00:00:00');
+
+    Carbon::setTestNow();
+});
+

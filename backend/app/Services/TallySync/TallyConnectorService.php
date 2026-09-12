@@ -2,7 +2,9 @@
 
 namespace App\Services\TallySync;
 
+use App\Models\Collection;
 use App\Models\TallyOutboundVoucher;
+use App\Services\Dealers\DealerSalesLedgerReconciler;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -18,6 +20,8 @@ final class TallyConnectorService
             $limit,
             (int) config('tally.connector.pending_limit_max', 50),
         ));
+
+        app(TallyOutboundEnqueueService::class)->skipIneligibleQueuedReceipts();
 
         return TallyOutboundVoucher::query()
             ->claimable()
@@ -39,9 +43,18 @@ final class TallyConnectorService
                 ]);
             }
 
-            if ($locked->isFailed()) {
+            if ($locked->isFailed() || $locked->isSkipped()) {
                 throw ValidationException::withMessages([
                     'status' => [$locked->last_error ?: 'This voucher is not ready to send to Tally.'],
+                ]);
+            }
+
+            if ($locked->source_type === TallyOutboundVoucher::SOURCE_COLLECTION
+                && ! $this->collectionReceiptIsSendable($locked)) {
+                app(TallyOutboundEnqueueService::class)->skipIneligibleQueuedReceipts();
+
+                throw ValidationException::withMessages([
+                    'status' => [TallyOutboundEnqueueService::ERROR_HISTORICAL_RECEIPT],
                 ]);
             }
 
@@ -79,9 +92,16 @@ final class TallyConnectorService
                 return $locked;
             }
 
-            if ($locked->isFailed()) {
+            if ($locked->isFailed() || $locked->isSkipped()) {
                 throw ValidationException::withMessages([
                     'status' => [$locked->last_error ?: 'This voucher is not ready to send to Tally.'],
+                ]);
+            }
+
+            if ($locked->source_type === TallyOutboundVoucher::SOURCE_COLLECTION
+                && ! $this->collectionReceiptIsSendable($locked)) {
+                throw ValidationException::withMessages([
+                    'status' => [TallyOutboundEnqueueService::ERROR_HISTORICAL_RECEIPT],
                 ]);
             }
 
@@ -94,7 +114,10 @@ final class TallyConnectorService
                 'claimed_until' => null,
             ]);
 
-            return $locked->fresh() ?? $locked;
+            $fresh = $locked->fresh() ?? $locked;
+            app(DealerSalesLedgerReconciler::class)->stampOutboundSalesSync($fresh);
+
+            return $fresh;
         });
     }
 
@@ -120,5 +143,13 @@ final class TallyConnectorService
 
             return $locked->fresh() ?? $locked;
         });
+    }
+
+    private function collectionReceiptIsSendable(TallyOutboundVoucher $voucher): bool
+    {
+        $collection = Collection::query()->withTrashed()->find($voucher->source_id);
+
+        return $collection instanceof Collection
+            && app(TallyOutboundEnqueueService::class)->isEligibleForTallyReceipt($collection);
     }
 }

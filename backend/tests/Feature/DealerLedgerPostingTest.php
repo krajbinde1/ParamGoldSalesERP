@@ -170,6 +170,7 @@ it('merges a tally sales bill into the matching erp sales order debit', function
         'status' => Order::STATUS_DISPATCHED,
         'grand_total' => 97249,
         'order_no' => 'PG-20260824-0016',
+        'order_date' => '2026-08-24',
         'dispatch_date' => '2026-08-24',
         'dispatched_at' => '2026-08-24 16:00:00',
     ]);
@@ -195,6 +196,7 @@ it('merges a tally sales bill into the matching erp sales order debit', function
         ->and((int) $entry?->source_id)->toBe($order->id)
         ->and($entry?->voucher_no)->toBe('PG/26-27/0465')
         ->and($entry?->tally_voucher_no)->toBe('PG/26-27/0465')
+        ->and($entry?->erp_reference)->toBe(DealerTallyEntry::salesErpReference((int) $order->id))
         ->and($entry?->voucher_type)->toBe('Sales')
         ->and($entry?->particulars)->toBe('Sales @5%')
         ->and($entry?->entry_date?->toDateString())->toBe('2026-08-25')
@@ -252,6 +254,7 @@ it('reconciles existing duplicate sales order and tally sales rows so outstandin
         'status' => Order::STATUS_DISPATCHED,
         'grand_total' => 97249,
         'order_no' => 'PG-20260824-0016',
+        'order_date' => '2026-08-24',
         'dispatch_date' => '2026-08-24',
         'dispatched_at' => '2026-08-24 16:00:00',
     ]);
@@ -282,15 +285,23 @@ it('reconciles existing duplicate sales order and tally sales rows so outstandin
         ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(194498.0);
 
     $reconciled = app(DealerSalesLedgerReconciler::class)->reconcileExistingDuplicates($dealer);
+    $erp = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $order->id)
+        ->first();
 
-    expect($reconciled)->toBe(0)
-        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2)
-        ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)->where('source_id', $order->id)->exists())->toBeTrue()
-        ->and(DealerTallyEntry::query()->where('source', TallyLedgerConfig::SOURCE)->where('voucher_no', 'PG/26-27/0465')->exists())->toBeTrue()
-        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(194498.0);
+    expect($reconciled)->toBe(1)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(1)
+        ->and($erp)->not->toBeNull()
+        ->and($erp?->voucher_no)->toBe('PG/26-27/0465')
+        ->and($erp?->tally_voucher_no)->toBe('PG/26-27/0465')
+        ->and($erp?->erp_reference)->toBe(DealerTallyEntry::salesErpReference((int) $order->id))
+        ->and($erp?->tally_reconciled_at)->not->toBeNull()
+        ->and(DealerTallyEntry::query()->where('source', TallyLedgerConfig::SOURCE)->where('voucher_no', 'PG/26-27/0465')->exists())->toBeFalse()
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(97249.0);
 });
 
-it('does not claim an imported tally sales bill as a later ERP order just because the debit amount matches', function (): void {
+it('attaches a unique tally-first sales bill to a later erp order inside the date window', function (): void {
     $employee = ledgerEmployee(UserRole::Employee, '9811199008');
     $dealer = ledgerDealer($employee, ['firm_name' => 'Tally First Dealer']);
     $admin = tallyImportAdmin();
@@ -314,27 +325,22 @@ it('does not claim an imported tally sales bill as a later ERP order just becaus
         'status' => Order::STATUS_DISPATCHED,
         'grand_total' => 97249,
         'order_no' => 'PG-20260824-0016',
+        'order_date' => '2026-08-24',
         'dispatch_date' => '2026-08-24',
         'dispatched_at' => '2026-08-24 16:00:00',
     ]);
 
-    $entry = DealerTallyEntry::query()->where('dealer_id', $dealer->id)->where('source', TallyLedgerConfig::SOURCE)->first();
-    $erp = DealerTallyEntry::query()
-        ->where('dealer_id', $dealer->id)
-        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
-        ->where('source_id', $order->id)
-        ->first();
+    $entry = DealerTallyEntry::query()->where('dealer_id', $dealer->id)->first();
 
-    expect(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2)
-        ->and($entry?->source)->toBe(TallyLedgerConfig::SOURCE)
-        ->and($entry?->source_id)->toBeNull()
+    expect(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(1)
+        ->and($entry?->source)->toBe(DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->and((int) $entry?->source_id)->toBe($order->id)
         ->and($entry?->voucher_no)->toBe('PG/26-27/0465')
+        ->and($entry?->tally_voucher_no)->toBe('PG/26-27/0465')
+        ->and($entry?->erp_reference)->toBe(DealerTallyEntry::salesErpReference((int) $order->id))
+        ->and($entry?->tally_reconciled_at)->not->toBeNull()
         ->and((float) $entry?->debit)->toBe(97249.0)
-        ->and($erp)->not->toBeNull()
-        ->and((float) $erp?->debit)->toBe(97249.0)
-        ->and($erp?->voucher_no)->toBe('PG-20260824-0016')
-        ->and($erp?->tally_reconciled_at)->toBeNull()
-        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(194498.0);
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(97249.0);
 });
 
 it('matches the sales order whose date is uniquely closest to the tally bill', function (): void {
@@ -904,4 +910,229 @@ it('releases a claimed historical tally debit of the same amount and posts the e
         ->and((float) $tallyAfter?->debit)->toBe(84525.0)
         ->and($tallyAfter?->voucher_no)->toBe('PG/26-27/0311')
         ->and($tallyAfter?->source_id)->not->toBe($order->id);
+});
+
+it('links the Renuka-style erp order and tally sales bill so the dealer is debited once', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811199020');
+    $dealer = ledgerDealer($employee, [
+        'firm_name' => 'Renuka Krushi Kendra (Deulgaon Mahi)',
+        'village' => 'Deulgaon Mahi',
+        'opening_balance' => 0,
+    ]);
+
+    $order = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 37776,
+        'order_no' => 'PG-20260822-0001',
+        'order_date' => '2026-08-22',
+        'dispatch_date' => '2026-08-22',
+        'dispatched_at' => '2026-08-22 16:00:00',
+    ]);
+
+    DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'entry_date' => '2026-08-25',
+        'particulars' => 'Sales @5%',
+        'voucher_type' => 'Sales',
+        'voucher_no' => 'PG/26-27/0478',
+        'debit' => 37776,
+        'credit' => 0,
+        'source' => TallyLedgerConfig::SOURCE,
+        'fingerprint' => DealerTallyEntry::makeFingerprint(
+            dealerId: (int) $dealer->id,
+            date: '2026-08-25',
+            voucherType: 'Sales',
+            voucherNo: 'PG/26-27/0478',
+            debit: 37776,
+            credit: 0,
+            particulars: 'Sales @5%',
+        ),
+        'source_row' => 4,
+    ]);
+
+    expect(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(75552.0);
+
+    $classified = app(DealerSalesLedgerReconciler::class)->classifyExistingDuplicates($dealer);
+    $this->artisan('ledger:link-tally-sales', ['--dealer' => (string) $dealer->id])
+        ->expectsOutputToContain('Dry-run')
+        ->expectsOutputToContain('Definite historical duplicates: 1')
+        ->assertSuccessful();
+
+    expect($classified['definite'])->toHaveCount(1)
+        ->and($classified['ambiguous'])->toHaveCount(0)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2);
+
+    $this->artisan('ledger:link-tally-sales', [
+        '--dealer' => (string) $dealer->id,
+        '--apply' => true,
+    ])->assertSuccessful();
+
+    $linked = DealerTallyEntry::query()
+        ->where('dealer_id', $dealer->id)
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $order->id)
+        ->first();
+
+    expect(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(1)
+        ->and($linked?->erp_reference)->toBe(DealerTallyEntry::salesErpReference((int) $order->id))
+        ->and($linked?->voucher_no)->toBe('PG/26-27/0478')
+        ->and($linked?->tally_voucher_no)->toBe('PG/26-27/0478')
+        ->and($linked?->tally_entry_date?->toDateString())->toBe('2026-08-25')
+        ->and($linked?->tally_reconciled_at)->not->toBeNull()
+        ->and((float) $linked?->debit)->toBe(37776.0)
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(37776.0);
+});
+
+it('does not merge genuine same-amount sales that fall outside the date window', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811199021');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Far Apart Same Amount']);
+
+    ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 37776,
+        'order_no' => 'PG-20260822-0001',
+        'order_date' => '2026-08-22',
+        'dispatch_date' => '2026-08-22',
+        'dispatched_at' => '2026-08-22 16:00:00',
+    ]);
+
+    DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'entry_date' => '2026-11-20',
+        'particulars' => 'Sales @5%',
+        'voucher_type' => 'Sales',
+        'voucher_no' => 'PG/26-27/0900',
+        'debit' => 37776,
+        'credit' => 0,
+        'source' => TallyLedgerConfig::SOURCE,
+        'fingerprint' => DealerTallyEntry::makeFingerprint(
+            dealerId: (int) $dealer->id,
+            date: '2026-11-20',
+            voucherType: 'Sales',
+            voucherNo: 'PG/26-27/0900',
+            debit: 37776,
+            credit: 0,
+            particulars: 'Sales @5%',
+        ),
+        'source_row' => 9,
+    ]);
+
+    $classified = app(DealerSalesLedgerReconciler::class)->classifyExistingDuplicates($dealer);
+    $reconciled = app(DealerSalesLedgerReconciler::class)->reconcileExistingDuplicates($dealer);
+
+    expect($classified['definite'])->toHaveCount(0)
+        ->and($classified['ambiguous'])->toHaveCount(1)
+        ->and($reconciled)->toBe(0)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2)
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(75552.0);
+});
+
+it('does not merge two genuine same-amount sales that share a date window', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811199022');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Two Same Amount Sales']);
+
+    ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 37776,
+        'order_no' => 'PG-20260822-0001',
+        'order_date' => '2026-08-22',
+        'dispatch_date' => '2026-08-22',
+        'dispatched_at' => '2026-08-22 10:00:00',
+    ]);
+    ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 37776,
+        'order_no' => 'PG-20260824-0002',
+        'order_date' => '2026-08-24',
+        'dispatch_date' => '2026-08-24',
+        'dispatched_at' => '2026-08-24 10:00:00',
+    ]);
+
+    foreach ([['2026-08-22', 'PG/26-27/0478'], ['2026-08-24', 'PG/26-27/0480']] as [$date, $voucher]) {
+        DealerTallyEntry::query()->create([
+            'dealer_id' => $dealer->id,
+            'entry_date' => $date,
+            'particulars' => 'Sales @5%',
+            'voucher_type' => 'Sales',
+            'voucher_no' => $voucher,
+            'debit' => 37776,
+            'credit' => 0,
+            'source' => TallyLedgerConfig::SOURCE,
+            'fingerprint' => DealerTallyEntry::makeFingerprint(
+                dealerId: (int) $dealer->id,
+                date: $date,
+                voucherType: 'Sales',
+                voucherNo: $voucher,
+                debit: 37776,
+                credit: 0,
+                particulars: 'Sales @5%',
+            ),
+            'source_row' => 1,
+        ]);
+    }
+
+    $classified = app(DealerSalesLedgerReconciler::class)->classifyExistingDuplicates($dealer);
+    $reconciled = app(DealerSalesLedgerReconciler::class)->reconcileExistingDuplicates($dealer);
+
+    expect($classified['definite'])->toHaveCount(0)
+        ->and($classified['ambiguous'])->toHaveCount(1)
+        ->and($reconciled)->toBe(0)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(4)
+        ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(151104.0);
+});
+
+it('never imports the same tally sales guid twice and keeps the original erp debit', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811199023');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Guid Linked Dealer']);
+    $guid = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaa1';
+
+    $order = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 15000,
+        'order_no' => 'PG-20260822-0008',
+        'order_date' => '2026-08-22',
+        'dispatch_date' => '2026-08-22',
+        'dispatched_at' => '2026-08-22 11:00:00',
+    ]);
+
+    $erp = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $order->id)
+        ->first();
+    $erp->forceFill(['tally_voucher_guid' => $guid])->save();
+
+    $reconciler = app(DealerSalesLedgerReconciler::class);
+    $transaction = [
+        'date' => '2026-08-23',
+        'particulars' => 'Sales @5%',
+        'voucher_type' => 'Sales',
+        'voucher_no' => 'PG/26-27/0510',
+        'debit' => 15000,
+        'credit' => 0,
+        'tally_voucher_guid' => $guid,
+    ];
+
+    expect($reconciler->findByTallyGuid($guid)?->id)->toBe($erp->id)
+        ->and($reconciler->tallyDuplicateExists(
+            (int) $dealer->id,
+            $transaction,
+            DealerTallyEntry::makeFingerprint(
+                dealerId: (int) $dealer->id,
+                date: '2026-08-23',
+                voucherType: 'Sales',
+                voucherNo: 'PG/26-27/0510',
+                debit: 15000,
+                credit: 0,
+                particulars: 'Sales @5%',
+            ),
+        ))->toBeTrue();
+
+    $reconciler->reconcileSalesOrderWithTally($erp, $transaction, null);
+    $linked = $erp->fresh();
+
+    expect(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(1)
+        ->and($linked?->erp_reference)->toBe(DealerTallyEntry::salesErpReference((int) $order->id))
+        ->and($linked?->tally_voucher_no)->toBe('PG/26-27/0510')
+        ->and($linked?->tally_voucher_guid)->toBe($guid)
+        ->and((float) $linked?->debit)->toBe(15000.0);
 });

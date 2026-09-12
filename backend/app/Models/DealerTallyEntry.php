@@ -18,6 +18,8 @@ class DealerTallyEntry extends Model
 
     public const SOURCE_LABEL_TALLY_JOURNAL = 'Tally - Journal';
 
+    public const SALES_ENTRY_KEY = 'sales';
+
     protected $fillable = [
         'dealer_id',
         'import_id',
@@ -36,6 +38,7 @@ class DealerTallyEntry extends Model
         'credit',
         'source',
         'source_id',
+        'erp_reference',
         'fingerprint',
         'source_row',
     ];
@@ -93,6 +96,11 @@ class DealerTallyEntry extends Model
     public static function makeSourceFingerprint(string $source, int $sourceId): string
     {
         return hash('sha256', $source.'|'.$sourceId);
+    }
+
+    public static function salesErpReference(int $orderId): string
+    {
+        return 'ERP-SO-'.$orderId;
     }
 
     public static function makeJournalFingerprint(string $voucherGuid, string $entryKey): string

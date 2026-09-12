@@ -4,6 +4,7 @@ namespace App\Services\PaymentFollowUps;
 
 use App\Models\Collection;
 use App\Models\Dealer;
+use App\Models\Employee;
 use App\Models\PaymentFollowUpCycle;
 use App\Models\PaymentFollowUpEntry;
 use App\Models\User;
@@ -179,6 +180,7 @@ final class PaymentFollowUpService
         $dueToday = array_values(array_filter($rows, fn (array $row): bool => ($row['display_status'] ?? '') === 'due_today'));
         $paidToday = array_values(array_filter($rows, fn (array $row): bool => (bool) ($row['paid_today'] ?? false)));
         $upcoming = $this->upcomingCommitments($rows, $today);
+        $noFollowUpSet = $this->noFollowUpSet($rows);
         $totalDue = round(array_reduce(
             $rows,
             fn (float $sum, array $row): float => $sum + max((float) $row['current_outstanding'], 0),
@@ -203,6 +205,7 @@ final class PaymentFollowUpService
                 'due_today' => $dueToday,
                 'upcoming' => $upcoming,
                 'payments_received_today' => $paidToday,
+                'no_follow_up_set' => $noFollowUpSet,
             ],
             'employee_performance' => $this->employeeRecoveryPerformance($rows),
             'data' => $rows,
@@ -263,6 +266,44 @@ final class PaymentFollowUpService
     }
 
     /**
+     * Outstanding dealers with no active or upcoming follow-up/commitment.
+     *
+     * @param  list<array<string, mixed>>  $rows
+     * @return list<array<string, mixed>>
+     */
+    private function noFollowUpSet(array $rows): array
+    {
+        $dealers = array_values(array_filter(
+            $rows,
+            function (array $row): bool {
+                if ((float) ($row['current_outstanding'] ?? 0) <= 0) {
+                    return false;
+                }
+
+                return ($row['status'] ?? '') === PaymentFollowUpStatus::NO_FOLLOW_UP;
+            },
+        ));
+
+        usort($dealers, function (array $left, array $right): int {
+            $due = ((float) ($right['current_outstanding'] ?? 0)) <=> ((float) ($left['current_outstanding'] ?? 0));
+            if ($due !== 0) {
+                return $due;
+            }
+
+            return strcasecmp(
+                (string) ($left['dealer_name'] ?? ''),
+                (string) ($right['dealer_name'] ?? ''),
+            );
+        });
+
+        return array_map(function (array $row): array {
+            $row['employee_name'] = (string) ($row['assigned_employee_name'] ?? $row['employee_name'] ?? '');
+
+            return $row;
+        }, $dealers);
+    }
+
+    /**
      * @return array<string, mixed>
      */
     public function addFollowUp(
@@ -280,6 +321,49 @@ final class PaymentFollowUpService
             ]);
         }
 
+        return $this->recordFollowUp($dealer, $employee, $user, $remark, $expectedAmount, $nextFollowUpDate);
+    }
+
+    /**
+     * Director / manager recovery action: set a follow-up on a monitored dealer.
+     * History GET remains read-only (`can_add_follow_up` stays false).
+     *
+     * @return array<string, mixed>
+     */
+    public function addFollowUpForMonitor(
+        User $user,
+        int $dealerId,
+        string $remark,
+        ?float $expectedAmount,
+        string $nextFollowUpDate,
+    ): array {
+        $dealer = Dealer::query()->with('assignedEmployee')->findOrFail($dealerId);
+
+        if (! $this->dealerAccess->canAccessDealer($user, $dealer)) {
+            abort(403, 'You can only set payment follow-up for dealers in your recovery view.');
+        }
+
+        $employee = $dealer->assignedEmployee;
+        if ($employee === null) {
+            throw ValidationException::withMessages([
+                'dealer_id' => 'This dealer has no assigned employee.',
+            ]);
+        }
+
+        return $this->recordFollowUp($dealer, $employee, $user, $remark, $expectedAmount, $nextFollowUpDate);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function recordFollowUp(
+        Dealer $dealer,
+        Employee $employee,
+        User $user,
+        string $remark,
+        ?float $expectedAmount,
+        string $nextFollowUpDate,
+    ): array {
         $remark = trim($remark);
         if ($remark === '') {
             throw ValidationException::withMessages([

@@ -19,6 +19,12 @@ final class TallyOutboundEnqueueService
 
     public const ERROR_MULTIPLE_MAPPINGS = 'Dealer has more than one Tally ledger mapping. Keep a single mapping; the connector will not guess a ledger.';
 
+    public const ERROR_HISTORICAL_RECEIPT = 'Not sent to Tally: collection was marked Received before 12 Sep 2026.';
+
+    public const RECEIPT_POSTING_START = '2026-09-12 00:00:00';
+
+    public const RECEIPT_POSTING_TIMEZONE = 'Asia/Kolkata';
+
     public function queueBilledOrder(Order $order): ?TallyOutboundVoucher
     {
         if ($order->status === Order::STATUS_REJECTED) {
@@ -62,6 +68,12 @@ final class TallyOutboundEnqueueService
             return null;
         }
 
+        if (! $this->isEligibleForTallyReceipt($collection)) {
+            $this->skipUnsyncedReceipt($collection);
+
+            return $collection->tallyOutboundVoucher;
+        }
+
         $collection->loadMissing('dealer');
 
         $mapping = $this->resolveMapping($collection->dealer);
@@ -83,6 +95,8 @@ final class TallyOutboundEnqueueService
         Collection::query()
             ->where('dealer_id', $dealer->id)
             ->where('status', Collection::STATUS_RECEIVED)
+            ->whereNotNull('received_at')
+            ->where('received_at', '>=', self::receiptPostingStartsAt())
             ->orderBy('id')
             ->each(function (Collection $collection): void {
                 $this->queueReceivedCollection($collection);
@@ -98,6 +112,8 @@ final class TallyOutboundEnqueueService
         $receivedIds = Collection::query()
             ->where('dealer_id', $dealer->id)
             ->where('status', Collection::STATUS_RECEIVED)
+            ->whereNotNull('received_at')
+            ->where('received_at', '>=', self::receiptPostingStartsAt())
             ->select('id');
 
         $stuckIds = TallyOutboundVoucher::query()
@@ -137,6 +153,15 @@ final class TallyOutboundEnqueueService
         }
 
         $voucher = $collection->tallyOutboundVoucher;
+        if (! $this->isEligibleForTallyReceipt($collection)) {
+            return [
+                'key' => 'excluded',
+                'label' => 'Not sent (before 12 Sep 2026)',
+                'error' => self::ERROR_HISTORICAL_RECEIPT,
+                'color' => 'gray',
+            ];
+        }
+
         if ($voucher === null) {
             $mapping = $this->resolveMapping($collection->dealer);
             if ($mapping['error'] !== null) {
@@ -165,6 +190,15 @@ final class TallyOutboundEnqueueService
             ];
         }
 
+        if ($voucher->isSkipped()) {
+            return [
+                'key' => 'excluded',
+                'label' => 'Not sent (before 12 Sep 2026)',
+                'error' => $voucher->last_error ?: self::ERROR_HISTORICAL_RECEIPT,
+                'color' => 'gray',
+            ];
+        }
+
         if ($voucher->isFailed() && $this->isMappingFailure($voucher->last_error)) {
             return [
                 'key' => 'not_mapped',
@@ -189,6 +223,79 @@ final class TallyOutboundEnqueueService
             'error' => null,
             'color' => 'info',
         ];
+    }
+
+    public static function receiptPostingStartsAt(): Carbon
+    {
+        return Carbon::parse(self::RECEIPT_POSTING_START, self::RECEIPT_POSTING_TIMEZONE);
+    }
+
+    public function isEligibleForTallyReceipt(Collection $collection): bool
+    {
+        if ($collection->status !== Collection::STATUS_RECEIVED) {
+            return false;
+        }
+
+        $receivedAt = $collection->received_at;
+        if ($receivedAt === null) {
+            return false;
+        }
+
+        return $receivedAt->copy()->timezone(self::RECEIPT_POSTING_TIMEZONE)
+            ->gte(self::receiptPostingStartsAt());
+    }
+
+    public function skipIneligibleQueuedReceipts(): int
+    {
+        $skipped = 0;
+
+        TallyOutboundVoucher::query()
+            ->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)
+            ->whereIn('status', [
+                TallyOutboundVoucher::STATUS_PENDING,
+                TallyOutboundVoucher::STATUS_CLAIMED,
+            ])
+            ->orderBy('id')
+            ->each(function (TallyOutboundVoucher $voucher) use (&$skipped): void {
+                $collection = Collection::query()->withTrashed()->find($voucher->source_id);
+                if ($collection instanceof Collection && $this->isEligibleForTallyReceipt($collection)) {
+                    return;
+                }
+
+                $this->markReceiptSkipped($voucher);
+                $skipped++;
+            });
+
+        return $skipped;
+    }
+
+    private function skipUnsyncedReceipt(Collection $collection): void
+    {
+        TallyOutboundVoucher::query()
+            ->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)
+            ->where('source_id', $collection->id)
+            ->whereIn('status', [
+                TallyOutboundVoucher::STATUS_PENDING,
+                TallyOutboundVoucher::STATUS_CLAIMED,
+                TallyOutboundVoucher::STATUS_FAILED,
+            ])
+            ->each(fn (TallyOutboundVoucher $voucher) => $this->markReceiptSkipped($voucher));
+    }
+
+    private function markReceiptSkipped(TallyOutboundVoucher $voucher): void
+    {
+        if ($voucher->isSynced() || $voucher->isSkipped()) {
+            return;
+        }
+
+        $voucher->fill([
+            'status' => TallyOutboundVoucher::STATUS_SKIPPED,
+            'last_error' => self::ERROR_HISTORICAL_RECEIPT,
+            'claimed_at' => null,
+            'claimed_until' => null,
+            'claimed_by' => null,
+        ]);
+        $voucher->save();
     }
 
     /**
@@ -241,7 +348,11 @@ final class TallyOutboundEnqueueService
                         return $existing;
                     }
 
-                    if (! $refreshIfUnsynced) {
+                    if ($existing->isSkipped() && ! $ready) {
+                        return $existing;
+                    }
+
+                    if (! $refreshIfUnsynced && ! $existing->isSkipped()) {
                         return $existing;
                     }
 
@@ -269,11 +380,11 @@ final class TallyOutboundEnqueueService
                         return $existing;
                     }
 
-                    if ($existing->isFailed() && ! $wasMappingFailure) {
+                    if ($existing->isFailed() && ! $wasMappingFailure && ! $existing->isSkipped()) {
                         return $existing;
                     }
 
-                    if ($existing->isFailed() || $wasMappingFailure) {
+                    if ($existing->isFailed() || $wasMappingFailure || $existing->isSkipped()) {
                         $existing->fill([
                             'payload' => $payload,
                             'status' => TallyOutboundVoucher::STATUS_PENDING,

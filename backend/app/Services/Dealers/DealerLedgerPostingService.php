@@ -202,7 +202,7 @@ final class DealerLedgerPostingService
         } else {
             $tally = $this->salesReconciler->findMatchingTallySalesEntry($order);
             if ($tally !== null) {
-                $reason = 'will attach Tally sales #'.$tally->id.' because voucher/reference names this ERP order';
+                $reason = 'will attach Tally sales #'.$tally->id.' without creating another debit';
             }
         }
 
@@ -301,6 +301,9 @@ final class DealerLedgerPostingService
                         'dealer_id' => $dealerId,
                         'source' => $source,
                         'source_id' => $sourceId,
+                        'erp_reference' => $source === DealerTallyEntry::SOURCE_SALES_ORDER
+                            ? DealerTallyEntry::salesErpReference($sourceId)
+                            : $existing->erp_reference,
                         'fingerprint' => $fingerprint,
                     ]);
                     $existing->save();
@@ -318,6 +321,9 @@ final class DealerLedgerPostingService
                     'credit' => $credit,
                     'source' => $source,
                     'source_id' => $sourceId,
+                    'erp_reference' => $source === DealerTallyEntry::SOURCE_SALES_ORDER
+                        ? DealerTallyEntry::salesErpReference($sourceId)
+                        : $existing->erp_reference,
                     'fingerprint' => $fingerprint,
                 ]);
                 $existing->save();
@@ -354,6 +360,9 @@ final class DealerLedgerPostingService
                 'credit' => $credit,
                 'source' => $source,
                 'source_id' => $sourceId,
+                'erp_reference' => $source === DealerTallyEntry::SOURCE_SALES_ORDER
+                    ? DealerTallyEntry::salesErpReference($sourceId)
+                    : null,
                 'fingerprint' => $fingerprint,
                 'source_row' => null,
             ];

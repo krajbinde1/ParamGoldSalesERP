@@ -54,9 +54,19 @@ class PurchaseForm
                                     ->columnSpan(['default' => 1, 'md' => 1, 'lg' => 3]),
                                 Select::make('supplier_id')
                                     ->label('Supplier Name')
-                                    ->relationship('supplier', 'supplier_name', fn (Builder $query) => $query->where('status', true))
-                                    ->searchable()
+                                    ->relationship(
+                                        'supplier',
+                                        'supplier_name',
+                                        fn (Builder $query): Builder => $query->where('status', true)->orderBy('supplier_name'),
+                                    )
+                                    ->options(fn (): array => self::supplierOptions())
+                                    ->getSearchResultsUsing(fn (string $search): array => self::supplierOptions($search))
+                                    ->getOptionLabelUsing(fn ($value): ?string => Supplier::query()->find($value)?->supplier_name)
+                                    ->getOptionLabelFromRecordUsing(fn (Supplier $record): string => (string) $record->supplier_name)
+                                    ->searchable(['supplier_name', 'supplier_code', 'phone'])
                                     ->preload()
+                                    ->optionsLimit(2000)
+                                    ->dynamicOptions()
                                     ->wrapOptionLabels(false)
                                     ->required()
                                     ->createOptionForm([
@@ -64,12 +74,11 @@ class PurchaseForm
                                         TextInput::make('phone')->tel()->maxLength(30),
                                         TextInput::make('gstin')->maxLength(20),
                                     ])
-                                    ->createOptionUsing(function (array $data): int {
-                                        return Supplier::query()->create([
-                                            ...$data,
-                                            'created_by' => auth()->id(),
-                                        ])->id;
-                                    })
+                                    ->createOptionUsing(fn (array $data): int => self::createSupplierFromPurchase($data))
+                                    ->createOptionAction(fn ($action) => $action
+                                        ->label('Add supplier')
+                                        ->modalHeading('Add Supplier')
+                                        ->modalSubmitActionLabel('Save Supplier'))
                                     ->live()
                                     ->afterStateUpdated(function ($state, Set $set): void {
                                         $set('supplier_name', Supplier::query()->find($state)?->supplier_name);
@@ -153,8 +162,16 @@ class PurchaseForm
                                                     ? self::rawMaterialOptions()
                                                     : [];
                                             })
+                                            ->getSearchResultsUsing(function (Get $get, string $search): array {
+                                                return self::headerMaterialType($get) === PurchaseMaterialType::RawMaterial
+                                                    ? self::rawMaterialOptions($search)
+                                                    : [];
+                                            })
+                                            ->getOptionLabelUsing(fn ($value): ?string => self::rawMaterialLabel($value))
                                             ->searchable()
                                             ->preload()
+                                            ->optionsLimit(2000)
+                                            ->dynamicOptions()
                                             ->wrapOptionLabels(false)
                                             ->placeholder('Select a raw material')
                                             ->required(fn (Get $get): bool => self::headerMaterialType($get) === PurchaseMaterialType::RawMaterial)
@@ -162,12 +179,7 @@ class PurchaseForm
                                             ->dehydrated(fn (Get $get): bool => self::headerMaterialType($get) === PurchaseMaterialType::RawMaterial)
                                             ->live()
                                             ->afterStateUpdated(function ($state, Set $set, Get $get): void {
-                                                $material = RawMaterial::query()->find($state);
-                                                $set('packaging_material_id', null);
-                                                $set('unit', $material?->unit);
-                                                $set('purchase_rate', $material?->purchase_rate ?: null);
-                                                self::recalculateLine($set, $get);
-                                                self::recalculateFreightAllocation($set, $get);
+                                                self::applyRawMaterialSelection($state, $set, $get);
                                             })
                                             ->extraFieldWrapperAttributes(['class' => 'paramgold-purchase-material'])
                                             ->columnSpan(['default' => 1, 'md' => 2, 'lg' => 4]),
@@ -178,8 +190,16 @@ class PurchaseForm
                                                     ? self::packingMaterialOptions()
                                                     : [];
                                             })
+                                            ->getSearchResultsUsing(function (Get $get, string $search): array {
+                                                return self::headerMaterialType($get) === PurchaseMaterialType::PackingMaterial
+                                                    ? self::packingMaterialOptions($search)
+                                                    : [];
+                                            })
+                                            ->getOptionLabelUsing(fn ($value): ?string => self::packingMaterialLabel($value))
                                             ->searchable()
                                             ->preload()
+                                            ->optionsLimit(2000)
+                                            ->dynamicOptions()
                                             ->wrapOptionLabels(false)
                                             ->placeholder('Select a packing material')
                                             ->required(fn (Get $get): bool => self::headerMaterialType($get) === PurchaseMaterialType::PackingMaterial)
@@ -187,12 +207,7 @@ class PurchaseForm
                                             ->dehydrated(fn (Get $get): bool => self::headerMaterialType($get) === PurchaseMaterialType::PackingMaterial)
                                             ->live()
                                             ->afterStateUpdated(function ($state, Set $set, Get $get): void {
-                                                $material = PackagingMaterial::query()->find($state);
-                                                $set('raw_material_id', null);
-                                                $set('unit', $material?->unit);
-                                                $set('purchase_rate', $material?->purchase_rate ?: null);
-                                                self::recalculateLine($set, $get);
-                                                self::recalculateFreightAllocation($set, $get);
+                                                self::applyPackingMaterialSelection($state, $set, $get);
                                             })
                                             ->extraFieldWrapperAttributes(['class' => 'paramgold-purchase-material'])
                                             ->columnSpan(['default' => 1, 'md' => 2, 'lg' => 4]),
@@ -417,14 +432,26 @@ class PurchaseForm
     /**
      * @return array<int|string, string>
      */
-    public static function rawMaterialOptions(): array
+    public static function rawMaterialOptions(?string $search = null): array
     {
-        return RawMaterial::query()
+        $query = RawMaterial::query()
             ->where('status', true)
-            ->orderBy('material_name')
+            ->orderBy('material_name');
+
+        $term = trim((string) $search);
+        if ($term !== '') {
+            $like = '%'.$term.'%';
+            $query->where(function (Builder $builder) use ($like): void {
+                $builder->where('material_name', 'like', $like)
+                    ->orWhere('material_code', 'like', $like);
+            });
+        }
+
+        return $query
+            ->limit(2000)
             ->get()
             ->mapWithKeys(fn (RawMaterial $material): array => [
-                $material->id => trim($material->material_code.' — '.$material->material_name),
+                $material->id => self::rawMaterialLabel($material) ?? (string) $material->id,
             ])
             ->all();
     }
@@ -432,27 +459,146 @@ class PurchaseForm
     /**
      * @return array<int|string, string>
      */
-    public static function packingMaterialOptions(): array
+    public static function packingMaterialOptions(?string $search = null): array
     {
-        return PackagingMaterial::query()
+        $query = PackagingMaterial::query()
             ->where('status', true)
-            ->orderBy('packaging_name')
+            ->orderBy('packaging_name');
+
+        $term = trim((string) $search);
+        if ($term !== '') {
+            $like = '%'.$term.'%';
+            $query->where(function (Builder $builder) use ($like): void {
+                $builder->where('packaging_name', 'like', $like)
+                    ->orWhere('packaging_code', 'like', $like);
+            });
+        }
+
+        return $query
+            ->limit(2000)
             ->get()
             ->mapWithKeys(fn (PackagingMaterial $material): array => [
-                $material->id => trim($material->packaging_code.' — '.$material->packaging_name),
+                $material->id => self::packingMaterialLabel($material) ?? (string) $material->id,
             ])
             ->all();
     }
 
-    private static function headerMaterialType(Get $get): ?PurchaseMaterialType
+    /**
+     * @return array<int|string, string>
+     */
+    public static function supplierOptions(?string $search = null): array
     {
-        $value = $get('../../material_type');
-        if (blank($value)) {
-            $value = $get('material_type');
+        $query = Supplier::query()
+            ->where('status', true)
+            ->orderBy('supplier_name');
+
+        $term = trim((string) $search);
+        if ($term !== '') {
+            $like = '%'.$term.'%';
+            $query->where(function (Builder $builder) use ($like): void {
+                $builder->where('supplier_name', 'like', $like)
+                    ->orWhere('supplier_code', 'like', $like)
+                    ->orWhere('phone', 'like', $like);
+            });
         }
 
+        return $query
+            ->limit(2000)
+            ->get()
+            ->mapWithKeys(fn (Supplier $supplier): array => [
+                $supplier->id => (string) $supplier->supplier_name,
+            ])
+            ->all();
+    }
+
+    /**
+     * @param  array<string, mixed>  $data
+     */
+    public static function createSupplierFromPurchase(array $data): int
+    {
+        $supplier = Supplier::query()->create([
+            'supplier_name' => trim((string) ($data['supplier_name'] ?? '')),
+            'phone' => filled($data['phone'] ?? null) ? trim((string) $data['phone']) : null,
+            'gstin' => filled($data['gstin'] ?? null) ? trim((string) $data['gstin']) : null,
+            'status' => true,
+            'created_by' => auth()->id(),
+        ]);
+
+        return (int) $supplier->getKey();
+    }
+
+    public static function rawMaterialLabel(mixed $material): ?string
+    {
+        if (! $material instanceof RawMaterial) {
+            if (blank($material)) {
+                return null;
+            }
+            $material = RawMaterial::query()->find($material);
+        }
+
+        if (! $material instanceof RawMaterial) {
+            return null;
+        }
+
+        return trim($material->material_code.' — '.$material->material_name);
+    }
+
+    public static function packingMaterialLabel(mixed $material): ?string
+    {
+        if (! $material instanceof PackagingMaterial) {
+            if (blank($material)) {
+                return null;
+            }
+            $material = PackagingMaterial::query()->find($material);
+        }
+
+        if (! $material instanceof PackagingMaterial) {
+            return null;
+        }
+
+        return trim($material->packaging_code.' — '.$material->packaging_name);
+    }
+
+    private static function applyRawMaterialSelection(mixed $state, Set $set, Get $get): void
+    {
+        $material = RawMaterial::query()->where('status', true)->find($state);
+        $set('packaging_material_id', null);
+        $set('unit', $material?->unit);
+        $set('purchase_rate', $material?->purchase_rate ?: null);
+        self::recalculateLine($set, $get);
+        self::recalculateFreightAllocation($set, $get);
+    }
+
+    private static function applyPackingMaterialSelection(mixed $state, Set $set, Get $get): void
+    {
+        $material = PackagingMaterial::query()->where('status', true)->find($state);
+        $set('raw_material_id', null);
+        $set('unit', $material?->unit);
+        $set('purchase_rate', $material?->purchase_rate ?: null);
+        self::recalculateLine($set, $get);
+        self::recalculateFreightAllocation($set, $get);
+    }
+
+    private static function headerMaterialType(Get $get): ?PurchaseMaterialType
+    {
+        foreach (['/data.material_type', '../../material_type', '../material_type', 'material_type'] as $path) {
+            $type = self::coerceMaterialType($get($path));
+            if ($type !== null) {
+                return $type;
+            }
+        }
+
+        return null;
+    }
+
+    private static function coerceMaterialType(mixed $value): ?PurchaseMaterialType
+    {
         if ($value instanceof PurchaseMaterialType) {
             return $value;
+        }
+
+        if (blank($value)) {
+            return null;
         }
 
         return PurchaseMaterialType::tryFrom((string) $value);

@@ -52,6 +52,12 @@ class Collection extends Model
                 'amount' => (float) $collection->getOriginal('amount'),
                 'status' => $collection->getOriginal('status'),
             ] : null;
+
+            $becomingReceived = $collection->status === self::STATUS_RECEIVED
+                && (! $collection->exists || $collection->isDirty('status'));
+            if ($becomingReceived && $collection->received_at === null) {
+                $collection->received_at = Carbon::now(self::BUSINESS_TIMEZONE);
+            }
         });
 
         static::saved(function (Collection $collection): void {
@@ -96,6 +102,7 @@ class Collection extends Model
     {
         return [
             'collection_date' => 'date',
+            'received_at' => 'datetime',
             'amount' => 'decimal:2',
         ];
     }

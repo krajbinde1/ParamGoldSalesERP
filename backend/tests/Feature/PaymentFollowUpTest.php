@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Models\WhatsAppOutboundMessage;
 use App\Services\PaymentFollowUps\PaymentFollowUpCommitmentService;
 use App\Services\PaymentFollowUps\PaymentFollowUpReminderService;
+use App\Services\PaymentFollowUps\PaymentFollowUpService;
 use App\Services\TallyLedger\TallyDealerLedgerService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Queue;
@@ -251,7 +252,7 @@ it('marks a missed commitment without closing the cycle and continues follow-ups
 
     Carbon::setTestNow(Carbon::parse('2026-09-16 11:00:00', 'Asia/Kolkata'));
 
-    $overdue = app(\App\Services\PaymentFollowUps\PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
+    $overdue = app(PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
 
     expect($overdue['cycles'])->toHaveCount(1)
         ->and($overdue['cycles'][0]['status'])->toBe('open')
@@ -669,14 +670,6 @@ it('lets the director list assigned dealers after selecting an employee and view
     $this->actingAs($employee->user, 'sanctum')
         ->getJson('/api/director/payment-follow-ups?employee_id='.$employee->id)
         ->assertForbidden();
-
-    $blocked = $this->actingAs($director, 'sanctum')
-        ->postJson('/api/director/payment-follow-ups/'.$assigned->id, [
-            'remark' => 'Director must not save',
-            'next_follow_up_date' => '2026-09-20',
-        ]);
-
-    expect($blocked->status())->toBeIn([404, 405]);
 });
 
 function paymentFollowUpManager(string $mobile): Employee
@@ -796,6 +789,12 @@ it('scopes manager payment recovery and dashboard action required to direct-repo
         ->and($names)->not->toContain('Other Manager Overdue Dealer')
         ->and($list->json('summary.overdue_dealers'))->toBe(1)
         ->and($list->json('summary.commitments_due_today'))->toBe(1)
+        ->and(collect($list->json('today_actions.no_follow_up_set'))->pluck('dealer_name')->all())
+        ->toContain('Manager No Follow-up Dealer')
+        ->and(collect($list->json('today_actions.no_follow_up_set'))->pluck('dealer_name')->all())
+        ->not->toContain('Manager Overdue Dealer')
+        ->and(collect($list->json('today_actions.no_follow_up_set'))->pluck('dealer_name')->all())
+        ->not->toContain('Manager Upcoming Dealer')
         ->and($employeeNames)->toContain($report->full_name)
         ->and($employeeNames)->not->toContain($foreignReport->full_name)
         ->and($employeeNames)->not->toContain($otherManager->full_name);
@@ -824,14 +823,6 @@ it('scopes manager payment recovery and dashboard action required to direct-repo
     $this->actingAs($manager->user, 'sanctum')
         ->getJson('/api/manager/payment-follow-ups/'.$foreignOverdue->id)
         ->assertForbidden();
-
-    $blocked = $this->actingAs($manager->user, 'sanctum')
-        ->postJson('/api/manager/payment-follow-ups/'.$overdueDealer->id, [
-            'remark' => 'Manager must not save',
-            'next_follow_up_date' => '2026-09-20',
-        ]);
-
-    expect($blocked->status())->toBeIn([404, 405]);
 
     $this->actingAs($report->user, 'sanctum')
         ->getJson('/api/manager/payment-follow-ups')
@@ -973,4 +964,132 @@ it('lists upcoming commitments on director and manager payment recovery', functi
     $this->actingAs($manager->user, 'sanctum')
         ->getJson('/api/manager/payment-follow-ups?employee_id='.$foreign->id)
         ->assertForbidden();
+});
+
+it('lists no-follow-up-set dealers on payment recovery and lets director and manager set a follow-up', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-10 10:00:00', 'Asia/Kolkata'));
+
+    $director = paymentFollowUpDirector();
+    $manager = paymentFollowUpManager('9811300501');
+    $otherManager = paymentFollowUpManager('9811300502');
+    $report = paymentFollowUpEmployee('9811300503');
+    $peer = paymentFollowUpEmployee('9811300504');
+    $foreign = paymentFollowUpEmployee('9811300505');
+    $report->update(['reporting_manager_id' => $manager->id]);
+    $foreign->update(['reporting_manager_id' => $otherManager->id]);
+
+    $unsetA = paymentFollowUpDealer($report, 'Unset Recovery Dealer A', 80000);
+    $unsetC = paymentFollowUpDealer($report, 'Unset Recovery Dealer C', 30000);
+    $unsetB = paymentFollowUpDealer($peer, 'Unset Recovery Dealer B', 40000);
+    paymentFollowUpDealer($report, 'Zero Due No Follow-up', 0);
+    $upcoming = paymentFollowUpDealer($report, 'Already Has Commitment', 60000);
+    $foreignUnset = paymentFollowUpDealer($foreign, 'Foreign Unset Dealer', 25000);
+
+    $this->actingAs($report->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$upcoming->id, [
+            'remark' => 'Already promised',
+            'expected_amount' => 9000,
+            'next_follow_up_date' => '2026-09-18',
+        ])
+        ->assertCreated();
+
+    $directorAll = $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/payment-follow-ups')
+        ->assertOk();
+
+    $directorUnset = collect($directorAll->json('today_actions.no_follow_up_set'));
+
+    expect($directorUnset->pluck('dealer_name')->all())
+        ->toContain('Unset Recovery Dealer A')
+        ->and($directorUnset->pluck('dealer_name')->all())->toContain('Unset Recovery Dealer B')
+        ->and($directorUnset->pluck('dealer_name')->all())->toContain('Unset Recovery Dealer C')
+        ->and($directorUnset->pluck('dealer_name')->all())->toContain('Foreign Unset Dealer')
+        ->and($directorUnset->pluck('dealer_name')->all())->not->toContain('Already Has Commitment')
+        ->and($directorUnset->pluck('dealer_name')->all())->not->toContain('Zero Due No Follow-up')
+        ->and($directorUnset->firstWhere('dealer_name', 'Unset Recovery Dealer A')['employee_name'])->toBe($report->full_name)
+        ->and((float) $directorUnset->firstWhere('dealer_name', 'Unset Recovery Dealer A')['current_outstanding'])->toBe(80000.0);
+
+    $directorFiltered = $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/payment-follow-ups?employee_id='.$report->id)
+        ->assertOk();
+
+    expect(collect($directorFiltered->json('today_actions.no_follow_up_set'))->pluck('dealer_name')->all())
+        ->toBe(['Unset Recovery Dealer A', 'Unset Recovery Dealer C'])
+        ->and(collect($directorFiltered->json('today_actions.no_follow_up_set'))->pluck('dealer_name')->all())
+        ->not->toContain('Unset Recovery Dealer B');
+
+    $this->actingAs($director, 'sanctum')
+        ->postJson('/api/director/payment-follow-ups/'.$unsetA->id, [
+            'remark' => 'Director set recovery follow-up',
+            'expected_amount' => 15000,
+            'next_follow_up_date' => '2026-09-16',
+        ])
+        ->assertCreated()
+        ->assertJsonPath('can_add_follow_up', false)
+        ->assertJsonPath('cycles.0.entries.0.remark', 'Director set recovery follow-up');
+
+    $afterDirector = $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/payment-follow-ups?employee_id='.$report->id)
+        ->assertOk();
+
+    expect(collect($afterDirector->json('today_actions.no_follow_up_set'))->pluck('dealer_name')->all())
+        ->toBe(['Unset Recovery Dealer C'])
+        ->and(collect($afterDirector->json('today_actions.upcoming'))->pluck('dealer_name')->all())
+        ->toContain('Unset Recovery Dealer A');
+
+    $history = $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/payment-follow-ups/'.$unsetA->id)
+        ->assertOk();
+
+    expect($history->json('can_add_follow_up'))->toBeFalse()
+        ->and($history->json('cycles.0.entries.0.employee_name'))->toBe($report->full_name);
+
+    $managerList = $this->actingAs($manager->user, 'sanctum')
+        ->getJson('/api/manager/payment-follow-ups')
+        ->assertOk();
+
+    expect(collect($managerList->json('today_actions.no_follow_up_set'))->pluck('dealer_name')->all())
+        ->toBe(['Unset Recovery Dealer C'])
+        ->and(collect($managerList->json('today_actions.no_follow_up_set'))->pluck('dealer_name')->all())
+        ->not->toContain('Foreign Unset Dealer')
+        ->and(collect($managerList->json('today_actions.no_follow_up_set'))->pluck('dealer_name')->all())
+        ->not->toContain('Unset Recovery Dealer B');
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson('/api/manager/payment-follow-ups/'.$unsetC->id, [
+            'remark' => 'Manager set recovery follow-up',
+            'expected_amount' => 7000,
+            'next_follow_up_date' => '2026-09-15',
+        ])
+        ->assertCreated();
+
+    $afterManager = $this->actingAs($manager->user, 'sanctum')
+        ->getJson('/api/manager/payment-follow-ups')
+        ->assertOk();
+
+    expect(collect($afterManager->json('today_actions.no_follow_up_set'))->pluck('dealer_name')->all())
+        ->toBe([])
+        ->and(collect($afterManager->json('today_actions.upcoming'))->pluck('dealer_name')->all())
+        ->toContain('Unset Recovery Dealer C');
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson('/api/manager/payment-follow-ups/'.$foreignUnset->id, [
+            'remark' => 'Should not reach other team',
+            'next_follow_up_date' => '2026-09-16',
+        ])
+        ->assertForbidden();
+
+    $peerUnset = $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/payment-follow-ups?employee_id='.$peer->id)
+        ->assertOk();
+
+    expect(collect($peerUnset->json('today_actions.no_follow_up_set'))->pluck('dealer_name')->all())
+        ->toBe(['Unset Recovery Dealer B']);
+
+    $this->actingAs($director, 'sanctum')
+        ->postJson('/api/director/payment-follow-ups/'.$unsetB->id, [
+            'remark' => 'Peer follow-up from recovery',
+            'next_follow_up_date' => '2026-09-17',
+        ])
+        ->assertCreated();
 });

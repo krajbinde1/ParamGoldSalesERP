@@ -1,5 +1,6 @@
 import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
@@ -166,6 +167,20 @@ class _DirectorPaymentFollowUpStatusScreenState
     );
   }
 
+  Future<void> _openNoFollowUpList(List<Map<String, dynamic>> dealers) async {
+    await Navigator.of(context).push(
+      MaterialPageRoute<void>(
+        builder: (_) => _NoFollowUpSetPage(
+          auth: widget.auth,
+          apiPrefix: widget.apiPrefix,
+          dealers: dealers,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await _reload();
+  }
+
   List<Map<String, dynamic>> _maps(dynamic raw) {
     return (raw as List? ?? const [])
         .whereType<Map>()
@@ -217,6 +232,7 @@ class _DirectorPaymentFollowUpStatusScreenState
                 final dueToday = _maps(actions['due_today']);
                 final upcoming = _maps(actions['upcoming']);
                 final paidToday = _maps(actions['payments_received_today']);
+                final noFollowUpSet = _maps(actions['no_follow_up_set']);
 
                 children.addAll([
                   _SummaryBlock(summary: summary),
@@ -268,6 +284,14 @@ class _DirectorPaymentFollowUpStatusScreenState
                       title: 'Payments Received Today',
                       dealers: paidToday,
                     ),
+                  ),
+                  const SizedBox(height: 8),
+                  _ActionTile(
+                    emoji: '⚪',
+                    title: 'No Follow-up Set',
+                    count: noFollowUpSet.length,
+                    color: AppColors.textSecondary,
+                    onTap: () => _openNoFollowUpList(noFollowUpSet),
                   ),
                   const SizedBox(height: AppSpacing.lg),
                   _EmployeePerformanceBlock(rows: performance),
@@ -1027,6 +1051,383 @@ class _UpcomingCommitmentCard extends StatelessWidget {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+class _NoFollowUpSetPage extends StatefulWidget {
+  const _NoFollowUpSetPage({
+    required this.auth,
+    required this.apiPrefix,
+    required this.dealers,
+  });
+
+  final AuthController auth;
+  final String apiPrefix;
+  final List<Map<String, dynamic>> dealers;
+
+  @override
+  State<_NoFollowUpSetPage> createState() => _NoFollowUpSetPageState();
+}
+
+class _NoFollowUpSetPageState extends State<_NoFollowUpSetPage> {
+  late List<Map<String, dynamic>> _dealers = List<Map<String, dynamic>>.from(
+    widget.dealers,
+  );
+
+  Future<void> _setFollowUp(Map<String, dynamic> dealer) async {
+    final saved = await Navigator.of(context).push<bool>(
+      MaterialPageRoute<bool>(
+        builder: (_) => _SetFollowUpPage(
+          auth: widget.auth,
+          apiPrefix: widget.apiPrefix,
+          dealer: dealer,
+        ),
+      ),
+    );
+    if (!mounted || saved != true) return;
+    final dealerId = int.tryParse('${dealer['dealer_id'] ?? 0}') ?? 0;
+    setState(() {
+      _dealers = _dealers
+          .where(
+            (row) => (int.tryParse('${row['dealer_id'] ?? 0}') ?? 0) != dealerId,
+          )
+          .toList();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeBackScope(
+      onBack: () => smartBack(context),
+      child: Scaffold(
+        appBar: RoleAppBar(
+          title: 'No Follow-up Set',
+          auth: widget.auth,
+          showBack: true,
+          onBack: () => smartBack(context),
+        ),
+        body: ListView(
+          key: const PageStorageKey('payment-recovery-no-follow-up-set'),
+          physics: const AlwaysScrollableScrollPhysics(),
+          padding: const EdgeInsets.all(AppSpacing.screenPadding),
+          children: [
+            if (_dealers.isEmpty)
+              const PgEmptyState(
+                message: 'All outstanding dealers have a follow-up set.',
+              )
+            else
+              ..._dealers.map(
+                (dealer) => Padding(
+                  key: ValueKey('no-follow-up-${dealer['dealer_id']}'),
+                  padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                  child: _NoFollowUpDealerCard(
+                    dealer: dealer,
+                    onSetFollowUp: () => _setFollowUp(dealer),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _NoFollowUpDealerCard extends StatelessWidget {
+  const _NoFollowUpDealerCard({
+    required this.dealer,
+    required this.onSetFollowUp,
+  });
+
+  final Map<String, dynamic> dealer;
+  final VoidCallback onSetFollowUp;
+
+  @override
+  Widget build(BuildContext context) {
+    final employeeName =
+        (dealer['employee_name'] ?? dealer['assigned_employee_name'])
+            ?.toString()
+            .trim() ??
+        '';
+
+    return PgCard(
+      padding: const EdgeInsets.fromLTRB(14, 12, 12, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            dealer['dealer_name']?.toString() ?? '-',
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+          ),
+          if (employeeName.isNotEmpty) ...[
+            const SizedBox(height: 4),
+            Text(
+              employeeName,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: AppColors.textSecondary,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ],
+          const SizedBox(height: 8),
+          Text(
+            'Current Outstanding',
+            style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                  color: AppColors.textSecondary,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              _moneyLabel(
+                dealer,
+                'current_outstanding',
+                'current_due_label',
+              ),
+              maxLines: 1,
+              style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    color: AppColors.primary,
+                  ),
+            ),
+          ),
+          const SizedBox(height: 10),
+          Align(
+            alignment: Alignment.centerRight,
+            child: FilledButton(
+              onPressed: onSetFollowUp,
+              child: const Text('Set Follow-up'),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SetFollowUpPage extends StatefulWidget {
+  const _SetFollowUpPage({
+    required this.auth,
+    required this.apiPrefix,
+    required this.dealer,
+  });
+
+  final AuthController auth;
+  final String apiPrefix;
+  final Map<String, dynamic> dealer;
+
+  @override
+  State<_SetFollowUpPage> createState() => _SetFollowUpPageState();
+}
+
+class _SetFollowUpPageState extends State<_SetFollowUpPage> {
+  final _remark = TextEditingController();
+  final _expected = TextEditingController();
+  DateTime? _nextDate;
+  bool _saving = false;
+
+  @override
+  void dispose() {
+    _remark.dispose();
+    _expected.dispose();
+    super.dispose();
+  }
+
+  Future<void> _pickDate() async {
+    final now = DateTime.now();
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: _nextDate ?? now,
+      firstDate: DateTime(now.year, now.month, now.day),
+      lastDate: DateTime(now.year + 2),
+    );
+    if (picked != null) {
+      setState(() => _nextDate = picked);
+    }
+  }
+
+  Future<void> _save() async {
+    final remark = _remark.text.trim();
+    if (remark.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Follow-up remark is required.')),
+      );
+      return;
+    }
+    if (_nextDate == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Next follow-up date is required.')),
+      );
+      return;
+    }
+
+    final expectedText = _expected.text.trim().replaceAll(',', '');
+    final expected = expectedText.isEmpty ? null : double.tryParse(expectedText);
+    if (expectedText.isNotEmpty && (expected == null || expected <= 0)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Enter a valid expected amount.')),
+      );
+      return;
+    }
+
+    final dealerId = int.tryParse('${widget.dealer['dealer_id'] ?? 0}') ?? 0;
+    if (dealerId <= 0) return;
+
+    setState(() => _saving = true);
+    try {
+      final dio = ApiClient(
+        SessionStore(),
+        onUnauthorized: widget.auth.sessionExpired,
+      ).dio;
+      await dio.post(
+        '${widget.apiPrefix}/$dealerId',
+        data: {
+          'remark': remark,
+          'expected_amount': ?expected,
+          'next_follow_up_date': DateFormat('yyyy-MM-dd').format(_nextDate!),
+        },
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Follow-up saved.')),
+      );
+      Navigator.of(context).pop(true);
+    } on DioException catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(errorMessage(error))),
+      );
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final employeeName =
+        (widget.dealer['employee_name'] ??
+                widget.dealer['assigned_employee_name'])
+            ?.toString()
+            .trim() ??
+        '';
+
+    return SafeBackScope(
+      onBack: () => smartBack(context),
+      child: Scaffold(
+        appBar: RoleAppBar(
+          title: 'Set Follow-up',
+          auth: widget.auth,
+          showBack: true,
+          onBack: () => smartBack(context),
+        ),
+        body: ListView(
+          padding: const EdgeInsets.all(AppSpacing.screenPadding),
+          children: [
+            PgCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    widget.dealer['dealer_name']?.toString() ?? '-',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                  if (employeeName.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      employeeName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            color: AppColors.textSecondary,
+                          ),
+                    ),
+                  ],
+                  const SizedBox(height: AppSpacing.md),
+                  Text(
+                    'Current Outstanding',
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                  ),
+                  FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      _moneyLabel(
+                        widget.dealer,
+                        'current_outstanding',
+                        'current_due_label',
+                      ),
+                      maxLines: 1,
+                      style: Theme.of(context).textTheme.headlineSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                            color: AppColors.primary,
+                          ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: AppSpacing.md),
+            PgCard(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextFormField(
+                    controller: _remark,
+                    maxLines: 3,
+                    decoration: const InputDecoration(
+                      labelText: 'Follow-up Remark *',
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  TextFormField(
+                    controller: _expected,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                    ),
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                    ],
+                    decoration: const InputDecoration(
+                      labelText: 'Expected Payment Amount',
+                      prefixText: '₹ ',
+                    ),
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: const Text('Next Payment / Follow-up Date *'),
+                    subtitle: Text(
+                      _nextDate == null ? 'Select date' : _date.format(_nextDate!),
+                    ),
+                    trailing: const Icon(Icons.calendar_today_outlined),
+                    onTap: _pickDate,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  FilledButton(
+                    onPressed: _saving ? null : _save,
+                    child: Text(_saving ? 'Saving…' : 'Save Follow-up'),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }

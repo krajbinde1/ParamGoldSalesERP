@@ -91,6 +91,11 @@ class TallyOutboundVoucher extends Model
         return $this->status === self::STATUS_FAILED;
     }
 
+    public function isSkipped(): bool
+    {
+        return $this->status === self::STATUS_SKIPPED;
+    }
+
     public function hasBlockingClaim(?string $connectorId): bool
     {
         if ($this->status !== self::STATUS_CLAIMED) {

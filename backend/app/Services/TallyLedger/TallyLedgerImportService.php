@@ -10,6 +10,8 @@ use App\Models\TallyDealerMapping;
 use App\Models\User;
 use App\Services\Dealers\DealerLedgerPostingService;
 use App\Services\Dealers\DealerSalesLedgerReconciler;
+use App\Services\TallySync\TallyDealerMappingService;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -229,6 +231,26 @@ final class TallyLedgerImportService
                     particulars: $transaction['particulars'],
                 );
 
+                $guid = TallyDealerMappingService::normalizeGuid(
+                    $transaction['tally_voucher_guid'] ?? $transaction['voucher_guid'] ?? $transaction['guid'] ?? '',
+                );
+
+                if ($guid !== '') {
+                    $existingGuid = $reconciler->findByTallyGuid($guid);
+                    if ($existingGuid !== null) {
+                        if ($existingGuid->source === DealerTallyEntry::SOURCE_SALES_ORDER
+                            && (int) $existingGuid->dealer_id === (int) $dealer->id
+                            && $reconciler->isTallySalesDebit($transaction)) {
+                            $reconciler->reconcileSalesOrderWithTally($existingGuid, $transaction, (int) $import->id);
+                            $reconciled++;
+                        } else {
+                            $duplicates++;
+                        }
+
+                        continue;
+                    }
+                }
+
                 if ($reconciler->tallyDuplicateExists((int) $dealer->id, $transaction, $fingerprint)) {
                     $duplicates++;
 
@@ -240,6 +262,7 @@ final class TallyLedgerImportService
                         dealerId: (int) $dealer->id,
                         debit: (float) $transaction['debit'],
                         tallyDate: (string) $transaction['date'],
+                        transaction: $transaction,
                     );
                     if ($salesOrder !== null) {
                         $reconciler->reconcileSalesOrderWithTally($salesOrder, $transaction, (int) $import->id);
@@ -255,20 +278,29 @@ final class TallyLedgerImportService
                     continue;
                 }
 
-                DealerTallyEntry::query()->create([
-                    'dealer_id' => $dealer->id,
-                    'import_id' => $import->id,
-                    'entry_date' => $transaction['date'],
-                    'particulars' => $transaction['particulars'],
-                    'voucher_type' => $transaction['voucher_type'] !== '' ? $transaction['voucher_type'] : null,
-                    'voucher_no' => $transaction['voucher_no'] !== '' ? $transaction['voucher_no'] : null,
-                    'debit' => $transaction['debit'],
-                    'credit' => $transaction['credit'],
-                    'source' => TallyLedgerConfig::SOURCE,
-                    'fingerprint' => $fingerprint,
-                    'source_row' => $transaction['row_number'],
-                ]);
-                $imported++;
+                try {
+                    DealerTallyEntry::query()->create([
+                        'dealer_id' => $dealer->id,
+                        'import_id' => $import->id,
+                        'entry_date' => $transaction['date'],
+                        'particulars' => $transaction['particulars'],
+                        'voucher_type' => $transaction['voucher_type'] !== '' ? $transaction['voucher_type'] : null,
+                        'voucher_no' => $transaction['voucher_no'] !== '' ? $transaction['voucher_no'] : null,
+                        'tally_voucher_type' => $transaction['voucher_type'] !== '' ? $transaction['voucher_type'] : null,
+                        'tally_voucher_no' => $transaction['voucher_no'] !== '' ? $transaction['voucher_no'] : null,
+                        'tally_entry_date' => $transaction['date'],
+                        'tally_voucher_guid' => $guid !== '' ? $guid : null,
+                        'tally_entry_key' => $guid !== '' ? DealerTallyEntry::SALES_ENTRY_KEY : null,
+                        'debit' => $transaction['debit'],
+                        'credit' => $transaction['credit'],
+                        'source' => TallyLedgerConfig::SOURCE,
+                        'fingerprint' => $fingerprint,
+                        'source_row' => $transaction['row_number'],
+                    ]);
+                    $imported++;
+                } catch (UniqueConstraintViolationException) {
+                    $duplicates++;
+                }
             }
 
             $this->replaceExistingOpeningBalance($dealer, $parsed);

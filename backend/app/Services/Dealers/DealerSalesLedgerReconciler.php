@@ -5,7 +5,9 @@ namespace App\Services\Dealers;
 use App\Models\Dealer;
 use App\Models\DealerTallyEntry;
 use App\Models\Order;
+use App\Models\TallyOutboundVoucher;
 use App\Services\TallyLedger\TallyLedgerConfig;
+use App\Services\TallySync\TallyDealerMappingService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
@@ -13,6 +15,16 @@ use Illuminate\Support\Str;
 
 final class DealerSalesLedgerReconciler
 {
+    public const DATE_WINDOW_DAYS = 14;
+
+    public const MATCH_ERP_REFERENCE = 'erp_reference';
+
+    public const MATCH_GUID = 'tally_guid';
+
+    public const MATCH_BILL_REFERENCE = 'bill_reference';
+
+    public const MATCH_UNIQUE_WINDOW = 'unique_window';
+
     /**
      * @param  array<string, mixed>  $transaction
      */
@@ -43,13 +55,19 @@ final class DealerSalesLedgerReconciler
     }
 
     /**
-     * Exact Tally duplicate: same dealer, date, debit, credit, and voucher number.
+     * Exact Tally duplicate: fingerprint, GUID, or same dealer/voucher/amount
+     * (date may differ after Tally numbering).
      *
      * @param  array<string, mixed>  $transaction
      */
     public function tallyDuplicateExists(int $dealerId, array $transaction, string $fingerprint): bool
     {
         if (DealerTallyEntry::query()->where('fingerprint', $fingerprint)->exists()) {
+            return true;
+        }
+
+        $guid = $this->transactionGuid($transaction);
+        if ($guid !== '' && $this->findByTallyGuid($guid) !== null) {
             return true;
         }
 
@@ -60,16 +78,16 @@ final class DealerSalesLedgerReconciler
 
         $query = DealerTallyEntry::query()
             ->where('dealer_id', $dealerId)
-            ->whereDate('entry_date', $date)
             ->whereRaw('ABS(COALESCE(debit, 0) - ?) < 0.005', [$debit])
             ->whereRaw('ABS(COALESCE(credit, 0) - ?) < 0.005', [$credit]);
 
         if ($voucherNo === '') {
-            $query->where(function ($empty): void {
-                $empty->whereNull('voucher_no')->orWhere('voucher_no', '');
-            })->where(function ($empty): void {
-                $empty->whereNull('tally_voucher_no')->orWhere('tally_voucher_no', '');
-            });
+            $query->whereDate('entry_date', $date)
+                ->where(function ($empty): void {
+                    $empty->whereNull('voucher_no')->orWhere('voucher_no', '');
+                })->where(function ($empty): void {
+                    $empty->whereNull('tally_voucher_no')->orWhere('tally_voucher_no', '');
+                });
         } else {
             $query->where(function ($inner) use ($voucherNo): void {
                 $inner->whereRaw("UPPER(REPLACE(COALESCE(voucher_no, ''), ' ', '')) = ?", [$voucherNo])
@@ -80,15 +98,43 @@ final class DealerSalesLedgerReconciler
         return $query->exists();
     }
 
-    /**
-     * Unique unreconciled ERP Sales Order debit for this dealer and amount.
-     * Does not match collections, receipts, credit notes, or unrelated same-amount rows.
-     */
-    public function findMatchingSalesOrderEntry(int $dealerId, float $debit, string $tallyDate): ?DealerTallyEntry
+    public function findByTallyGuid(string $guid): ?DealerTallyEntry
     {
+        $guid = TallyDealerMappingService::normalizeGuid($guid);
+        if ($guid === '') {
+            return null;
+        }
+
+        return DealerTallyEntry::query()
+            ->where('tally_voucher_guid', $guid)
+            ->orderBy('id')
+            ->first();
+    }
+
+    /**
+     * Unique unreconciled ERP Sales Order debit for this dealer and Tally sales row.
+     *
+     * @param  array<string, mixed>  $transaction
+     */
+    public function findMatchingSalesOrderEntry(
+        int $dealerId,
+        float $debit,
+        string $tallyDate,
+        array $transaction = [],
+    ): ?DealerTallyEntry {
         $debit = round($debit, 2);
         if ($debit <= 0.0) {
             return null;
+        }
+
+        $guid = $this->transactionGuid($transaction);
+        if ($guid !== '') {
+            $byGuid = $this->findByTallyGuid($guid);
+            if ($byGuid !== null
+                && (int) $byGuid->dealer_id === $dealerId
+                && $byGuid->source === DealerTallyEntry::SOURCE_SALES_ORDER) {
+                return $byGuid;
+            }
         }
 
         $candidates = $this->unreconciledSalesOrderEntries($dealerId, $debit);
@@ -96,15 +142,41 @@ final class DealerSalesLedgerReconciler
             return null;
         }
 
-        if ($candidates->count() === 1) {
-            return $candidates->first();
+        $identity = $candidates->filter(function (DealerTallyEntry $entry) use ($transaction): bool {
+            return $this->identityMatchesIncomingTally($entry, $transaction);
+        })->values();
+
+        if ($identity->count() === 1) {
+            return $identity->first();
         }
 
-        return $this->uniquelyClosest($candidates, $tallyDate);
+        if ($identity->count() > 1) {
+            return $this->uniquelyClosest($identity, $tallyDate);
+        }
+
+        $inWindow = $candidates
+            ->filter(function (DealerTallyEntry $entry) use ($tallyDate, $transaction): bool {
+                $order = $this->orderForEntry($entry);
+
+                return $order instanceof Order
+                    && ! $this->incomingRefersToDifferentOrder($transaction, $order)
+                    && $this->withinDateWindow($entry, $tallyDate);
+            })
+            ->values();
+
+        if ($inWindow->count() === 1) {
+            return $inWindow->first();
+        }
+
+        if ($inWindow->isEmpty()) {
+            return null;
+        }
+
+        return $this->uniquelyClosest($inWindow, $tallyDate);
     }
 
     /**
-     * Unreconciled Tally sales debit that names this ERP order in voucher/reference.
+     * Unreconciled Tally sales debit that belongs to this ERP order.
      * Same dealer + same debit amount is never enough on its own.
      */
     public function findMatchingTallySalesEntry(Order $order): ?DealerTallyEntry
@@ -118,23 +190,41 @@ final class DealerSalesLedgerReconciler
             return null;
         }
 
-        $candidates = $this->unreconciledTallySalesEntries((int) $order->dealer_id, $debit)
-            ->filter(function (DealerTallyEntry $entry) use ($order): bool {
-                return $this->refersToThisOrder($entry, $order)
-                    && ! $this->refersToDifferentOrder($entry, $order);
-            })
-            ->values();
+        $candidates = $this->unreconciledTallySalesEntries((int) $order->dealer_id, $debit);
         if ($candidates->isEmpty()) {
             return null;
         }
 
-        if ($candidates->count() === 1) {
-            return $candidates->first();
+        $identity = $candidates
+            ->filter(fn (DealerTallyEntry $entry): bool => $this->identityMatchesOrder($entry, $order))
+            ->values();
+
+        if ($identity->count() === 1) {
+            return $identity->first();
         }
 
         $orderDate = $order->dealerLedgerEntryDate();
 
-        return $this->uniquelyClosest($candidates, $orderDate);
+        if ($identity->count() > 1) {
+            return $this->uniquelyClosest($identity, $orderDate);
+        }
+
+        $inWindow = $candidates
+            ->filter(function (DealerTallyEntry $entry) use ($order, $orderDate): bool {
+                return ! $this->refersToDifferentOrder($entry, $order)
+                    && $this->withinDateWindow($entry, $orderDate);
+            })
+            ->values();
+
+        if ($inWindow->count() === 1) {
+            return $inWindow->first();
+        }
+
+        if ($inWindow->isEmpty()) {
+            return null;
+        }
+
+        return $this->uniquelyClosest($inWindow, $orderDate);
     }
 
     private function uniqueOwnerOrderForEntry(DealerTallyEntry $entry, int $exceptOrderId): ?Order
@@ -161,7 +251,7 @@ final class DealerSalesLedgerReconciler
 
         $owner = $matches->first();
 
-        return $owner instanceof Order && $this->refersToThisOrder($entry, $owner)
+        return $owner instanceof Order && $this->identityMatchesOrder($entry, $owner)
             ? $owner
             : null;
     }
@@ -178,50 +268,12 @@ final class DealerSalesLedgerReconciler
      */
     public function refersToDifferentOrder(DealerTallyEntry $entry, Order $order): bool
     {
-        $haystack = strtoupper(trim(implode(' ', array_filter([
-            (string) $entry->voucher_no,
-            (string) $entry->tally_voucher_no,
-            (string) $entry->particulars,
-        ]))));
-
-        if ($haystack === '') {
-            return false;
-        }
-
-        $full = strtoupper((string) $order->order_no);
-        $ownShort = array_values(array_unique(array_filter([
-            strtoupper((string) $order->shortOrderNo()),
-            preg_match('/^PG-\d{8}-(\d+)$/', $full, $parts) === 1 ? 'PG-'.$parts[1] : null,
-        ])));
-        $ownFull = $full !== '' ? [$full] : [];
-
-        if (preg_match_all('/\bPG-\d{8}-\d+\b/', $haystack, $fullMatches) > 0) {
-            foreach ($fullMatches[0] as $token) {
-                if (! in_array($token, $ownFull, true)) {
-                    return true;
-                }
-            }
-        }
-
-        $withoutFull = preg_replace('/\bPG-\d{8}-\d+\b/', ' ', $haystack) ?? $haystack;
-        if (preg_match_all('/\bPG-\d+\b/', $withoutFull, $shortMatches) === 0) {
-            return false;
-        }
-
-        foreach ($shortMatches[0] as $token) {
-            if (preg_match('/^PG-\d{8}$/', $token) === 1 || in_array($token, $ownShort, true) || $token === $full) {
-                continue;
-            }
-
-            return true;
-        }
-
-        return false;
+        return $this->haystackRefersToDifferentOrder($this->entryHaystack($entry), $order);
     }
 
     /**
      * True when voucher / particulars name this ERP sales order
-     * (PG-20260831-0001 or short PG-0001). Same dealer + same debit is not enough.
+     * (PG-20260831-0001, short PG-0001, or ERP-SO-{id}). Same dealer + same debit is not enough.
      */
     public function refersToThisOrder(DealerTallyEntry $entry, Order $order): bool
     {
@@ -229,34 +281,7 @@ final class DealerSalesLedgerReconciler
             return false;
         }
 
-        $full = strtoupper(trim((string) $order->order_no));
-        $short = strtoupper(trim((string) $order->shortOrderNo()));
-        $normalizedFull = $this->normalizeVoucherNo($full);
-        $normalizedShort = $this->normalizeVoucherNo($short);
-        $vouchers = [
-            $this->normalizeVoucherNo((string) $entry->voucher_no),
-            $this->normalizeVoucherNo((string) $entry->tally_voucher_no),
-        ];
-
-        foreach ([$normalizedFull, $normalizedShort] as $token) {
-            if ($token !== '' && in_array($token, $vouchers, true)) {
-                return true;
-            }
-        }
-
-        $haystack = strtoupper(trim(implode(' ', array_filter([
-            (string) $entry->voucher_no,
-            (string) $entry->tally_voucher_no,
-            (string) $entry->particulars,
-        ]))));
-
-        if ($full !== '' && str_contains($haystack, $full)) {
-            return true;
-        }
-
-        return $short !== ''
-            && $short !== $full
-            && preg_match('/\b'.preg_quote($short, '/').'\b/', $haystack) === 1;
+        return $this->haystackRefersToThisOrder($this->entryHaystack($entry), $order);
     }
 
     /**
@@ -271,6 +296,13 @@ final class DealerSalesLedgerReconciler
         $particulars = trim((string) ($transaction['particulars'] ?? ''));
         $voucherType = trim((string) ($transaction['voucher_type'] ?? ''));
         $voucherNo = trim((string) ($transaction['voucher_no'] ?? ''));
+        $guid = $this->transactionGuid($transaction);
+        $masterId = trim((string) ($transaction['tally_master_id'] ?? $transaction['master_id'] ?? ''));
+        $erpReference = filled($salesOrderEntry->erp_reference)
+            ? (string) $salesOrderEntry->erp_reference
+            : ($salesOrderEntry->source_id !== null
+                ? DealerTallyEntry::salesErpReference((int) $salesOrderEntry->source_id)
+                : null);
 
         $salesOrderEntry->fill([
             'entry_date' => $tallyDate,
@@ -278,10 +310,16 @@ final class DealerSalesLedgerReconciler
             'voucher_type' => $voucherType !== '' ? $voucherType : $salesOrderEntry->voucher_type,
             'voucher_no' => $voucherNo !== '' ? $voucherNo : $salesOrderEntry->voucher_no,
             'import_id' => $importId ?? $salesOrderEntry->import_id,
-            'tally_voucher_type' => $voucherType !== '' ? $voucherType : null,
-            'tally_voucher_no' => $voucherNo !== '' ? $voucherNo : null,
+            'tally_voucher_type' => $voucherType !== '' ? $voucherType : $salesOrderEntry->tally_voucher_type,
+            'tally_voucher_no' => $voucherNo !== '' ? $voucherNo : $salesOrderEntry->tally_voucher_no,
             'tally_entry_date' => $tallyDate,
             'tally_reconciled_at' => Carbon::now('Asia/Kolkata'),
+            'tally_voucher_guid' => $guid !== '' ? $guid : $salesOrderEntry->tally_voucher_guid,
+            'tally_master_id' => $masterId !== '' ? $masterId : $salesOrderEntry->tally_master_id,
+            'tally_entry_key' => $guid !== ''
+                ? DealerTallyEntry::SALES_ENTRY_KEY
+                : $salesOrderEntry->tally_entry_key,
+            'erp_reference' => $erpReference,
         ]);
         $salesOrderEntry->save();
 
@@ -291,14 +329,16 @@ final class DealerSalesLedgerReconciler
     public function attachSalesOrderToTallyEntry(DealerTallyEntry $tallyEntry, Order $order): ?DealerTallyEntry
     {
         if (! $this->amountsMatch($tallyEntry, round((float) $order->grand_total, 2), 0.0)
-            || $this->refersToDifferentOrder($tallyEntry, $order)
-            || ! $this->refersToThisOrder($tallyEntry, $order)) {
+            || $this->refersToDifferentOrder($tallyEntry, $order)) {
             return null;
         }
+
+        $guid = TallyDealerMappingService::normalizeGuid((string) ($tallyEntry->tally_voucher_guid ?? ''));
 
         $tallyEntry->fill([
             'source' => DealerTallyEntry::SOURCE_SALES_ORDER,
             'source_id' => (int) $order->id,
+            'erp_reference' => DealerTallyEntry::salesErpReference((int) $order->id),
             'fingerprint' => DealerTallyEntry::makeSourceFingerprint(
                 DealerTallyEntry::SOURCE_SALES_ORDER,
                 (int) $order->id,
@@ -307,6 +347,10 @@ final class DealerSalesLedgerReconciler
             'tally_voucher_no' => $tallyEntry->tally_voucher_no ?: $tallyEntry->voucher_no,
             'tally_entry_date' => $tallyEntry->tally_entry_date?->toDateString()
                 ?: $tallyEntry->entry_date?->toDateString(),
+            'tally_voucher_guid' => $guid !== '' ? $guid : $tallyEntry->tally_voucher_guid,
+            'tally_entry_key' => $guid !== ''
+                ? DealerTallyEntry::SALES_ENTRY_KEY
+                : $tallyEntry->tally_entry_key,
             'tally_reconciled_at' => Carbon::now('Asia/Kolkata'),
         ]);
         $tallyEntry->save();
@@ -327,7 +371,8 @@ final class DealerSalesLedgerReconciler
                 || $entry->fingerprint === DealerTallyEntry::makeSourceFingerprint(
                     DealerTallyEntry::SOURCE_SALES_ORDER,
                     (int) $order->id,
-                ));
+                )
+                || $entry->erp_reference === DealerTallyEntry::salesErpReference((int) $order->id));
     }
 
     /**
@@ -342,7 +387,8 @@ final class DealerSalesLedgerReconciler
             (int) $order->id,
         );
         $pointsAtOrder = (int) $entry->source_id === (int) $order->id
-            || $entry->fingerprint === $fingerprint;
+            || $entry->fingerprint === $fingerprint
+            || $entry->erp_reference === DealerTallyEntry::salesErpReference((int) $order->id);
 
         if (! $pointsAtOrder) {
             return false;
@@ -357,11 +403,10 @@ final class DealerSalesLedgerReconciler
         }
 
         if ($this->amountsMatch($entry, round((float) $order->grand_total, 2), 0.0)) {
-            // Same amount is not enough. A historical Tally debit must not stand in
-            // for this ERP order unless voucher/reference actually names it.
             if ($this->isTallyIdentity($entry)
                 && ! $this->refersToThisOrder($entry, $order)
-                && $entry->entry_date?->toDateString() !== $order->dealerLedgerEntryDate()) {
+                && ! $this->orderOwnsTallyBill($order, $entry)
+                && $this->dateDistance($entry, $order->dealerLedgerEntryDate()) > self::DATE_WINDOW_DAYS) {
                 return true;
             }
 
@@ -397,8 +442,11 @@ final class DealerSalesLedgerReconciler
             DealerTallyEntry::SOURCE_SALES_ORDER,
             (int) $claimedBy->id,
         );
+        $claimedReference = DealerTallyEntry::salesErpReference((int) $claimedBy->id);
 
-        if ((int) $entry->source_id !== (int) $claimedBy->id && $entry->fingerprint !== $claimedFingerprint) {
+        if ((int) $entry->source_id !== (int) $claimedBy->id
+            && $entry->fingerprint !== $claimedFingerprint
+            && $entry->erp_reference !== $claimedReference) {
             return;
         }
 
@@ -413,6 +461,7 @@ final class DealerSalesLedgerReconciler
                 ->whereKeyNot($entry->id)
                 ->where(function ($query) use ($owner, $ownerFingerprint): void {
                     $query->where('fingerprint', $ownerFingerprint)
+                        ->orWhere('erp_reference', DealerTallyEntry::salesErpReference((int) $owner->id))
                         ->orWhere(function ($inner) use ($owner): void {
                             $inner->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
                                 ->where('source_id', $owner->id);
@@ -424,6 +473,7 @@ final class DealerSalesLedgerReconciler
                 $entry->fill([
                     'source' => DealerTallyEntry::SOURCE_SALES_ORDER,
                     'source_id' => (int) $owner->id,
+                    'erp_reference' => DealerTallyEntry::salesErpReference((int) $owner->id),
                     'fingerprint' => $ownerFingerprint,
                 ]);
                 $entry->save();
@@ -449,6 +499,7 @@ final class DealerSalesLedgerReconciler
         $entry->fill([
             'source' => TallyLedgerConfig::SOURCE,
             'source_id' => null,
+            'erp_reference' => null,
             'fingerprint' => $fingerprint,
             'tally_voucher_type' => $entry->tally_voucher_type ?: $entry->voucher_type,
             'tally_voucher_no' => $entry->tally_voucher_no ?: ($voucherNo !== '' ? $voucherNo : null),
@@ -481,38 +532,127 @@ final class DealerSalesLedgerReconciler
             'tally_voucher_no' => null,
             'tally_entry_date' => null,
             'tally_reconciled_at' => null,
+            'tally_voucher_guid' => null,
+            'tally_master_id' => null,
+            'tally_entry_key' => null,
+            'erp_reference' => $order instanceof Order
+                ? DealerTallyEntry::salesErpReference((int) $order->id)
+                : $entry->erp_reference,
         ]);
         $entry->save();
     }
 
-    public function reconcileExistingDuplicates(?Dealer $dealer = null): int
+    /**
+     * @return array{
+     *     definite: list<array<string, mixed>>,
+     *     ambiguous: list<array<string, mixed>>
+     * }
+     */
+    public function classifyExistingDuplicates(?Dealer $dealer = null): array
     {
         $dealerIds = $dealer !== null
             ? collect([(int) $dealer->id])
             : DealerTallyEntry::query()
-                ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+                ->whereIn('source', [
+                    DealerTallyEntry::SOURCE_SALES_ORDER,
+                    TallyLedgerConfig::SOURCE,
+                ])
                 ->distinct()
                 ->pluck('dealer_id');
 
-        $reconciled = 0;
+        $definite = [];
+        $ambiguous = [];
+
         foreach ($dealerIds as $dealerId) {
-            $reconciled += $this->reconcileDealerDuplicates((int) $dealerId);
+            $classified = $this->classifyDealerDuplicates((int) $dealerId);
+            $definite = array_merge($definite, $classified['definite']);
+            $ambiguous = array_merge($ambiguous, $classified['ambiguous']);
         }
 
-        return $reconciled;
+        return [
+            'definite' => $definite,
+            'ambiguous' => $ambiguous,
+        ];
     }
 
-    private function reconcileDealerDuplicates(int $dealerId): int
+    public function reconcileExistingDuplicates(?Dealer $dealer = null): int
     {
+        $classified = $this->classifyExistingDuplicates($dealer);
+        $count = 0;
+
+        foreach ($classified['definite'] as $pair) {
+            $orderEntry = $pair['order_entry'] ?? null;
+            $tallyEntry = $pair['tally_entry'] ?? null;
+            if (! $orderEntry instanceof DealerTallyEntry || ! $tallyEntry instanceof DealerTallyEntry) {
+                continue;
+            }
+            if ($orderEntry->is($tallyEntry)) {
+                continue;
+            }
+
+            $this->applyDefinitePair($orderEntry, $tallyEntry);
+            $count++;
+        }
+
+        return $count;
+    }
+
+    public function stampOutboundSalesSync(TallyOutboundVoucher $voucher): void
+    {
+        if ($voucher->source_type !== TallyOutboundVoucher::SOURCE_SALES_ORDER) {
+            return;
+        }
+
+        $entry = DealerTallyEntry::query()
+            ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+            ->where(function ($query) use ($voucher): void {
+                $query->where('source_id', (int) $voucher->source_id)
+                    ->orWhere('erp_reference', DealerTallyEntry::salesErpReference((int) $voucher->source_id))
+                    ->orWhere('fingerprint', DealerTallyEntry::makeSourceFingerprint(
+                        DealerTallyEntry::SOURCE_SALES_ORDER,
+                        (int) $voucher->source_id,
+                    ));
+            })
+            ->orderBy('id')
+            ->first();
+
+        if ($entry === null) {
+            return;
+        }
+
+        $voucherNo = trim((string) ($voucher->tally_voucher_no ?? ''));
+        $masterId = trim((string) ($voucher->tally_master_id ?? ''));
+
+        $entry->fill([
+            'erp_reference' => filled($entry->erp_reference)
+                ? $entry->erp_reference
+                : DealerTallyEntry::salesErpReference((int) $voucher->source_id),
+            'tally_voucher_no' => $voucherNo !== '' ? $voucherNo : $entry->tally_voucher_no,
+            'tally_master_id' => $masterId !== '' ? $masterId : $entry->tally_master_id,
+        ]);
+        $entry->save();
+    }
+
+    /**
+     * @return array{
+     *     definite: list<array<string, mixed>>,
+     *     ambiguous: list<array<string, mixed>>
+     * }
+     */
+    private function classifyDealerDuplicates(int $dealerId): array
+    {
+        $dealer = Dealer::query()->find($dealerId);
+        $dealerName = (string) ($dealer?->firm_name ?? ('Dealer #'.$dealerId));
+
         $orderEntries = DealerTallyEntry::query()
             ->where('dealer_id', $dealerId)
             ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
-            ->whereNull('tally_reconciled_at')
             ->whereRaw('COALESCE(debit, 0) > 0')
             ->orderBy('entry_date')
             ->orderBy('id')
             ->get()
-            ->filter(fn (DealerTallyEntry $entry): bool => $this->orderGrandTotalMatches($entry));
+            ->filter(fn (DealerTallyEntry $entry): bool => $this->orderGrandTotalMatches($entry))
+            ->values();
 
         $tallySales = DealerTallyEntry::query()
             ->where('dealer_id', $dealerId)
@@ -522,129 +662,369 @@ final class DealerSalesLedgerReconciler
             ->orderBy('entry_date')
             ->orderBy('id')
             ->get()
-            ->filter(fn (DealerTallyEntry $entry): bool => $this->isSalesDebitEntry($entry));
+            ->filter(fn (DealerTallyEntry $entry): bool => $this->isSalesDebitEntry($entry))
+            ->values();
 
-        $pairs = $this->safePairs($orderEntries->values(), $tallySales->values());
-        $count = 0;
+        $usedOrderIds = [];
+        $usedTallyIds = [];
+        $definite = [];
 
-        foreach ($pairs as [$orderEntry, $tallyEntry]) {
-            $order = $orderEntry->source_id !== null
-                ? Order::query()->find($orderEntry->source_id)
-                : null;
-            if (! $order instanceof Order || ! $this->refersToThisOrder($tallyEntry, $order)) {
+        foreach ($orderEntries as $orderEntry) {
+            $order = $this->orderForEntry($orderEntry);
+            if (! $order instanceof Order) {
                 continue;
             }
 
-            $this->reconcileSalesOrderWithTally($orderEntry, [
-                'date' => $tallyEntry->entry_date?->toDateString(),
-                'particulars' => $tallyEntry->particulars,
-                'voucher_type' => $tallyEntry->voucher_type,
-                'voucher_no' => $tallyEntry->voucher_no,
-            ], $tallyEntry->import_id !== null ? (int) $tallyEntry->import_id : null);
-            $tallyEntry->delete();
-            $count++;
+            foreach ($tallySales as $tallyEntry) {
+                if (in_array((int) $tallyEntry->id, $usedTallyIds, true)
+                    || in_array((int) $orderEntry->id, $usedOrderIds, true)) {
+                    continue;
+                }
+                if (! $this->amountsMatch($tallyEntry, round((float) $orderEntry->debit, 2), 0.0)) {
+                    continue;
+                }
+
+                $reason = $this->historicalIdentityReason($orderEntry, $tallyEntry, $order);
+                if ($reason === null) {
+                    continue;
+                }
+
+                $definite[] = $this->definiteRow(
+                    $dealerId,
+                    $dealerName,
+                    $reason,
+                    $orderEntry,
+                    $tallyEntry,
+                    $order,
+                );
+                $usedOrderIds[] = (int) $orderEntry->id;
+                $usedTallyIds[] = (int) $tallyEntry->id;
+            }
         }
 
-        if ($count > 0) {
-            Log::debug('tally_sales_order_duplicates_reconciled', [
-                'dealer_id' => $dealerId,
-                'reconciled' => $count,
-            ]);
-        }
+        $leftoverOrders = $orderEntries->filter(
+            fn (DealerTallyEntry $entry): bool => ! in_array((int) $entry->id, $usedOrderIds, true),
+        );
+        $leftoverTally = $tallySales->filter(
+            fn (DealerTallyEntry $entry): bool => ! in_array((int) $entry->id, $usedTallyIds, true),
+        );
 
-        return $count;
-    }
-
-    /**
-     * @param  Collection<int, DealerTallyEntry>  $orderEntries
-     * @param  Collection<int, DealerTallyEntry>  $tallyEntries
-     * @return list<array{0: DealerTallyEntry, 1: DealerTallyEntry}>
-     */
-    private function safePairs(Collection $orderEntries, Collection $tallyEntries): array
-    {
-        $pairs = [];
-        $usedOrderIds = [];
-        $usedTallyIds = [];
-        $orderByAmount = $orderEntries->groupBy(fn (DealerTallyEntry $entry): string => number_format((float) $entry->debit, 2, '.', ''));
-        $tallyByAmount = $tallyEntries->groupBy(fn (DealerTallyEntry $entry): string => number_format((float) $entry->debit, 2, '.', ''));
+        $orderByAmount = $leftoverOrders->groupBy(
+            fn (DealerTallyEntry $entry): string => number_format((float) $entry->debit, 2, '.', ''),
+        );
+        $tallyByAmount = $leftoverTally->groupBy(
+            fn (DealerTallyEntry $entry): string => number_format((float) $entry->debit, 2, '.', ''),
+        );
+        $ambiguous = [];
 
         foreach ($orderByAmount as $amount => $orders) {
             $tallyGroup = $tallyByAmount->get($amount, collect());
-            if ($orders->isEmpty() || $tallyGroup->isEmpty()) {
+            if ($tallyGroup->isEmpty()) {
                 continue;
             }
 
-            if ($orders->count() === $tallyGroup->count()) {
-                $ranked = $this->rankedPairs($orders, $tallyGroup);
-                foreach ($ranked as $candidate) {
-                    $orderId = (int) $candidate['order']->id;
-                    $tallyId = (int) $candidate['tally']->id;
-                    if (in_array($orderId, $usedOrderIds, true) || in_array($tallyId, $usedTallyIds, true)) {
+            $windowPairs = [];
+            foreach ($orders as $orderEntry) {
+                $order = $this->orderForEntry($orderEntry);
+                if (! $order instanceof Order) {
+                    continue;
+                }
+                foreach ($tallyGroup as $tallyEntry) {
+                    if ($this->refersToDifferentOrder($tallyEntry, $order)) {
                         continue;
                     }
-
-                    $pairs[] = [$candidate['order'], $candidate['tally']];
-                    $usedOrderIds[] = $orderId;
-                    $usedTallyIds[] = $tallyId;
+                    if (! $this->withinDateWindow($orderEntry, $tallyEntry->entry_date?->toDateString() ?? '')) {
+                        continue;
+                    }
+                    $windowPairs[] = [$orderEntry, $tallyEntry, $order];
                 }
+            }
+
+            if (count($orders) === 1 && count($tallyGroup) === 1) {
+                $orderEntry = $orders->first();
+                $tallyEntry = $tallyGroup->first();
+                $order = $orderEntry instanceof DealerTallyEntry ? $this->orderForEntry($orderEntry) : null;
+                if ($orderEntry instanceof DealerTallyEntry
+                    && $tallyEntry instanceof DealerTallyEntry
+                    && $order instanceof Order
+                    && ! $this->refersToDifferentOrder($tallyEntry, $order)
+                    && $this->withinDateWindow($orderEntry, $tallyEntry->entry_date?->toDateString() ?? '')) {
+                    $definite[] = $this->definiteRow(
+                        $dealerId,
+                        $dealerName,
+                        self::MATCH_UNIQUE_WINDOW,
+                        $orderEntry,
+                        $tallyEntry,
+                        $order,
+                    );
+                    $usedOrderIds[] = (int) $orderEntry->id;
+                    $usedTallyIds[] = (int) $tallyEntry->id;
+
+                    continue;
+                }
+
+                $ambiguous[] = $this->ambiguousRow(
+                    $dealerId,
+                    $dealerName,
+                    (float) $amount,
+                    $this->withinDateWindow(
+                        $orders->first(),
+                        $tallyGroup->first()?->entry_date?->toDateString() ?? '',
+                    ) ? 'same_amount_names_a_different_order' : 'same_amount_outside_date_window',
+                    $orders,
+                    $tallyGroup,
+                );
 
                 continue;
             }
 
-            $ranked = $this->rankedPairs($orders, $tallyGroup);
-
-            foreach ($ranked as $candidate) {
-                $orderId = (int) $candidate['order']->id;
-                $tallyId = (int) $candidate['tally']->id;
-                if (in_array($orderId, $usedOrderIds, true) || in_array($tallyId, $usedTallyIds, true)) {
-                    continue;
-                }
-
-                $sameDiffForOrder = collect($ranked)->filter(
-                    fn (array $row): bool => (int) $row['order']->id === $orderId
-                        && $row['diff'] === $candidate['diff']
-                        && ! in_array((int) $row['tally']->id, $usedTallyIds, true),
-                );
-                $sameDiffForTally = collect($ranked)->filter(
-                    fn (array $row): bool => (int) $row['tally']->id === $tallyId
-                        && $row['diff'] === $candidate['diff']
-                        && ! in_array((int) $row['order']->id, $usedOrderIds, true),
-                );
-
-                if ($sameDiffForOrder->count() !== 1 || $sameDiffForTally->count() !== 1) {
-                    continue;
-                }
-
-                $pairs[] = [$candidate['order'], $candidate['tally']];
-                $usedOrderIds[] = $orderId;
-                $usedTallyIds[] = $tallyId;
-            }
+            $ambiguous[] = $this->ambiguousRow(
+                $dealerId,
+                $dealerName,
+                (float) $amount,
+                count($windowPairs) > 0
+                    ? 'multiple_same_amount_sales_in_date_window'
+                    : 'multiple_same_amount_sales_without_unique_identity',
+                $orders,
+                $tallyGroup,
+            );
         }
 
-        return $pairs;
+        return [
+            'definite' => $definite,
+            'ambiguous' => $ambiguous,
+        ];
+    }
+
+    private function applyDefinitePair(DealerTallyEntry $orderEntry, DealerTallyEntry $tallyEntry): void
+    {
+        $this->reconcileSalesOrderWithTally($orderEntry, [
+            'date' => $tallyEntry->entry_date?->toDateString(),
+            'particulars' => $tallyEntry->particulars,
+            'voucher_type' => $tallyEntry->voucher_type,
+            'voucher_no' => $tallyEntry->voucher_no,
+            'tally_voucher_guid' => $tallyEntry->tally_voucher_guid,
+            'tally_master_id' => $tallyEntry->tally_master_id,
+        ], $tallyEntry->import_id !== null ? (int) $tallyEntry->import_id : null);
+        $tallyEntry->delete();
+
+        Log::debug('tally_sales_order_duplicate_linked', [
+            'dealer_id' => $orderEntry->dealer_id,
+            'erp_entry_id' => $orderEntry->id,
+            'tally_entry_id' => $tallyEntry->id,
+            'erp_reference' => $orderEntry->erp_reference,
+        ]);
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function definiteRow(
+        int $dealerId,
+        string $dealerName,
+        string $reason,
+        DealerTallyEntry $orderEntry,
+        DealerTallyEntry $tallyEntry,
+        Order $order,
+    ): array {
+        return [
+            'dealer_id' => $dealerId,
+            'dealer_name' => $dealerName,
+            'reason' => $reason,
+            'order_entry' => $orderEntry,
+            'tally_entry' => $tallyEntry,
+            'order' => $order,
+            'erp_entry_id' => (int) $orderEntry->id,
+            'erp_order_no' => (string) $order->order_no,
+            'erp_reference' => (string) ($orderEntry->erp_reference ?: DealerTallyEntry::salesErpReference((int) $order->id)),
+            'erp_date' => $orderEntry->entry_date?->toDateString(),
+            'erp_debit' => round((float) $orderEntry->debit, 2),
+            'tally_entry_id' => (int) $tallyEntry->id,
+            'tally_voucher_no' => (string) ($tallyEntry->voucher_no ?: $tallyEntry->tally_voucher_no),
+            'tally_guid' => (string) ($tallyEntry->tally_voucher_guid ?? ''),
+            'tally_date' => $tallyEntry->entry_date?->toDateString(),
+            'tally_debit' => round((float) $tallyEntry->debit, 2),
+        ];
     }
 
     /**
      * @param  Collection<int, DealerTallyEntry>  $orders
      * @param  Collection<int, DealerTallyEntry>  $tallyGroup
-     * @return list<array{order: DealerTallyEntry, tally: DealerTallyEntry, diff: int}>
+     * @return array<string, mixed>
      */
-    private function rankedPairs(Collection $orders, Collection $tallyGroup): array
-    {
-        $ranked = [];
-        foreach ($orders as $orderEntry) {
-            foreach ($tallyGroup as $tallyEntry) {
-                $ranked[] = [
-                    'order' => $orderEntry,
-                    'tally' => $tallyEntry,
-                    'diff' => $this->dateDistance($orderEntry, $tallyEntry->entry_date?->toDateString() ?? ''),
-                ];
-            }
+    private function ambiguousRow(
+        int $dealerId,
+        string $dealerName,
+        float $amount,
+        string $reason,
+        Collection $orders,
+        Collection $tallyGroup,
+    ): array {
+        return [
+            'dealer_id' => $dealerId,
+            'dealer_name' => $dealerName,
+            'reason' => $reason,
+            'amount' => $amount,
+            'erp_vouchers' => $orders
+                ->map(fn (DealerTallyEntry $entry): string => (string) ($entry->voucher_no ?: '#'.$entry->id))
+                ->implode(', '),
+            'tally_vouchers' => $tallyGroup
+                ->map(fn (DealerTallyEntry $entry): string => (string) ($entry->voucher_no ?: '#'.$entry->id))
+                ->implode(', '),
+            'erp_entry_ids' => $orders->pluck('id')->all(),
+            'tally_entry_ids' => $tallyGroup->pluck('id')->all(),
+        ];
+    }
+
+    private function historicalIdentityReason(
+        DealerTallyEntry $orderEntry,
+        DealerTallyEntry $tallyEntry,
+        Order $order,
+    ): ?string {
+        $orderGuid = TallyDealerMappingService::normalizeGuid((string) ($orderEntry->tally_voucher_guid ?? ''));
+        $tallyGuid = TallyDealerMappingService::normalizeGuid((string) ($tallyEntry->tally_voucher_guid ?? ''));
+        if ($orderGuid !== '' && $orderGuid === $tallyGuid) {
+            return self::MATCH_GUID;
         }
 
-        usort($ranked, fn (array $a, array $b): int => $a['diff'] <=> $b['diff']);
+        if ($this->refersToDifferentOrder($tallyEntry, $order)) {
+            return null;
+        }
 
-        return $ranked;
+        if ($this->haystackRefersToThisOrder($this->entryHaystack($tallyEntry), $order)) {
+            return self::MATCH_ERP_REFERENCE;
+        }
+
+        if ($this->incomingBillMatchesOrder(
+            (string) ($tallyEntry->voucher_no ?: $tallyEntry->tally_voucher_no),
+            $order,
+            $orderEntry,
+        )) {
+            return self::MATCH_BILL_REFERENCE;
+        }
+
+        return null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $transaction
+     */
+    private function identityMatchesIncomingTally(DealerTallyEntry $entry, array $transaction): bool
+    {
+        $order = $this->orderForEntry($entry);
+        if (! $order instanceof Order) {
+            return false;
+        }
+
+        if ($this->incomingRefersToDifferentOrder($transaction, $order)) {
+            return false;
+        }
+
+        $guid = $this->transactionGuid($transaction);
+        $entryGuid = TallyDealerMappingService::normalizeGuid((string) ($entry->tally_voucher_guid ?? ''));
+        if ($guid !== '' && $guid === $entryGuid) {
+            return true;
+        }
+
+        if ($this->haystackRefersToThisOrder($this->transactionHaystack($transaction), $order)) {
+            return true;
+        }
+
+        return $this->incomingBillMatchesOrder(
+            (string) ($transaction['voucher_no'] ?? ''),
+            $order,
+            $entry,
+        );
+    }
+
+    private function identityMatchesOrder(DealerTallyEntry $entry, Order $order): bool
+    {
+        if ($this->refersToDifferentOrder($entry, $order)) {
+            return false;
+        }
+
+        if ($this->refersToThisOrder($entry, $order)) {
+            return true;
+        }
+
+        return $this->billReferenceMatchesOrder($entry, $order);
+    }
+
+    private function billReferenceMatchesOrder(DealerTallyEntry $entry, Order $order): bool
+    {
+        return $this->incomingBillMatchesOrder(
+            (string) ($entry->voucher_no ?: $entry->tally_voucher_no),
+            $order,
+            $entry,
+        );
+    }
+
+    private function orderOwnsTallyBill(Order $order, DealerTallyEntry $entry): bool
+    {
+        return $this->incomingBillMatchesOrder(
+            (string) ($entry->voucher_no ?: $entry->tally_voucher_no),
+            $order,
+        );
+    }
+
+    private function incomingBillMatchesOrder(
+        string $incomingVoucherNo,
+        Order $order,
+        ?DealerTallyEntry $erpEntry = null,
+    ): bool {
+        $incoming = $this->normalizeVoucherNo($incomingVoucherNo);
+        if ($incoming === '') {
+            return false;
+        }
+
+        $erpBill = $erpEntry !== null
+            && $erpEntry->source === DealerTallyEntry::SOURCE_SALES_ORDER
+            ? $this->normalizeVoucherNo((string) ($erpEntry->tally_voucher_no ?? ''))
+            : '';
+
+        $known = array_values(array_filter([
+            $this->normalizeVoucherNo((string) $order->bill_number),
+            $erpBill,
+            $this->normalizeVoucherNo((string) $this->syncedTallyVoucherNo($order)),
+        ]));
+
+        return in_array($incoming, $known, true);
+    }
+
+    private function syncedTallyVoucherNo(Order $order): string
+    {
+        $voucher = TallyOutboundVoucher::query()
+            ->where('source_type', TallyOutboundVoucher::SOURCE_SALES_ORDER)
+            ->where('source_id', $order->id)
+            ->where('status', TallyOutboundVoucher::STATUS_SYNCED)
+            ->orderByDesc('id')
+            ->first();
+
+        return (string) ($voucher?->tally_voucher_no ?? '');
+    }
+
+    /**
+     * @param  Collection<int, DealerTallyEntry>  $candidates
+     */
+    private function uniquelyClosest(Collection $candidates, string $targetDate): ?DealerTallyEntry
+    {
+        $ranked = $candidates->map(fn (DealerTallyEntry $entry): array => [
+            'entry' => $entry,
+            'diff' => $this->dateDistance($entry, $targetDate),
+        ]);
+        $min = $ranked->min('diff');
+        $closest = $ranked->filter(fn (array $row): bool => $row['diff'] === $min);
+
+        if ($closest->count() !== 1) {
+            return null;
+        }
+
+        $entry = $closest->first()['entry'] ?? null;
+        if (! $entry instanceof DealerTallyEntry || $min > self::DATE_WINDOW_DAYS) {
+            return null;
+        }
+
+        return $entry;
     }
 
     /**
@@ -689,25 +1069,6 @@ final class DealerSalesLedgerReconciler
             ->values();
     }
 
-    /**
-     * @param  Collection<int, DealerTallyEntry>  $candidates
-     */
-    private function uniquelyClosest(Collection $candidates, string $targetDate): ?DealerTallyEntry
-    {
-        $ranked = $candidates->map(fn (DealerTallyEntry $entry): array => [
-            'entry' => $entry,
-            'diff' => $this->dateDistance($entry, $targetDate),
-        ]);
-        $min = $ranked->min('diff');
-        $closest = $ranked->filter(fn (array $row): bool => $row['diff'] === $min);
-
-        if ($closest->count() !== 1) {
-            return null;
-        }
-
-        return $closest->first()['entry'] ?? null;
-    }
-
     private function dateDistance(DealerTallyEntry $entry, string $targetDate): int
     {
         $left = $entry->entry_date?->toDateString();
@@ -718,17 +1079,29 @@ final class DealerSalesLedgerReconciler
         return (int) abs(Carbon::parse($left)->diffInDays(Carbon::parse($targetDate)));
     }
 
+    private function withinDateWindow(DealerTallyEntry $entry, string $targetDate): bool
+    {
+        return $this->dateDistance($entry, $targetDate) <= self::DATE_WINDOW_DAYS;
+    }
+
     private function orderGrandTotalMatches(DealerTallyEntry $entry): bool
     {
-        if ($entry->source_id === null) {
-            return false;
-        }
-
-        $order = Order::query()->find($entry->source_id);
+        $order = $this->orderForEntry($entry);
 
         return $order !== null
             && (int) $order->dealer_id === (int) $entry->dealer_id
             && abs(round((float) $order->grand_total, 2) - round((float) $entry->debit, 2)) < 0.005;
+    }
+
+    private function orderForEntry(DealerTallyEntry $entry): ?Order
+    {
+        if ($entry->source_id === null) {
+            return null;
+        }
+
+        $order = Order::query()->find($entry->source_id);
+
+        return $order instanceof Order ? $order : null;
     }
 
     private function isTallyIdentity(DealerTallyEntry $entry): bool
@@ -737,7 +1110,8 @@ final class DealerSalesLedgerReconciler
             || $entry->import_id !== null
             || filled($entry->tally_voucher_no)
             || $entry->tally_reconciled_at !== null
-            || $entry->tally_entry_date !== null;
+            || $entry->tally_entry_date !== null
+            || filled($entry->tally_voucher_guid);
     }
 
     private function isSalesDebit(float $debit, float $credit, string $voucherType, string $particulars): bool
@@ -765,5 +1139,114 @@ final class DealerSalesLedgerReconciler
     private function normalizeVoucherNo(string $voucherNo): string
     {
         return Str::upper((string) preg_replace('/\s+/', '', $voucherNo));
+    }
+
+    /**
+     * @param  array<string, mixed>  $transaction
+     */
+    private function transactionGuid(array $transaction): string
+    {
+        return TallyDealerMappingService::normalizeGuid(
+            $transaction['tally_voucher_guid'] ?? $transaction['voucher_guid'] ?? $transaction['guid'] ?? '',
+        );
+    }
+
+    private function entryHaystack(DealerTallyEntry $entry): string
+    {
+        return strtoupper(trim(implode(' ', array_filter([
+            (string) $entry->voucher_no,
+            (string) $entry->tally_voucher_no,
+            (string) $entry->particulars,
+            (string) $entry->erp_reference,
+        ]))));
+    }
+
+    /**
+     * @param  array<string, mixed>  $transaction
+     */
+    private function transactionHaystack(array $transaction): string
+    {
+        return strtoupper(trim(implode(' ', array_filter([
+            (string) ($transaction['voucher_no'] ?? ''),
+            (string) ($transaction['tally_voucher_no'] ?? ''),
+            (string) ($transaction['particulars'] ?? ''),
+            (string) ($transaction['reference'] ?? ''),
+            (string) ($transaction['erp_reference'] ?? ''),
+        ]))));
+    }
+
+    /**
+     * @param  array<string, mixed>  $transaction
+     */
+    private function incomingRefersToDifferentOrder(array $transaction, Order $order): bool
+    {
+        return $this->haystackRefersToDifferentOrder($this->transactionHaystack($transaction), $order);
+    }
+
+    private function haystackRefersToDifferentOrder(string $haystack, Order $order): bool
+    {
+        if ($haystack === '') {
+            return false;
+        }
+
+        $full = strtoupper((string) $order->order_no);
+        $ownShort = array_values(array_unique(array_filter([
+            strtoupper((string) $order->shortOrderNo()),
+            preg_match('/^PG-\d{8}-(\d+)$/', $full, $parts) === 1 ? 'PG-'.$parts[1] : null,
+        ])));
+        $ownFull = $full !== '' ? [$full] : [];
+
+        if (preg_match_all('/\bPG-\d{8}-\d+\b/', $haystack, $fullMatches) > 0) {
+            foreach ($fullMatches[0] as $token) {
+                if (! in_array($token, $ownFull, true)) {
+                    return true;
+                }
+            }
+        }
+
+        $withoutFull = preg_replace('/\bPG-\d{8}-\d+\b/', ' ', $haystack) ?? $haystack;
+        if (preg_match_all('/\bPG-\d+\b/', $withoutFull, $shortMatches) === 0) {
+            return false;
+        }
+
+        foreach ($shortMatches[0] as $token) {
+            if (preg_match('/^PG-\d{8}$/', $token) === 1 || in_array($token, $ownShort, true) || $token === $full) {
+                continue;
+            }
+
+            return true;
+        }
+
+        return false;
+    }
+
+    private function haystackRefersToThisOrder(string $haystack, Order $order): bool
+    {
+        if ($this->haystackRefersToDifferentOrder($haystack, $order)) {
+            return false;
+        }
+
+        $full = strtoupper(trim((string) $order->order_no));
+        $short = strtoupper(trim((string) $order->shortOrderNo()));
+        $erpReference = strtoupper(DealerTallyEntry::salesErpReference((int) $order->id));
+        $upper = strtoupper($haystack);
+
+        if ($erpReference !== '' && str_contains($upper, $erpReference)) {
+            return true;
+        }
+
+        if ($full !== '' && str_contains($upper, $full)) {
+            return true;
+        }
+
+        $normalizedFull = $this->normalizeVoucherNo($full);
+        $normalizedHaystack = $this->normalizeVoucherNo($haystack);
+        if ($normalizedFull !== '' && $normalizedHaystack === $normalizedFull) {
+            return true;
+        }
+
+        return $short !== ''
+            && $short !== $full
+            && preg_match('/\b'.preg_quote($short, '/').'\b/', $upper) === 1;
     }
 }

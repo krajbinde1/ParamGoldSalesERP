@@ -737,10 +737,18 @@
     .paramgold-purchase-form .fi-fo-date-picker,
     .paramgold-purchase-form .fi-fo-date-time-picker {
         min-height: 2.5rem;
-        height: 2.5rem;
+        height: auto;
         min-width: 8.5rem;
         width: 100%;
         box-sizing: border-box;
+        overflow: visible;
+    }
+
+    .paramgold-purchase-form .fi-fo-select,
+    .paramgold-purchase-form .fi-select-input {
+        overflow: visible;
+        position: relative;
+        z-index: 2;
     }
 
     .paramgold-purchase-form textarea,
@@ -752,7 +760,6 @@
     }
 
     .paramgold-purchase-form .fi-input,
-    .paramgold-purchase-form .fi-select-input,
     .paramgold-purchase-form .fi-select-input-btn,
     .paramgold-purchase-form input:not([type="file"]):not([type="checkbox"]):not([type="radio"]),
     .paramgold-purchase-form select {

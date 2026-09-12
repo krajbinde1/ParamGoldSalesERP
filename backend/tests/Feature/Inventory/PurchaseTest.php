@@ -1062,6 +1062,105 @@ it('shows only packing materials in the purchase material name list', function (
         ->and($html)->not->toContain($raw->material_name);
 });
 
+it('loads purchase material and supplier dropdowns from active master queries', function (): void {
+    $activeRaw = purchaseRawMaterial();
+    $inactiveRaw = purchaseRawMaterial();
+    $inactiveRaw->update(['status' => false, 'material_name' => 'Inactive Raw '.uniqid()]);
+    $activePack = purchasePackagingMaterial();
+    $inactivePack = purchasePackagingMaterial();
+    $inactivePack->update(['status' => false, 'packaging_name' => 'Inactive Pack '.uniqid()]);
+    $activeSupplier = purchaseSupplier('Active Dropdown Supplier');
+    $inactiveSupplier = purchaseSupplier('Inactive Dropdown Supplier');
+    $inactiveSupplier->update(['status' => false]);
+
+    $rawOptions = PurchaseForm::rawMaterialOptions();
+    $packOptions = PurchaseForm::packingMaterialOptions();
+    $supplierOptions = PurchaseForm::supplierOptions();
+
+    expect($rawOptions)->toHaveKey($activeRaw->id)
+        ->and($rawOptions)->not->toHaveKey($inactiveRaw->id)
+        ->and(implode(' ', $rawOptions))->toContain($activeRaw->material_name)
+        ->and(implode(' ', $rawOptions))->not->toContain($activePack->packaging_name)
+        ->and($packOptions)->toHaveKey($activePack->id)
+        ->and($packOptions)->not->toHaveKey($inactivePack->id)
+        ->and(implode(' ', $packOptions))->toContain($activePack->packaging_name)
+        ->and(implode(' ', $packOptions))->not->toContain($activeRaw->material_name)
+        ->and($supplierOptions)->toHaveKey($activeSupplier->id)
+        ->and($supplierOptions)->not->toHaveKey($inactiveSupplier->id);
+
+    $rawHits = PurchaseForm::rawMaterialOptions($activeRaw->material_name);
+    $packHits = PurchaseForm::packingMaterialOptions($activePack->packaging_name);
+    $supplierHits = PurchaseForm::supplierOptions($activeSupplier->supplier_name);
+
+    expect($rawHits)->toHaveKey($activeRaw->id)
+        ->and($packHits)->toHaveKey($activePack->id)
+        ->and($supplierHits)->toHaveKey($activeSupplier->id);
+});
+
+it('autofills uom from the selected material master on new purchase rows', function (): void {
+    $director = purchaseDirector();
+    $raw = purchaseRawMaterial();
+    $pack = purchasePackagingMaterial();
+
+    $page = Livewire::actingAs($director)
+        ->test(CreatePurchase::class)
+        ->fillForm([
+            'material_type' => PurchaseMaterialType::RawMaterial->value,
+        ]);
+
+    $itemKey = array_key_first($page->get('data.items') ?? []);
+    expect($itemKey)->not->toBeNull();
+
+    $page->set("data.items.{$itemKey}.raw_material_id", $raw->id);
+
+    expect($page->get("data.items.{$itemKey}.unit"))->toBe($raw->unit)
+        ->and($page->get("data.items.{$itemKey}.packaging_material_id"))->toBeNull();
+
+    $page->set('data.material_type', PurchaseMaterialType::PackingMaterial->value);
+    $itemKey = array_key_first($page->get('data.items') ?? []);
+    $page->set("data.items.{$itemKey}.packaging_material_id", $pack->id);
+
+    expect($page->get("data.items.{$itemKey}.unit"))->toBe($pack->unit)
+        ->and($page->get("data.items.{$itemKey}.raw_material_id"))->toBeNull();
+});
+
+it('creates a supplier from purchase and immediately selects it without losing later dropdown access', function (): void {
+    $director = purchaseDirector();
+
+    $page = Livewire::actingAs($director)
+        ->test(CreatePurchase::class)
+        ->assertSuccessful();
+
+    $name = 'Instant Select Supplier '.uniqid();
+    $id = PurchaseForm::createSupplierFromPurchase([
+        'supplier_name' => $name,
+        'phone' => '9876543210',
+        'gstin' => '27ABCDE1234F1Z5',
+    ]);
+
+    $created = Supplier::query()->find($id);
+    expect($created)->not->toBeNull()
+        ->and($created->status)->toBeTrue()
+        ->and($created->supplier_name)->toBe($name)
+        ->and(PurchaseForm::supplierOptions())->toHaveKey($id)
+        ->and(PurchaseForm::supplierOptions($name))->toHaveKey($id);
+
+    $page->fillForm([
+        'supplier_id' => $id,
+    ]);
+
+    expect($page->get('data.supplier_id'))->toEqual($id)
+        ->and($page->get('data.supplier_name'))->toBe($name)
+        ->and($page->html())->toContain($name);
+
+    $laterPage = Livewire::actingAs($director)
+        ->test(CreatePurchase::class)
+        ->assertSuccessful();
+
+    expect(PurchaseForm::supplierOptions())->toHaveKey($id)
+        ->and($laterPage->html())->toContain($name);
+});
+
 it('clears the selected material name when purchase material type changes', function (): void {
     $director = purchaseDirector();
     $raw = purchaseRawMaterial();
@@ -1151,4 +1250,61 @@ it('keeps packing material names when editing a packing purchase', function (): 
 
     expect($html)->toContain($pack->packaging_name)
         ->and($html)->not->toContain($raw->material_name);
+});
+
+it('autofills uom on newly added purchase rows on create and edit', function (): void {
+    $director = purchaseDirector();
+    $rawA = purchaseRawMaterial();
+    $rawB = purchaseRawMaterial();
+    $rawB->update(['unit' => 'KG', 'material_name' => 'Second Raw '.uniqid()]);
+    $supplier = purchaseSupplier();
+
+    $createPage = Livewire::actingAs($director)
+        ->test(CreatePurchase::class)
+        ->fillForm([
+            'material_type' => PurchaseMaterialType::RawMaterial->value,
+        ]);
+
+    $firstKey = array_key_first($createPage->get('data.items') ?? []);
+    $items = $createPage->get('data.items');
+    $items['added-row'] = [
+        'quantity' => 1,
+        'gst_percentage' => '0',
+    ];
+    $createPage->set('data.items', $items);
+    $createPage->set("data.items.{$firstKey}.raw_material_id", $rawA->id);
+    $createPage->set('data.items.added-row.raw_material_id', $rawB->id);
+
+    expect($createPage->get("data.items.{$firstKey}.unit"))->toBe($rawA->unit)
+        ->and($createPage->get('data.items.added-row.unit'))->toBe($rawB->unit)
+        ->and($createPage->html())->toContain($rawA->material_name)
+        ->and($createPage->html())->toContain($rawB->material_name);
+
+    $purchase = app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::RawMaterial),
+        [[
+            'raw_material_id' => $rawA->id,
+            'quantity' => 1,
+            'purchase_rate' => 10,
+            'gst_percentage' => 0,
+        ]],
+        $director,
+    );
+
+    $editPage = Livewire::actingAs($director)
+        ->test(EditPurchase::class, ['record' => $purchase->getKey()])
+        ->assertSuccessful();
+
+    $editItems = $editPage->get('data.items');
+    $editItems['edit-added-row'] = [
+        'quantity' => 2,
+        'gst_percentage' => '0',
+    ];
+    $editPage->set('data.items', $editItems);
+    $editPage->set('data.items.edit-added-row.raw_material_id', $rawB->id);
+
+    expect($editPage->get('data.items.edit-added-row.unit'))->toBe($rawB->unit)
+        ->and($editPage->html())->toContain($rawB->material_name)
+        ->and(PurchaseForm::rawMaterialOptions())->toHaveKey($rawA->id)
+        ->and(PurchaseForm::rawMaterialOptions())->toHaveKey($rawB->id);
 });

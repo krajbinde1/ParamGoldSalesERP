@@ -9,8 +9,8 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 /**
- * Director payment follow-up monitoring (view-only).
- * Does not add, edit, or close employee follow-up entries.
+ * Director payment recovery monitoring.
+ * History remains read-only; follow-ups can be set from No Follow-up Set.
  */
 class DirectorPaymentFollowUpController extends Controller
 {
@@ -40,5 +40,27 @@ class DirectorPaymentFollowUpController extends Controller
         return response()->json(
             $this->followUps->showForDirector($dealer),
         );
+    }
+
+    public function store(Request $request, int $dealer): JsonResponse
+    {
+        $validated = $request->validate([
+            'remark' => ['required', 'string', 'max:2000'],
+            'expected_amount' => ['nullable', 'numeric', 'gt:0'],
+            'next_follow_up_date' => ['required', 'date'],
+        ]);
+
+        $detail = $this->followUps->addFollowUpForMonitor(
+            $request->user(),
+            $dealer,
+            (string) $validated['remark'],
+            isset($validated['expected_amount']) ? (float) $validated['expected_amount'] : null,
+            (string) $validated['next_follow_up_date'],
+        );
+
+        return response()->json([
+            'message' => 'Follow-up saved.',
+            ...$detail,
+        ], 201);
     }
 }
