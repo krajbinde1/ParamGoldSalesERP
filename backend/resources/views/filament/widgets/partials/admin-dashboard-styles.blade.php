@@ -128,6 +128,10 @@
     .pg-admin-dash .pg-icon--red { background: rgba(220, 38, 38, 0.12); color: #B91C1C; }
     .pg-admin-dash .pg-icon--slate { background: #F1F5F9; color: #475569; }
 
+    .pg-admin-dash [x-cloak] {
+        display: none !important;
+    }
+
     /* Header */
     .pg-admin-dash .pg-header {
         display: flex;
@@ -184,6 +188,121 @@
         font-size: 0.8125rem;
         font-weight: 550;
         color: #94A3B8;
+    }
+
+    .pg-admin-dash .pg-header__aside {
+        display: flex;
+        align-items: center;
+        gap: 0.75rem;
+        flex-shrink: 0;
+        margin-left: auto;
+    }
+
+    .pg-admin-dash .pg-tally-status {
+        position: relative;
+    }
+
+    .pg-admin-dash .pg-tally-status__btn {
+        display: flex;
+        flex-direction: column;
+        align-items: flex-end;
+        gap: 0.12rem;
+        margin: 0;
+        padding: 0.15rem 0.1rem;
+        border: 0;
+        background: transparent;
+        cursor: pointer;
+        font: inherit;
+        color: inherit;
+        text-align: right;
+        line-height: 1.2;
+        border-radius: 0.5rem;
+    }
+
+    .pg-admin-dash .pg-tally-status__btn:hover .pg-tally-status__row {
+        color: var(--pg-teal);
+    }
+
+    .pg-admin-dash .pg-tally-status__btn:focus-visible {
+        outline: 2px solid rgba(15, 118, 110, 0.45);
+        outline-offset: 3px;
+    }
+
+    .pg-admin-dash .pg-tally-status__row {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.75rem;
+        font-weight: 650;
+        color: var(--pg-navy);
+        white-space: nowrap;
+    }
+
+    .pg-admin-dash .pg-tally-status__dot {
+        width: 0.45rem;
+        height: 0.45rem;
+        border-radius: 9999px;
+        flex-shrink: 0;
+    }
+
+    .pg-admin-dash .pg-tally-status__dot--on {
+        background: #10B981;
+        box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.18);
+    }
+
+    .pg-admin-dash .pg-tally-status__dot--off {
+        background: #DC2626;
+        box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.16);
+    }
+
+    .pg-admin-dash .pg-tally-status__sync {
+        font-size: 0.6875rem;
+        font-weight: 550;
+        color: #94A3B8;
+        white-space: nowrap;
+    }
+
+    .pg-admin-dash .pg-tally-status__pop {
+        position: absolute;
+        top: calc(100% + 0.45rem);
+        right: 0;
+        z-index: 40;
+        min-width: 14.25rem;
+        padding: 0.7rem 0.8rem;
+        background: #fff;
+        border: 1px solid var(--pg-border);
+        border-radius: 0.75rem;
+        box-shadow: 0 10px 24px rgba(15, 23, 42, 0.12);
+        text-align: left;
+    }
+
+    .pg-admin-dash .pg-tally-status__pop-row {
+        display: flex;
+        align-items: baseline;
+        justify-content: space-between;
+        gap: 0.85rem;
+        margin: 0 0 0.4rem;
+        font-size: 0.75rem;
+        color: var(--pg-muted);
+        line-height: 1.35;
+    }
+
+    .pg-admin-dash .pg-tally-status__pop-row:last-child {
+        margin-bottom: 0;
+    }
+
+    .pg-admin-dash .pg-tally-status__pop-row strong {
+        font-weight: 650;
+        color: var(--pg-navy);
+        text-align: right;
+    }
+
+    .pg-admin-dash .pg-tally-status__hint {
+        margin: 0.15rem 0 0;
+        font-size: 0.75rem;
+        font-weight: 600;
+        color: var(--pg-navy);
+        line-height: 1.4;
     }
 
     .pg-admin-dash .pg-avatar {

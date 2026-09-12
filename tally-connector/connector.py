@@ -31,7 +31,7 @@ def main() -> int:
     tally = TallyClient(settings.tally_url, settings.tally_company)
 
     try:
-        erp.heartbeat()
+        erp.heartbeat(settings.tally_company)
     except ErpApiError as exc:
         if exc.status_code == 404:
             try:
@@ -58,12 +58,14 @@ def main() -> int:
 
     try:
         if args.once:
+            send_heartbeat(erp, settings)
             process_pending(erp, tally, settings)
             sync_live_balances(erp, tally)
             sync_journal_vouchers(erp, tally)
             return 0
 
         while True:
+            send_heartbeat(erp, settings)
             process_pending(erp, tally, settings)
             sync_live_balances(erp, tally)
             sync_journal_vouchers(erp, tally)
@@ -71,6 +73,13 @@ def main() -> int:
     except KeyboardInterrupt:
         print("Connector stopped.", flush=True)
         return 0
+
+
+def send_heartbeat(erp: ErpClient, settings: Settings) -> None:
+    try:
+        erp.heartbeat(settings.tally_company)
+    except ErpApiError as exc:
+        log("Failed", f"ERP heartbeat: {exc}")
 
 
 def sync_live_balances(erp: ErpClient, tally: TallyClient) -> None:

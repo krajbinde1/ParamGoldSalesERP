@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\TallyLiveSyncState;
 use App\Models\TallyOutboundVoucher;
 use App\Services\TallySync\TallyConnectorService;
 use App\Services\TallySync\TallyJournalVoucherSyncService;
@@ -21,10 +22,16 @@ final class TallyConnectorController extends Controller
 
     public function heartbeat(Request $request): JsonResponse
     {
+        $company = trim((string) $request->query('tally_company', $request->header('X-Tally-Company', '')));
+        $state = TallyLiveSyncState::current()->recordHeartbeat(
+            $this->connectorId($request, null),
+            $company !== '' ? $company : null,
+        );
+
         return response()->json([
             'success' => true,
             'message' => 'Tally connector authenticated.',
-            'connector_id' => $this->connectorId($request, null),
+            'connector_id' => $state->connector_id,
         ]);
     }
 

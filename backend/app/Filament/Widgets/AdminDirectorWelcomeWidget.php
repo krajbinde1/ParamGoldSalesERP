@@ -7,6 +7,7 @@ use App\Filament\Resources\Collections\CollectionResource;
 use App\Filament\Resources\DealerVisits\DealerVisitResource;
 use App\Filament\Resources\FieldActivities\FieldActivityResource;
 use App\Filament\Resources\Orders\OrderResource;
+use App\Models\TallyLiveSyncState;
 use App\Services\Dashboard\DirectorDashboardDataService;
 use Filament\Facades\Filament;
 use Filament\Widgets\Widget;
@@ -38,6 +39,7 @@ class AdminDirectorWelcomeWidget extends Widget
             'userName' => $user?->employee?->full_name ?? $user?->name ?? 'User',
             'roleLabel' => $user?->adminDirectorRoleLabel() ?? 'Director',
             'currentDate' => now('Asia/Kolkata')->format('l, d F Y'),
+            'tallyStatus' => TallyLiveSyncState::dashboardStatusSnapshot(),
             'kpis' => [
                 [
                     'label' => 'Today Sales',

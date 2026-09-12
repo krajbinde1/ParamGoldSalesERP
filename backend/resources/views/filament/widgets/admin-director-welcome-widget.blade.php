@@ -1,5 +1,5 @@
 <x-filament-widgets::widget class="fi-admin-director-welcome-widget">
-    <div class="pg-admin-dash">
+    <div class="pg-admin-dash" wire:poll.30s>
         <div class="pg-card pg-header">
             <div>
                 <p class="pg-live">
@@ -10,7 +10,66 @@
                 <p class="pg-header__lead">Company status at a glance — money, approvals, delays, and field activity.</p>
                 <p class="pg-header__date">{{ $currentDate }} · {{ $roleLabel }}</p>
             </div>
-            <div class="pg-avatar" aria-hidden="true">{{ strtoupper(substr($userName, 0, 1)) }}</div>
+            <div class="pg-header__aside">
+                <div
+                    class="pg-tally-status"
+                    x-data="{ open: false }"
+                    @keydown.escape.window="open = false"
+                    @click.outside="open = false"
+                >
+                    <button
+                        type="button"
+                        class="pg-tally-status__btn"
+                        @click="open = !open"
+                        :aria-expanded="open.toString()"
+                        aria-haspopup="dialog"
+                        aria-label="{{ $tallyStatus['label'] }}. Last Sync: {{ $tallyStatus['last_sync_label'] }}"
+                    >
+                        <span class="pg-tally-status__row">
+                            <span
+                                class="pg-tally-status__dot {{ ($tallyStatus['connected'] ?? false) ? 'pg-tally-status__dot--on' : 'pg-tally-status__dot--off' }}"
+                                aria-hidden="true"
+                            ></span>
+                            {{ $tallyStatus['label'] }}
+                        </span>
+                        <span class="pg-tally-status__sync">Last Sync: {{ $tallyStatus['last_sync_label'] }}</span>
+                    </button>
+                    <div
+                        class="pg-tally-status__pop"
+                        x-show="open"
+                        x-cloak
+                        x-transition.opacity.duration.120ms
+                        role="dialog"
+                        aria-label="Tally Connector status"
+                    >
+                        @if ($tallyStatus['connected'] ?? false)
+                            <p class="pg-tally-status__pop-row">
+                                <span>Connector Name</span>
+                                <strong>{{ $tallyStatus['connector_name'] }}</strong>
+                            </p>
+                            <p class="pg-tally-status__pop-row">
+                                <span>Tally Company</span>
+                                <strong>{{ $tallyStatus['tally_company'] }}</strong>
+                            </p>
+                            <p class="pg-tally-status__pop-row">
+                                <span>Last Heartbeat</span>
+                                <strong>{{ $tallyStatus['last_heartbeat_label'] }}</strong>
+                            </p>
+                            <p class="pg-tally-status__pop-row">
+                                <span>Last Tally Sync</span>
+                                <strong>{{ $tallyStatus['last_tally_sync_label'] }}</strong>
+                            </p>
+                        @else
+                            <p class="pg-tally-status__pop-row">
+                                <span>Last connected</span>
+                                <strong>{{ $tallyStatus['last_connected_label'] }}</strong>
+                            </p>
+                            <p class="pg-tally-status__hint">{{ $tallyStatus['offline_hint'] }}</p>
+                        @endif
+                    </div>
+                </div>
+                <div class="pg-avatar" aria-hidden="true">{{ strtoupper(substr($userName, 0, 1)) }}</div>
+            </div>
         </div>
 
         <div class="pg-kpi-grid pg-kpi-grid--6">

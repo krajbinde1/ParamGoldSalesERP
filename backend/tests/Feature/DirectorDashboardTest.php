@@ -27,6 +27,7 @@ use App\Models\PackagingMaterial;
 use App\Models\Product;
 use App\Models\RawMaterial;
 use App\Models\SemiFinishedMaterial;
+use App\Models\TallyLiveSyncState;
 use App\Models\User;
 use App\Models\WeeklyTarget;
 use App\Services\Dashboard\DashboardMetricsService;
@@ -379,6 +380,96 @@ it('renders director monitoring widgets and hides them from managers', function 
     $this->actingAs($manager);
     expect(AdminDirectorWelcomeWidget::canView())->toBeFalse()
         ->and(AdminDirectorAttentionWidget::canView())->toBeFalse();
+});
+
+it('shows tally connected on the welcome card from a fresh connector heartbeat', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-12 19:42:00', 'Asia/Kolkata'));
+    TallyLiveSyncState::query()->create([
+        'connector_id' => 'office-pc',
+        'tally_company' => 'Param Gold',
+        'tally_online' => false,
+        'last_heartbeat_at' => now('Asia/Kolkata'),
+        'last_seen_at' => now('Asia/Kolkata')->subMinutes(30),
+        'last_balance_sync_at' => now('Asia/Kolkata')->subMinutes(20),
+        'last_matched_count' => 0,
+    ]);
+
+    Livewire::actingAs(directorDashDirector())
+        ->test(AdminDirectorWelcomeWidget::class)
+        ->assertSuccessful()
+        ->assertSee('Tally Connected')
+        ->assertDontSee('Tally Disconnected')
+        ->assertSee('Last Sync: 07:42 PM')
+        ->assertSee('Connector Name')
+        ->assertSee('office-pc')
+        ->assertSee('Tally Company')
+        ->assertSee('Param Gold')
+        ->assertSee('Last Heartbeat')
+        ->assertSee('Last Tally Sync')
+        ->assertDontSee('Start Tally Connector on the Tally PC');
+
+    Carbon::setTestNow();
+});
+
+it('shows tally disconnected when the connector heartbeat is stale', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-12 19:42:00', 'Asia/Kolkata'));
+    TallyLiveSyncState::query()->create([
+        'connector_id' => 'office-pc',
+        'tally_company' => 'Param Gold',
+        'tally_online' => true,
+        'last_heartbeat_at' => now('Asia/Kolkata')->subMinutes(10),
+        'last_seen_at' => now('Asia/Kolkata'),
+        'last_balance_sync_at' => now('Asia/Kolkata'),
+        'last_matched_count' => 12,
+    ]);
+
+    Livewire::actingAs(directorDashDirector())
+        ->test(AdminDirectorWelcomeWidget::class)
+        ->assertSuccessful()
+        ->assertSee('Tally Disconnected')
+        ->assertDontSee('Tally Connected')
+        ->assertSee('Last Sync: 07:32 PM')
+        ->assertSee('Last connected')
+        ->assertSee('Start Tally Connector on the Tally PC');
+
+    Carbon::setTestNow();
+});
+
+it('does not treat live tally balance data as connector connected', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-12 19:42:00', 'Asia/Kolkata'));
+    TallyLiveSyncState::query()->create([
+        'connector_id' => 'office-pc',
+        'tally_online' => true,
+        'last_heartbeat_at' => now('Asia/Kolkata')->subMinutes(10),
+        'last_seen_at' => now('Asia/Kolkata'),
+        'last_tally_online_at' => now('Asia/Kolkata'),
+        'last_balance_sync_at' => now('Asia/Kolkata'),
+        'last_matched_count' => 40,
+    ]);
+
+    $status = TallyLiveSyncState::dashboardStatusSnapshot();
+
+    expect($status['connected'])->toBeFalse()
+        ->and($status['label'])->toBe('Tally Disconnected');
+
+    Carbon::setTestNow();
+});
+
+it('treats a recent last-seen ping as connected until heartbeat is recorded', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-12 19:42:00', 'Asia/Kolkata'));
+    TallyLiveSyncState::query()->create([
+        'connector_id' => 'office-pc',
+        'tally_online' => false,
+        'last_heartbeat_at' => null,
+        'last_seen_at' => now('Asia/Kolkata'),
+        'last_balance_sync_at' => now('Asia/Kolkata'),
+        'last_matched_count' => 3,
+    ]);
+
+    expect(TallyLiveSyncState::dashboardStatusSnapshot()['connected'])->toBeTrue()
+        ->and(TallyLiveSyncState::dashboardStatusSnapshot()['label'])->toBe('Tally Connected');
+
+    Carbon::setTestNow();
 });
 
 it('shows the dashboard order pipeline on the admin orders list without duplicating counts', function (): void {

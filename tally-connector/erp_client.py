@@ -35,9 +35,20 @@ class ErpClient:
             return {}
         return payload if isinstance(payload, dict) else {"data": payload}
 
-    def heartbeat(self) -> dict[str, Any]:
+    def heartbeat(self, tally_company: str | None = None) -> dict[str, Any]:
+        params: dict[str, str] = {}
+        headers: dict[str, str] = {}
+        company = (tally_company or "").strip()
+        if company:
+            params["tally_company"] = company
+            headers["X-Tally-Company"] = company
         try:
-            response = self.session.get(self._url("heartbeat"), timeout=self.timeout)
+            response = self.session.get(
+                self._url("heartbeat"),
+                params=params or None,
+                headers=headers or None,
+                timeout=self.timeout,
+            )
         except requests.RequestException as exc:
             raise ErpApiError(f"ERP heartbeat request failed: {exc}") from exc
 

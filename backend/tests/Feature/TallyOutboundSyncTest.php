@@ -10,6 +10,7 @@ use App\Models\Employee;
 use App\Models\Order;
 use App\Models\TallyConnectorLedger;
 use App\Models\TallyDealerMapping;
+use App\Models\TallyLiveSyncState;
 use App\Models\TallyOutboundVoucher;
 use App\Models\User;
 use App\Services\Auth\MobileSessionService;
@@ -263,10 +264,44 @@ it('authenticates the tally connector heartbeat without querying vouchers', func
     $token = tallySyncConnectorToken($user);
 
     $this->withToken($token)
-        ->getJson('/api/tally-connector/heartbeat')
+        ->withHeaders(['X-Tally-Connector-Id' => 'office-pc'])
+        ->getJson('/api/tally-connector/heartbeat?tally_company='.urlencode('Param Gold Agro'))
         ->assertOk()
         ->assertJsonPath('success', true)
-        ->assertJsonPath('message', 'Tally connector authenticated.');
+        ->assertJsonPath('message', 'Tally connector authenticated.')
+        ->assertJsonPath('connector_id', 'office-pc');
+
+    $state = TallyLiveSyncState::current();
+    expect($state->last_heartbeat_at)->not->toBeNull()
+        ->and($state->connector_id)->toBe('office-pc')
+        ->and($state->tally_company)->toBe('Param Gold Agro')
+        ->and($state->tally_online)->toBeFalse()
+        ->and($state->last_balance_sync_at)->toBeNull();
+});
+
+it('stores connector heartbeat without changing tally online or live balance sync', function (): void {
+    $syncedAt = Carbon::parse('2026-09-12 10:00:00', 'Asia/Kolkata');
+    TallyLiveSyncState::query()->create([
+        'connector_id' => 'old-pc',
+        'tally_online' => true,
+        'last_seen_at' => $syncedAt,
+        'last_balance_sync_at' => $syncedAt,
+        'last_matched_count' => 11,
+    ]);
+    $user = tallySyncConnectorUser();
+    $token = tallySyncConnectorToken($user);
+
+    $this->withToken($token)
+        ->withHeaders(['X-Tally-Connector-Id' => 'office-pc'])
+        ->getJson('/api/tally-connector/heartbeat')
+        ->assertOk();
+
+    $state = TallyLiveSyncState::current();
+    expect($state->tally_online)->toBeTrue()
+        ->and($state->last_heartbeat_at)->not->toBeNull()
+        ->and($state->connector_id)->toBe('office-pc')
+        ->and($state->last_balance_sync_at?->equalTo($syncedAt))->toBeTrue()
+        ->and($state->last_seen_at?->equalTo($syncedAt))->toBeTrue();
 });
 
 it('claims and marks a pending sales voucher as synced', function (): void {
