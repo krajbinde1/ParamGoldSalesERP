@@ -332,7 +332,13 @@ class _PaymentFollowUpDetailScreenState
                   ),
                   const SizedBox(height: AppSpacing.sm),
                   ...openCycles.map(
-                    (cycle) => _cycleCard(cycle, isCurrent: true),
+                    (cycle) => _ExpandableCycleCard(
+                      key: ValueKey('cycle-${cycle.cycleNumber}-open'),
+                      cycle: cycle,
+                      isCurrent: true,
+                      statusTone: _statusTone,
+                      entryCard: _entryCard,
+                    ),
                   ),
                 ],
                 const SizedBox(height: AppSpacing.lg),
@@ -350,7 +356,13 @@ class _PaymentFollowUpDetailScreenState
                   )
                 else
                   ...previousCycles.map(
-                    (cycle) => _cycleCard(cycle, isCurrent: false),
+                    (cycle) => _ExpandableCycleCard(
+                      key: ValueKey('cycle-${cycle.cycleNumber}-closed'),
+                      cycle: cycle,
+                      isCurrent: false,
+                      statusTone: _statusTone,
+                      entryCard: _entryCard,
+                    ),
                   ),
                 ]);
             }
@@ -364,79 +376,6 @@ class _PaymentFollowUpDetailScreenState
               children: children,
             );
           },
-        ),
-      ),
-    );
-  }
-
-  Widget _cycleCard(PaymentFollowUpCycle cycle, {required bool isCurrent}) {
-    return Padding(
-      key: ValueKey(
-        'cycle-${cycle.cycleNumber}-${isCurrent ? 'open' : 'closed'}',
-      ),
-      padding: const EdgeInsets.only(bottom: AppSpacing.md),
-      child: PgCard(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Cycle #${cycle.cycleNumber}',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                  ),
-            ),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                if (isCurrent)
-                  const PgStatusBadge(
-                    label: 'CURRENT',
-                    tone: PgStatusTone.info,
-                  ),
-                PgStatusBadge(
-                  label: cycle.statusLabel,
-                  tone: _statusTone(
-                    cycle.displayStatus.isEmpty
-                        ? cycle.statusLabel
-                        : cycle.displayStatus,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 12),
-            _CycleSummaryTable(
-              rows: [
-                (
-                  'Current Due',
-                  cycle.currentDueLabel ?? cycle.openingOutstandingLabel,
-                  true,
-                ),
-                ('Follow-ups', '${cycle.followUpCount}', false),
-                ('Commitments', '${cycle.commitmentCount}', false),
-                ('Missed', '${cycle.missedCount}', false),
-              ],
-            ),
-            if (cycle.entries.isNotEmpty) ...[
-              const SizedBox(height: AppSpacing.md),
-              const Divider(height: 1, color: AppColors.border),
-              const SizedBox(height: AppSpacing.md),
-              ...cycle.entries.map(_entryCard),
-            ],
-            if (cycle.isClosed)
-              Text(
-                'Closing Outstanding: ${cycle.closingOutstandingLabel ?? '—'}',
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                      color: AppColors.success,
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-          ],
         ),
       ),
     );
@@ -537,6 +476,121 @@ class _PaymentFollowUpDetailScreenState
                   ('Status', entry.commitmentStatusLabel ?? '—'),
                 ],
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ExpandableCycleCard extends StatefulWidget {
+  const _ExpandableCycleCard({
+    super.key,
+    required this.cycle,
+    required this.isCurrent,
+    required this.statusTone,
+    required this.entryCard,
+  });
+
+  final PaymentFollowUpCycle cycle;
+  final bool isCurrent;
+  final PgStatusTone Function(String?) statusTone;
+  final Widget Function(PaymentFollowUpEntry) entryCard;
+
+  @override
+  State<_ExpandableCycleCard> createState() => _ExpandableCycleCardState();
+}
+
+class _ExpandableCycleCardState extends State<_ExpandableCycleCard> {
+  late bool _expanded = widget.isCurrent;
+
+  @override
+  Widget build(BuildContext context) {
+    final cycle = widget.cycle;
+    return Padding(
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: PgCard(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: () => setState(() => _expanded = !_expanded),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        'Cycle #${cycle.cycleNumber}',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                            ),
+                      ),
+                    ),
+                    Icon(
+                      _expanded
+                          ? Icons.expand_less_rounded
+                          : Icons.expand_more_rounded,
+                      color: AppColors.textSecondary,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                if (widget.isCurrent)
+                  const PgStatusBadge(
+                    label: 'CURRENT',
+                    tone: PgStatusTone.info,
+                  ),
+                PgStatusBadge(
+                  label: cycle.statusLabel,
+                  tone: widget.statusTone(
+                    cycle.displayStatus.isEmpty
+                        ? cycle.statusLabel
+                        : cycle.displayStatus,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 12),
+            _CycleSummaryTable(
+              rows: [
+                (
+                  'Current Due',
+                  cycle.currentDueLabel ?? cycle.openingOutstandingLabel,
+                  true,
+                ),
+                ('Follow-ups', '${cycle.followUpCount}', false),
+                ('Commitments', '${cycle.commitmentCount}', false),
+                ('Missed', '${cycle.missedCount}', false),
+              ],
+            ),
+            if (cycle.isClosed) ...[
+              const SizedBox(height: 8),
+              Text(
+                'Closing Outstanding: ${cycle.closingOutstandingLabel ?? '—'}',
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                      color: AppColors.success,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+            if (_expanded && cycle.entries.isNotEmpty) ...[
+              const SizedBox(height: AppSpacing.md),
+              const Divider(height: 1, color: AppColors.border),
+              const SizedBox(height: AppSpacing.md),
+              ...cycle.entries.map(widget.entryCard),
+            ],
           ],
         ),
       ),
