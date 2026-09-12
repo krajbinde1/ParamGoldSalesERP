@@ -200,6 +200,17 @@ def _closing_balance(block: str) -> tuple[float, str] | None:
     raw = re.sub(r"<[^>]+>", "", match.group(1)).strip()
     if raw == "":
         return 0.0, "debit"
+    return _closing_balance_from_text(raw)
+
+
+def _closing_balance_from_text(raw: str) -> tuple[float, str]:
+    """Map Tally XML ClosingBalance to ERP Dr/Cr.
+
+    Tally XML amount signs match voucher AMOUNT / ISDEEMEDPOSITIVE:
+    negative = Debit (Dr), positive = Credit (Cr). Collection export of
+    ClosingBalance is a signed number, often without a Dr/Cr suffix.
+    An explicit Dr/Cr (or debit/credit) label still wins when present.
+    """
     lowered = raw.lower()
     is_credit = bool(re.search(r"\bcr\b|credit", lowered))
     is_debit = bool(re.search(r"\bdr\b|debit", lowered))
@@ -208,9 +219,15 @@ def _closing_balance(block: str) -> tuple[float, str] | None:
     if number is None:
         return 0.0, "debit"
     value = float(number.group(0))
-    if is_credit or (not is_debit and value < 0):
+    if is_debit and not is_credit:
+        return abs(value), "debit"
+    if is_credit and not is_debit:
         return abs(value), "credit"
-    return abs(value), "debit"
+    if value < 0:
+        return abs(value), "debit"
+    if value > 0:
+        return abs(value), "credit"
+    return 0.0, "debit"
 
 
 def _int_tag(xml: str, tag: str) -> int:
