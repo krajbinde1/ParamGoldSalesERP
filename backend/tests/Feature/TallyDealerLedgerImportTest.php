@@ -10,6 +10,7 @@ use App\Models\DealerTallyEntry;
 use App\Models\DealerTallyImport;
 use App\Models\DealerTallyLedger;
 use App\Models\Order;
+use App\Models\TallyConnectorLedger;
 use App\Models\TallyLiveSyncState;
 use App\Models\User;
 use App\Services\Dealers\DealerLedgerService;
@@ -765,6 +766,32 @@ it('shows live tally matched on the dealer ledger page after a connector snapsho
         ->assertSee('Matched')
         ->assertDontSee('Live Tally Balance Mismatch')
         ->assertDontSee('Tally Offline');
+});
+
+it('lets admin map a tally ledger guid from the dealer ledger page', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100202');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Manual Guid Map Dealer']);
+    $admin = tallyImportAdmin();
+    TallyConnectorLedger::query()->create([
+        'tally_ledger_guid' => 'abababab-abab-abab-abab-abababababab',
+        'tally_ledger_name' => 'Manual Tally Party',
+        'tally_ledger_name_normalized' => 'manual tally party',
+        'last_seen_at' => now('Asia/Kolkata'),
+    ]);
+
+    Livewire::actingAs($admin)
+        ->test(ViewDealerLedger::class, ['record' => $dealer->getRouteKey()])
+        ->assertSuccessful()
+        ->assertSee('Not Mapped')
+        ->assertActionVisible('mapTallyLedger')
+        ->callAction('mapTallyLedger', [
+            'tally_ledger_guid' => 'abababab-abab-abab-abab-abababababab',
+        ]);
+
+    $mapping = $dealer->fresh()->tallyMappings()->first();
+    expect($mapping)->not->toBeNull()
+        ->and($mapping->tally_ledger_guid)->toBe('abababab-abab-abab-abab-abababababab')
+        ->and($mapping->tally_ledger_name)->toBe('Manual Tally Party');
 });
 
 it('lets admin open the tally import page for a selected dealer', function (): void {

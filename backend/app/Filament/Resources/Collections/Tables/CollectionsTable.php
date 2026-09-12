@@ -5,6 +5,7 @@ namespace App\Filament\Resources\Collections\Tables;
 use App\Filament\Resources\Collections\Actions\EditCollectionStatusAction;
 use App\Filament\Support\TodayDateFilter;
 use App\Models\Collection;
+use App\Services\TallySync\TallyOutboundEnqueueService;
 use App\Support\AttendanceCalendar;
 use Filament\Actions\Action;
 use Filament\Actions\BulkActionGroup;
@@ -34,6 +35,19 @@ class CollectionsTable
                     ->formatStateUsing(fn (string $state): string => Collection::statusLabels()[$state] ?? $state)
                     ->color(fn (string $state): string => Collection::statusColor($state))
                     ->sortable(),
+                TextColumn::make('tally_posting_status')
+                    ->label('Tally Posting')
+                    ->badge()
+                    ->state(function (Collection $record): string {
+                        return app(TallyOutboundEnqueueService::class)->postingStatus($record)['label'];
+                    })
+                    ->color(function (Collection $record): string {
+                        return app(TallyOutboundEnqueueService::class)->postingStatus($record)['color'];
+                    })
+                    ->tooltip(function (Collection $record): ?string {
+                        return app(TallyOutboundEnqueueService::class)->postingStatus($record)['error'];
+                    })
+                    ->toggleable(),
                 ImageColumn::make('photo_path')
                     ->label('Photo')
                     ->disk('public')

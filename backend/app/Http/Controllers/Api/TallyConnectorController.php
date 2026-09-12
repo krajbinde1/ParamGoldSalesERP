@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Api;
 use App\Http\Controllers\Controller;
 use App\Models\TallyOutboundVoucher;
 use App\Services\TallySync\TallyConnectorService;
+use App\Services\TallySync\TallyJournalVoucherSyncService;
 use App\Services\TallySync\TallyLiveBalanceService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
@@ -112,14 +113,18 @@ final class TallyConnectorController extends Controller
             $validated = $request->validate([
                 'connector_id' => ['nullable', 'string', 'max:100'],
                 'tally_online' => ['required', 'boolean'],
-                'balances' => ['nullable', 'array', 'max:5000'],
+                'balances' => ['nullable', 'array', 'max:50000'],
                 'balances.*.tally_ledger_name' => ['required_with:balances', 'string', 'max:255'],
+                'balances.*.tally_ledger_guid' => ['nullable', 'string', 'max:80'],
                 'balances.*.closing_balance' => ['required_with:balances', 'numeric'],
                 'balances.*.closing_balance_type' => ['nullable', 'string', 'in:debit,credit'],
                 'balances.*.closing_balance_raw' => ['nullable', 'string', 'max:100'],
                 'balances.*.closing_balance_numeric' => ['nullable', 'numeric'],
                 'balances.*.tally_is_debit' => ['nullable', 'boolean'],
+                'balances.*.opening_is_debit' => ['nullable', 'boolean'],
+                'balances.*.tally_is_negative' => ['nullable', 'boolean'],
                 'balances.*.deemed_positive' => ['nullable', 'boolean'],
+                'balances.*.ledger_parent' => ['nullable', 'string', 'max:255'],
                 'balances.*.is_closing_debit' => ['nullable', 'boolean'],
             ]);
 
@@ -139,6 +144,58 @@ final class TallyConnectorController extends Controller
             throw $exception;
         } catch (Throwable $exception) {
             return $this->connectorFailure($exception, 'live-balances');
+        }
+    }
+
+    public function journalVouchers(Request $request, TallyJournalVoucherSyncService $journals): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'connector_id' => ['nullable', 'string', 'max:100'],
+                'tally_online' => ['required', 'boolean'],
+                'sync_complete' => ['nullable', 'boolean'],
+                'seen_voucher_guids' => ['nullable', 'array', 'max:20000'],
+                'seen_voucher_guids.*' => ['nullable', 'string', 'max:80'],
+                'entries' => ['nullable', 'array', 'max:20000'],
+                'entries.*.voucher_type' => ['nullable', 'string', 'max:80'],
+                'entries.*.voucher_guid' => ['nullable', 'string', 'max:80'],
+                'entries.*.tally_voucher_guid' => ['nullable', 'string', 'max:80'],
+                'entries.*.master_id' => ['nullable', 'string', 'max:100'],
+                'entries.*.tally_master_id' => ['nullable', 'string', 'max:100'],
+                'entries.*.voucher_no' => ['nullable', 'string', 'max:100'],
+                'entries.*.voucher_number' => ['nullable', 'string', 'max:100'],
+                'entries.*.date' => ['nullable', 'string', 'max:20'],
+                'entries.*.voucher_date' => ['nullable', 'string', 'max:20'],
+                'entries.*.narration' => ['nullable', 'string', 'max:2000'],
+                'entries.*.cancelled' => ['nullable'],
+                'entries.*.is_cancelled' => ['nullable'],
+                'entries.*.party_ledger_name' => ['nullable', 'string', 'max:255'],
+                'entries.*.ledger_name' => ['nullable', 'string', 'max:255'],
+                'entries.*.party_ledger_guid' => ['nullable', 'string', 'max:80'],
+                'entries.*.ledger_guid' => ['nullable', 'string', 'max:80'],
+                'entries.*.debit' => ['nullable', 'numeric'],
+                'entries.*.credit' => ['nullable', 'numeric'],
+                'entries.*.entry_index' => ['nullable', 'integer', 'min:0', 'max:9999'],
+            ]);
+
+            $result = $journals->ingest(
+                $this->connectorId($request, $validated['connector_id'] ?? null),
+                (bool) $validated['tally_online'],
+                $validated['entries'] ?? [],
+                (bool) ($validated['sync_complete'] ?? false),
+                array_values(array_filter($validated['seen_voucher_guids'] ?? [], fn ($guid): bool => filled($guid))),
+            );
+
+            return response()->json([
+                'message' => $result['tally_online']
+                    ? 'Tally journal vouchers stored.'
+                    : 'Tally offline heartbeat stored.',
+                'data' => $result,
+            ]);
+        } catch (ValidationException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            return $this->connectorFailure($exception, 'journal-vouchers');
         }
     }
 

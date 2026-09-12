@@ -5,13 +5,17 @@ use App\Enums\UserRole;
 use App\Models\Collection;
 use App\Models\Dealer;
 use App\Models\DealerTallyEntry;
+use App\Models\DealerTallyLedger;
 use App\Models\Employee;
 use App\Models\Order;
+use App\Models\TallyConnectorLedger;
 use App\Models\TallyDealerMapping;
 use App\Models\TallyOutboundVoucher;
 use App\Models\User;
 use App\Services\Auth\MobileSessionService;
 use App\Services\TallySync\TallyConnectorAuth;
+use App\Services\TallySync\TallyDealerMappingService;
+use App\Services\TallySync\TallyLiveBalanceService;
 use App\Services\TallySync\TallyOutboundEnqueueService;
 use Illuminate\Support\Carbon;
 
@@ -380,4 +384,125 @@ it('returns expired claims in pending so the connector can retry', function (): 
         ->getJson('/api/tally-connector/pending')
         ->assertOk()
         ->assertJsonPath('data.0.id', $voucher->id);
+});
+
+it('queues a receipt using the dealer saved tally guid mapping', function (): void {
+    $employee = tallySyncEmployee('9813000150');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'ERP Collection Dealer']);
+    TallyDealerMapping::query()->create([
+        'tally_ledger_name' => 'Mapped Collection Party',
+        'tally_ledger_name_normalized' => TallyDealerMapping::normalizeName('Mapped Collection Party'),
+        'tally_ledger_guid' => 'aaaaaaaa-bbbb-cccc-dddd-111111111111',
+        'dealer_id' => $dealer->id,
+    ]);
+    $collection = tallySyncPendingCollection($dealer, $employee);
+
+    $collection->transitionTo(Collection::STATUS_RECEIVED);
+
+    $voucher = TallyOutboundVoucher::query()->where('erp_reference', 'ERP-COL-'.$collection->id)->first();
+    $status = app(TallyOutboundEnqueueService::class)->postingStatus($collection->fresh());
+
+    expect($voucher)->not->toBeNull()
+        ->and($voucher->status)->toBe(TallyOutboundVoucher::STATUS_PENDING)
+        ->and($voucher->payload['party']['tally_ledger_name'])->toBe('Mapped Collection Party')
+        ->and($voucher->payload['party']['tally_ledger_guid'])->toBe('aaaaaaaa-bbbb-cccc-dddd-111111111111')
+        ->and($status['label'])->toBe('Pending');
+});
+
+it('queues a receipt from live exact-name mapping when no mapping row exists', function (): void {
+    $employee = tallySyncEmployee('9813000151');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Live Exact Collection Agro']);
+    DealerTallyLedger::query()->create([
+        'dealer_id' => $dealer->id,
+        'opening_balance' => 0,
+        'opening_balance_type' => 'debit',
+        'live_closing_balance' => 100,
+        'live_closing_balance_type' => 'debit',
+        'live_tally_ledger_name' => 'Live Exact Collection Agro',
+        'live_tally_ledger_guid' => 'aaaaaaaa-bbbb-cccc-dddd-222222222222',
+        'live_synced_at' => now('Asia/Kolkata'),
+        'financial_start_date' => '2026-04-01',
+    ]);
+    $collection = tallySyncPendingCollection($dealer, $employee);
+    $collection->transitionTo(Collection::STATUS_RECEIVED);
+
+    $voucher = TallyOutboundVoucher::query()->where('erp_reference', 'ERP-COL-'.$collection->id)->first();
+
+    expect($voucher)->not->toBeNull()
+        ->and($voucher->status)->toBe(TallyOutboundVoucher::STATUS_PENDING)
+        ->and($voucher->payload['party']['tally_ledger_name'])->toBe('Live Exact Collection Agro');
+});
+
+it('requeues a not-mapped received collection after guid mapping is saved without duplicating', function (): void {
+    $employee = tallySyncEmployee('9813000152');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Later Mapped Collection']);
+    $collection = tallySyncPendingCollection($dealer, $employee);
+    $collection->transitionTo(Collection::STATUS_RECEIVED);
+
+    $voucher = TallyOutboundVoucher::query()->where('erp_reference', 'ERP-COL-'.$collection->id)->firstOrFail();
+    expect($voucher->status)->toBe(TallyOutboundVoucher::STATUS_FAILED)
+        ->and(app(TallyOutboundEnqueueService::class)->postingStatus($collection->fresh())['label'])->toBe('Not Mapped');
+
+    TallyConnectorLedger::query()->create([
+        'tally_ledger_guid' => 'aaaaaaaa-bbbb-cccc-dddd-333333333333',
+        'tally_ledger_name' => 'Later Mapped Party',
+        'tally_ledger_name_normalized' => 'later mapped party',
+        'last_seen_at' => now('Asia/Kolkata'),
+    ]);
+    app(TallyDealerMappingService::class)->assign($dealer, 'aaaaaaaa-bbbb-cccc-dddd-333333333333');
+
+    expect(TallyOutboundVoucher::query()->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(1)
+        ->and($voucher->fresh()->status)->toBe(TallyOutboundVoucher::STATUS_PENDING)
+        ->and($voucher->fresh()->payload['party']['tally_ledger_name'])->toBe('Later Mapped Party')
+        ->and(app(TallyOutboundEnqueueService::class)->postingStatus($collection->fresh())['label'])->toBe('Pending');
+});
+
+it('requeues a not-mapped receipt after live tally exact-name sync without duplicating', function (): void {
+    $employee = tallySyncEmployee('9813000154');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Live Unstick Collection Agro']);
+    $collection = tallySyncPendingCollection($dealer, $employee);
+    $collection->transitionTo(Collection::STATUS_RECEIVED);
+
+    $voucher = TallyOutboundVoucher::query()->where('erp_reference', 'ERP-COL-'.$collection->id)->firstOrFail();
+    expect($voucher->status)->toBe(TallyOutboundVoucher::STATUS_FAILED)
+        ->and(app(TallyOutboundEnqueueService::class)->postingStatus($collection->fresh())['label'])->toBe('Not Mapped');
+
+    app(TallyLiveBalanceService::class)->ingest('office-pc-1', true, [[
+        'tally_ledger_name' => 'Live Unstick Collection Agro',
+        'tally_ledger_guid' => 'aaaaaaaa-bbbb-cccc-dddd-555555555555',
+        'closing_balance' => 250,
+        'closing_balance_type' => 'debit',
+    ]]);
+
+    expect(TallyOutboundVoucher::query()->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(1)
+        ->and($voucher->fresh()->status)->toBe(TallyOutboundVoucher::STATUS_PENDING)
+        ->and($voucher->fresh()->payload['party']['tally_ledger_name'])->toBe('Live Unstick Collection Agro')
+        ->and($voucher->fresh()->payload['party']['tally_ledger_guid'])->toBe('aaaaaaaa-bbbb-cccc-dddd-555555555555')
+        ->and(app(TallyOutboundEnqueueService::class)->postingStatus($collection->fresh())['label'])->toBe('Pending');
+});
+
+it('does not reset a tally xml failure when mapping is saved', function (): void {
+    $employee = tallySyncEmployee('9813000153');
+    $dealer = tallySyncDealer($employee);
+    tallySyncMapDealer($dealer, 'Tally Error Party');
+    $collection = tallySyncPendingCollection($dealer, $employee);
+    $collection->transitionTo(Collection::STATUS_RECEIVED);
+    $voucher = TallyOutboundVoucher::query()->where('erp_reference', 'ERP-COL-'.$collection->id)->firstOrFail();
+    $voucher->update([
+        'status' => TallyOutboundVoucher::STATUS_FAILED,
+        'last_error' => 'Could not find ledger Cash',
+    ]);
+
+    TallyConnectorLedger::query()->create([
+        'tally_ledger_guid' => 'aaaaaaaa-bbbb-cccc-dddd-444444444444',
+        'tally_ledger_name' => 'Tally Error Party',
+        'tally_ledger_name_normalized' => TallyDealerMapping::normalizeName('Tally Error Party'),
+        'last_seen_at' => now('Asia/Kolkata'),
+    ]);
+    app(TallyDealerMappingService::class)->assign($dealer, 'aaaaaaaa-bbbb-cccc-dddd-444444444444');
+
+    expect($voucher->fresh()->status)->toBe(TallyOutboundVoucher::STATUS_FAILED)
+        ->and($voucher->fresh()->last_error)->toBe('Could not find ledger Cash')
+        ->and(app(TallyOutboundEnqueueService::class)->postingStatus($collection->fresh())['label'])->toBe('Failed')
+        ->and(app(TallyOutboundEnqueueService::class)->postingStatus($collection->fresh())['error'])->toBe('Could not find ledger Cash');
 });

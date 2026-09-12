@@ -2,12 +2,16 @@
 
 namespace App\Filament\Resources\Dealers\Pages;
 
+use App\Exceptions\TallyMappingException;
 use App\Filament\Resources\Dealers\DealerResource;
 use App\Models\Dealer;
+use App\Models\TallyConnectorLedger;
 use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Services\TallyLedger\TallyLedgerImportService;
+use App\Services\TallySync\TallyDealerMappingService;
 use App\Services\TallySync\TallyLiveBalanceService;
 use Filament\Actions\Action;
+use Filament\Forms\Components\Select;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
 use Illuminate\Contracts\Support\Htmlable;
@@ -39,12 +43,14 @@ class ViewDealerLedger extends ViewRecord
     protected function getHeaderActions(): array
     {
         $canImport = (auth()->user()?->isAdminUser() ?? false) || (auth()->user()?->isDirectorUser() ?? false);
+        $mapping = $this->mappingStatus();
+        $isAdmin = auth()->user()?->isAdminUser() ?? false;
 
         return [
             Action::make('syncLiveTally')
                 ->label('Sync Live Tally Now')
                 ->icon('heroicon-o-signal')
-                ->visible(fn (): bool => auth()->user()?->isAdminUser() ?? false)
+                ->visible(fn (): bool => $isAdmin)
                 ->action(function (): void {
                     $state = app(TallyLiveBalanceService::class)->requestSync();
                     $online = $state->tallyIsOnline();
@@ -61,6 +67,54 @@ class ViewDealerLedger extends ViewRecord
                     }
 
                     $notification->warning()->send();
+                }),
+            Action::make('mapTallyLedger')
+                ->label('Map Tally Ledger')
+                ->icon('heroicon-o-link')
+                ->visible(function () use ($isAdmin, $mapping): bool {
+                    return $isAdmin && ! $mapping['has_guid'] && ! $mapping['mapped'];
+                })
+                ->modalHeading('Map Tally Ledger')
+                ->modalDescription('Search and select the exact Tally ledger. This saves its GUID permanently and does not change ledger transactions or ERP outstanding.')
+                ->form($this->tallyLedgerSelectForm())
+                ->action(function (array $data): void {
+                    $this->saveTallyMapping((string) ($data['tally_ledger_guid'] ?? ''), overwrite: false);
+                }),
+            Action::make('changeTallyMapping')
+                ->label('Change Mapping')
+                ->icon('heroicon-o-arrow-path')
+                ->color('warning')
+                ->visible(function () use ($isAdmin, $mapping): bool {
+                    return $isAdmin && $mapping['mapped'];
+                })
+                ->requiresConfirmation()
+                ->modalHeading('Change Tally Mapping')
+                ->modalDescription('Replace the saved Tally ledger GUID. Ledger transactions and ERP outstanding will not change. Confirm this is the correct ledger.')
+                ->form($this->tallyLedgerSelectForm())
+                ->action(function (array $data): void {
+                    $this->saveTallyMapping((string) ($data['tally_ledger_guid'] ?? ''), overwrite: true);
+                }),
+            Action::make('removeTallyMapping')
+                ->label('Remove Mapping')
+                ->icon('heroicon-o-x-mark')
+                ->color('danger')
+                ->visible(function () use ($isAdmin, $mapping): bool {
+                    return $isAdmin && $mapping['has_guid'];
+                })
+                ->requiresConfirmation()
+                ->modalHeading('Remove Tally Mapping')
+                ->modalDescription('The saved Tally GUID will be removed. Historical ledger entries and ERP outstanding will not change.')
+                ->modalSubmitActionLabel('Remove Mapping')
+                ->action(function (): void {
+                    /** @var Dealer $dealer */
+                    $dealer = $this->getRecord();
+                    app(TallyDealerMappingService::class)->remove($dealer);
+                    $this->refreshRecord();
+                    Notification::make()
+                        ->success()
+                        ->title('Tally mapping removed')
+                        ->body('This dealer can be mapped again. Ledger transactions were not changed.')
+                        ->send();
                 }),
             Action::make('importTallyLedger')
                 ->label('Import Tally Ledger')
@@ -114,5 +168,80 @@ class ViewDealerLedger extends ViewRecord
         return $dealer->tallyLedger()->exists()
             || $dealer->tallyEntries()->exists()
             || $dealer->tallyImports()->exists();
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function mappingStatus(): array
+    {
+        /** @var Dealer $dealer */
+        $dealer = $this->getRecord();
+
+        return app(TallyDealerMappingService::class)->status($dealer);
+    }
+
+    /**
+     * @return list<Select>
+     */
+    private function tallyLedgerSelectForm(): array
+    {
+        $mappings = app(TallyDealerMappingService::class);
+
+        return [
+            Select::make('tally_ledger_guid')
+                ->label('Tally Ledger')
+                ->placeholder('Search Tally ledger name')
+                ->searchable()
+                ->preload(false)
+                ->options(fn (): array => $mappings->searchLedgers('', 30))
+                ->getSearchResultsUsing(fn (string $search): array => $mappings->searchLedgers($search))
+                ->getOptionLabelUsing(function (?string $value) use ($mappings): ?string {
+                    if (! filled($value)) {
+                        return null;
+                    }
+                    $ledger = TallyConnectorLedger::query()->where('tally_ledger_guid', $value)->first();
+
+                    return $ledger ? $mappings->ledgerLabel($ledger) : $value;
+                })
+                ->helperText('Only exact Tally ledgers from the latest Live Tally sync are listed. Run Sync Live Tally Now if this list is empty.')
+                ->required(),
+        ];
+    }
+
+    private function saveTallyMapping(string $guid, bool $overwrite): void
+    {
+        /** @var Dealer $dealer */
+        $dealer = $this->getRecord();
+
+        try {
+            $mapping = app(TallyDealerMappingService::class)->assign(
+                $dealer,
+                $guid,
+                auth()->id(),
+                $overwrite,
+            );
+        } catch (TallyMappingException $exception) {
+            Notification::make()
+                ->danger()
+                ->title('Tally mapping not saved')
+                ->body($exception->getMessage())
+                ->send();
+
+            return;
+        }
+
+        $this->refreshRecord();
+        Notification::make()
+            ->success()
+            ->title($overwrite ? 'Tally mapping changed' : 'Tally ledger mapped')
+            ->body('Saved GUID for '.$mapping->tally_ledger_name.'. Ledger transactions and ERP outstanding were not changed.')
+            ->send();
+    }
+
+    private function refreshRecord(): void
+    {
+        $this->getRecord()->refresh();
+        $this->getRecord()->unsetRelations();
     }
 }

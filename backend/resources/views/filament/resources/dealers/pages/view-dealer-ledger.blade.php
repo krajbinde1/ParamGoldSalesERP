@@ -144,6 +144,8 @@
             <div><span>ERP Current Outstanding:</span> {{ $verification['erp_outstanding_label'] ?? $verification['erp_closing_label'] ?? '—' }}</div>
             <div><span>Difference:</span> {{ $verification['difference_label'] ?: '—' }}</div>
             <div><span>Status:</span> {{ $verification['status_short'] ?? $verification['status_label'] ?? '—' }}</div>
+            <div><span>Mapping:</span> {{ $verification['mapping_status'] ?? 'Not Mapped' }}</div>
+            <div><span>Tally Ledger:</span> {{ $verification['mapped_tally_ledger_name'] ?? $verification['live_tally_ledger_name'] ?? '—' }}</div>
             <div><span>Last Tally Sync:</span> {{ $verification['last_synced_label'] ?: '—' }}</div>
         </div>
     </div>
@@ -176,6 +178,7 @@
                     <th>Particulars</th>
                     <th>Voucher Type</th>
                     <th>Voucher No.</th>
+                    <th>Source</th>
                     <th class="num">Debit</th>
                     <th class="num">Credit</th>
                     <th class="num">Balance</th>
@@ -195,19 +198,21 @@
                         <td>{{ $entry['particulars'] }}</td>
                         <td>{{ $entry['voucher_type'] ?: '—' }}</td>
                         <td>{{ $entry['voucher_no'] ?: '—' }}</td>
+                        <td>{{ $entry['source_label'] ?? '—' }}</td>
                         <td class="num">{{ (float) $entry['debit'] > 0 ? IndianCurrency::formatExact($entry['debit']) : '—' }}</td>
                         <td class="num">{{ (float) $entry['credit'] > 0 ? IndianCurrency::formatExact($entry['credit']) : '—' }}</td>
                         <td class="num"><strong>{{ IndianCurrency::formatDrCr($entry['balance_signed']) }}</strong></td>
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="7" class="pg-dealer-ledger-empty">No ledger entries yet.</td>
+                        <td colspan="8" class="pg-dealer-ledger-empty">No ledger entries yet.</td>
                     </tr>
                 @endforelse
                 @if ($ledger !== [])
                     <tr class="is-total">
                         <td></td>
                         <td>Total</td>
+                        <td></td>
                         <td></td>
                         <td></td>
                         <td class="num">{{ IndianCurrency::formatExact($footerDebit) }}</td>
@@ -217,6 +222,7 @@
                     <tr class="is-closing">
                         <td></td>
                         <td>Closing Balance</td>
+                        <td></td>
                         <td></td>
                         <td></td>
                         <td class="num">{{ $closingIsDebit ? $closingLabel : '—' }}</td>

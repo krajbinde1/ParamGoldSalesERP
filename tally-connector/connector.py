@@ -60,11 +60,13 @@ def main() -> int:
         if args.once:
             process_pending(erp, tally, settings)
             sync_live_balances(erp, tally)
+            sync_journal_vouchers(erp, tally)
             return 0
 
         while True:
             process_pending(erp, tally, settings)
             sync_live_balances(erp, tally)
+            sync_journal_vouchers(erp, tally)
             time.sleep(settings.poll_interval_seconds)
     except KeyboardInterrupt:
         print("Connector stopped.", flush=True)
@@ -95,12 +97,21 @@ def sync_live_balances(erp: ErpClient, tally: TallyClient) -> None:
     try:
         balances = tally.ledger_closing_balances()
         _log_parsed_balances(balances, detailed=force_sync)
-        result = erp.post_live_balances(True, balances)
-        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        matched = 0
+        unmatched = 0
+        ambiguous = 0
+        chunk_size = 4000
+        for index in range(0, max(len(balances), 1), chunk_size):
+            chunk = balances[index : index + chunk_size]
+            result = erp.post_live_balances(True, chunk)
+            data = result.get("data") if isinstance(result.get("data"), dict) else {}
+            matched += int(data.get("matched") or 0)
+            unmatched += int(data.get("unmatched") or 0)
+            ambiguous += int(data.get("ambiguous") or 0)
         log(
             "Synced",
             "Live Tally balances  "
-            f"ledgers={len(balances)} matched={data.get('matched', 0)} unmatched={data.get('unmatched', 0)}",
+            f"ledgers={len(balances)} matched={matched} unmatched={unmatched} ambiguous={ambiguous}",
         )
     except TallyError as exc:
         log("Failed", f"Live Tally balances: {exc}")
@@ -110,6 +121,54 @@ def sync_live_balances(erp: ErpClient, tally: TallyClient) -> None:
             log("Failed", f"Could not report Tally offline to ERP: {report_exc}")
     except ErpApiError as exc:
         log("Failed", f"Could not store live Tally balances: {exc}")
+
+
+def sync_journal_vouchers(erp: ErpClient, tally: TallyClient) -> None:
+    from_date = "2026-04-01"
+    try:
+        poll = erp.live_balance_poll()
+        if str(poll.get("journal_from_date") or "").strip():
+            from_date = str(poll.get("journal_from_date")).strip()
+    except ErpApiError:
+        pass
+
+    try:
+        tally.ping()
+    except TallyError as exc:
+        log("Failed", f"Tally journals: {exc}")
+        return
+
+    try:
+        entries = tally.journal_vouchers(from_date)
+    except TallyError as exc:
+        log("Failed", f"Tally journals: {exc}")
+        return
+
+    seen: list[str] = []
+    seen_set: set[str] = set()
+    for row in entries:
+        guid = str(row.get("voucher_guid") or "").strip()
+        if guid != "" and guid not in seen_set:
+            seen_set.add(guid)
+            seen.append(guid)
+
+    try:
+        result = erp.post_journal_vouchers(
+            True,
+            entries,
+            sync_complete=True,
+            seen_voucher_guids=seen,
+        )
+        data = result.get("data") if isinstance(result.get("data"), dict) else {}
+        log(
+            "Synced",
+            "Tally journals  "
+            f"lines={len(entries)} created={data.get('created', 0)} "
+            f"updated={data.get('updated', 0)} reversed={data.get('reversed', 0)} "
+            f"unmatched={data.get('unmatched', 0)}",
+        )
+    except ErpApiError as exc:
+        log("Failed", f"Could not store Tally journals: {exc}")
 
 
 def _log_parsed_balances(balances: list[dict[str, Any]], *, detailed: bool) -> None:

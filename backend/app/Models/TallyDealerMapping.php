@@ -11,6 +11,7 @@ class TallyDealerMapping extends Model
     protected $fillable = [
         'tally_ledger_name',
         'tally_ledger_name_normalized',
+        'tally_ledger_guid',
         'dealer_id',
         'created_by',
     ];

@@ -6,7 +6,6 @@ use App\Models\Collection;
 use App\Models\Dealer;
 use App\Models\Order;
 use App\Models\OrderItem;
-use App\Models\TallyDealerMapping;
 use App\Models\TallyOutboundVoucher;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
@@ -16,7 +15,7 @@ final class TallyOutboundEnqueueService
 {
     public const ERROR_NO_DEALER = 'This record has no dealer, so it cannot be sent to Tally.';
 
-    public const ERROR_NO_MAPPING = 'Dealer has no Tally ledger mapping. Map this dealer in ERP before the voucher can be sent to Tally.';
+    public const ERROR_NO_MAPPING = 'Tally Posting Pending - Dealer Not Mapped';
 
     public const ERROR_MULTIPLE_MAPPINGS = 'Dealer has more than one Tally ledger mapping. Keep a single mapping; the connector will not guess a ledger.';
 
@@ -39,7 +38,7 @@ final class TallyOutboundEnqueueService
         $order->loadMissing(['dealer', 'items.product']);
 
         $mapping = $this->resolveMapping($order->dealer);
-        $payload = $this->salesPayload($order, $mapping['ledger']);
+        $payload = $this->salesPayload($order, $mapping['ledger'], $mapping['guid']);
 
         return $this->insertOnce(
             sourceType: TallyOutboundVoucher::SOURCE_SALES_ORDER,
@@ -66,7 +65,7 @@ final class TallyOutboundEnqueueService
         $collection->loadMissing('dealer');
 
         $mapping = $this->resolveMapping($collection->dealer);
-        $payload = $this->receiptPayload($collection, $mapping['ledger']);
+        $payload = $this->receiptPayload($collection, $mapping['ledger'], $mapping['guid']);
 
         return $this->insertOnce(
             sourceType: TallyOutboundVoucher::SOURCE_COLLECTION,
@@ -79,34 +78,129 @@ final class TallyOutboundEnqueueService
         );
     }
 
+    public function requeueReceivedCollectionsForDealer(Dealer $dealer): void
+    {
+        Collection::query()
+            ->where('dealer_id', $dealer->id)
+            ->where('status', Collection::STATUS_RECEIVED)
+            ->orderBy('id')
+            ->each(function (Collection $collection): void {
+                $this->queueReceivedCollection($collection);
+            });
+    }
+
+    public function requeueNotMappedReceivedCollectionsForDealer(Dealer $dealer): void
+    {
+        if ($this->resolveMapping($dealer)['error'] !== null) {
+            return;
+        }
+
+        $receivedIds = Collection::query()
+            ->where('dealer_id', $dealer->id)
+            ->where('status', Collection::STATUS_RECEIVED)
+            ->select('id');
+
+        $stuckIds = TallyOutboundVoucher::query()
+            ->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)
+            ->where('status', TallyOutboundVoucher::STATUS_FAILED)
+            ->whereIn('source_id', $receivedIds)
+            ->get(['id', 'source_id', 'last_error', 'payload'])
+            ->filter(fn (TallyOutboundVoucher $voucher): bool => $this->isMappingFailure($voucher->last_error)
+                || ! filled(data_get($voucher->payload, 'party.tally_ledger_name')))
+            ->pluck('source_id')
+            ->all();
+
+        if ($stuckIds === []) {
+            return;
+        }
+
+        Collection::query()
+            ->whereIn('id', $stuckIds)
+            ->orderBy('id')
+            ->each(function (Collection $collection): void {
+                $this->queueReceivedCollection($collection);
+            });
+    }
+
     /**
-     * @return array{ledger: ?string, error: ?string}
+     * @return array{key: ?string, label: string, error: ?string, color: string}
+     */
+    public function postingStatus(Collection $collection): array
+    {
+        if ($collection->status !== Collection::STATUS_RECEIVED) {
+            return [
+                'key' => null,
+                'label' => '—',
+                'error' => null,
+                'color' => 'gray',
+            ];
+        }
+
+        $voucher = $collection->tallyOutboundVoucher;
+        if ($voucher === null) {
+            $mapping = $this->resolveMapping($collection->dealer);
+            if ($mapping['error'] !== null) {
+                return [
+                    'key' => 'not_mapped',
+                    'label' => 'Not Mapped',
+                    'error' => $mapping['error'],
+                    'color' => 'warning',
+                ];
+            }
+
+            return [
+                'key' => 'pending',
+                'label' => 'Pending',
+                'error' => null,
+                'color' => 'gray',
+            ];
+        }
+
+        if ($voucher->isSynced()) {
+            return [
+                'key' => 'posted',
+                'label' => 'Posted',
+                'error' => null,
+                'color' => 'success',
+            ];
+        }
+
+        if ($voucher->isFailed() && $this->isMappingFailure($voucher->last_error)) {
+            return [
+                'key' => 'not_mapped',
+                'label' => 'Not Mapped',
+                'error' => $voucher->last_error ?: self::ERROR_NO_MAPPING,
+                'color' => 'warning',
+            ];
+        }
+
+        if ($voucher->isFailed()) {
+            return [
+                'key' => 'failed',
+                'label' => 'Failed',
+                'error' => $voucher->last_error,
+                'color' => 'danger',
+            ];
+        }
+
+        return [
+            'key' => 'pending',
+            'label' => 'Pending',
+            'error' => null,
+            'color' => 'info',
+        ];
+    }
+
+    /**
+     * @return array{ledger: ?string, guid: ?string, error: ?string}
      */
     private function resolveMapping(?Dealer $dealer): array
     {
         if ($dealer === null) {
-            return ['ledger' => null, 'error' => self::ERROR_NO_DEALER];
+            return ['ledger' => null, 'guid' => null, 'error' => self::ERROR_NO_DEALER];
         }
 
-        $mappings = TallyDealerMapping::query()
-            ->where('dealer_id', $dealer->id)
-            ->orderBy('id')
-            ->get();
-
-        if ($mappings->isEmpty()) {
-            return ['ledger' => null, 'error' => self::ERROR_NO_MAPPING];
-        }
-
-        if ($mappings->count() > 1) {
-            return ['ledger' => null, 'error' => self::ERROR_MULTIPLE_MAPPINGS];
-        }
-
-        $name = trim((string) $mappings->first()?->tally_ledger_name);
-        if ($name === '') {
-            return ['ledger' => null, 'error' => self::ERROR_NO_MAPPING];
-        }
-
-        return ['ledger' => $name, 'error' => null];
+        return app(TallyDealerMappingService::class)->outboundLedger($dealer);
     }
 
     /**
@@ -143,19 +237,53 @@ final class TallyOutboundEnqueueService
                     : TallyOutboundVoucher::STATUS_FAILED;
 
                 if ($existing !== null) {
-                    if ($existing->isSynced() || ! $refreshIfUnsynced || ! $existing->isFailed()) {
+                    if ($existing->isSynced()) {
                         return $existing;
                     }
 
-                    $existing->fill([
-                        'payload' => $payload,
-                        'status' => $status,
-                        'last_error' => $mappingError,
-                        'claimed_at' => null,
-                        'claimed_until' => null,
-                        'claimed_by' => null,
-                    ]);
-                    $existing->save();
+                    if (! $refreshIfUnsynced) {
+                        return $existing;
+                    }
+
+                    if ($existing->status === TallyOutboundVoucher::STATUS_CLAIMED
+                        && $existing->hasBlockingClaim(null)) {
+                        return $existing;
+                    }
+
+                    $wasMappingFailure = $this->isMappingFailure($existing->last_error)
+                        || ! filled(data_get($existing->payload, 'party.tally_ledger_name'));
+
+                    if (! $ready) {
+                        if ($existing->isFailed() || $wasMappingFailure) {
+                            $existing->fill([
+                                'payload' => $payload,
+                                'status' => TallyOutboundVoucher::STATUS_FAILED,
+                                'last_error' => $mappingError,
+                                'claimed_at' => null,
+                                'claimed_until' => null,
+                                'claimed_by' => null,
+                            ]);
+                            $existing->save();
+                        }
+
+                        return $existing;
+                    }
+
+                    if ($existing->isFailed() && ! $wasMappingFailure) {
+                        return $existing;
+                    }
+
+                    if ($existing->isFailed() || $wasMappingFailure) {
+                        $existing->fill([
+                            'payload' => $payload,
+                            'status' => TallyOutboundVoucher::STATUS_PENDING,
+                            'last_error' => null,
+                            'claimed_at' => null,
+                            'claimed_until' => null,
+                            'claimed_by' => null,
+                        ]);
+                        $existing->save();
+                    }
 
                     return $existing;
                 }
@@ -198,7 +326,7 @@ final class TallyOutboundEnqueueService
     /**
      * @return array<string, mixed>
      */
-    private function salesPayload(Order $order, ?string $tallyLedgerName): array
+    private function salesPayload(Order $order, ?string $tallyLedgerName, ?string $tallyLedgerGuid = null): array
     {
         $billDate = $order->bill_date?->toDateString()
             ?? $order->billed_at?->timezone('Asia/Kolkata')?->toDateString()
@@ -208,7 +336,7 @@ final class TallyOutboundEnqueueService
             'erp_reference' => TallyOutboundVoucher::salesReference((int) $order->id),
             'voucher_type' => TallyOutboundVoucher::VOUCHER_SALES,
             'date' => $billDate,
-            'party' => $this->partyPayload($order->dealer, $tallyLedgerName),
+            'party' => $this->partyPayload($order->dealer, $tallyLedgerName, $tallyLedgerGuid),
             'order' => [
                 'id' => (int) $order->id,
                 'order_no' => (string) $order->order_no,
@@ -246,7 +374,7 @@ final class TallyOutboundEnqueueService
     /**
      * @return array<string, mixed>
      */
-    private function receiptPayload(Collection $collection, ?string $tallyLedgerName): array
+    private function receiptPayload(Collection $collection, ?string $tallyLedgerName, ?string $tallyLedgerGuid = null): array
     {
         $date = $collection->collection_date?->toDateString()
             ?: Carbon::now('Asia/Kolkata')->toDateString();
@@ -258,7 +386,7 @@ final class TallyOutboundEnqueueService
             'erp_reference' => TallyOutboundVoucher::receiptReference((int) $collection->id),
             'voucher_type' => TallyOutboundVoucher::VOUCHER_RECEIPT,
             'date' => $date,
-            'party' => $this->partyPayload($collection->dealer, $tallyLedgerName),
+            'party' => $this->partyPayload($collection->dealer, $tallyLedgerName, $tallyLedgerGuid),
             'collection' => [
                 'id' => (int) $collection->id,
                 'receipt_no' => $receiptNo,
@@ -279,7 +407,7 @@ final class TallyOutboundEnqueueService
     /**
      * @return array<string, mixed>
      */
-    private function partyPayload(?Dealer $dealer, ?string $tallyLedgerName): array
+    private function partyPayload(?Dealer $dealer, ?string $tallyLedgerName, ?string $tallyLedgerGuid = null): array
     {
         return [
             'dealer_id' => $dealer?->id !== null ? (int) $dealer->id : null,
@@ -288,7 +416,23 @@ final class TallyOutboundEnqueueService
             'gst_no' => $dealer?->gst_no,
             'state' => $dealer?->state,
             'tally_ledger_name' => $tallyLedgerName,
+            'tally_ledger_guid' => $tallyLedgerGuid,
         ];
+    }
+
+    private function isMappingFailure(?string $error): bool
+    {
+        $text = trim((string) $error);
+        if ($text === '') {
+            return false;
+        }
+
+        return $text === self::ERROR_NO_MAPPING
+            || $text === self::ERROR_MULTIPLE_MAPPINGS
+            || $text === self::ERROR_NO_DEALER
+            || str_contains($text, 'Dealer Not Mapped')
+            || str_contains($text, 'no Tally ledger mapping')
+            || str_contains($text, 'more than one Tally ledger mapping');
     }
 
     private function money(mixed $value): float

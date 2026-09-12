@@ -6,6 +6,7 @@ use App\Support\PublicMediaUrl;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
@@ -179,6 +180,12 @@ class Collection extends Model
     public function audits(): HasMany
     {
         return $this->hasMany(CollectionAudit::class)->orderByDesc('id');
+    }
+
+    public function tallyOutboundVoucher(): HasOne
+    {
+        return $this->hasOne(TallyOutboundVoucher::class, 'source_id')
+            ->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION);
     }
 
     public function canTransitionTo(string $status): bool

@@ -103,11 +103,36 @@ class ErpClient:
                 "tally_online": tally_online,
                 "balances": balances,
             },
+            timeout=max(self.timeout, 120),
         )
 
-    def _post(self, path: str, body: dict[str, Any]) -> dict[str, Any]:
+    def post_journal_vouchers(
+        self,
+        tally_online: bool,
+        entries: list[dict[str, Any]],
+        *,
+        sync_complete: bool,
+        seen_voucher_guids: list[str],
+    ) -> dict[str, Any]:
+        return self._post(
+            "journal-vouchers",
+            {
+                "connector_id": self.connector_id,
+                "tally_online": tally_online,
+                "sync_complete": sync_complete,
+                "seen_voucher_guids": seen_voucher_guids,
+                "entries": entries,
+            },
+            timeout=max(self.timeout, 120),
+        )
+
+    def _post(self, path: str, body: dict[str, Any], timeout: int | None = None) -> dict[str, Any]:
         try:
-            response = self.session.post(self._url(path), json=body, timeout=self.timeout)
+            response = self.session.post(
+                self._url(path),
+                json=body,
+                timeout=timeout or self.timeout,
+            )
         except requests.RequestException as exc:
             raise ErpApiError(f"ERP request failed: {exc}") from exc
 

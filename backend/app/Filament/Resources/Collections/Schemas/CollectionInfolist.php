@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Collections\Schemas;
 
 use App\Models\Collection;
+use App\Services\TallySync\TallyOutboundEnqueueService;
 use Filament\Infolists\Components\ImageEntry;
 use Filament\Infolists\Components\TextEntry;
 use Filament\Schemas\Components\Section;
@@ -22,6 +23,31 @@ class CollectionInfolist
                         ->badge()
                         ->formatStateUsing(fn (?string $state): string => Collection::STATUS_LABELS[$state ?? ''] ?? (string) $state)
                         ->color(fn (?string $state): string => Collection::statusColor((string) $state)),
+                    TextEntry::make('tally_posting_status')
+                        ->label('Tally Posting Status')
+                        ->badge()
+                        ->state(function (Collection $record): string {
+                            return app(TallyOutboundEnqueueService::class)->postingStatus($record)['label'];
+                        })
+                        ->color(function (Collection $record): string {
+                            return app(TallyOutboundEnqueueService::class)->postingStatus($record)['color'];
+                        })
+                        ->visible(fn (Collection $record): bool => $record->status === Collection::STATUS_RECEIVED),
+                    TextEntry::make('tally_posting_error')
+                        ->label(function (Collection $record): string {
+                            $status = app(TallyOutboundEnqueueService::class)->postingStatus($record);
+
+                            return $status['key'] === 'not_mapped' ? 'Tally Posting' : 'Tally Error';
+                        })
+                        ->state(function (Collection $record): ?string {
+                            return app(TallyOutboundEnqueueService::class)->postingStatus($record)['error'];
+                        })
+                        ->visible(function (Collection $record): bool {
+                            $status = app(TallyOutboundEnqueueService::class)->postingStatus($record);
+
+                            return $record->status === Collection::STATUS_RECEIVED && filled($status['error']);
+                        })
+                        ->columnSpanFull(),
                     TextEntry::make('admin_remark')
                         ->label('Status Remark')
                         ->placeholder('-')

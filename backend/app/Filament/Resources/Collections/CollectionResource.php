@@ -76,6 +76,11 @@ class CollectionResource extends Resource
         ];
     }
 
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()->with(['dealer.tallyLedger', 'salesEmployee', 'tallyOutboundVoucher']);
+    }
+
     public static function getRecordRouteBindingEloquentQuery(): Builder
     {
         return parent::getRecordRouteBindingEloquentQuery()

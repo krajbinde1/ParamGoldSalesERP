@@ -23,6 +23,7 @@ class DealerTallyLedger extends Model
         'live_closing_balance',
         'live_closing_balance_type',
         'live_tally_ledger_name',
+        'live_tally_ledger_guid',
         'live_synced_at',
     ];
 

@@ -349,6 +349,7 @@ Route::middleware(['auth:sanctum', 'tally.connector'])
         Route::get('pending', [TallyConnectorController::class, 'pending']);
         Route::get('live-balances', [TallyConnectorController::class, 'liveBalancesPoll']);
         Route::post('live-balances', [TallyConnectorController::class, 'liveBalances']);
+        Route::post('journal-vouchers', [TallyConnectorController::class, 'journalVouchers']);
         Route::post('vouchers/{tallyOutboundVoucher}/claim', [TallyConnectorController::class, 'claim']);
         Route::post('vouchers/{tallyOutboundVoucher}/synced', [TallyConnectorController::class, 'synced']);
         Route::post('vouchers/{tallyOutboundVoucher}/failed', [TallyConnectorController::class, 'failed']);

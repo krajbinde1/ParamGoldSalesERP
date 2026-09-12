@@ -41,6 +41,7 @@ final class TallyDealerLedgerService
             'balance_signed' => $running,
             'is_opening' => true,
             'source' => 'opening_balance',
+            'source_label' => DealerTallyEntry::sourceLabel('opening_balance'),
             'source_id' => null,
         ];
 
@@ -71,6 +72,7 @@ final class TallyDealerLedgerService
                 'balance_signed' => $running,
                 'is_opening' => false,
                 'source' => (string) $row->source,
+                'source_label' => DealerTallyEntry::sourceLabel((string) $row->source, $row->voucher_type),
                 'source_id' => $row->source_id !== null ? (int) $row->source_id : null,
             ];
         }

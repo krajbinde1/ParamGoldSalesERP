@@ -10,9 +10,13 @@ class DealerTallyEntry extends Model
 {
     public const SOURCE_TALLY_IMPORT = 'tally_import';
 
+    public const SOURCE_TALLY_JOURNAL = 'tally_journal';
+
     public const SOURCE_SALES_ORDER = 'sales_order';
 
     public const SOURCE_COLLECTION = 'collection';
+
+    public const SOURCE_LABEL_TALLY_JOURNAL = 'Tally - Journal';
 
     protected $fillable = [
         'dealer_id',
@@ -25,6 +29,9 @@ class DealerTallyEntry extends Model
         'tally_voucher_no',
         'tally_entry_date',
         'tally_reconciled_at',
+        'tally_voucher_guid',
+        'tally_master_id',
+        'tally_entry_key',
         'debit',
         'credit',
         'source',
@@ -86,5 +93,38 @@ class DealerTallyEntry extends Model
     public static function makeSourceFingerprint(string $source, int $sourceId): string
     {
         return hash('sha256', $source.'|'.$sourceId);
+    }
+
+    public static function makeJournalFingerprint(string $voucherGuid, string $entryKey): string
+    {
+        return hash('sha256', self::SOURCE_TALLY_JOURNAL.'|'.$voucherGuid.'|'.$entryKey);
+    }
+
+    public static function isJournalVoucherType(?string $voucherType): bool
+    {
+        $normalized = Str::of((string) $voucherType)->lower()->replace('_', ' ')->squish()->toString();
+
+        return $normalized === 'journal' || str_starts_with($normalized, 'journal ');
+    }
+
+    public static function sourceLabel(?string $source, ?string $voucherType = null): string
+    {
+        if ((string) $source === 'opening_balance') {
+            return 'Opening Balance';
+        }
+        if ((string) $source === self::SOURCE_SALES_ORDER) {
+            return 'ERP - Sales';
+        }
+        if ((string) $source === self::SOURCE_COLLECTION) {
+            return 'ERP - Collection';
+        }
+        if ((string) $source === self::SOURCE_TALLY_JOURNAL || self::isJournalVoucherType($voucherType)) {
+            return self::SOURCE_LABEL_TALLY_JOURNAL;
+        }
+        if ((string) $source === self::SOURCE_TALLY_IMPORT) {
+            return 'Tally Import';
+        }
+
+        return '—';
     }
 }

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
+from datetime import date
 
 import requests
 
@@ -110,16 +111,60 @@ class TallyClient:
             '<COLLECTION NAME="AllLedgers" ISMODIFY="No">'
             "<TYPE>Ledger</TYPE>"
             "<NATIVEMETHOD>Name</NATIVEMETHOD>"
+            "<NATIVEMETHOD>GUID</NATIVEMETHOD>"
+            "<NATIVEMETHOD>MasterId</NATIVEMETHOD>"
             "<NATIVEMETHOD>Parent</NATIVEMETHOD>"
+            "<NATIVEMETHOD>OpeningBalance</NATIVEMETHOD>"
             "<NATIVEMETHOD>ClosingBalance</NATIVEMETHOD>"
             "<NATIVEMETHOD>IsDeemedPositive</NATIVEMETHOD>"
             "<COMPUTE>TALLYISDEBIT:$$IsDebit:$ClosingBalance</COMPUTE>"
+            "<COMPUTE>TALLYOPENISDEBIT:$$IsDebit:$OpeningBalance</COMPUTE>"
+            "<COMPUTE>TALLYISNEGATIVE:$$IsNegative:$ClosingBalance</COMPUTE>"
             "</COLLECTION>"
             "</TDLMESSAGE></TDL>"
             "</DESC></BODY></ENVELOPE>"
         )
         raw = self._post_xml(xml, self.timeout)
         return parse_ledger_closing_balances(raw)
+
+    def journal_vouchers(self, from_date: str = "2026-04-01") -> list[dict[str, str | float | bool | int | None]]:
+        company_xml = ""
+        if self.company:
+            escaped = (
+                self.company.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            )
+            company_xml = f"<SVCURRENTCOMPANY>{escaped}</SVCURRENTCOMPANY>"
+
+        from_xml = _tally_date(from_date)
+        to_xml = date.today().strftime("%Y%m%d")
+        xml = (
+            "<ENVELOPE>"
+            "<HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST>"
+            "<TYPE>Collection</TYPE><ID>JournalVouchers</ID></HEADER>"
+            "<BODY><DESC><STATICVARIABLES>"
+            "<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>"
+            f"<SVFROMDATE>{from_xml}</SVFROMDATE>"
+            f"<SVTODATE>{to_xml}</SVTODATE>"
+            f"{company_xml}"
+            "</STATICVARIABLES>"
+            "<TDL><TDLMESSAGE>"
+            '<COLLECTION NAME="JournalVouchers" ISMODIFY="No">'
+            "<TYPE>Voucher</TYPE>"
+            "<FETCH>Date, VoucherNumber, VoucherTypeName, Narration, GUID, MasterId, "
+            "IsCancelled, AllLedgerEntries.*, LedgerEntries.*</FETCH>"
+            "<FILTER>IsJournalVoucher</FILTER>"
+            "</COLLECTION>"
+            '<SYSTEM TYPE="Formulae" NAME="IsJournalVoucher">'
+            "$$IsSysNameEqual:$VoucherTypeName:Journal"
+            "</SYSTEM>"
+            "</TDLMESSAGE></TDL>"
+            "</DESC></BODY></ENVELOPE>"
+        )
+        raw = self._post_xml(xml, max(self.timeout, 180))
+        return parse_journal_vouchers(raw)
+
 
     def _post_xml(self, xml: str, timeout: int) -> str:
         try:
@@ -144,11 +189,15 @@ class TallyClient:
 
 def parse_ledger_closing_balances(xml: str) -> list[dict[str, str | float | bool | None]]:
     balances: list[dict[str, str | float | bool | None]] = []
+    occupied: list[tuple[int, int]] = []
     for match in re.finditer(
         r"<(LEDGER(?:\.LIST)?)([^>]*)>(.*?)</\1>",
         xml,
         flags=re.IGNORECASE | re.DOTALL,
     ):
+        start, end = match.start(), match.end()
+        if any(outer_start < start and end <= outer_end for outer_start, outer_end in occupied):
+            continue
         attrs = match.group(2)
         block = match.group(3)
         name = _ledger_name(block) or _attr_name(attrs)
@@ -156,8 +205,131 @@ def parse_ledger_closing_balances(xml: str) -> list[dict[str, str | float | bool
         if name == "" or parsed is None:
             continue
         parsed["tally_ledger_name"] = name
+        parsed["tally_ledger_guid"] = _ledger_guid(block, attrs)
         balances.append(parsed)
+        occupied.append((start, end))
     return balances
+
+
+def parse_journal_vouchers(xml: str) -> list[dict[str, str | float | bool | int | None]]:
+    entries: list[dict[str, str | float | bool | int | None]] = []
+    occupied: list[tuple[int, int]] = []
+    for match in re.finditer(
+        r"<VOUCHER([^>]*)>(.*?)</VOUCHER>",
+        xml,
+        flags=re.IGNORECASE | re.DOTALL,
+    ):
+        start, end = match.start(), match.end()
+        if any(outer_start < start and end <= outer_end for outer_start, outer_end in occupied):
+            continue
+        attrs = match.group(1)
+        block = match.group(2)
+        occupied.append((start, end))
+        voucher_type = _voucher_type(block, attrs)
+        if not _is_journal_type(voucher_type):
+            continue
+        guid = _ledger_guid(block, attrs)
+        master_id = _tag_text(block, "MASTERID") or _attr_value(attrs, "MASTERID")
+        voucher_no = _tag_text(block, "VOUCHERNUMBER") or _attr_value(attrs, "VOUCHERNUMBER")
+        date = _voucher_date(block, attrs)
+        narration = _tag_text(block, "NARRATION")
+        cancelled = _yes_no(_tag_text(block, "ISCANCELLED")) is True or _yes_no(
+            _attr_value(attrs, "ISCANCELLED")
+        ) is True
+        ledger_blocks = _voucher_ledger_blocks(block)
+        for index, ledger_block in enumerate(ledger_blocks):
+            ledger_name = _entry_ledger_name(ledger_block)
+            if ledger_name == "":
+                continue
+            debit, credit = _entry_debit_credit(ledger_block)
+            if debit <= 0 and credit <= 0 and not cancelled:
+                continue
+            entries.append(
+                {
+                    "voucher_type": "Journal",
+                    "voucher_guid": guid,
+                    "master_id": master_id.strip()[:100],
+                    "voucher_no": voucher_no.strip(),
+                    "date": date,
+                    "narration": narration.strip()[:2000],
+                    "cancelled": cancelled,
+                    "party_ledger_name": ledger_name,
+                    "party_ledger_guid": _ledger_guid(ledger_block),
+                    "debit": debit,
+                    "credit": credit,
+                    "entry_index": index,
+                }
+            )
+    return entries
+
+
+def _tally_date(value: str) -> str:
+    text = (value or "").strip()
+    if len(text) >= 10 and text[4] == "-" and text[7] == "-":
+        return text[:10].replace("-", "")
+    digits = re.sub(r"\D", "", text)
+    if len(digits) >= 8:
+        return digits[:8]
+    return "20260401"
+
+
+def _voucher_type(block: str, attrs: str) -> str:
+    name = _tag_text(block, "VOUCHERTYPENAME") or _attr_value(attrs, "VCHTYPE")
+    return re.sub(r"\s+", " ", name).strip()
+
+
+def _is_journal_type(voucher_type: str) -> bool:
+    normalized = re.sub(r"[\s_]+", " ", (voucher_type or "").strip().lower())
+    return normalized == "journal" or normalized.startswith("journal ")
+
+
+def _voucher_date(block: str, attrs: str) -> str:
+    raw = _tag_text(block, "DATE") or _attr_value(attrs, "DATE")
+    digits = re.sub(r"\D", "", raw)
+    if len(digits) >= 8:
+        return f"{digits[0:4]}-{digits[4:6]}-{digits[6:8]}"
+    return ""
+
+
+def _voucher_ledger_blocks(block: str) -> list[str]:
+    blocks: list[str] = []
+    for tag in ("ALLLEDGERENTRIES.LIST", "LEDGERENTRIES.LIST"):
+        for match in re.finditer(
+            rf"<{re.escape(tag)}[^>]*>(.*?)</{re.escape(tag)}>",
+            block,
+            flags=re.IGNORECASE | re.DOTALL,
+        ):
+            blocks.append(match.group(1))
+        if blocks:
+            return blocks
+    return blocks
+
+
+def _entry_ledger_name(block: str) -> str:
+    name = _tag_text(block, "LEDGERNAME") or _ledger_name(block)
+    return _clean_ledger_name(name)
+
+
+def _entry_debit_credit(block: str) -> tuple[float, float]:
+    deemed = _yes_no(_tag_text(block, "ISDEEMEDPOSITIVE"))
+    amount = _xml_amount(_tag_text(block, "AMOUNT"))
+    if amount == 0.0:
+        return 0.0, 0.0
+    if deemed is True or amount < 0:
+        return round(abs(amount), 2), 0.0
+    return 0.0, round(abs(amount), 2)
+
+
+def _xml_amount(raw: str) -> float:
+    text = (
+        (raw or "")
+        .replace("\u2212", "-")
+        .replace("\u2013", "-")
+        .replace("\u2014", "-")
+    )
+    text = re.sub(r"[₹,\s]", "", text)
+    match = re.search(r"-?\d+(?:\.\d+)?", text)
+    return float(match.group(0)) if match is not None else 0.0
 
 
 def _decode_tally_xml(content: bytes, fallback: str) -> str:
@@ -171,9 +343,29 @@ def _decode_tally_xml(content: bytes, fallback: str) -> str:
     return fallback or content.decode("utf-8", errors="ignore")
 
 
+def _ledger_guid(block: str, attrs: str = "") -> str:
+    guid = _clean_guid(_tag_text(block, "GUID"))
+    if guid == "":
+        guid = _clean_guid(_attr_value(attrs, "GUID"))
+    return guid
+
+
+def _clean_guid(value: str) -> str:
+    text = (value or "").strip().lower().replace("{", "").replace("}", "")
+    text = re.sub(r"\s+", "", text)
+    if text in {"", "00000000-0000-0000-0000-000000000000"}:
+        return ""
+    return text[:80]
+
+
+def _attr_value(attrs: str, key: str) -> str:
+    match = re.search(rf'\b{key}="([^"]+)"', attrs, flags=re.IGNORECASE)
+    return match.group(1) if match else ""
+
+
 def _attr_name(attrs: str) -> str:
     match = re.search(r'\bNAME="([^"]+)"', attrs, flags=re.IGNORECASE)
-    return re.sub(r"\s+", " ", match.group(1)).strip() if match else ""
+    return _clean_ledger_name(match.group(1) if match else "")
 
 
 def _ledger_name(block: str) -> str:
@@ -182,7 +374,32 @@ def _ledger_name(block: str) -> str:
         block,
         flags=re.IGNORECASE,
     )
-    return re.sub(r"\s+", " ", match.group(1)).strip() if match else ""
+    return _clean_ledger_name(match.group(1) if match else "")
+
+
+def _clean_ledger_name(name: str) -> str:
+    text = name or ""
+    text = re.sub(
+        r"&#(?:x0*4|0*4);",
+        "\x04",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"&#(\d+);|&#x([0-9a-fA-F]+);",
+        lambda match: chr(int(match.group(1) or "0")) if match.group(1) else chr(int(match.group(2), 16)),
+        text,
+    )
+    text = (
+        text.replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&quot;", '"')
+        .replace("&apos;", "'")
+    )
+    text = text.split("\x04", 1)[0]
+    text = text.replace("\u00a0", " ").replace("\u202f", " ").replace("\u2007", " ")
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _closing_balance(block: str) -> dict[str, str | float | bool | None] | None:
@@ -191,14 +408,27 @@ def _closing_balance(block: str) -> dict[str, str | float | bool | None] | None:
         block,
         flags=re.IGNORECASE | re.DOTALL,
     )
-    if match is None:
+    opening_match = re.search(
+        r"<OPENINGBALANCE([^>]*)>(.*?)</OPENINGBALANCE>",
+        block,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    raw = ""
+    if match is not None:
+        raw = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+        if raw == "":
+            raw = match.group(1).strip()
+    if raw == "" and opening_match is not None:
+        raw = re.sub(r"<[^>]+>", "", opening_match.group(2)).strip()
+    if match is None and opening_match is None:
         return None
-    raw = re.sub(r"<[^>]+>", "", match.group(2)).strip()
-    attr_raw = f"{match.group(1)} {raw}".strip()
     return interpret_closing_balance(
-        raw or attr_raw,
+        raw,
         tally_is_debit=_yes_no(_tag_text(block, "TALLYISDEBIT")),
+        opening_is_debit=_yes_no(_tag_text(block, "TALLYOPENISDEBIT")),
+        tally_is_negative=_yes_no(_tag_text(block, "TALLYISNEGATIVE")),
         deemed_positive=_yes_no(_tag_text(block, "ISDEEMEDPOSITIVE")),
+        parent=_tag_text(block, "PARENT"),
     )
 
 
@@ -206,16 +436,15 @@ def interpret_closing_balance(
     raw: str,
     *,
     tally_is_debit: bool | None = None,
+    opening_is_debit: bool | None = None,
+    tally_is_negative: bool | None = None,
     deemed_positive: bool | None = None,
+    parent: str | None = None,
 ) -> dict[str, str | float | bool | None]:
-    """Map Tally XML ClosingBalance to ERP Dr/Cr at the XML source.
+    """Map Tally XML ClosingBalance to ERP Dr/Cr using Tally indicators.
 
-    Priority:
-    1. Tally $$IsDebit:$ClosingBalance (Yes = Dr, No = Cr)
-    2. Explicit Dr/Cr text on the amount
-    3. XML minus sign = Dr (same as voucher AMOUNT / ISDEEMEDPOSITIVE Yes)
-    4. Positive amount + IsDeemedPositive=No (liability) = Cr
-    5. Positive amount otherwise = Dr (Collection often omits the minus for debtors)
+    Never uses a hardcoded "positive = Cr / negative = Dr" rule.
+    Dr/Cr comes from $$IsDebit, $$IsNegative, IsDeemedPositive, and ledger parent.
     """
     raw = (
         (raw or "")
@@ -232,20 +461,29 @@ def interpret_closing_balance(
     numeric = re.sub(r"[₹,\s]", "", raw)
     number = re.search(r"-?\d+(?:\.\d+)?", numeric)
     value = float(number.group(0)) if number is not None else 0.0
+    nature = _ledger_nature(deemed_positive, parent)
+    is_negative = tally_is_negative
+    if is_negative is None and number is not None:
+        is_negative = value < 0
 
-    if tally_is_debit is True:
-        balance_type = "debit"
-    elif tally_is_debit is False:
-        balance_type = "credit"
-    elif label_debit and not label_credit:
+    if label_debit and not label_credit:
         balance_type = "debit"
     elif label_credit and not label_debit:
         balance_type = "credit"
-    elif value < 0:
+    elif tally_is_debit is True or opening_is_debit is True:
         balance_type = "debit"
-    elif value > 0 and deemed_positive is False:
+    elif nature == "debit" and is_negative is True:
+        # Unnatural side for assets/debtors = Credit (advance).
+        balance_type = "credit"
+    elif nature == "credit" and is_negative is True:
+        # Unnatural side for liabilities/creditors/deposits = Debit.
+        balance_type = "debit"
+    elif nature == "credit":
         balance_type = "credit"
     else:
+        # Sundry Debtors / unknown party ledgers: a positive opening-only
+        # amount is still Dr. $$IsDebit=No is not trusted as Cr here because
+        # Collection XML often drops the debit flag on opening balances.
         balance_type = "debit"
 
     return {
@@ -254,9 +492,46 @@ def interpret_closing_balance(
         "closing_balance": abs(value),
         "closing_balance_type": balance_type,
         "tally_is_debit": tally_is_debit,
+        "opening_is_debit": opening_is_debit,
+        "tally_is_negative": tally_is_negative,
         "deemed_positive": deemed_positive,
+        "ledger_parent": (parent or "").strip() or None,
         "is_closing_debit": balance_type == "debit",
     }
+
+
+def _ledger_nature(deemed_positive: bool | None, parent: str | None) -> str | None:
+    if deemed_positive is True:
+        return "debit"
+    if deemed_positive is False:
+        return "credit"
+    text = re.sub(r"\s+", " ", (parent or "").strip().lower())
+    if text == "":
+        return None
+    credit_names = (
+        "sundry creditor",
+        "sundry creditors",
+        "current liabilit",
+        "deposits",
+        "deposit (liability)",
+        "bank od",
+        "duties & tax",
+        "duties and tax",
+    )
+    debit_names = (
+        "sundry debtor",
+        "sundry debtors",
+        "current asset",
+        "cash-in-hand",
+        "bank accounts",
+        "direct expenses",
+        "indirect expenses",
+    )
+    if any(name in text for name in credit_names):
+        return "credit"
+    if any(name in text for name in debit_names):
+        return "debit"
+    return None
 
 
 def _closing_balance_from_text(raw: str) -> tuple[float, str]:
