@@ -10,12 +10,15 @@ use App\Enums\StockTransactionType;
 use App\Enums\TransportFreightLedgerType;
 use App\Enums\UserRole;
 use App\Filament\Resources\Purchases\Pages\CreatePurchase;
+use App\Filament\Resources\Purchases\Pages\EditPurchase;
 use App\Filament\Resources\Purchases\Pages\ListPurchases;
 use App\Filament\Resources\Purchases\Pages\ViewPurchase;
+use App\Filament\Resources\Purchases\Schemas\PurchaseForm;
 use App\Filament\Resources\TransportFreightLedgers\Pages\ListTransportFreightLedgers;
 use App\Models\Bom;
 use App\Models\BomItem;
 use App\Models\PackagingMaterial;
+use App\Models\Purchase;
 use App\Models\RawMaterial;
 use App\Models\SemiFinishedMaterial;
 use App\Models\StockLedger;
@@ -1021,4 +1024,131 @@ it('renders the purchase entry form with freight type and a read-only allocated 
         ->toContain('.paramgold-purchase-form')
         ->toContain('.paramgold-purchase-material')
         ->toContain('.paramgold-purchase-item-row');
+});
+
+it('shows only raw materials in the purchase material name list', function (): void {
+    $director = purchaseDirector();
+    $raw = purchaseRawMaterial();
+    $pack = purchasePackagingMaterial();
+
+    $page = Livewire::actingAs($director)
+        ->test(CreatePurchase::class)
+        ->fillForm([
+            'material_type' => PurchaseMaterialType::RawMaterial->value,
+        ]);
+
+    $html = $page->html();
+
+    expect($html)->toContain($raw->material_name)
+        ->and($html)->not->toContain($pack->packaging_name)
+        ->and(PurchaseForm::rawMaterialOptions())->toHaveKey($raw->id)
+        ->and(PurchaseForm::packingMaterialOptions())->toHaveKey($pack->id);
+});
+
+it('shows only packing materials in the purchase material name list', function (): void {
+    $director = purchaseDirector();
+    $raw = purchaseRawMaterial();
+    $pack = purchasePackagingMaterial();
+
+    $page = Livewire::actingAs($director)
+        ->test(CreatePurchase::class)
+        ->fillForm([
+            'material_type' => PurchaseMaterialType::PackingMaterial->value,
+        ]);
+
+    $html = $page->html();
+
+    expect($html)->toContain($pack->packaging_name)
+        ->and($html)->not->toContain($raw->material_name);
+});
+
+it('clears the selected material name when purchase material type changes', function (): void {
+    $director = purchaseDirector();
+    $raw = purchaseRawMaterial();
+
+    $page = Livewire::actingAs($director)
+        ->test(CreatePurchase::class)
+        ->fillForm([
+            'material_type' => PurchaseMaterialType::RawMaterial->value,
+            'items' => [[
+                'raw_material_id' => $raw->id,
+                'quantity' => 5,
+                'purchase_rate' => 10,
+                'gst_percentage' => '0',
+            ]],
+        ]);
+
+    $selected = collect($page->get('data.items'))->pluck('raw_material_id')->filter()->values()->all();
+    expect($selected)->toContain($raw->id);
+
+    $page->set('data.material_type', PurchaseMaterialType::PackingMaterial->value);
+
+    $items = collect($page->get('data.items'));
+    expect($items->pluck('raw_material_id')->filter()->all())->toBeEmpty()
+        ->and($items->pluck('packaging_material_id')->filter()->all())->toBeEmpty()
+        ->and($page->html())->not->toContain($raw->material_name);
+});
+
+it('does not save a packing material on a raw material purchase', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $pack = purchasePackagingMaterial();
+
+    expect(fn () => app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::RawMaterial),
+        [[
+            'packaging_material_id' => $pack->id,
+            'quantity' => 2,
+            'purchase_rate' => 10,
+            'gst_percentage' => 0,
+        ]],
+        $director,
+    ))->toThrow(ValidationException::class);
+
+    expect(Purchase::query()->count())->toBe(0);
+});
+
+it('does not save a raw material on a packing material purchase', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $raw = purchaseRawMaterial();
+
+    expect(fn () => app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::PackingMaterial),
+        [[
+            'raw_material_id' => $raw->id,
+            'quantity' => 2,
+            'purchase_rate' => 10,
+            'gst_percentage' => 0,
+        ]],
+        $director,
+    ))->toThrow(ValidationException::class);
+
+    expect(Purchase::query()->count())->toBe(0);
+});
+
+it('keeps packing material names when editing a packing purchase', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $raw = purchaseRawMaterial();
+    $pack = purchasePackagingMaterial();
+
+    $purchase = app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::PackingMaterial),
+        [[
+            'packaging_material_id' => $pack->id,
+            'quantity' => 3,
+            'purchase_rate' => 8,
+            'gst_percentage' => 0,
+        ]],
+        $director,
+    );
+
+    $html = Livewire::actingAs($director)
+        ->test(EditPurchase::class, ['record' => $purchase->getKey()])
+        ->assertSuccessful()
+        ->html();
+
+    expect($html)->toContain($pack->packaging_name)
+        ->and($html)->not->toContain($raw->material_name);
 });

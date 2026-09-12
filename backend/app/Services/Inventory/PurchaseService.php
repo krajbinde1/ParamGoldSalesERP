@@ -441,6 +441,11 @@ final class PurchaseService
             $packId = isset($item['packaging_material_id']) ? (int) $item['packaging_material_id'] : 0;
 
             if ($type === PurchaseMaterialType::RawMaterial) {
+                if ($packId > 0 && $rawId <= 0) {
+                    throw ValidationException::withMessages([
+                        'items' => 'Material Type is Raw Material. Select a raw material, not a packing material.',
+                    ]);
+                }
                 if ($rawId <= 0) {
                     throw ValidationException::withMessages([
                         'items' => 'Select a raw material from the existing master.',
@@ -455,6 +460,11 @@ final class PurchaseService
                 $unit = $material->unit;
                 $packId = null;
             } else {
+                if ($rawId > 0 && $packId <= 0) {
+                    throw ValidationException::withMessages([
+                        'items' => 'Material Type is Packing Material. Select a packing material, not a raw material.',
+                    ]);
+                }
                 if ($packId <= 0) {
                     throw ValidationException::withMessages([
                         'items' => 'Select a packing material from the existing master.',

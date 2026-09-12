@@ -92,10 +92,12 @@ class PurchaseForm
                                     ->wrapOptionLabels(false)
                                     ->required()
                                     ->live()
-                                    ->afterStateUpdated(function ($state, Set $set, mixed $old): void {
-                                        if (filled($old) && $old !== $state) {
-                                            $set('items', []);
+                                    ->afterStateUpdated(function (mixed $state, Set $set, Get $get, mixed $old): void {
+                                        if ((string) $old === (string) $state) {
+                                            return;
                                         }
+
+                                        self::clearSelectedMaterials($set, $get);
                                     })
                                     ->extraFieldWrapperAttributes(['class' => 'paramgold-purchase-dropdown'])
                                     ->columnSpan(['default' => 1, 'md' => 2, 'lg' => 4]),
@@ -135,25 +137,33 @@ class PurchaseForm
                                 ])
                                     ->extraAttributes(['class' => 'paramgold-purchase-item-row paramgold-purchase-item-row--primary'])
                                     ->schema([
+                                        Select::make('material_name_pending')
+                                            ->label('Material Name')
+                                            ->options([])
+                                            ->disabled()
+                                            ->dehydrated(false)
+                                            ->placeholder('Select Material Type first')
+                                            ->visible(fn (Get $get): bool => self::headerMaterialType($get) === null)
+                                            ->extraFieldWrapperAttributes(['class' => 'paramgold-purchase-material'])
+                                            ->columnSpan(['default' => 1, 'md' => 2, 'lg' => 4]),
                                         Select::make('raw_material_id')
                                             ->label('Material Name')
-                                            ->options(fn (): array => RawMaterial::query()
-                                                ->where('status', true)
-                                                ->orderBy('material_name')
-                                                ->get()
-                                                ->mapWithKeys(fn (RawMaterial $material): array => [
-                                                    $material->id => trim($material->material_code.' — '.$material->material_name),
-                                                ])
-                                                ->all())
+                                            ->options(function (Get $get): array {
+                                                return self::headerMaterialType($get) === PurchaseMaterialType::RawMaterial
+                                                    ? self::rawMaterialOptions()
+                                                    : [];
+                                            })
                                             ->searchable()
                                             ->preload()
                                             ->wrapOptionLabels(false)
-                                            ->required(fn (Get $get): bool => $get('../../material_type') === PurchaseMaterialType::RawMaterial->value)
-                                            ->visible(fn (Get $get): bool => $get('../../material_type') === PurchaseMaterialType::RawMaterial->value
-                                                || blank($get('../../material_type')))
+                                            ->placeholder('Select a raw material')
+                                            ->required(fn (Get $get): bool => self::headerMaterialType($get) === PurchaseMaterialType::RawMaterial)
+                                            ->visible(fn (Get $get): bool => self::headerMaterialType($get) === PurchaseMaterialType::RawMaterial)
+                                            ->dehydrated(fn (Get $get): bool => self::headerMaterialType($get) === PurchaseMaterialType::RawMaterial)
                                             ->live()
                                             ->afterStateUpdated(function ($state, Set $set, Get $get): void {
                                                 $material = RawMaterial::query()->find($state);
+                                                $set('packaging_material_id', null);
                                                 $set('unit', $material?->unit);
                                                 $set('purchase_rate', $material?->purchase_rate ?: null);
                                                 self::recalculateLine($set, $get);
@@ -163,22 +173,22 @@ class PurchaseForm
                                             ->columnSpan(['default' => 1, 'md' => 2, 'lg' => 4]),
                                         Select::make('packaging_material_id')
                                             ->label('Material Name')
-                                            ->options(fn (): array => PackagingMaterial::query()
-                                                ->where('status', true)
-                                                ->orderBy('packaging_name')
-                                                ->get()
-                                                ->mapWithKeys(fn (PackagingMaterial $material): array => [
-                                                    $material->id => trim($material->packaging_code.' — '.$material->packaging_name),
-                                                ])
-                                                ->all())
+                                            ->options(function (Get $get): array {
+                                                return self::headerMaterialType($get) === PurchaseMaterialType::PackingMaterial
+                                                    ? self::packingMaterialOptions()
+                                                    : [];
+                                            })
                                             ->searchable()
                                             ->preload()
                                             ->wrapOptionLabels(false)
-                                            ->required(fn (Get $get): bool => $get('../../material_type') === PurchaseMaterialType::PackingMaterial->value)
-                                            ->visible(fn (Get $get): bool => $get('../../material_type') === PurchaseMaterialType::PackingMaterial->value)
+                                            ->placeholder('Select a packing material')
+                                            ->required(fn (Get $get): bool => self::headerMaterialType($get) === PurchaseMaterialType::PackingMaterial)
+                                            ->visible(fn (Get $get): bool => self::headerMaterialType($get) === PurchaseMaterialType::PackingMaterial)
+                                            ->dehydrated(fn (Get $get): bool => self::headerMaterialType($get) === PurchaseMaterialType::PackingMaterial)
                                             ->live()
                                             ->afterStateUpdated(function ($state, Set $set, Get $get): void {
                                                 $material = PackagingMaterial::query()->find($state);
+                                                $set('raw_material_id', null);
                                                 $set('unit', $material?->unit);
                                                 $set('purchase_rate', $material?->purchase_rate ?: null);
                                                 self::recalculateLine($set, $get);
@@ -402,6 +412,72 @@ class PurchaseForm
                             ]),
                     ]),
             ]);
+    }
+
+    /**
+     * @return array<int|string, string>
+     */
+    public static function rawMaterialOptions(): array
+    {
+        return RawMaterial::query()
+            ->where('status', true)
+            ->orderBy('material_name')
+            ->get()
+            ->mapWithKeys(fn (RawMaterial $material): array => [
+                $material->id => trim($material->material_code.' — '.$material->material_name),
+            ])
+            ->all();
+    }
+
+    /**
+     * @return array<int|string, string>
+     */
+    public static function packingMaterialOptions(): array
+    {
+        return PackagingMaterial::query()
+            ->where('status', true)
+            ->orderBy('packaging_name')
+            ->get()
+            ->mapWithKeys(fn (PackagingMaterial $material): array => [
+                $material->id => trim($material->packaging_code.' — '.$material->packaging_name),
+            ])
+            ->all();
+    }
+
+    private static function headerMaterialType(Get $get): ?PurchaseMaterialType
+    {
+        $value = $get('../../material_type');
+        if (blank($value)) {
+            $value = $get('material_type');
+        }
+
+        if ($value instanceof PurchaseMaterialType) {
+            return $value;
+        }
+
+        return PurchaseMaterialType::tryFrom((string) $value);
+    }
+
+    private static function clearSelectedMaterials(Set $set, Get $get): void
+    {
+        $items = $get('items');
+        if (! is_array($items)) {
+            return;
+        }
+
+        foreach (array_keys($items) as $key) {
+            $set("items.{$key}.raw_material_id", null);
+            $set("items.{$key}.packaging_material_id", null);
+            $set("items.{$key}.unit", null);
+            $set("items.{$key}.purchase_rate", null);
+            $set("items.{$key}.taxable_amount", null);
+            $set("items.{$key}.gst_amount", null);
+            $set("items.{$key}.total_amount", null);
+            $set("items.{$key}.allocated_transport_cost", null);
+            $set("items.{$key}.effective_unit_rate", null);
+        }
+
+        self::recalculateFreightAllocation($set, $get);
     }
 
     /**
