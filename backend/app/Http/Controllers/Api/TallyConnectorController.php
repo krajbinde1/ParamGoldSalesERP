@@ -116,6 +116,11 @@ final class TallyConnectorController extends Controller
                 'balances.*.tally_ledger_name' => ['required_with:balances', 'string', 'max:255'],
                 'balances.*.closing_balance' => ['required_with:balances', 'numeric'],
                 'balances.*.closing_balance_type' => ['nullable', 'string', 'in:debit,credit'],
+                'balances.*.closing_balance_raw' => ['nullable', 'string', 'max:100'],
+                'balances.*.closing_balance_numeric' => ['nullable', 'numeric'],
+                'balances.*.tally_is_debit' => ['nullable', 'boolean'],
+                'balances.*.deemed_positive' => ['nullable', 'boolean'],
+                'balances.*.is_closing_debit' => ['nullable', 'boolean'],
             ]);
 
             $result = $live->ingest(

@@ -88,7 +88,7 @@ class TallyClient:
             raw=raw,
         )
 
-    def ledger_closing_balances(self) -> list[dict[str, str | float]]:
+    def ledger_closing_balances(self) -> list[dict[str, str | float | bool | None]]:
         company_xml = ""
         if self.company:
             escaped = (
@@ -112,6 +112,8 @@ class TallyClient:
             "<NATIVEMETHOD>Name</NATIVEMETHOD>"
             "<NATIVEMETHOD>Parent</NATIVEMETHOD>"
             "<NATIVEMETHOD>ClosingBalance</NATIVEMETHOD>"
+            "<NATIVEMETHOD>IsDeemedPositive</NATIVEMETHOD>"
+            "<COMPUTE>TALLYISDEBIT:$$IsDebit:$ClosingBalance</COMPUTE>"
             "</COLLECTION>"
             "</TDLMESSAGE></TDL>"
             "</DESC></BODY></ENVELOPE>"
@@ -140,8 +142,8 @@ class TallyClient:
         return _decode_tally_xml(response.content, response.text)
 
 
-def parse_ledger_closing_balances(xml: str) -> list[dict[str, str | float]]:
-    balances: list[dict[str, str | float]] = []
+def parse_ledger_closing_balances(xml: str) -> list[dict[str, str | float | bool | None]]:
+    balances: list[dict[str, str | float | bool | None]] = []
     for match in re.finditer(
         r"<(LEDGER(?:\.LIST)?)([^>]*)>(.*?)</\1>",
         xml,
@@ -153,14 +155,8 @@ def parse_ledger_closing_balances(xml: str) -> list[dict[str, str | float]]:
         parsed = _closing_balance(block)
         if name == "" or parsed is None:
             continue
-        amount, balance_type = parsed
-        balances.append(
-            {
-                "tally_ledger_name": name,
-                "closing_balance": amount,
-                "closing_balance_type": balance_type,
-            }
-        )
+        parsed["tally_ledger_name"] = name
+        balances.append(parsed)
     return balances
 
 
@@ -189,45 +185,103 @@ def _ledger_name(block: str) -> str:
     return re.sub(r"\s+", " ", match.group(1)).strip() if match else ""
 
 
-def _closing_balance(block: str) -> tuple[float, str] | None:
+def _closing_balance(block: str) -> dict[str, str | float | bool | None] | None:
     match = re.search(
-        r"<CLOSINGBALANCE[^>]*>(.*?)</CLOSINGBALANCE>",
+        r"<CLOSINGBALANCE([^>]*)>(.*?)</CLOSINGBALANCE>",
         block,
         flags=re.IGNORECASE | re.DOTALL,
     )
     if match is None:
         return None
-    raw = re.sub(r"<[^>]+>", "", match.group(1)).strip()
-    if raw == "":
-        return 0.0, "debit"
-    return _closing_balance_from_text(raw)
+    raw = re.sub(r"<[^>]+>", "", match.group(2)).strip()
+    attr_raw = f"{match.group(1)} {raw}".strip()
+    return interpret_closing_balance(
+        raw or attr_raw,
+        tally_is_debit=_yes_no(_tag_text(block, "TALLYISDEBIT")),
+        deemed_positive=_yes_no(_tag_text(block, "ISDEEMEDPOSITIVE")),
+    )
+
+
+def interpret_closing_balance(
+    raw: str,
+    *,
+    tally_is_debit: bool | None = None,
+    deemed_positive: bool | None = None,
+) -> dict[str, str | float | bool | None]:
+    """Map Tally XML ClosingBalance to ERP Dr/Cr at the XML source.
+
+    Priority:
+    1. Tally $$IsDebit:$ClosingBalance (Yes = Dr, No = Cr)
+    2. Explicit Dr/Cr text on the amount
+    3. XML minus sign = Dr (same as voucher AMOUNT / ISDEEMEDPOSITIVE Yes)
+    4. Positive amount + IsDeemedPositive=No (liability) = Cr
+    5. Positive amount otherwise = Dr (Collection often omits the minus for debtors)
+    """
+    raw = (
+        (raw or "")
+        .replace("\u2212", "-")
+        .replace("\u2013", "-")
+        .replace("\u2014", "-")
+        .strip()
+    )
+    lowered = raw.lower()
+    label_credit = bool(re.search(r"\bcr\b|\bcredit\b", lowered)) or bool(
+        re.search(r"\(-\)\s*$", raw)
+    )
+    label_debit = bool(re.search(r"\bdr\b|\bdebit\b", lowered))
+    numeric = re.sub(r"[₹,\s]", "", raw)
+    number = re.search(r"-?\d+(?:\.\d+)?", numeric)
+    value = float(number.group(0)) if number is not None else 0.0
+
+    if tally_is_debit is True:
+        balance_type = "debit"
+    elif tally_is_debit is False:
+        balance_type = "credit"
+    elif label_debit and not label_credit:
+        balance_type = "debit"
+    elif label_credit and not label_debit:
+        balance_type = "credit"
+    elif value < 0:
+        balance_type = "debit"
+    elif value > 0 and deemed_positive is False:
+        balance_type = "credit"
+    else:
+        balance_type = "debit"
+
+    return {
+        "closing_balance_raw": raw,
+        "closing_balance_numeric": value,
+        "closing_balance": abs(value),
+        "closing_balance_type": balance_type,
+        "tally_is_debit": tally_is_debit,
+        "deemed_positive": deemed_positive,
+        "is_closing_debit": balance_type == "debit",
+    }
 
 
 def _closing_balance_from_text(raw: str) -> tuple[float, str]:
-    """Map Tally XML ClosingBalance to ERP Dr/Cr.
+    parsed = interpret_closing_balance(raw)
+    return float(parsed["closing_balance"] or 0), str(parsed["closing_balance_type"])
 
-    Tally XML amount signs match voucher AMOUNT / ISDEEMEDPOSITIVE:
-    negative = Debit (Dr), positive = Credit (Cr). Collection export of
-    ClosingBalance is a signed number, often without a Dr/Cr suffix.
-    An explicit Dr/Cr (or debit/credit) label still wins when present.
-    """
-    lowered = raw.lower()
-    is_credit = bool(re.search(r"\bcr\b|credit", lowered))
-    is_debit = bool(re.search(r"\bdr\b|debit", lowered))
-    numeric = re.sub(r"[₹,\s]", "", raw)
-    number = re.search(r"-?\d+(?:\.\d+)?", numeric)
-    if number is None:
-        return 0.0, "debit"
-    value = float(number.group(0))
-    if is_debit and not is_credit:
-        return abs(value), "debit"
-    if is_credit and not is_debit:
-        return abs(value), "credit"
-    if value < 0:
-        return abs(value), "debit"
-    if value > 0:
-        return abs(value), "credit"
-    return 0.0, "debit"
+
+def _tag_text(block: str, tag: str) -> str:
+    match = re.search(
+        rf"<{tag}[^>]*>(.*?)</{tag}>",
+        block,
+        flags=re.IGNORECASE | re.DOTALL,
+    )
+    if match is None:
+        return ""
+    return re.sub(r"<[^>]+>", "", match.group(1)).strip()
+
+
+def _yes_no(value: str) -> bool | None:
+    lowered = value.strip().lower()
+    if lowered in {"yes", "true", "1", "y"}:
+        return True
+    if lowered in {"no", "false", "0", "n"}:
+        return False
+    return None
 
 
 def _int_tag(xml: str, tag: str) -> int:

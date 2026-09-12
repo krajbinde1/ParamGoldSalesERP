@@ -8,11 +8,14 @@ use App\Models\Dealer;
 use App\Models\DealerTallyEntry;
 use App\Models\DealerTallyLedger;
 use App\Models\Employee;
+use App\Models\TallyLiveSyncState;
 use App\Models\User;
 use App\Services\Dealers\DealerOutstandingService;
 use App\Services\TallyLedger\TallyDealerLedgerService;
+use App\Services\TallySync\TallyLiveBalanceService;
 use App\Support\IndianCurrency;
 use Barryvdh\DomPDF\Facade\Pdf;
+use Illuminate\Support\Carbon;
 use Livewire\Livewire;
 use Maatwebsite\Excel\Facades\Excel;
 
@@ -700,4 +703,129 @@ it('uses the dealer ledger tally outstanding on the total outstanding page', fun
         ->assertCanSeeTableRecords([$dealer])
         ->assertSee(IndianCurrency::format(78888))
         ->assertDontSee(IndianCurrency::format(49242));
+});
+
+it('summarizes live tally reconciliation on total outstanding and filters the dealer table', function (): void {
+    $director = outstandingPageDirector();
+    $akash = outstandingPageEmployee('Akash Tally Recon', '9940000021');
+    $ganesh = outstandingPageEmployee('Ganesh Tally Recon', '9940000022');
+
+    $matched = outstandingPageDealer([
+        'firm_name' => 'Matched Live Dealer',
+        'assigned_employee_id' => $akash->id,
+        'opening_balance' => 1,
+        'opening_balance_date' => '2026-04-01',
+    ]);
+    outstandingTallyAccount($matched, 100000, 'debit');
+    $matched->tallyLedger->update([
+        'live_closing_balance' => 100000,
+        'live_closing_balance_type' => 'debit',
+        'live_synced_at' => now(),
+    ]);
+
+    $mismatch = outstandingPageDealer([
+        'firm_name' => 'Mismatch Live Dealer',
+        'assigned_employee_id' => $akash->id,
+        'opening_balance' => 1,
+        'opening_balance_date' => '2026-04-01',
+    ]);
+    outstandingTallyAccount($mismatch, 200000, 'debit');
+    $mismatch->tallyLedger->update([
+        'live_closing_balance' => 200000,
+        'live_closing_balance_type' => 'credit',
+        'live_synced_at' => now(),
+    ]);
+
+    $notSynced = outstandingPageDealer([
+        'firm_name' => 'Not Synced Live Dealer',
+        'assigned_employee_id' => $ganesh->id,
+        'opening_balance' => 1,
+        'opening_balance_date' => '2026-04-01',
+    ]);
+    outstandingTallyAccount($notSynced, 50000, 'debit');
+
+    $zeroUnsynced = outstandingPageDealer([
+        'firm_name' => 'Zero Unsynced Live Dealer',
+        'assigned_employee_id' => $ganesh->id,
+    ]);
+
+    TallyLiveSyncState::current()->update([
+        'tally_online' => true,
+        'last_seen_at' => now(),
+        'last_balance_sync_at' => Carbon::parse('2026-09-12 17:30:00', 'Asia/Kolkata'),
+    ]);
+
+    $all = app(TallyLiveBalanceService::class)->outstandingReconciliation();
+    $akashOnly = app(TallyLiveBalanceService::class)->outstandingReconciliation($akash->id);
+
+    expect($all)->toMatchArray([
+        'matched' => 1,
+        'mismatched' => 1,
+        'not_synced' => 2,
+        'banner' => TallyLiveBalanceService::STATUS_MISMATCH,
+        'banner_label' => '1 Dealer Has Tally Balance Mismatch',
+    ])
+        ->and($all['last_synced_label'])->toBe('12 Sep 2026 • 05:30 PM')
+        ->and($akashOnly)->toMatchArray([
+            'matched' => 1,
+            'mismatched' => 1,
+            'not_synced' => 0,
+            'banner' => TallyLiveBalanceService::STATUS_MISMATCH,
+        ]);
+
+    $page = Livewire::actingAs($director)
+        ->test(TotalOutstanding::class)
+        ->assertSuccessful()
+        ->assertSee('Live Tally Reconciliation')
+        ->assertSee('Matched Dealers')
+        ->assertSee('Mismatched Dealers')
+        ->assertSee('Not Synced Dealers')
+        ->assertSee('Last Live Tally Sync')
+        ->assertSee('1 Dealer Has Tally Balance Mismatch')
+        ->assertSee('12 Sep 2026 • 05:30 PM')
+        ->assertSee('Tally Status')
+        ->assertSee('Matched')
+        ->assertSee('Mismatch')
+        ->assertSee('Not Synced')
+        ->assertSee(IndianCurrency::formatDrCr(400000.0))
+        ->assertCanSeeTableRecords([$matched, $mismatch, $notSynced])
+        ->assertCanNotSeeTableRecords([$zeroUnsynced]);
+
+    $page->call('filterTallyStatus', TallyLiveBalanceService::STATUS_MISMATCH)
+        ->assertSee('Dealer-wise Outstanding — Mismatch')
+        ->assertCanSeeTableRecords([$mismatch])
+        ->assertCanNotSeeTableRecords([$matched, $notSynced, $zeroUnsynced]);
+
+    $page->call('filterTallyStatus', TallyLiveBalanceService::STATUS_NOT_SYNCED)
+        ->assertSee('Dealer-wise Outstanding — Not Synced')
+        ->assertCanSeeTableRecords([$notSynced, $zeroUnsynced])
+        ->assertCanNotSeeTableRecords([$matched, $mismatch]);
+
+    $page->call('selectEmployee', $akash->id)
+        ->assertSee('1 Dealer Has Tally Balance Mismatch')
+        ->assertCanNotSeeTableRecords([$notSynced, $zeroUnsynced]);
+});
+
+it('shows all live tally balances matched when every synced dealer agrees with erp', function (): void {
+    $director = outstandingPageDirector();
+    $akash = outstandingPageEmployee('Akash All Matched', '9940000023');
+
+    $dealer = outstandingPageDealer([
+        'firm_name' => 'Fully Matched Live Dealer',
+        'assigned_employee_id' => $akash->id,
+        'opening_balance' => 1,
+        'opening_balance_date' => '2026-04-01',
+    ]);
+    outstandingTallyAccount($dealer, 75000, 'debit');
+    $dealer->tallyLedger->update([
+        'live_closing_balance' => 75000,
+        'live_closing_balance_type' => 'debit',
+        'live_synced_at' => now(),
+    ]);
+
+    Livewire::actingAs($director)
+        ->test(TotalOutstanding::class)
+        ->assertSuccessful()
+        ->assertSee('All Live Tally Balances Matched')
+        ->assertDontSee('Have Tally Balance Mismatch');
 });

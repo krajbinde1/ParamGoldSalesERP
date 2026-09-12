@@ -94,6 +94,7 @@ def sync_live_balances(erp: ErpClient, tally: TallyClient) -> None:
 
     try:
         balances = tally.ledger_closing_balances()
+        _log_parsed_balances(balances, detailed=force_sync)
         result = erp.post_live_balances(True, balances)
         data = result.get("data") if isinstance(result.get("data"), dict) else {}
         log(
@@ -109,6 +110,32 @@ def sync_live_balances(erp: ErpClient, tally: TallyClient) -> None:
             log("Failed", f"Could not report Tally offline to ERP: {report_exc}")
     except ErpApiError as exc:
         log("Failed", f"Could not store live Tally balances: {exc}")
+
+
+def _log_parsed_balances(balances: list[dict[str, Any]], *, detailed: bool) -> None:
+    nonzero = [
+        row
+        for row in balances
+        if abs(float(row.get("closing_balance") or 0)) > 0
+    ]
+    log(
+        "TallyXML",
+        f"Live closing parse  ledgers={len(balances)} non_zero={len(nonzero)}",
+    )
+    rows = nonzero if detailed else nonzero[:25]
+    for row in rows:
+        log(
+            "TallyXML",
+            "raw={raw}  numeric={numeric}  parsed={parsed}  sent={sent} {name}".format(
+                raw=repr(row.get("closing_balance_raw")),
+                numeric=row.get("closing_balance_numeric"),
+                parsed=row.get("closing_balance_type"),
+                sent=f"{row.get('closing_balance')} {row.get('closing_balance_type')}",
+                name=row.get("tally_ledger_name"),
+            ),
+        )
+    if not detailed and len(nonzero) > 25:
+        log("TallyXML", f"... {len(nonzero) - 25} more non-zero ledgers (full log on Sync Live Tally Now)")
 
 
 def process_pending(erp: ErpClient, tally: TallyClient, settings: Settings) -> None:

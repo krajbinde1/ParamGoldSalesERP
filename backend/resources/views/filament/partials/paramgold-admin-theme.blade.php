@@ -417,6 +417,14 @@
         overflow-wrap: normal;
     }
 
+    .paramgold-summary-card__value--wrap {
+        white-space: normal;
+        overflow: visible;
+        text-overflow: unset;
+        font-size: 1.05rem;
+        line-height: 1.35;
+    }
+
     .paramgold-summary-card__meta {
         margin: 0.4rem 0 0;
         font-size: 0.75rem;

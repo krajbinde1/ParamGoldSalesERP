@@ -8,6 +8,7 @@ use App\Models\Dealer;
 use App\Services\Dealers\DealerAccessService;
 use App\Services\Dealers\DealerOutstandingService;
 use App\Services\TallyLedger\TallyDealerLedgerService;
+use App\Services\TallySync\TallyLiveBalanceService;
 use App\Support\IndianCurrency;
 use BackedEnum;
 use Filament\Actions\Action;
@@ -56,6 +57,9 @@ class TotalOutstanding extends Page implements HasForms, HasTable
     #[Url(as: 'employee_id', history: true, keep: true, except: null)]
     public ?int $employeeId = null;
 
+    #[Url(as: 'tally_status', history: true, keep: true, except: null)]
+    public ?string $tallyStatusFilter = null;
+
     public static function canAccess(): bool
     {
         $user = auth()->user();
@@ -73,6 +77,14 @@ class TotalOutstanding extends Page implements HasForms, HasTable
 
         if ($this->employeeId !== null && $this->employeeId <= 0) {
             $this->employeeId = null;
+        }
+
+        if (! in_array($this->tallyStatusFilter, [
+            TallyLiveBalanceService::STATUS_MATCHED,
+            TallyLiveBalanceService::STATUS_MISMATCH,
+            TallyLiveBalanceService::STATUS_NOT_SYNCED,
+        ], true)) {
+            $this->tallyStatusFilter = null;
         }
 
         $this->form->fill([
@@ -130,12 +142,8 @@ class TotalOutstanding extends Page implements HasForms, HasTable
     public function table(Table $table): Table
     {
         return $table
-            ->heading(fn (): string => $this->selectedEmployeeId() !== null
-                ? 'Assigned Dealers'
-                : 'Dealer-wise Outstanding')
-            ->description(fn (): string => $this->selectedEmployeeId() !== null
-                ? 'All parties assigned to the selected employee, with current outstanding.'
-                : 'Dealers with a debit outstanding or credit balance.')
+            ->heading(fn (): string => $this->dealerTableHeading())
+            ->description(fn (): string => $this->dealerTableDescription())
             ->query(fn (): Builder => $this->dealersQuery())
             ->columns([
                 TextColumn::make('dealer_code')
@@ -184,6 +192,18 @@ class TotalOutstanding extends Page implements HasForms, HasTable
                             '(CASE WHEN '.$sql.' < 0 THEN -('.$sql.') ELSE 0 END) '.$direction
                         );
                     }),
+                TextColumn::make('tally_status')
+                    ->label('Tally Status')
+                    ->badge()
+                    ->state(fn (Dealer $record): string => $this->dealerTallyStatus($record)['label'])
+                    ->color(fn (Dealer $record): string => match ($this->dealerTallyStatus($record)['status']) {
+                        TallyLiveBalanceService::STATUS_MATCHED => 'success',
+                        TallyLiveBalanceService::STATUS_MISMATCH => 'warning',
+                        default => 'gray',
+                    })
+                    ->description(fn (Dealer $record): ?string => $this->dealerTallyStatus($record)['status'] === TallyLiveBalanceService::STATUS_MISMATCH
+                        ? $this->dealerTallyStatus($record)['difference_label']
+                        : null),
             ])
             ->recordActions([
                 Action::make('ledger')
@@ -197,12 +217,16 @@ class TotalOutstanding extends Page implements HasForms, HasTable
             ->paginated([10, 25, 50])
             ->defaultPaginationPageOption(25)
             ->striped()
-            ->emptyStateHeading(fn (): string => $this->selectedEmployeeId() !== null
-                ? 'No assigned dealers'
-                : 'No dealers with outstanding')
-            ->emptyStateDescription(fn (): string => $this->selectedEmployeeId() !== null
-                ? 'This employee has no active assigned dealers.'
-                : 'No dealer has a debit outstanding or credit balance for this filter.')
+            ->emptyStateHeading(fn (): string => $this->tallyStatusFilter !== null
+                ? 'No dealers for this Tally status'
+                : ($this->selectedEmployeeId() !== null
+                    ? 'No assigned dealers'
+                    : 'No dealers with outstanding'))
+            ->emptyStateDescription(fn (): string => $this->tallyStatusFilter !== null
+                ? 'No dealers match the selected Live Tally status for this employee filter.'
+                : ($this->selectedEmployeeId() !== null
+                    ? 'This employee has no active assigned dealers.'
+                    : 'No dealer has a debit outstanding or credit balance for this filter.'))
             ->contentFooter(function () {
                 $summary = $this->balanceSummary();
 
@@ -211,7 +235,7 @@ class TotalOutstanding extends Page implements HasForms, HasTable
                     'credit' => $this->formatMoney($summary['credit']),
                     'net' => $this->formatMoney($summary['net']),
                     'showCredit' => $summary['credit'] > 0,
-                    'columnCount' => $this->selectedEmployeeId() === null ? 7 : 6,
+                    'columnCount' => $this->selectedEmployeeId() === null ? 8 : 7,
                 ]);
             });
     }
@@ -225,6 +249,37 @@ class TotalOutstanding extends Page implements HasForms, HasTable
         ]);
 
         $this->resetTable();
+    }
+
+    public function filterTallyStatus(string $status): void
+    {
+        $allowed = [
+            TallyLiveBalanceService::STATUS_MATCHED,
+            TallyLiveBalanceService::STATUS_MISMATCH,
+            TallyLiveBalanceService::STATUS_NOT_SYNCED,
+        ];
+
+        if (! in_array($status, $allowed, true)) {
+            return;
+        }
+
+        $this->tallyStatusFilter = $this->tallyStatusFilter === $status ? null : $status;
+        $this->resetTable();
+    }
+
+    /**
+     * @return array{
+     *     matched: int,
+     *     mismatched: int,
+     *     not_synced: int,
+     *     last_synced_label: string,
+     *     banner: 'matched'|'mismatch'|null,
+     *     banner_label: string|null
+     * }
+     */
+    public function liveTallyReconciliation(): array
+    {
+        return app(TallyLiveBalanceService::class)->outstandingReconciliation($this->selectedEmployeeId());
     }
 
     public function selectedEmployeeId(): ?int
@@ -304,6 +359,46 @@ class TotalOutstanding extends Page implements HasForms, HasTable
         return app(DealerOutstandingService::class)->splitBalances($net);
     }
 
+    /**
+     * @return array{status: string, label: string, difference: float|null, difference_label: string|null}
+     */
+    private function dealerTallyStatus(Dealer $record): array
+    {
+        $value = $record->getAttribute('current_outstanding');
+        $erp = $value !== null
+            ? round((float) $value, 2)
+            : app(TallyDealerLedgerService::class)->signedCurrentOutstanding($record);
+
+        return app(TallyLiveBalanceService::class)->outstandingRowStatus($record, $erp);
+    }
+
+    private function dealerTableHeading(): string
+    {
+        $base = $this->selectedEmployeeId() !== null
+            ? 'Assigned Dealers'
+            : 'Dealer-wise Outstanding';
+
+        return match ($this->tallyStatusFilter) {
+            TallyLiveBalanceService::STATUS_MATCHED => $base.' — Matched',
+            TallyLiveBalanceService::STATUS_MISMATCH => $base.' — Mismatch',
+            TallyLiveBalanceService::STATUS_NOT_SYNCED => $base.' — Not Synced',
+            default => $base,
+        };
+    }
+
+    private function dealerTableDescription(): string
+    {
+        if ($this->tallyStatusFilter === TallyLiveBalanceService::STATUS_MISMATCH) {
+            return 'Dealers whose ERP outstanding and Live Tally balance do not match. Click a dealer to open the ledger.';
+        }
+
+        if ($this->selectedEmployeeId() !== null) {
+            return 'All parties assigned to the selected employee, with current outstanding.';
+        }
+
+        return 'Dealers with a debit outstanding or credit balance.';
+    }
+
     public static function pdfUrl(?int $employeeId = null): string
     {
         return route('filament.admin.total-outstanding.pdf', array_filter(
@@ -347,11 +442,31 @@ class TotalOutstanding extends Page implements HasForms, HasTable
     {
         $employeeId = $this->selectedEmployeeId();
         $service = app(DealerOutstandingService::class);
+        $live = app(TallyLiveBalanceService::class);
+        $status = $this->tallyStatusFilter;
 
-        if ($employeeId !== null) {
-            return $service->assignedDealersQuery($employeeId);
+        if ($status !== null) {
+            $sql = TallyDealerLedgerService::signedCurrentOutstandingSql();
+            $query = Dealer::query()
+                ->where('status', true)
+                ->with(['assignedEmployee:id,full_name,employee_code', 'tallyLedger'])
+                ->when(
+                    $employeeId !== null,
+                    fn (Builder $dealerQuery) => $dealerQuery->where('assigned_employee_id', $employeeId),
+                );
+
+            app(TallyDealerLedgerService::class)->scopeWithCurrentOutstanding($query);
+            $live->scopeByOutstandingLiveStatus($query, $status);
+
+            return $query
+                ->orderByRaw($sql.' DESC')
+                ->orderBy('firm_name');
         }
 
-        return $service->dealersQuery(null);
+        if ($employeeId !== null) {
+            return $service->assignedDealersQuery($employeeId)->with('tallyLedger');
+        }
+
+        return $service->dealersQuery(null)->with('tallyLedger');
     }
 }

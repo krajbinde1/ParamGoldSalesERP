@@ -95,6 +95,43 @@ it('matches erp outstanding when live tally posts the same debit closing balance
         ->and($statement['verification']['status_short'])->toBe('Matched');
 });
 
+it('reinterprets a negative tally xml closing balance as debit when the connector type is credit', function (): void {
+    $user = tallySyncConnectorUser();
+    $employee = tallySyncEmployee('9813000110');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Xml Sign Agro']);
+    tallySyncMapDealer($dealer, 'Xml Sign Agro');
+    tallySyncPendingOrder($dealer, $employee, [
+        'status' => 'dispatched',
+        'grand_total' => 3393284.20,
+        'order_date' => '2026-08-31',
+        'dispatch_date' => '2026-08-31',
+        'dispatched_at' => '2026-08-31 16:00:00',
+    ]);
+    $token = tallySyncConnectorToken($user);
+
+    $this->withToken($token)
+        ->postJson('/api/tally-connector/live-balances', [
+            'tally_online' => true,
+            'balances' => [[
+                'tally_ledger_name' => 'Xml Sign Agro',
+                'closing_balance' => 3393284.20,
+                'closing_balance_type' => 'credit',
+                'closing_balance_raw' => '-3393284.20',
+                'closing_balance_numeric' => -3393284.20,
+            ]],
+        ])
+        ->assertOk();
+
+    $account = $dealer->fresh()->tallyLedger;
+    $statement = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
+
+    expect($account?->live_closing_balance_type)->toBe('debit')
+        ->and((float) $account?->live_closing_balance)->toBe(3393284.20)
+        ->and($statement['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_MATCHED)
+        ->and($statement['verification']['live_tally_label'])->toBe('₹33,93,284.20 Dr')
+        ->and($statement['verification']['difference'])->toBe(0.0);
+});
+
 it('shows a mismatch when live tally closing differs from erp outstanding', function (): void {
     $user = tallySyncConnectorUser();
     $employee = tallySyncEmployee('9813000102');

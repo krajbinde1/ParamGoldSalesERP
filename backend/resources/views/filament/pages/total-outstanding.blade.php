@@ -1,5 +1,78 @@
 <x-filament-panels::page>
     <div class="total-outstanding-page space-y-4">
+        @php
+            $tally = $this->liveTallyReconciliation();
+        @endphp
+
+        <section class="space-y-3">
+            <div>
+                <h2 class="text-base font-semibold text-gray-950 dark:text-white">Live Tally Reconciliation</h2>
+                <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                    Compared with the latest Live Tally balances stored by the office connector.
+                </p>
+            </div>
+
+            @if (filled($tally['banner_label']))
+                <div
+                    @class([
+                        'rounded-xl border px-4 py-3 text-sm font-semibold',
+                        'border-green-200 bg-green-50 text-green-800 dark:border-green-800 dark:bg-green-950/40 dark:text-green-200' => $tally['banner'] === 'matched',
+                        'border-orange-200 bg-orange-50 text-orange-900 dark:border-orange-800 dark:bg-orange-950/40 dark:text-orange-200' => $tally['banner'] === 'mismatch',
+                    ])
+                >
+                    {{ $tally['banner_label'] }}
+                </div>
+            @endif
+
+            <div class="paramgold-summary-grid">
+                <button
+                    type="button"
+                    wire:click="filterTallyStatus('matched')"
+                    aria-pressed="{{ $this->tallyStatusFilter === 'matched' ? 'true' : 'false' }}"
+                    @class([
+                        'paramgold-summary-card paramgold-summary-card--success paramgold-summary-card--clickable',
+                        'paramgold-summary-card--active' => $this->tallyStatusFilter === 'matched',
+                    ])
+                >
+                    <p class="paramgold-summary-card__label">Matched Dealers</p>
+                    <p class="paramgold-summary-card__value">{{ $tally['matched'] }}</p>
+                </button>
+
+                <button
+                    type="button"
+                    wire:click="filterTallyStatus('mismatch')"
+                    aria-pressed="{{ $this->tallyStatusFilter === 'mismatch' ? 'true' : 'false' }}"
+                    @class([
+                        'paramgold-summary-card paramgold-summary-card--warning paramgold-summary-card--clickable',
+                        'paramgold-summary-card--active' => $this->tallyStatusFilter === 'mismatch',
+                    ])
+                >
+                    <p class="paramgold-summary-card__label">Mismatched Dealers</p>
+                    <p class="paramgold-summary-card__value">{{ $tally['mismatched'] }}</p>
+                </button>
+
+                <button
+                    type="button"
+                    wire:click="filterTallyStatus('not_synced')"
+                    aria-pressed="{{ $this->tallyStatusFilter === 'not_synced' ? 'true' : 'false' }}"
+                    @class([
+                        'paramgold-summary-card paramgold-summary-card--info paramgold-summary-card--clickable',
+                        'paramgold-summary-card--active' => $this->tallyStatusFilter === 'not_synced',
+                    ])
+                >
+                    <p class="paramgold-summary-card__label">Not Synced Dealers</p>
+                    <p class="paramgold-summary-card__value">{{ $tally['not_synced'] }}</p>
+                </button>
+
+                <div class="paramgold-summary-card paramgold-summary-card--primary">
+                    <p class="paramgold-summary-card__label">Last Live Tally Sync</p>
+                    <p class="paramgold-summary-card__value paramgold-summary-card__value--wrap">
+                        {{ $tally['last_synced_label'] }}
+                    </p>
+                </div>
+            </div>
+        </section>
+
         <div class="paramgold-summary-grid">
             <div class="paramgold-summary-card paramgold-summary-card--danger">
                 <p class="paramgold-summary-card__label">Total Outstanding</p>

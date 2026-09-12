@@ -7,10 +7,13 @@ use App\Models\DealerTallyLedger;
 use App\Models\TallyDealerMapping;
 use App\Models\TallyLiveSyncState;
 use App\Services\TallyLedger\DealerTallyBalance;
+use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Services\TallyLedger\TallyLedgerConfig;
 use App\Support\IndianCurrency;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 final class TallyLiveBalanceService
 {
@@ -80,11 +83,9 @@ final class TallyLiveBalanceService
                         continue;
                     }
 
-                    $type = strtolower(trim((string) ($row['closing_balance_type'] ?? DealerTallyBalance::DEBIT)));
-                    if (! in_array($type, [DealerTallyBalance::DEBIT, DealerTallyBalance::CREDIT], true)) {
-                        $type = DealerTallyBalance::DEBIT;
-                    }
-                    $amount = round(abs((float) ($row['closing_balance'] ?? 0)), 2);
+                    $interpreted = TallyClosingBalanceInterpreter::interpret($row);
+                    $type = $interpreted['type'];
+                    $amount = $interpreted['amount'];
                     $normalized = TallyDealerMapping::normalizeName($name);
                     $dealerId = $lookup[$normalized] ?? null;
                     if ($dealerId === null) {
@@ -110,6 +111,17 @@ final class TallyLiveBalanceService
                     ]);
                     $account->save();
                     $matched++;
+                    $reportedType = strtolower(trim((string) ($row['closing_balance_type'] ?? '')));
+                    if ($amount > 0 && $reportedType !== '' && $reportedType !== $type) {
+                        Log::info('Live Tally Dr/Cr reinterpreted from XML', [
+                            'tally_ledger_name' => $name,
+                            'raw' => $interpreted['raw'] !== '' ? $interpreted['raw'] : null,
+                            'numeric' => $interpreted['numeric'],
+                            'parsed_dr_cr' => $type,
+                            'sent_to_erp' => $amount.' '.$type,
+                            'connector_type' => $reportedType,
+                        ]);
+                    }
                 }
 
                 $state->last_matched_count = $matched;
@@ -265,5 +277,145 @@ final class TallyLiveBalanceService
         }
 
         return $lookup;
+    }
+
+    /**
+     * Outstanding-page Live Tally counts from stored connector snapshots.
+     *
+     * @return array{
+     *     matched: int,
+     *     mismatched: int,
+     *     not_synced: int,
+     *     last_synced_label: string,
+     *     banner: 'matched'|'mismatch'|null,
+     *     banner_label: string|null
+     * }
+     */
+    public function outstandingReconciliation(?int $assignedEmployeeId = null): array
+    {
+        $table = (new Dealer)->getTable();
+        $erp = TallyDealerLedgerService::signedCurrentOutstandingSql($table);
+        $live = self::liveSignedSql($table);
+
+        $row = Dealer::query()
+            ->where('status', true)
+            ->when(
+                $assignedEmployeeId !== null,
+                fn (Builder $query) => $query->where('assigned_employee_id', $assignedEmployeeId),
+            )
+            ->toBase()
+            ->selectRaw("COALESCE(SUM(CASE WHEN ({$live}) IS NULL THEN 1 ELSE 0 END), 0) as not_synced")
+            ->selectRaw("COALESCE(SUM(CASE WHEN ({$live}) IS NOT NULL AND ROUND(({$erp}) - ({$live}), 2) = 0 THEN 1 ELSE 0 END), 0) as matched")
+            ->selectRaw("COALESCE(SUM(CASE WHEN ({$live}) IS NOT NULL AND ROUND(({$erp}) - ({$live}), 2) <> 0 THEN 1 ELSE 0 END), 0) as mismatched")
+            ->first();
+
+        $matched = (int) ($row->matched ?? 0);
+        $mismatched = (int) ($row->mismatched ?? 0);
+        $notSynced = (int) ($row->not_synced ?? 0);
+
+        $banner = null;
+        $bannerLabel = null;
+        if ($mismatched > 0) {
+            $banner = self::STATUS_MISMATCH;
+            $bannerLabel = $mismatched === 1
+                ? '1 Dealer Has Tally Balance Mismatch'
+                : $mismatched.' Dealers Have Tally Balance Mismatch';
+        } elseif ($matched > 0) {
+            $banner = self::STATUS_MATCHED;
+            $bannerLabel = 'All Live Tally Balances Matched';
+        }
+
+        return [
+            'matched' => $matched,
+            'mismatched' => $mismatched,
+            'not_synced' => $notSynced,
+            'last_synced_label' => $this->lastBalanceSyncLabel() ?? 'Not synced yet',
+            'banner' => $banner,
+            'banner_label' => $bannerLabel,
+        ];
+    }
+
+    /**
+     * @param  Builder<Dealer>  $query
+     * @return Builder<Dealer>
+     */
+    public function scopeByOutstandingLiveStatus(Builder $query, string $status): Builder
+    {
+        $table = $query->getModel()->getTable();
+        $erp = TallyDealerLedgerService::signedCurrentOutstandingSql($table);
+        $live = self::liveSignedSql($table);
+
+        return match ($status) {
+            self::STATUS_NOT_SYNCED => $query->whereRaw("({$live}) IS NULL"),
+            self::STATUS_MATCHED => $query->whereRaw("({$live}) IS NOT NULL AND ROUND(({$erp}) - ({$live}), 2) = 0"),
+            self::STATUS_MISMATCH => $query->whereRaw("({$live}) IS NOT NULL AND ROUND(({$erp}) - ({$live}), 2) <> 0"),
+            default => $query,
+        };
+    }
+
+    /**
+     * @return array{status: string, label: string, difference: float|null, difference_label: string|null}
+     */
+    public function outstandingRowStatus(Dealer $dealer, float $erpSigned): array
+    {
+        $account = $dealer->tallyLedger;
+        $hasLive = $account !== null
+            && $account->live_closing_balance !== null
+            && $account->live_closing_balance_type !== null;
+
+        if (! $hasLive) {
+            return [
+                'status' => self::STATUS_NOT_SYNCED,
+                'label' => 'Not Synced',
+                'difference' => null,
+                'difference_label' => null,
+            ];
+        }
+
+        $liveAmount = (float) $account->live_closing_balance;
+        $liveType = (string) $account->live_closing_balance_type;
+        $liveSigned = DealerTallyBalance::signed($liveAmount, $liveType);
+        $matched = DealerTallyBalance::matches(
+            DealerTallyBalance::amountFromSigned($erpSigned),
+            DealerTallyBalance::typeFromSigned($erpSigned),
+            $liveAmount,
+            $liveType,
+        );
+        $difference = round($erpSigned - $liveSigned, 2);
+
+        return [
+            'status' => $matched ? self::STATUS_MATCHED : self::STATUS_MISMATCH,
+            'label' => $matched ? 'Matched' : 'Mismatch',
+            'difference' => $matched ? 0.0 : $difference,
+            'difference_label' => $matched ? null : IndianCurrency::formatDrCr($difference),
+        ];
+    }
+
+    public function lastBalanceSyncLabel(): ?string
+    {
+        $synced = TallyLiveSyncState::current()->last_balance_sync_at;
+        if ($synced === null) {
+            return null;
+        }
+
+        return Carbon::parse($synced)->timezone('Asia/Kolkata')->format('d M Y • h:i A');
+    }
+
+    public static function liveSignedSql(string $dealersTable = 'dealers'): string
+    {
+        $credit = DealerTallyBalance::CREDIT;
+
+        return "(
+            SELECT CASE
+                WHEN dealer_tally_ledgers.live_closing_balance IS NULL
+                  OR dealer_tally_ledgers.live_closing_balance_type IS NULL
+                THEN NULL
+                WHEN LOWER(dealer_tally_ledgers.live_closing_balance_type) = '{$credit}'
+                THEN -ABS(dealer_tally_ledgers.live_closing_balance)
+                ELSE ABS(dealer_tally_ledgers.live_closing_balance)
+            END
+            FROM dealer_tally_ledgers
+            WHERE dealer_tally_ledgers.dealer_id = {$dealersTable}.id
+        )";
     }
 }
