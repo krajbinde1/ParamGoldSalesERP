@@ -777,6 +777,8 @@ it('summarizes live tally reconciliation on total outstanding and filters the de
         ->test(TotalOutstanding::class)
         ->assertSuccessful()
         ->assertSee('Live Tally Reconciliation')
+        ->assertSee('Tally Connected')
+        ->assertSee('Last Heartbeat:')
         ->assertSee('Matched Dealers')
         ->assertSee('Mismatched Dealers')
         ->assertSee('Not Synced Dealers')

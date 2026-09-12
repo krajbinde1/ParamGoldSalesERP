@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\TallySync\TallyConnectorStatusService;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Carbon;
 
@@ -47,19 +48,21 @@ class TallyLiveSyncState extends Model
 
     public function connectorIsFresh(?Carbon $now = null): bool
     {
-        if ($this->last_seen_at === null) {
-            return false;
-        }
-
-        $ttl = max(30, (int) config('tally.live_balance.offline_after_seconds', 120));
-        $now ??= Carbon::now();
-
-        return $this->last_seen_at->gt($now->copy()->subSeconds($ttl));
+        return $this->connectorHeartbeatIsActive($now);
     }
 
     public function heartbeatAt(): ?Carbon
     {
-        return $this->last_heartbeat_at ?? $this->last_seen_at;
+        $heartbeat = $this->last_heartbeat_at;
+        $seen = $this->last_seen_at;
+        if ($heartbeat === null) {
+            return $seen;
+        }
+        if ($seen === null) {
+            return $heartbeat;
+        }
+
+        return $heartbeat->gte($seen) ? $heartbeat : $seen;
     }
 
     public function connectorHeartbeatIsActive(?Carbon $now = null): bool
@@ -111,12 +114,7 @@ class TallyLiveSyncState extends Model
      */
     public static function dashboardStatusSnapshot(?Carbon $now = null): array
     {
-        $existing = static::query()->orderBy('id')->first();
-        if ($existing instanceof self) {
-            return $existing->dashboardStatus($now);
-        }
-
-        return (new static(['tally_online' => false]))->dashboardStatus($now);
+        return app(TallyConnectorStatusService::class)->snapshot($now);
     }
 
     /**
@@ -165,6 +163,6 @@ class TallyLiveSyncState extends Model
 
     public function tallyIsOnline(?Carbon $now = null): bool
     {
-        return $this->tally_online && $this->connectorIsFresh($now);
+        return $this->connectorHeartbeatIsActive($now);
     }
 }

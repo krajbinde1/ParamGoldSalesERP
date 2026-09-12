@@ -8,6 +8,7 @@ use App\Models\Dealer;
 use App\Models\TallyConnectorLedger;
 use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Services\TallyLedger\TallyLedgerImportService;
+use App\Services\TallySync\TallyConnectorStatusService;
 use App\Services\TallySync\TallyDealerMappingService;
 use App\Services\TallySync\TallyLiveBalanceService;
 use Filament\Actions\Action;
@@ -52,8 +53,8 @@ class ViewDealerLedger extends ViewRecord
                 ->icon('heroicon-o-signal')
                 ->visible(fn (): bool => $isAdmin)
                 ->action(function (): void {
-                    $state = app(TallyLiveBalanceService::class)->requestSync();
-                    $online = $state->tallyIsOnline();
+                    app(TallyLiveBalanceService::class)->requestSync();
+                    $online = app(TallyConnectorStatusService::class)->isConnected();
                     $notification = Notification::make()
                         ->title($online ? 'Live Tally sync requested' : 'Tally connector is offline')
                         ->body($online

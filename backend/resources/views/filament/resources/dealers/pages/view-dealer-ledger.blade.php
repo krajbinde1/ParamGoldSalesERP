@@ -146,6 +146,7 @@
             <div><span>Status:</span> {{ $verification['status_short'] ?? $verification['status_label'] ?? '—' }}</div>
             <div><span>Mapping:</span> {{ $verification['mapping_status'] ?? 'Not Mapped' }}</div>
             <div><span>Tally Ledger:</span> {{ $verification['mapped_tally_ledger_name'] ?? $verification['live_tally_ledger_name'] ?? '—' }}</div>
+            <div><span>Last Heartbeat:</span> {{ $verification['last_heartbeat_label'] ?? '—' }}</div>
             <div><span>Last Tally Sync:</span> {{ $verification['last_synced_label'] ?: '—' }}</div>
         </div>
     </div>

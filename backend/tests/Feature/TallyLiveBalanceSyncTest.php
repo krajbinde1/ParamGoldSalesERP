@@ -8,6 +8,7 @@ use App\Models\TallyDealerMapping;
 use App\Models\TallyLiveSyncState;
 use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Services\TallyLedger\TallyLedgerImportService;
+use App\Services\TallySync\TallyConnectorStatusService;
 use App\Services\TallySync\TallyDealerMappingService;
 use App\Services\TallySync\TallyLiveBalanceService;
 use Illuminate\Support\Carbon;
@@ -214,7 +215,7 @@ it('shows a mismatch when live tally closing differs from erp outstanding', func
         ->and($statement['verification']['erp_outstanding_label'])->toBe('₹84,525.00 Dr');
 });
 
-it('does not show a false mismatch when the tally connector is offline', function (): void {
+it('does not treat tally prime being offline as connector disconnected', function (): void {
     $user = tallySyncConnectorUser();
     $employee = tallySyncEmployee('9813000103');
     $dealer = tallySyncDealer($employee, ['firm_name' => 'Offline Agro']);
@@ -239,12 +240,16 @@ it('does not show a false mismatch when the tally connector is offline', functio
         ])
         ->assertOk();
 
+    $connector = app(TallyConnectorStatusService::class)->snapshot();
     $statement = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
     $account = DealerTallyLedger::query()->where('dealer_id', $dealer->id)->first();
 
-    expect($statement['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_OFFLINE)
-        ->and($statement['verification']['balance_matched'])->toBeNull()
-        ->and($statement['verification']['status_label'])->toStartWith('Tally Offline / Last synced at')
+    expect($connector['connected'])->toBeTrue()
+        ->and($connector['label'])->toBe('Tally Connected')
+        ->and($statement['verification']['connector_connected'])->toBeTrue()
+        ->and($statement['verification']['connector_label'])->toBe('Tally Connected')
+        ->and($statement['verification']['last_heartbeat_label'])->toBe($connector['last_heartbeat_label'])
+        ->and($statement['verification']['status'])->not->toBe(TallyLiveBalanceService::STATUS_OFFLINE)
         ->and((float) $account?->live_closing_balance)->toBe(1000.0);
 });
 
@@ -268,10 +273,45 @@ it('treats a stale connector heartbeat as offline', function (): void {
 
     Carbon::setTestNow(now()->addMinutes(10));
 
+    $connector = app(TallyConnectorStatusService::class)->snapshot();
     $statement = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
 
-    expect($statement['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_OFFLINE)
-        ->and($statement['verification']['balance_matched'])->toBeNull();
+    expect($connector['connected'])->toBeFalse()
+        ->and($connector['label'])->toBe('Tally Disconnected')
+        ->and($statement['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_OFFLINE)
+        ->and($statement['verification']['balance_matched'])->toBeNull()
+        ->and($statement['verification']['connector_label'])->toBe('Tally Disconnected')
+        ->and($statement['verification']['last_heartbeat_label'])->toBe($connector['last_heartbeat_label']);
+
+    Carbon::setTestNow();
+});
+
+it('uses the same connector heartbeat status on dashboard ledger and outstanding', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-12 19:42:00', 'Asia/Kolkata'));
+    TallyLiveSyncState::query()->create([
+        'connector_id' => 'office-pc',
+        'tally_online' => false,
+        'last_heartbeat_at' => now('Asia/Kolkata'),
+        'last_seen_at' => now('Asia/Kolkata')->subMinutes(1),
+        'last_balance_sync_at' => now('Asia/Kolkata')->subMinutes(15),
+        'last_matched_count' => 0,
+    ]);
+
+    $status = app(TallyConnectorStatusService::class)->snapshot();
+    $employee = tallySyncEmployee('9813000199');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Shared Status Agro']);
+    $statement = app(TallyDealerLedgerService::class)->statement($dealer);
+    $outstanding = app(TallyLiveBalanceService::class)->outstandingReconciliation();
+
+    expect($status['connected'])->toBeTrue()
+        ->and($status['label'])->toBe('Tally Connected')
+        ->and($status['last_heartbeat_label'])->toBe('12 Sep 2026 • 07:42 PM')
+        ->and($status['last_tally_sync_label'])->toBe('12 Sep 2026 • 07:27 PM')
+        ->and($statement['verification']['connector_label'])->toBe($status['label'])
+        ->and($statement['verification']['last_heartbeat_label'])->toBe($status['last_heartbeat_label'])
+        ->and($outstanding['connector_label'])->toBe($status['label'])
+        ->and($outstanding['last_heartbeat_label'])->toBe($status['last_heartbeat_label'])
+        ->and($outstanding['last_synced_label'])->toBe($status['last_tally_sync_label']);
 
     Carbon::setTestNow();
 });
@@ -906,6 +946,14 @@ it('reports offline or not synced when the tally ledger catalog is empty', funct
         'last_matched_count' => 0,
     ]);
     expect($mappings->ledgerCatalogEmptyMessage())->toBe('Tally Connector Offline');
+
+    TallyLiveSyncState::query()->delete();
+    TallyLiveSyncState::query()->create([
+        'tally_online' => false,
+        'last_heartbeat_at' => now('Asia/Kolkata'),
+        'last_matched_count' => 0,
+    ]);
+    expect($mappings->ledgerCatalogEmptyMessage())->toBe('Tally Ledgers Not Synced');
 
     TallyLiveSyncState::query()->delete();
     TallyLiveSyncState::query()->create([

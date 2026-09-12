@@ -33,6 +33,7 @@ use App\Models\WeeklyTarget;
 use App\Services\Dashboard\DashboardMetricsService;
 use App\Services\Dashboard\DirectorDashboardDataService;
 use App\Services\Dealers\DealerOutstandingService;
+use App\Services\TallySync\TallyConnectorStatusService;
 use App\Support\AttendanceCalendar;
 use App\Support\IndianCurrency;
 use App\Support\PublicMediaUrl;
@@ -399,7 +400,7 @@ it('shows tally connected on the welcome card from a fresh connector heartbeat',
         ->assertSuccessful()
         ->assertSee('Tally Connected')
         ->assertDontSee('Tally Disconnected')
-        ->assertSee('Last Sync: 07:42 PM')
+        ->assertSee('Last Heartbeat: 07:42 PM')
         ->assertSee('Connector Name')
         ->assertSee('office-pc')
         ->assertSee('Tally Company')
@@ -418,7 +419,7 @@ it('shows tally disconnected when the connector heartbeat is stale', function ()
         'tally_company' => 'Param Gold',
         'tally_online' => true,
         'last_heartbeat_at' => now('Asia/Kolkata')->subMinutes(10),
-        'last_seen_at' => now('Asia/Kolkata'),
+        'last_seen_at' => now('Asia/Kolkata')->subMinutes(10),
         'last_balance_sync_at' => now('Asia/Kolkata'),
         'last_matched_count' => 12,
     ]);
@@ -428,7 +429,7 @@ it('shows tally disconnected when the connector heartbeat is stale', function ()
         ->assertSuccessful()
         ->assertSee('Tally Disconnected')
         ->assertDontSee('Tally Connected')
-        ->assertSee('Last Sync: 07:32 PM')
+        ->assertSee('Last Heartbeat: 07:32 PM')
         ->assertSee('Last connected')
         ->assertSee('Start Tally Connector on the Tally PC');
 
@@ -441,16 +442,18 @@ it('does not treat live tally balance data as connector connected', function ():
         'connector_id' => 'office-pc',
         'tally_online' => true,
         'last_heartbeat_at' => now('Asia/Kolkata')->subMinutes(10),
-        'last_seen_at' => now('Asia/Kolkata'),
+        'last_seen_at' => now('Asia/Kolkata')->subMinutes(10),
         'last_tally_online_at' => now('Asia/Kolkata'),
         'last_balance_sync_at' => now('Asia/Kolkata'),
         'last_matched_count' => 40,
     ]);
 
-    $status = TallyLiveSyncState::dashboardStatusSnapshot();
+    $status = app(TallyConnectorStatusService::class)->snapshot();
 
     expect($status['connected'])->toBeFalse()
-        ->and($status['label'])->toBe('Tally Disconnected');
+        ->and($status['label'])->toBe('Tally Disconnected')
+        ->and($status['last_heartbeat_label'])->toBe('12 Sep 2026 • 07:32 PM')
+        ->and($status['last_tally_sync_label'])->toBe('12 Sep 2026 • 07:42 PM');
 
     Carbon::setTestNow();
 });

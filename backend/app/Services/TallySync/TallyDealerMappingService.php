@@ -7,7 +7,6 @@ use App\Models\Dealer;
 use App\Models\DealerTallyLedger;
 use App\Models\TallyConnectorLedger;
 use App\Models\TallyDealerMapping;
-use App\Models\TallyLiveSyncState;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -277,7 +276,7 @@ final class TallyDealerMappingService
             return null;
         }
 
-        return TallyLiveSyncState::current()->tallyIsOnline()
+        return app(TallyConnectorStatusService::class)->isConnected()
             ? 'Tally Ledgers Not Synced'
             : 'Tally Connector Offline';
     }

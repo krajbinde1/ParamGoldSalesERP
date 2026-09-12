@@ -23,7 +23,7 @@
                         @click="open = !open"
                         :aria-expanded="open.toString()"
                         aria-haspopup="dialog"
-                        aria-label="{{ $tallyStatus['label'] }}. Last Sync: {{ $tallyStatus['last_sync_label'] }}"
+                        aria-label="{{ $tallyStatus['label'] }}. Last Heartbeat: {{ $tallyStatus['last_sync_label'] }}"
                     >
                         <span class="pg-tally-status__row">
                             <span
@@ -32,7 +32,7 @@
                             ></span>
                             {{ $tallyStatus['label'] }}
                         </span>
-                        <span class="pg-tally-status__sync">Last Sync: {{ $tallyStatus['last_sync_label'] }}</span>
+                        <span class="pg-tally-status__sync">Last Heartbeat: {{ $tallyStatus['last_sync_label'] }}</span>
                     </button>
                     <div
                         class="pg-tally-status__pop"

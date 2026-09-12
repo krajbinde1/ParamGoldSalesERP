@@ -228,6 +228,7 @@ final class TallyLiveBalanceService
     {
         $account = $dealer->tallyLedger;
         $state = TallyLiveSyncState::current();
+        $connector = app(TallyConnectorStatusService::class)->snapshot();
         $erpLabel = IndianCurrency::formatDrCr($erpSigned);
         $lastSynced = $account?->live_synced_at ?? $state->last_balance_sync_at;
         $lastSyncedLabel = $lastSynced
@@ -241,13 +242,13 @@ final class TallyLiveBalanceService
             ? DealerTallyBalance::signed((float) $liveAmount, (string) $liveType)
             : null;
 
-        if (! $state->tallyIsOnline()) {
+        if (! $connector['connected']) {
             return $this->offlineVerification(
                 $dealer,
                 $erpLabel,
                 $liveSigned,
                 $lastSyncedLabel,
-                $state,
+                $connector,
                 $account?->live_tally_ledger_name,
             );
         }
@@ -268,6 +269,7 @@ final class TallyLiveBalanceService
                 'difference_label' => '—',
                 'last_synced_label' => $lastSyncedLabel,
                 'live_tally_ledger_name' => $account?->live_tally_ledger_name,
+                ...$this->connectorStatusFields($connector),
                 ...$this->mappingVerification($dealer),
             ];
         }
@@ -295,11 +297,13 @@ final class TallyLiveBalanceService
             'difference_label' => $matched ? IndianCurrency::formatExact(0) : IndianCurrency::formatDrCr($difference),
             'last_synced_label' => $lastSyncedLabel,
             'live_tally_ledger_name' => $account?->live_tally_ledger_name,
+            ...$this->connectorStatusFields($connector),
             ...$this->mappingVerification($dealer),
         ];
     }
 
     /**
+     * @param  array<string, mixed>  $connector
      * @return array<string, mixed>
      */
     private function offlineVerification(
@@ -307,20 +311,13 @@ final class TallyLiveBalanceService
         string $erpLabel,
         ?float $liveSigned,
         ?string $lastSyncedLabel,
-        TallyLiveSyncState $state,
+        array $connector,
         ?string $liveTallyLedgerName,
     ): array {
-        $when = $lastSyncedLabel ?: ($state->last_seen_at
-            ? Carbon::parse($state->last_seen_at)->timezone('Asia/Kolkata')->format('d M Y • h:i A')
-            : null);
-        $label = $when === null
-            ? 'Tally Offline / Not synced yet'
-            : 'Tally Offline / Last synced at '.$when;
-
         return [
             'status' => self::STATUS_OFFLINE,
-            'status_label' => $label,
-            'status_short' => 'Offline',
+            'status_label' => $connector['label'],
+            'status_short' => 'Disconnected',
             'tally_online' => false,
             'balance_matched' => null,
             'live_tally_signed' => $liveSigned,
@@ -332,7 +329,25 @@ final class TallyLiveBalanceService
             'difference_label' => '—',
             'last_synced_label' => $lastSyncedLabel,
             'live_tally_ledger_name' => $liveTallyLedgerName,
+            ...$this->connectorStatusFields($connector),
             ...$this->mappingVerification($dealer),
+        ];
+    }
+
+    /**
+     * @param  array<string, mixed>  $connector
+     * @return array{
+     *     connector_connected: bool,
+     *     connector_label: string,
+     *     last_heartbeat_label: string
+     * }
+     */
+    private function connectorStatusFields(array $connector): array
+    {
+        return [
+            'connector_connected' => (bool) $connector['connected'],
+            'connector_label' => (string) $connector['label'],
+            'last_heartbeat_label' => (string) $connector['last_heartbeat_label'],
         ];
     }
 
@@ -601,6 +616,9 @@ final class TallyLiveBalanceService
      *     mismatched: int,
      *     not_synced: int,
      *     last_synced_label: string,
+     *     last_heartbeat_label: string,
+     *     connector_connected: bool,
+     *     connector_label: string,
      *     banner: 'matched'|'mismatch'|null,
      *     banner_label: string|null
      * }
@@ -639,11 +657,18 @@ final class TallyLiveBalanceService
             $bannerLabel = 'All Live Tally Balances Matched';
         }
 
+        $connector = app(TallyConnectorStatusService::class)->snapshot();
+
         return [
             'matched' => $matched,
             'mismatched' => $mismatched,
             'not_synced' => $notSynced,
-            'last_synced_label' => $this->lastBalanceSyncLabel() ?? 'Not synced yet',
+            'last_synced_label' => $connector['last_tally_sync_label'] === '—'
+                ? 'Not synced yet'
+                : $connector['last_tally_sync_label'],
+            'last_heartbeat_label' => $connector['last_heartbeat_label'],
+            'connector_connected' => $connector['connected'],
+            'connector_label' => $connector['label'],
             'banner' => $banner,
             'banner_label' => $bannerLabel,
         ];
@@ -707,12 +732,9 @@ final class TallyLiveBalanceService
 
     public function lastBalanceSyncLabel(): ?string
     {
-        $synced = TallyLiveSyncState::current()->last_balance_sync_at;
-        if ($synced === null) {
-            return null;
-        }
+        $label = app(TallyConnectorStatusService::class)->lastTallySyncLabel();
 
-        return Carbon::parse($synced)->timezone('Asia/Kolkata')->format('d M Y • h:i A');
+        return $label === '—' ? null : $label;
     }
 
     public static function liveSignedSql(string $dealersTable = 'dealers'): string

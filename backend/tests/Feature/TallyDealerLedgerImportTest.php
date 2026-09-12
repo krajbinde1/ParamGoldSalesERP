@@ -729,9 +729,10 @@ it('shows the tally ledger on the dealer ledger page instead of billed orders', 
         ->assertSee('₹75,000.00')
         ->assertSee('₹10,000.00')
         ->assertSee('Closing Balance')
-        ->assertSee('Tally Offline')
+        ->assertSee('Tally Disconnected')
         ->assertSee('Live Tally Balance:')
         ->assertSee('ERP Current Outstanding:')
+        ->assertSee('Last Heartbeat:')
         ->assertSee('Last Tally Sync:')
         ->assertDontSee('Live Tally Balance Mismatch')
         ->assertDontSee('Sales Invoice / Order Bill')
@@ -766,7 +767,7 @@ it('shows live tally matched on the dealer ledger page after a connector snapsho
         ->assertSee('Status:')
         ->assertSee('Matched')
         ->assertDontSee('Live Tally Balance Mismatch')
-        ->assertDontSee('Tally Offline');
+        ->assertDontSee('Tally Disconnected');
 });
 
 it('lets admin map a tally ledger guid from the dealer ledger page', function (): void {

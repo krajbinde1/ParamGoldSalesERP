@@ -10,6 +10,10 @@
                 <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
                     Compared with the latest Live Tally balances stored by the office connector.
                 </p>
+                <p class="mt-1 text-sm font-medium text-gray-700 dark:text-gray-300">
+                    {{ $tally['connector_label'] ?? 'Tally Disconnected' }}
+                    · Last Heartbeat: {{ $tally['last_heartbeat_label'] ?? '—' }}
+                </p>
             </div>
 
             @if (filled($tally['banner_label']))
