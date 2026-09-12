@@ -7,6 +7,7 @@ use App\Models\Dealer;
 use App\Models\DealerTallyLedger;
 use App\Models\TallyConnectorLedger;
 use App\Models\TallyDealerMapping;
+use App\Models\TallyLiveSyncState;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -229,23 +230,28 @@ final class TallyDealerMappingService
     }
 
     /**
+     * Cached Tally ledger masters for the mapping dropdown. Key = GUID, label = ledger name.
+     * Search matches the ledger name text as stored from Tally; it does not fuzzy-map similar names.
+     *
      * @return array<string, string>
      */
-    public function searchLedgers(string $search, int $limit = 40): array
+    public function searchLedgers(string $search, int $limit = 5000): array
     {
+        $limit = max(1, min($limit, 5000));
         $query = TallyConnectorLedger::query()
             ->whereNotNull('tally_ledger_guid')
             ->where('tally_ledger_guid', '!=', '');
 
+        $latest = TallyConnectorLedger::query()->max('last_seen_at');
+        if ($latest !== null) {
+            $query->where('last_seen_at', $latest);
+        }
+
         $term = trim($search);
         if ($term !== '') {
-            $normalized = TallyLiveLedgerName::normalize($term);
-            $query->where(function ($inner) use ($term, $normalized): void {
-                $inner->where('tally_ledger_name', 'like', '%'.$term.'%');
-                if ($normalized !== '') {
-                    $inner->orWhere('tally_ledger_name_normalized', 'like', '%'.$normalized.'%');
-                }
-            });
+            $like = '%'.addcslashes(mb_strtolower($term, 'UTF-8'), '%_\\').'%';
+            $query->whereRaw('LOWER(tally_ledger_name) like ?', [$like]);
+            $query->orderByRaw('CASE WHEN LOWER(tally_ledger_name) = ? THEN 0 ELSE 1 END', [mb_strtolower($term, 'UTF-8')]);
         }
 
         return $query->orderBy('tally_ledger_name')
@@ -257,16 +263,32 @@ final class TallyDealerMappingService
             ->all();
     }
 
+    public function guidLedgerCount(): int
+    {
+        return TallyConnectorLedger::query()
+            ->whereNotNull('tally_ledger_guid')
+            ->where('tally_ledger_guid', '!=', '')
+            ->count();
+    }
+
+    public function ledgerCatalogEmptyMessage(): ?string
+    {
+        if ($this->guidLedgerCount() > 0) {
+            return null;
+        }
+
+        return TallyLiveSyncState::current()->tallyIsOnline()
+            ? 'Tally Ledgers Not Synced'
+            : 'Tally Connector Offline';
+    }
+
     public function ledgerLabel(?TallyConnectorLedger $ledger): string
     {
         if ($ledger === null) {
             return '';
         }
 
-        $name = (string) $ledger->tally_ledger_name;
-        $parent = trim((string) $ledger->ledger_parent);
-
-        return $parent !== '' ? $name.'  ·  '.$parent : $name;
+        return (string) $ledger->tally_ledger_name;
     }
 
     public function attachGuidIfMissing(Dealer $dealer, string $guid, string $ledgerName): ?TallyDealerMapping

@@ -187,15 +187,17 @@ class ViewDealerLedger extends ViewRecord
     private function tallyLedgerSelectForm(): array
     {
         $mappings = app(TallyDealerMappingService::class);
+        $emptyMessage = $mappings->ledgerCatalogEmptyMessage();
 
         return [
             Select::make('tally_ledger_guid')
                 ->label('Tally Ledger')
-                ->placeholder('Search Tally ledger name')
+                ->placeholder($emptyMessage ?? 'Search Tally ledger name')
                 ->searchable()
-                ->preload(false)
-                ->options(fn (): array => $mappings->searchLedgers('', 30))
-                ->getSearchResultsUsing(fn (string $search): array => $mappings->searchLedgers($search))
+                ->preload()
+                ->optionsLimit(5000)
+                ->options(fn (): array => $mappings->searchLedgers('', 5000))
+                ->getSearchResultsUsing(fn (string $search): array => $mappings->searchLedgers($search, 5000))
                 ->getOptionLabelUsing(function (?string $value) use ($mappings): ?string {
                     if (! filled($value)) {
                         return null;
@@ -204,7 +206,10 @@ class ViewDealerLedger extends ViewRecord
 
                     return $ledger ? $mappings->ledgerLabel($ledger) : $value;
                 })
-                ->helperText('Only exact Tally ledgers from the latest Live Tally sync are listed. Run Sync Live Tally Now if this list is empty.')
+                ->searchPrompt('Type the Tally ledger name')
+                ->noSearchResultsMessage($emptyMessage ?? 'No Tally ledger matches that name.')
+                ->helperText($emptyMessage ?? 'Select the exact Tally ledger. Its GUID is saved. This does not change ledger transactions or outstanding.')
+                ->disabled(fn (): bool => $emptyMessage !== null)
                 ->required(),
         ];
     }

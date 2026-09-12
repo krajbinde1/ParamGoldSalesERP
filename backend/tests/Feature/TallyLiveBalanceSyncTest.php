@@ -5,6 +5,7 @@ use App\Models\DealerTallyEntry;
 use App\Models\DealerTallyLedger;
 use App\Models\TallyConnectorLedger;
 use App\Models\TallyDealerMapping;
+use App\Models\TallyLiveSyncState;
 use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Services\TallyLedger\TallyLedgerImportService;
 use App\Services\TallySync\TallyDealerMappingService;
@@ -855,4 +856,101 @@ it('does not change ledger entries or opening balance when mapping is changed or
     expect((float) $account->opening_balance)->toBe(1200.0)
         ->and($account->opening_balance_type)->toBe('debit')
         ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(1);
+});
+
+it('caches every live tally ledger guid and name for the mapping dropdown', function (): void {
+    $user = tallySyncConnectorUser();
+    $token = tallySyncConnectorToken($user);
+
+    $this->withToken($token)
+        ->postJson('/api/tally-connector/live-balances', [
+            'tally_online' => true,
+            'balances' => [
+                [
+                    'tally_ledger_name' => 'Dropdown Party One',
+                    'tally_ledger_guid' => '11111111-1111-1111-1111-111111111111',
+                    'closing_balance' => 10,
+                    'closing_balance_type' => 'debit',
+                    'ledger_parent' => 'Sundry Debtors',
+                ],
+                [
+                    'tally_ledger_name' => 'Dropdown Party Two',
+                    'tally_ledger_guid' => '22222222-2222-2222-2222-222222222222',
+                    'closing_balance' => 20,
+                    'closing_balance_type' => 'credit',
+                ],
+            ],
+        ])
+        ->assertOk();
+
+    $mappings = app(TallyDealerMappingService::class);
+    $all = $mappings->searchLedgers('');
+    $search = $mappings->searchLedgers('Dropdown Party Two');
+    $similar = $mappings->searchLedgers('Dropdown Party Too');
+
+    expect($mappings->guidLedgerCount())->toBe(2)
+        ->and($all)->toHaveKey('11111111-1111-1111-1111-111111111111')
+        ->and($all['11111111-1111-1111-1111-111111111111'])->toBe('Dropdown Party One')
+        ->and($all['22222222-2222-2222-2222-222222222222'])->toBe('Dropdown Party Two')
+        ->and($search)->toHaveCount(1)
+        ->and($search['22222222-2222-2222-2222-222222222222'])->toBe('Dropdown Party Two')
+        ->and($similar)->toBe([])
+        ->and($mappings->ledgerCatalogEmptyMessage())->toBeNull();
+});
+
+it('reports offline or not synced when the tally ledger catalog is empty', function (): void {
+    $mappings = app(TallyDealerMappingService::class);
+    TallyLiveSyncState::query()->delete();
+    TallyLiveSyncState::query()->create([
+        'tally_online' => false,
+        'last_matched_count' => 0,
+    ]);
+    expect($mappings->ledgerCatalogEmptyMessage())->toBe('Tally Connector Offline');
+
+    TallyLiveSyncState::query()->delete();
+    TallyLiveSyncState::query()->create([
+        'tally_online' => true,
+        'last_seen_at' => now('Asia/Kolkata'),
+        'last_tally_online_at' => now('Asia/Kolkata'),
+        'last_matched_count' => 0,
+    ]);
+    expect($mappings->ledgerCatalogEmptyMessage())->toBe('Tally Ledgers Not Synced');
+});
+
+it('does not overwrite an existing dealer guid when the ledger catalog is refreshed', function (): void {
+    $user = tallySyncConnectorUser();
+    $employee = tallySyncEmployee('9813000146');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Keep Guid Dropdown Agro']);
+    TallyDealerMapping::query()->create([
+        'tally_ledger_name' => 'Keep Guid Dropdown Agro',
+        'tally_ledger_name_normalized' => TallyDealerMapping::normalizeName('Keep Guid Dropdown Agro'),
+        'tally_ledger_guid' => '33333333-3333-3333-3333-333333333333',
+        'dealer_id' => $dealer->id,
+    ]);
+    $token = tallySyncConnectorToken($user);
+
+    $this->withToken($token)
+        ->postJson('/api/tally-connector/live-balances', [
+            'tally_online' => true,
+            'balances' => [
+                [
+                    'tally_ledger_name' => 'Keep Guid Dropdown Agro',
+                    'tally_ledger_guid' => '33333333-3333-3333-3333-333333333333',
+                    'closing_balance' => 15,
+                    'closing_balance_type' => 'debit',
+                ],
+                [
+                    'tally_ledger_name' => 'Another Catalog Party',
+                    'tally_ledger_guid' => '44444444-4444-4444-4444-444444444444',
+                    'closing_balance' => 5,
+                    'closing_balance_type' => 'debit',
+                ],
+            ],
+        ])
+        ->assertOk();
+
+    $mapping = TallyDealerMapping::query()->where('dealer_id', $dealer->id)->first();
+    expect($mapping?->tally_ledger_guid)->toBe('33333333-3333-3333-3333-333333333333')
+        ->and(TallyDealerMapping::query()->where('dealer_id', $dealer->id)->count())->toBe(1)
+        ->and(TallyConnectorLedger::query()->where('tally_ledger_guid', '44444444-4444-4444-4444-444444444444')->exists())->toBeTrue();
 });

@@ -11,6 +11,7 @@ use App\Models\DealerTallyImport;
 use App\Models\DealerTallyLedger;
 use App\Models\Order;
 use App\Models\TallyConnectorLedger;
+use App\Models\TallyDealerMapping;
 use App\Models\TallyLiveSyncState;
 use App\Models\User;
 use App\Services\Dealers\DealerLedgerService;
@@ -792,6 +793,59 @@ it('lets admin map a tally ledger guid from the dealer ledger page', function ()
     expect($mapping)->not->toBeNull()
         ->and($mapping->tally_ledger_guid)->toBe('abababab-abab-abab-abab-abababababab')
         ->and($mapping->tally_ledger_name)->toBe('Manual Tally Party');
+});
+
+it('lets admin change mapping from the cached tally ledger list', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100203');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Change Map Dropdown Dealer']);
+    $other = ledgerDealer($employee, ['firm_name' => 'Other Mapped Dropdown Dealer']);
+    $admin = tallyImportAdmin();
+    TallyDealerMapping::query()->create([
+        'tally_ledger_name' => 'Already Mapped Party',
+        'tally_ledger_name_normalized' => 'already mapped party',
+        'tally_ledger_guid' => 'abababab-abab-abab-abab-abababababab',
+        'dealer_id' => $dealer->id,
+    ]);
+    TallyDealerMapping::query()->create([
+        'tally_ledger_name' => 'Other Mapped Party',
+        'tally_ledger_name_normalized' => 'other mapped party',
+        'tally_ledger_guid' => 'adadadad-adad-adad-adad-adadadadadad',
+        'dealer_id' => $other->id,
+    ]);
+    TallyConnectorLedger::query()->create([
+        'tally_ledger_guid' => 'abababab-abab-abab-abab-abababababab',
+        'tally_ledger_name' => 'Already Mapped Party',
+        'tally_ledger_name_normalized' => 'already mapped party',
+        'last_seen_at' => now('Asia/Kolkata'),
+    ]);
+    TallyConnectorLedger::query()->create([
+        'tally_ledger_guid' => 'acacacac-acac-acac-acac-acacacacacac',
+        'tally_ledger_name' => 'Replacement Tally Party',
+        'tally_ledger_name_normalized' => 'replacement tally party',
+        'last_seen_at' => now('Asia/Kolkata'),
+    ]);
+    TallyConnectorLedger::query()->create([
+        'tally_ledger_guid' => 'adadadad-adad-adad-adad-adadadadadad',
+        'tally_ledger_name' => 'Other Mapped Party',
+        'tally_ledger_name_normalized' => 'other mapped party',
+        'last_seen_at' => now('Asia/Kolkata'),
+    ]);
+
+    $options = app(\App\Services\TallySync\TallyDealerMappingService::class)->searchLedgers('');
+    expect($options)->toHaveKey('acacacac-acac-acac-acac-acacacacacac')
+        ->and($options['acacacac-acac-acac-acac-acacacacacac'])->toBe('Replacement Tally Party');
+
+    Livewire::actingAs($admin)
+        ->test(ViewDealerLedger::class, ['record' => $dealer->getRouteKey()])
+        ->assertSuccessful()
+        ->assertActionVisible('changeTallyMapping')
+        ->callAction('changeTallyMapping', [
+            'tally_ledger_guid' => 'acacacac-acac-acac-acac-acacacacacac',
+        ]);
+
+    expect($dealer->fresh()->tallyMappings()->first()?->tally_ledger_guid)->toBe('acacacac-acac-acac-acac-acacacacacac')
+        ->and($dealer->fresh()->tallyMappings()->first()?->tally_ledger_name)->toBe('Replacement Tally Party')
+        ->and($other->fresh()->tallyMappings()->first()?->tally_ledger_guid)->toBe('adadadad-adad-adad-adad-adadadadadad');
 });
 
 it('lets admin open the tally import page for a selected dealer', function (): void {
