@@ -399,6 +399,81 @@ final class TallyDealerMappingService
     }
 
     /**
+     * Unique saved GUID for an exact Tally ledger name. Name is only used to
+     * recover a missing payload GUID; it does not map ERP firm names.
+     *
+     * @return array{catalog: array<string, string>, mapping: array<string, string>}
+     */
+    public function uniqueGuidsIndexedByExactLedgerName(): array
+    {
+        return [
+            'catalog' => $this->uniqueGuidsByName(
+                TallyConnectorLedger::query()
+                    ->whereNotNull('tally_ledger_guid')
+                    ->where('tally_ledger_guid', '!=', '')
+                    ->get(['tally_ledger_guid', 'tally_ledger_name_normalized'])
+                    ->all(),
+                'tally_ledger_name_normalized',
+            ),
+            'mapping' => $this->uniqueGuidsByName(
+                TallyDealerMapping::query()
+                    ->whereNotNull('tally_ledger_guid')
+                    ->where('tally_ledger_guid', '!=', '')
+                    ->get(['tally_ledger_guid', 'tally_ledger_name_normalized'])
+                    ->all(),
+                'tally_ledger_name_normalized',
+            ),
+        ];
+    }
+
+    /**
+     * Resolve the Tally ledger GUID for a live-balance row without changing mappings.
+     *
+     * @param  array{catalog: array<string, string>, mapping: array<string, string>}  $lookups
+     */
+    public function resolveLiveIngestGuid(mixed $incomingGuid, string $ledgerName, array $lookups): string
+    {
+        $guid = self::normalizeGuid($incomingGuid);
+        if ($guid !== '') {
+            return $guid;
+        }
+
+        $catalogKey = TallyLiveLedgerName::normalize($ledgerName);
+        if ($catalogKey !== '' && isset($lookups['catalog'][$catalogKey])) {
+            return $lookups['catalog'][$catalogKey];
+        }
+
+        $mappingKey = TallyDealerMapping::normalizeName($ledgerName);
+        if ($mappingKey !== '' && isset($lookups['mapping'][$mappingKey])) {
+            return $lookups['mapping'][$mappingKey];
+        }
+
+        return '';
+    }
+
+    public function dealerIdForSavedGuid(string $guid, ?Collection $map = null): ?int
+    {
+        $guid = self::normalizeGuid($guid);
+        if ($guid === '') {
+            return null;
+        }
+
+        $map ??= $this->guidToDealerId();
+        if ($map->has($guid)) {
+            return (int) $map->get($guid);
+        }
+
+        $compact = str_replace('-', '', $guid);
+        foreach ($map as $stored => $dealerId) {
+            if (str_replace('-', '', (string) $stored) === $compact) {
+                return (int) $dealerId;
+            }
+        }
+
+        return null;
+    }
+
+    /**
      * @return Collection<string, int>
      */
     public function guidToDealerId(): Collection
@@ -424,6 +499,36 @@ final class TallyDealerMappingService
         }
 
         return $ids;
+    }
+
+    /**
+     * @param  list<object>  $rows
+     * @return array<string, string>
+     */
+    private function uniqueGuidsByName(array $rows, string $nameAttribute): array
+    {
+        $unique = [];
+        $ambiguous = [];
+
+        foreach ($rows as $row) {
+            $key = trim((string) ($row->{$nameAttribute} ?? ''));
+            $guid = self::normalizeGuid($row->tally_ledger_guid ?? '');
+            if ($key === '' || $guid === '') {
+                continue;
+            }
+            if (isset($unique[$key]) && $unique[$key] !== $guid) {
+                $ambiguous[$key] = true;
+
+                continue;
+            }
+            $unique[$key] = $guid;
+        }
+
+        foreach ($ambiguous as $key => $ignored) {
+            unset($unique[$key]);
+        }
+
+        return $unique;
     }
 
     private function writeMapping(

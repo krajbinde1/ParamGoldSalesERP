@@ -717,9 +717,18 @@ it('maps live tally by saved guid even when dealer and ledger names differ', fun
         ->assertJsonPath('data.matched', 1);
 
     $account = $dealer->fresh()->tallyLedger;
+    $statement = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
     expect($account)->not->toBeNull()
         ->and((float) $account->live_closing_balance)->toBe(445161.0)
-        ->and($account->live_tally_ledger_guid)->toBe('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
+        ->and($account->live_closing_balance_type)->toBe('debit')
+        ->and($account->live_tally_ledger_guid)->toBe('aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee')
+        ->and($account->live_synced_at)->not->toBeNull()
+        ->and($statement['verification']['mapping_status'])->toBe('Mapped')
+        ->and($statement['verification']['mapping_has_guid'])->toBeTrue()
+        ->and($statement['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_MISMATCH)
+        ->and($statement['verification']['status_short'])->toBe('Mismatch')
+        ->and($statement['verification']['live_tally_label'])->toBe('₹4,45,161.00 Dr')
+        ->and($statement['verification']['difference'])->toBe(-445161.0);
 });
 
 it('backfills guid onto a currently name-mapped dealer without remapping', function (): void {
@@ -785,6 +794,79 @@ it('does not overwrite an existing saved guid during live ingest', function (): 
     expect($mapping?->tally_ledger_guid)->toBe('aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa')
         ->and((float) $account?->live_closing_balance)->toBe(99.0)
         ->and($account?->live_tally_ledger_name)->toBe('Other Locked Party');
+});
+
+it('applies live tally to a guid-mapped dealer when the payload omits guid', function (): void {
+    $user = tallySyncConnectorUser();
+    $employee = tallySyncEmployee('9813000146');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'ERP Firm Guid Recover Agro']);
+    TallyDealerMapping::query()->create([
+        'tally_ledger_name' => 'Saved Tally Party Walour',
+        'tally_ledger_name_normalized' => TallyDealerMapping::normalizeName('Saved Tally Party Walour'),
+        'tally_ledger_guid' => 'bbbbbbbb-cccc-dddd-eeee-ffffffffffff',
+        'dealer_id' => $dealer->id,
+    ]);
+    $token = tallySyncConnectorToken($user);
+
+    $this->withToken($token)
+        ->postJson('/api/tally-connector/live-balances', [
+            'tally_online' => true,
+            'balances' => [[
+                'tally_ledger_name' => 'Saved Tally Party Walour',
+                'closing_balance' => 12500.50,
+                'closing_balance_type' => 'credit',
+            ]],
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.matched', 1);
+
+    $mapping = TallyDealerMapping::query()->where('dealer_id', $dealer->id)->first();
+    $account = $dealer->fresh()->tallyLedger;
+    $statement = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
+
+    expect($mapping?->tally_ledger_guid)->toBe('bbbbbbbb-cccc-dddd-eeee-ffffffffffff')
+        ->and((float) $account?->live_closing_balance)->toBe(12500.5)
+        ->and($account?->live_closing_balance_type)->toBe('credit')
+        ->and($account?->live_tally_ledger_guid)->toBe('bbbbbbbb-cccc-dddd-eeee-ffffffffffff')
+        ->and($account?->live_synced_at)->not->toBeNull()
+        ->and($statement['verification']['mapping_status'])->toBe('Mapped')
+        ->and($statement['verification']['status_short'])->toBe('Mismatch')
+        ->and($statement['verification']['live_tally_label'])->toBe('₹12,500.50 Cr')
+        ->and($statement['verification']['difference'])->toBe(12500.5);
+});
+
+it('does not mark a guid-mapped dealer as not mapped when live snapshot is missing', function (): void {
+    $user = tallySyncConnectorUser();
+    $employee = tallySyncEmployee('9813000147');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Guid Mapped No Snapshot Agro']);
+    TallyDealerMapping::query()->create([
+        'tally_ledger_name' => 'Guid Mapped No Snapshot Party',
+        'tally_ledger_name_normalized' => TallyDealerMapping::normalizeName('Guid Mapped No Snapshot Party'),
+        'tally_ledger_guid' => '12121212-3434-5656-7878-909090909090',
+        'dealer_id' => $dealer->id,
+    ]);
+    $token = tallySyncConnectorToken($user);
+
+    $this->withToken($token)
+        ->postJson('/api/tally-connector/live-balances', [
+            'tally_online' => true,
+            'balances' => [[
+                'tally_ledger_name' => 'Unrelated Snapshot Party',
+                'tally_ledger_guid' => '34343434-5656-7878-9090-121212121212',
+                'closing_balance' => 10,
+                'closing_balance_type' => 'debit',
+            ]],
+        ])
+        ->assertOk();
+
+    $statement = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
+
+    expect($statement['verification']['mapping_status'])->toBe('Mapped')
+        ->and($statement['verification']['mapping_has_guid'])->toBeTrue()
+        ->and($statement['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_NOT_SYNCED)
+        ->and($statement['verification']['status_short'])->toBe('Not Synced')
+        ->and($statement['verification']['status_short'])->not->toBe('Not Mapped')
+        ->and($dealer->fresh()->tallyLedger?->live_closing_balance)->toBeNull();
 });
 
 it('keeps a guid-mapped dealer live snapshot when that ledger is missing from a later sync', function (): void {

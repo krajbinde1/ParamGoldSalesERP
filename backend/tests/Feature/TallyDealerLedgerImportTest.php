@@ -849,6 +849,66 @@ it('lets admin change mapping from the cached tally ledger list', function (): v
         ->and($other->fresh()->tallyMappings()->first()?->tally_ledger_guid)->toBe('adadadad-adad-adad-adad-adadadadadad');
 });
 
+it('keeps mapped and unmapped dealer ledger pages on the same layout', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100204');
+    $unmapped = ledgerDealer($employee, ['firm_name' => 'Unmapped Layout Dealer']);
+    $mapped = ledgerDealer($employee, ['firm_name' => 'Mapped Layout Dealer']);
+    $admin = tallyImportAdmin();
+    TallyDealerMapping::query()->create([
+        'tally_ledger_name' => 'Mapped Layout Party',
+        'tally_ledger_name_normalized' => 'mapped layout party',
+        'tally_ledger_guid' => 'aeaeaeae-aeae-aeae-aeae-aeaeaeaeaeae',
+        'dealer_id' => $mapped->id,
+    ]);
+
+    $layoutLabels = [
+        'Live Tally Balance:',
+        'ERP Current Outstanding:',
+        'Difference:',
+        'Status:',
+        'Mapping:',
+        'Tally Ledger:',
+        'Opening Balance',
+        'Total Debit',
+        'Total Credit',
+        'Current Outstanding',
+        'Sync Live Tally Now',
+        'Import Tally Ledger',
+        'Back to Dealer',
+        'pg-dealer-ledger-page',
+        'pg-dealer-ledger-mapping-actions',
+        'pg-dealer-ledger-summary',
+        'pg-dealer-ledger-compare',
+    ];
+
+    $unmappedPage = Livewire::actingAs($admin)
+        ->test(ViewDealerLedger::class, ['record' => $unmapped->getRouteKey()])
+        ->assertSuccessful()
+        ->assertSee('Not Mapped')
+        ->assertSee('Map Tally Ledger')
+        ->assertDontSee('Change Mapping')
+        ->assertDontSee('Remove Mapping')
+        ->assertActionVisible('mapTallyLedger')
+        ->assertActionHidden('changeTallyMapping')
+        ->assertActionHidden('removeTallyMapping');
+
+    $mappedPage = Livewire::actingAs($admin)
+        ->test(ViewDealerLedger::class, ['record' => $mapped->getRouteKey()])
+        ->assertSuccessful()
+        ->assertSee('Mapped')
+        ->assertSee('Change Mapping')
+        ->assertSee('Remove Mapping')
+        ->assertDontSee('Map Tally Ledger')
+        ->assertActionHidden('mapTallyLedger')
+        ->assertActionVisible('changeTallyMapping')
+        ->assertActionVisible('removeTallyMapping');
+
+    foreach ($layoutLabels as $label) {
+        $unmappedPage->assertSee($label, escape: false);
+        $mappedPage->assertSee($label, escape: false);
+    }
+});
+
 it('lets admin open the tally import page for a selected dealer', function (): void {
     $employee = ledgerEmployee(UserRole::Employee, '9811100098');
     $dealer = ledgerDealer($employee, [

@@ -10,6 +10,73 @@
 
 <x-filament-panels::page>
     <style>
+        .paramgold-admin-shell .pg-dealer-ledger-page .fi-header:not(.pg-order-view-header):not(.pg-bom-view-header),
+        .pg-dealer-ledger-page .fi-header {
+            display: flex;
+            flex-wrap: nowrap;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.75rem;
+        }
+        .pg-dealer-ledger-page .fi-header-heading {
+            min-width: 0;
+            flex: 1 1 auto;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        .paramgold-admin-shell .pg-dealer-ledger-page .fi-header-actions-ctn,
+        .paramgold-admin-shell .pg-dealer-ledger-page .fi-ac,
+        .paramgold-admin-shell .pg-dealer-ledger-page .fi-header-actions,
+        .pg-dealer-ledger-page .fi-header-actions-ctn,
+        .pg-dealer-ledger-page .fi-ac,
+        .pg-dealer-ledger-page .fi-header-actions {
+            display: flex;
+            flex-wrap: nowrap;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 0.5rem;
+            margin-left: auto;
+            flex: 0 0 auto;
+            max-width: none;
+        }
+        .pg-dealer-ledger-mapping-actions {
+            display: inline-flex;
+            flex-wrap: nowrap;
+            align-items: center;
+            justify-content: flex-end;
+            gap: 0.5rem;
+            box-sizing: border-box;
+            width: 25rem;
+            min-width: 25rem;
+            max-width: 25rem;
+            flex: 0 0 25rem;
+            min-height: 2.25rem;
+        }
+        @media (max-width: 767px) {
+            .paramgold-admin-shell .pg-dealer-ledger-page .fi-header:not(.pg-order-view-header):not(.pg-bom-view-header),
+            .pg-dealer-ledger-page .fi-header {
+                flex-wrap: wrap;
+                align-items: stretch;
+            }
+            .paramgold-admin-shell .pg-dealer-ledger-page .fi-header-actions-ctn,
+            .paramgold-admin-shell .pg-dealer-ledger-page .fi-ac,
+            .paramgold-admin-shell .pg-dealer-ledger-page .fi-header-actions,
+            .pg-dealer-ledger-page .fi-header-actions-ctn,
+            .pg-dealer-ledger-page .fi-ac,
+            .pg-dealer-ledger-page .fi-header-actions {
+                flex-wrap: wrap;
+                width: 100%;
+                justify-content: flex-end;
+            }
+            .pg-dealer-ledger-mapping-actions {
+                width: 100%;
+                min-width: 0;
+                max-width: 100%;
+                flex: 1 1 100%;
+                justify-content: flex-end;
+            }
+        }
         .pg-dealer-ledger-summary {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -64,6 +131,10 @@
         }
         @media (min-width: 768px) {
             .pg-dealer-ledger-compare { grid-template-columns: 1fr 1fr; }
+        }
+        .pg-dealer-ledger-compare > div {
+            min-width: 0;
+            min-height: 1.45em;
         }
         .pg-dealer-ledger-compare div span { font-weight: 650; }
         .pg-dealer-ledger-table-wrap {

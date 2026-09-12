@@ -52,7 +52,7 @@ final class TallyLiveBalanceService
     /**
      * Store live Tally closing balances. Never writes dealer_tally_entries.
      *
-     * @param  list<array{tally_ledger_name?: mixed, closing_balance?: mixed, closing_balance_type?: mixed}>  $balances
+     * @param  list<array{tally_ledger_name?: mixed, tally_ledger_guid?: mixed, closing_balance?: mixed, closing_balance_type?: mixed}>  $balances
      * @return array{matched: int, unmatched: int, ambiguous: int, tally_online: bool}
      */
     public function ingest(?string $connectorId, bool $tallyOnline, array $balances): array
@@ -80,6 +80,8 @@ final class TallyLiveBalanceService
                 $mappings->upsertConnectorLedgers($balances, $now);
                 $guidToDealer = $mappings->guidToDealerId();
                 $guidMappedDealers = $mappings->guidMappedDealerIds();
+                $guidLookups = $mappings->uniqueGuidsIndexedByExactLedgerName();
+                $balances = $this->hydrateIncomingGuids($balances, $mappings, $guidLookups);
                 $dealersByName = $this->dealersByNormalizedName();
                 $lookup = $this->uniqueDealerLookup($dealersByName, $guidMappedDealers);
                 $existingLiveLookup = $this->existingLiveNameLookup($guidMappedDealers);
@@ -97,17 +99,17 @@ final class TallyLiveBalanceService
 
                 foreach ($balances as $row) {
                     $name = (string) ($row['tally_ledger_name'] ?? '');
-                    if (trim($name) === '') {
+                    $guid = TallyDealerMappingService::normalizeGuid($row['tally_ledger_guid'] ?? '');
+                    if (trim($name) === '' && $guid === '') {
                         continue;
                     }
 
                     $interpreted = TallyClosingBalanceInterpreter::interpret($row);
                     $type = $interpreted['type'];
                     $amount = $interpreted['amount'];
-                    $guid = TallyDealerMappingService::normalizeGuid($row['tally_ledger_guid'] ?? '');
                     $normalized = TallyLiveLedgerName::normalize($name);
                     $displayName = TallyLiveLedgerName::canonical($name);
-                    if ($normalized === '') {
+                    if ($normalized === '' && $guid === '') {
                         $unmatched++;
                         $this->logMappingRejected($name, $dealersByName, 'normalized_name_empty', $normalized, $tallyNameCounts);
 
@@ -124,9 +126,12 @@ final class TallyLiveBalanceService
                         continue;
                     }
 
-                    if ($guid !== '' && $guidToDealer->has($guid)) {
-                        $dealerId = (int) $guidToDealer->get($guid);
-                        $via = 'guid';
+                    if ($guid !== '') {
+                        $mappedDealerId = $mappings->dealerIdForSavedGuid($guid, $guidToDealer);
+                        if ($mappedDealerId !== null) {
+                            $dealerId = $mappedDealerId;
+                            $via = 'guid';
+                        }
                     }
 
                     if ($dealerId === null) {
@@ -254,10 +259,13 @@ final class TallyLiveBalanceService
         }
 
         if (! $hasLive) {
+            $mapping = $this->mappingVerification($dealer);
+            $hasGuidMapping = (bool) $mapping['mapping_has_guid'];
+
             return [
                 'status' => self::STATUS_NOT_SYNCED,
-                'status_label' => 'Live Tally not mapped',
-                'status_short' => 'Not Mapped',
+                'status_label' => $hasGuidMapping ? 'Live Tally not synced' : 'Live Tally not mapped',
+                'status_short' => $hasGuidMapping ? 'Not Synced' : 'Not Mapped',
                 'tally_online' => true,
                 'balance_matched' => null,
                 'live_tally_signed' => null,
@@ -270,7 +278,7 @@ final class TallyLiveBalanceService
                 'last_synced_label' => $lastSyncedLabel,
                 'live_tally_ledger_name' => $account?->live_tally_ledger_name,
                 ...$this->connectorStatusFields($connector),
-                ...$this->mappingVerification($dealer),
+                ...$mapping,
             ];
         }
 
@@ -454,6 +462,32 @@ final class TallyLiveBalanceService
         }
 
         return $lookup;
+    }
+
+    /**
+     * Fill missing payload GUIDs from the catalog or a saved GUID mapping.
+     * Does not change stored mappings or ERP outstanding.
+     *
+     * @param  list<array<string, mixed>>  $balances
+     * @param  array{catalog: array<string, string>, mapping: array<string, string>}  $lookups
+     * @return list<array<string, mixed>>
+     */
+    private function hydrateIncomingGuids(array $balances, TallyDealerMappingService $mappings, array $lookups): array
+    {
+        $resolved = [];
+        foreach ($balances as $row) {
+            $guid = $mappings->resolveLiveIngestGuid(
+                $row['tally_ledger_guid'] ?? '',
+                (string) ($row['tally_ledger_name'] ?? ''),
+                $lookups,
+            );
+            if ($guid !== '') {
+                $row['tally_ledger_guid'] = $guid;
+            }
+            $resolved[] = $row;
+        }
+
+        return $resolved;
     }
 
     /**
