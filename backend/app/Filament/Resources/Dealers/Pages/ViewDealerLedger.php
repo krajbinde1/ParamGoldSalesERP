@@ -3,6 +3,7 @@
 namespace App\Filament\Resources\Dealers\Pages;
 
 use App\Exceptions\TallyMappingException;
+use App\Filament\Pages\PossibleDuplicateSales;
 use App\Filament\Resources\Dealers\DealerResource;
 use App\Models\Dealer;
 use App\Models\TallyConnectorLedger;
@@ -144,6 +145,13 @@ class ViewDealerLedger extends ViewRecord
                 ->view('filament.resources.dealers.partials.dealer-ledger-mapping-actions')
                 ->extraAttributes(['class' => 'pg-dealer-ledger-mapping-actions'])
                 ->visible(fn (): bool => $isAdmin),
+            Action::make('duplicateSalesReport')
+                ->label('Duplicate Sales Report')
+                ->icon('heroicon-o-document-chart-bar')
+                ->url(fn (): string => PossibleDuplicateSales::getUrl([
+                    'dealer_id' => $this->getRecord()->getKey(),
+                ]))
+                ->visible(fn (): bool => PossibleDuplicateSales::canAccess()),
             Action::make('importTallyLedger')
                 ->label('Import Tally Ledger')
                 ->icon('heroicon-o-arrow-up-tray')

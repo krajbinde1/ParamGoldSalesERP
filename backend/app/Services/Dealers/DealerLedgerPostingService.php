@@ -44,6 +44,43 @@ final class DealerLedgerPostingService
         );
     }
 
+    /**
+     * Update the existing ERP Sales Debit to the current grand total.
+     * Never creates a second sales-order ledger row.
+     */
+    public function updateExistingSalesDebit(Order $order): ?DealerTallyEntry
+    {
+        if ($order->dealer_id === null || ! $order->isBilledReceivable()) {
+            return $this->syncDispatchedOrder($order);
+        }
+
+        $existing = $this->lockedExistingErpEntry(
+            DealerTallyEntry::SOURCE_SALES_ORDER,
+            (int) $order->id,
+            $fingerprint,
+        );
+
+        if ($existing === null) {
+            return $this->syncDispatchedOrder($order);
+        }
+
+        $existing->fill([
+            'dealer_id' => (int) $order->dealer_id,
+            'particulars' => 'Sales Order '.$order->order_no,
+            'voucher_type' => 'Sales',
+            'voucher_no' => (string) $order->order_no,
+            'debit' => $amount,
+            'credit' => 0.0,
+            'source' => DealerTallyEntry::SOURCE_SALES_ORDER,
+            'source_id' => (int) $order->id,
+            'erp_reference' => DealerTallyEntry::salesErpReference((int) $order->id),
+            'fingerprint' => $fingerprint,
+        ]);
+        $existing->save();
+
+        return $existing;
+    }
+
     public function syncReceivedCollection(Collection $collection): ?DealerTallyEntry
     {
         if ($collection->status !== Collection::STATUS_RECEIVED || $collection->dealer_id === null) {

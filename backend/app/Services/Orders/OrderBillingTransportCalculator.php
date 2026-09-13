@@ -136,6 +136,90 @@ final class OrderBillingTransportCalculator
         );
     }
 
+    /**
+     * Live preview / correction totals from unsaved bill lines + transport.
+     *
+     * @param  list<array<string, mixed>>  $lines
+     * @return array<string, mixed>
+     */
+    public static function calculateForLines(
+        array $lines,
+        string $chargeType,
+        float $transportCharges,
+        bool $strict = true,
+    ): array {
+        $base = self::resolveBaseTotalsFromLines($lines);
+
+        return self::calculate(
+            subtotal: $base['subtotal'],
+            discountAmount: $base['discount_amount'],
+            originalGst: $base['gst_amount'],
+            chargeType: $chargeType,
+            transportCharges: $transportCharges,
+            strict: $strict,
+        );
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $lines
+     * @return array{subtotal: float, discount_amount: float, gst_amount: float, taxable_amount: float, grand_total: float}
+     */
+    public static function resolveBaseTotalsFromLines(array $lines): array
+    {
+        $subtotal = 0.0;
+        $discount = 0.0;
+        $gst = 0.0;
+        $calculator = app(OrderLineCalculationService::class);
+
+        foreach ($lines as $line) {
+            $productId = (int) ($line['product_id'] ?? 0);
+            if ($productId < 1) {
+                continue;
+            }
+
+            $product = \App\Models\Product::query()->find($productId);
+            if ($product === null) {
+                continue;
+            }
+
+            $caseQuantity = (int) ($line['case_quantity'] ?? 0);
+            if ($caseQuantity < 1) {
+                continue;
+            }
+
+            try {
+                $calculated = $calculator->calculateForProduct(
+                    product: $product,
+                    caseQuantity: $caseQuantity,
+                    ratePerNo: (float) ($line['rate_per_no'] ?? $line['rate'] ?? 0),
+                    requestedDiscountPercentage: (float) ($line['discount_percentage'] ?? 0),
+                    requestedGstPercentage: (float) ($line['gst_percentage'] ?? $product->gst_percentage ?? 0),
+                    enforceDiscountRule: false,
+                    rateType: (string) ($line['rate_type'] ?? OrderLineCalculationService::RATE_TYPE_PRICE_LIST),
+                );
+            } catch (ValidationException) {
+                continue;
+            }
+
+            $subtotal += $calculated['base_amount'];
+            $discount += $calculated['discount_amount'];
+            $gst += $calculated['gst_amount'];
+        }
+
+        $subtotal = round($subtotal, 2);
+        $discount = round($discount, 2);
+        $gst = round($gst, 2);
+        $taxable = round($subtotal - $discount, 2);
+
+        return [
+            'subtotal' => $subtotal,
+            'discount_amount' => $discount,
+            'gst_amount' => $gst,
+            'taxable_amount' => $taxable,
+            'grand_total' => round($taxable + $gst, 2),
+        ];
+    }
+
     public static function resolveChargeType(Order $order): ?TransportChargeType
     {
         $fromChargeType = TransportChargeType::tryNormalize(

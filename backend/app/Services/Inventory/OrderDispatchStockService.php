@@ -67,14 +67,10 @@ final class OrderDispatchStockService
             }
 
             $actor ??= $this->actorFor($locked);
-            $qtyByProduct = $this->quantitiesByProduct($locked);
 
-            foreach ($this->sortedProductIds($qtyByProduct) as $productId) {
-                $qty = $qtyByProduct[$productId];
-                if (! $this->hasLedger($locked->id, $productId, StockTransactionType::Dispatch, true)) {
-                    continue;
-                }
-                if ($this->hasLedger($locked->id, $productId, StockTransactionType::Return, false)) {
+            foreach ($this->sortedProductIds($this->quantitiesByProduct($locked)) as $productId) {
+                $net = $this->netPostedQty((int) $locked->id, $productId);
+                if ($net <= 0.0001) {
                     continue;
                 }
 
@@ -83,7 +79,7 @@ final class OrderDispatchStockService
 
                 $this->ledgerService->postFinishedProductMovement(
                     $product,
-                    $qty,
+                    $net,
                     0,
                     $rate,
                     [
@@ -98,6 +94,64 @@ final class OrderDispatchStockService
                 );
             }
         });
+    }
+
+    /**
+     * Apply only the quantity difference after a dispatched bill correction.
+     * Extra cases deduct more finished stock; fewer cases restore stock.
+     * Does not re-post the original dispatch quantity.
+     *
+     * @param  array<int, float>  $oldQtyByProduct
+     */
+    public function adjustForCorrectedQuantities(Order $order, array $oldQtyByProduct, ?User $actor = null): void
+    {
+        $order->loadMissing(['items.product:id,nos_per_case,product_name,weighted_average_cost']);
+        if (! $this->shouldPost($order)) {
+            return;
+        }
+
+        $actor ??= $this->actorFor($order);
+        $newQtyByProduct = $this->quantitiesByProduct($order);
+        $productIds = array_unique([
+            ...array_map('intval', array_keys($oldQtyByProduct)),
+            ...array_map('intval', array_keys($newQtyByProduct)),
+        ]);
+        sort($productIds);
+
+        foreach ($productIds as $productId) {
+            if ($productId < 1) {
+                continue;
+            }
+
+            $oldQty = round((float) ($oldQtyByProduct[$productId] ?? 0), 3);
+            $newQty = round((float) ($newQtyByProduct[$productId] ?? 0), 3);
+            $delta = round($newQty - $oldQty, 3);
+            if (abs($delta) < 0.001) {
+                continue;
+            }
+
+            if ($delta > 0) {
+                $this->postCorrectionDelta(
+                    $order,
+                    $productId,
+                    quantityIn: 0,
+                    quantityOut: $delta,
+                    actor: $actor,
+                    remarks: 'Sales order bill correction extra dispatch '.$order->order_no,
+                );
+
+                continue;
+            }
+
+            $this->postCorrectionDelta(
+                $order,
+                $productId,
+                quantityIn: abs($delta),
+                quantityOut: 0,
+                actor: $actor,
+                remarks: 'Sales order bill correction restore '.$order->order_no,
+            );
+        }
     }
 
     /**
@@ -485,6 +539,58 @@ final class OrderDispatchStockService
                 fn ($query) => $query->where('quantity_in', '>', 0),
             )
             ->exists();
+    }
+
+    private function netPostedQty(int $orderId, int $productId): float
+    {
+        $out = (float) StockLedger::query()
+            ->where('item_type', StockItemType::FinishedProduct)
+            ->where('product_id', $productId)
+            ->where('reference_type', Order::class)
+            ->where('reference_id', $orderId)
+            ->where('transaction_type', StockTransactionType::Dispatch)
+            ->sum('quantity_out');
+
+        $in = (float) StockLedger::query()
+            ->where('item_type', StockItemType::FinishedProduct)
+            ->where('product_id', $productId)
+            ->where('reference_type', Order::class)
+            ->where('reference_id', $orderId)
+            ->where('transaction_type', StockTransactionType::Return)
+            ->sum('quantity_in');
+
+        return round($out - $in, 3);
+    }
+
+    private function postCorrectionDelta(
+        Order $order,
+        int $productId,
+        float $quantityIn,
+        float $quantityOut,
+        ?User $actor,
+        string $remarks,
+    ): void {
+        $product = $this->inventoryService->lockProduct($productId);
+        $rate = (float) $product->weighted_average_cost;
+        $type = $quantityOut > 0.0001
+            ? StockTransactionType::Dispatch
+            : StockTransactionType::Return;
+
+        $this->ledgerService->postFinishedProductMovement(
+            $product,
+            $quantityIn,
+            $quantityOut,
+            $rate,
+            [
+                'transaction_date' => $this->transactionDate($order),
+                'transaction_type' => $type,
+                'reference_type' => Order::class,
+                'reference_id' => $order->id,
+                'reference_number' => $order->order_no,
+                'remarks' => $remarks,
+            ],
+            $actor,
+        );
     }
 
     /**

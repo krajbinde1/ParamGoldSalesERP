@@ -6,6 +6,7 @@ use App\Models\Dealer;
 use App\Models\DealerTallyEntry;
 use App\Models\Order;
 use App\Models\TallyOutboundVoucher;
+use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Services\TallyLedger\TallyLedgerConfig;
 use App\Services\TallySync\TallyDealerMappingService;
 use Illuminate\Support\Carbon;
@@ -24,6 +25,16 @@ final class DealerSalesLedgerReconciler
     public const MATCH_BILL_REFERENCE = 'bill_reference';
 
     public const MATCH_UNIQUE_WINDOW = 'unique_window';
+
+    /**
+     * @var array<string, string>
+     */
+    public const MATCH_REASON_LABELS = [
+        self::MATCH_ERP_REFERENCE => 'ERP order number / reference on Tally voucher',
+        self::MATCH_GUID => 'Same Tally voucher GUID',
+        self::MATCH_BILL_REFERENCE => 'ERP bill/invoice number matches Tally voucher',
+        self::MATCH_UNIQUE_WINDOW => 'Same dealer, same amount, unique pair within 14 days (order/bill date)',
+    ];
 
     /**
      * @param  array<string, mixed>  $transaction
@@ -597,6 +608,86 @@ final class DealerSalesLedgerReconciler
         return $count;
     }
 
+    public static function matchReasonLabel(string $reason): string
+    {
+        return self::MATCH_REASON_LABELS[$reason] ?? $reason;
+    }
+
+    /**
+     * Read-only report of possible ERP Sales + Tally Sales duplicate Debits.
+     * Does not insert, update, or delete ledger rows.
+     *
+     * @return array{
+     *     pairs: list<array<string, mixed>>,
+     *     ambiguous: list<array<string, mixed>>,
+     *     duplicate_count: int,
+     *     duplicate_amount: float,
+     *     current_debit_total: float|null,
+     *     current_credit_total: float|null,
+     *     current_outstanding_signed: float|null,
+     *     current_outstanding_label: string|null,
+     *     current_opening_label: string|null,
+     *     correct_debit_total: float|null,
+     *     correct_outstanding_signed: float|null
+     * }
+     */
+    public function duplicateSalesReport(?Dealer $dealer = null): array
+    {
+        $classified = $this->classifyExistingDuplicates($dealer);
+        $pairs = [];
+        $duplicateAmount = 0.0;
+
+        foreach ($classified['definite'] as $row) {
+            $amount = round((float) $row['tally_debit'], 2);
+            $duplicateAmount = round($duplicateAmount + $amount, 2);
+            $pairs[] = [
+                'dealer_id' => $row['dealer_id'],
+                'dealer_name' => $row['dealer_name'],
+                'erp_order' => $row['erp_order_no'],
+                'erp_amount' => round((float) $row['erp_debit'], 2),
+                'erp_date' => $row['erp_date'],
+                'tally_voucher_no' => $row['tally_voucher_no'],
+                'tally_date' => $row['tally_date'],
+                'tally_amount' => $amount,
+                'match_reason' => $row['reason'],
+                'match_reason_label' => self::matchReasonLabel((string) $row['reason']),
+            ];
+        }
+
+        $currentDebit = null;
+        $currentCredit = null;
+        $currentOutstanding = null;
+        $currentOutstandingLabel = null;
+        $currentOpeningLabel = null;
+        $correctDebit = null;
+        $correctOutstanding = null;
+
+        if ($dealer !== null) {
+            $summary = app(TallyDealerLedgerService::class)->statement($dealer)['summary'];
+            $currentDebit = round((float) $summary['total_debit'], 2);
+            $currentCredit = round((float) $summary['total_credit'], 2);
+            $currentOutstanding = round((float) $summary['current_outstanding_signed'], 2);
+            $currentOutstandingLabel = (string) $summary['current_outstanding_label'];
+            $currentOpeningLabel = (string) $summary['opening_balance_label'];
+            $correctDebit = round($currentDebit - $duplicateAmount, 2);
+            $correctOutstanding = round($currentOutstanding - $duplicateAmount, 2);
+        }
+
+        return [
+            'pairs' => $pairs,
+            'ambiguous' => $classified['ambiguous'],
+            'duplicate_count' => count($pairs),
+            'duplicate_amount' => $duplicateAmount,
+            'current_debit_total' => $currentDebit,
+            'current_credit_total' => $currentCredit,
+            'current_outstanding_signed' => $currentOutstanding,
+            'current_outstanding_label' => $currentOutstandingLabel,
+            'current_opening_label' => $currentOpeningLabel,
+            'correct_debit_total' => $correctDebit,
+            'correct_outstanding_signed' => $correctOutstanding,
+        ];
+    }
+
     public function stampOutboundSalesSync(TallyOutboundVoucher $voucher): void
     {
         if ($voucher->source_type !== TallyOutboundVoucher::SOURCE_SALES_ORDER) {
@@ -1071,12 +1162,43 @@ final class DealerSalesLedgerReconciler
 
     private function dateDistance(DealerTallyEntry $entry, string $targetDate): int
     {
-        $left = $entry->entry_date?->toDateString();
-        if ($left === null || $targetDate === '') {
+        if ($targetDate === '') {
             return PHP_INT_MAX;
         }
 
-        return (int) abs(Carbon::parse($left)->diffInDays(Carbon::parse($targetDate)));
+        $dates = array_values(array_filter([
+            $entry->entry_date?->toDateString(),
+            $entry->tally_entry_date?->toDateString(),
+        ]));
+
+        if ($entry->source === DealerTallyEntry::SOURCE_SALES_ORDER) {
+            $order = $this->orderForEntry($entry);
+            if ($order instanceof Order) {
+                foreach ([
+                    $order->order_date?->toDateString(),
+                    $order->bill_date?->toDateString(),
+                    $order->dispatch_date?->toDateString(),
+                    $order->dealerLedgerEntryDate(),
+                ] as $date) {
+                    if (is_string($date) && $date !== '') {
+                        $dates[] = $date;
+                    }
+                }
+            }
+        }
+
+        $dates = array_values(array_unique($dates));
+        if ($dates === []) {
+            return PHP_INT_MAX;
+        }
+
+        $target = Carbon::parse($targetDate);
+        $min = PHP_INT_MAX;
+        foreach ($dates as $date) {
+            $min = min($min, (int) abs(Carbon::parse($date)->diffInDays($target)));
+        }
+
+        return $min;
     }
 
     private function withinDateWindow(DealerTallyEntry $entry, string $targetDate): bool

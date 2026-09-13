@@ -1,9 +1,11 @@
 <?php
 
 use App\Enums\UserRole;
+use App\Filament\Pages\PossibleDuplicateSales;
 use App\Models\Collection;
 use App\Models\DealerTallyEntry;
 use App\Models\Order;
+use App\Models\User;
 use App\Services\Dashboard\DirectorDashboardDataService;
 use App\Services\Dealers\DealerLedgerPostingService;
 use App\Services\Dealers\DealerOutstandingService;
@@ -11,6 +13,8 @@ use App\Services\Dealers\DealerSalesLedgerReconciler;
 use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Services\TallyLedger\TallyLedgerConfig;
 use App\Services\TallyLedger\TallyLedgerImportService;
+use App\Support\IndianCurrency;
+use Livewire\Livewire;
 
 it('skips tally import rows that match an existing erp debit or credit on the same date', function (): void {
     $employee = ledgerEmployee(UserRole::Employee, '9811199001');
@@ -981,6 +985,152 @@ it('links the Renuka-style erp order and tally sales bill so the dealer is debit
         ->and($linked?->tally_reconciled_at)->not->toBeNull()
         ->and((float) $linked?->debit)->toBe(37776.0)
         ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(37776.0);
+});
+
+it('reports the 22 Aug ERP sale and 27 Aug Tally sale as a duplicate without deleting rows', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811199040');
+    $dealer = ledgerDealer($employee, [
+        'firm_name' => 'Renuka Krushi Kendra Duplicate Report',
+        'village' => 'Deulgaon Mahi',
+        'opening_balance' => 0,
+    ]);
+
+    ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 37776,
+        'order_no' => 'PG-20260822-0001',
+        'order_date' => '2026-08-22',
+        'bill_date' => '2026-08-27',
+        'dispatch_date' => '2026-08-22',
+        'dispatched_at' => '2026-08-22 16:00:00',
+    ]);
+
+    ledgerCollection($dealer, $employee, [
+        'amount' => 10000,
+        'status' => Collection::STATUS_RECEIVED,
+        'collection_date' => '2026-08-28',
+        'payment_mode' => 'Cash',
+    ]);
+
+    DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'entry_date' => '2026-08-27',
+        'particulars' => 'Sales @5%',
+        'voucher_type' => 'Sales',
+        'voucher_no' => 'PG/26-27/0478',
+        'debit' => 37776,
+        'credit' => 0,
+        'source' => TallyLedgerConfig::SOURCE,
+        'fingerprint' => DealerTallyEntry::makeFingerprint(
+            dealerId: (int) $dealer->id,
+            date: '2026-08-27',
+            voucherType: 'Sales',
+            voucherNo: 'PG/26-27/0478',
+            debit: 37776,
+            credit: 0,
+            particulars: 'Sales @5%',
+        ),
+        'source_row' => 4,
+    ]);
+
+    DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'entry_date' => '2026-08-28',
+        'particulars' => 'Receipt',
+        'voucher_type' => 'Receipt',
+        'voucher_no' => 'RCP/26-27/0100',
+        'debit' => 0,
+        'credit' => 10000,
+        'source' => TallyLedgerConfig::SOURCE,
+        'fingerprint' => DealerTallyEntry::makeFingerprint(
+            dealerId: (int) $dealer->id,
+            date: '2026-08-28',
+            voucherType: 'Receipt',
+            voucherNo: 'RCP/26-27/0100',
+            debit: 0,
+            credit: 10000,
+            particulars: 'Receipt',
+        ),
+        'source_row' => 5,
+    ]);
+
+    $before = DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count();
+    $report = app(DealerSalesLedgerReconciler::class)->duplicateSalesReport($dealer);
+
+    expect($before)->toBe(4)
+        ->and($report['duplicate_count'])->toBe(1)
+        ->and($report['duplicate_amount'])->toBe(37776.0)
+        ->and($report['pairs'][0]['erp_order'])->toBe('PG-20260822-0001')
+        ->and($report['pairs'][0]['erp_amount'])->toBe(37776.0)
+        ->and($report['pairs'][0]['erp_date'])->toBe('2026-08-22')
+        ->and($report['pairs'][0]['tally_voucher_no'])->toBe('PG/26-27/0478')
+        ->and($report['pairs'][0]['tally_date'])->toBe('2026-08-27')
+        ->and($report['pairs'][0]['tally_amount'])->toBe(37776.0)
+        ->and($report['pairs'][0]['match_reason'])->toBe(DealerSalesLedgerReconciler::MATCH_UNIQUE_WINDOW)
+        ->and(collect($report['pairs'])->pluck('tally_voucher_no')->all())->toBe(['PG/26-27/0478'])
+        ->and($report['ambiguous'])->toHaveCount(0)
+        ->and($report['current_debit_total'])->toBe(75552.0)
+        ->and($report['current_credit_total'])->toBe(20000.0)
+        ->and($report['current_outstanding_signed'])->toBe(55552.0)
+        ->and($report['correct_debit_total'])->toBe(37776.0)
+        ->and($report['correct_outstanding_signed'])->toBe(17776.0)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(4);
+});
+
+it('opens the duplicate sales report page without changing ledger rows', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811199041');
+    $dealer = ledgerDealer($employee, [
+        'firm_name' => 'Renuka Report Page Dealer',
+        'opening_balance' => 0,
+    ]);
+    $director = User::query()->create([
+        'name' => 'Duplicate Report Director',
+        'email' => 'dup.sales.'.uniqid().'@example.com',
+        'password' => 'password',
+        'role' => UserRole::Director->value,
+    ]);
+
+    ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'grand_total' => 37776,
+        'order_no' => 'PG-20260822-0001',
+        'order_date' => '2026-08-22',
+        'dispatch_date' => '2026-08-22',
+        'dispatched_at' => '2026-08-22 16:00:00',
+    ]);
+
+    DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'entry_date' => '2026-08-27',
+        'particulars' => 'Sales @5%',
+        'voucher_type' => 'Sales',
+        'voucher_no' => 'PG/26-27/0478',
+        'debit' => 37776,
+        'credit' => 0,
+        'source' => TallyLedgerConfig::SOURCE,
+        'fingerprint' => DealerTallyEntry::makeFingerprint(
+            dealerId: (int) $dealer->id,
+            date: '2026-08-27',
+            voucherType: 'Sales',
+            voucherNo: 'PG/26-27/0478',
+            debit: 37776,
+            credit: 0,
+            particulars: 'Sales @5%',
+        ),
+        'source_row' => 4,
+    ]);
+
+    Livewire::actingAs($director)
+        ->test(PossibleDuplicateSales::class, ['dealerId' => $dealer->id])
+        ->assertSuccessful()
+        ->assertSee('Possible Duplicate ERP Sales + Tally Sales')
+        ->assertSee('PG-20260822-0001')
+        ->assertSee('PG/26-27/0478')
+        ->assertSee(IndianCurrency::formatExact(37776))
+        ->assertSee('Correct Debit total')
+        ->assertSee('Ledger rows are not deleted');
+
+    expect(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2);
 });
 
 it('does not merge genuine same-amount sales that fall outside the date window', function (): void {

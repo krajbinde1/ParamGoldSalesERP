@@ -84,8 +84,7 @@ final class OrderLineCalculationService
 
         $discountPercentage = $requestedDiscountPercentage;
 
-        if ($rateType === self::RATE_TYPE_FIXED) {
-            // Fixed rate never allows discount.
+        if ($rateType === self::RATE_TYPE_FIXED && $enforceDiscountRule) {
             $discountPercentage = 0.0;
         } elseif ($discountPercentage < 0 || $discountPercentage > 100) {
             throw ValidationException::withMessages([
