@@ -202,7 +202,9 @@ it('renders clickable director KPI cards in the expected order', function (): vo
             'Pending Orders',
             'Today Field Visits',
         ])
-        ->assertSeeHtml('filters%5Border_date%5D%5Bdate%5D='.$today)
+        ->assertSeeHtml('sales-details')
+        ->assertSeeHtml('period=today')
+        ->assertDontSeeHtml('filters%5Border_date%5D%5Bdate%5D='.$today)
         ->assertSeeHtml('filters%5Bcollection_date%5D%5Bdate%5D='.$today)
         ->assertSeeHtml('filters%5Bpunched_in%5D%5BisActive%5D=1')
         ->assertSeeHtml('filters%5Bvisit_date%5D%5Bdate%5D='.$today)

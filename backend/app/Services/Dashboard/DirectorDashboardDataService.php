@@ -16,6 +16,7 @@ use App\Services\Dealers\DealerLedgerService;
 use App\Services\Dealers\DealerOutstandingService;
 use App\Services\PaymentRequests\PaymentRequestApproverResolver;
 use App\Support\AttendanceCalendar;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection as SupportCollection;
 
@@ -91,10 +92,10 @@ class DirectorDashboardDataService
             ->where('billed_at', '<=', $now->copy()->subHours(24))
             ->count();
 
-        $todaySales = (float) Order::query()
-            ->whereDate('order_date', $today)
-            ->where('status', '!=', Order::STATUS_REJECTED)
-            ->sum('grand_total');
+        $todaySales = $this->dashboardSalesTotal(
+            AttendanceCalendar::today(),
+            AttendanceCalendar::today()->copy()->endOfDay(),
+        );
 
         $todayCollection = (float) Collection::query()
             ->whereDate('collection_date', $today)
@@ -171,6 +172,107 @@ class DirectorDashboardDataService
         }
 
         return $sign.'₹'.number_format($abs, 0);
+    }
+
+    /**
+     * Dashboard Sales for a period. Shared by the Today Sales card and Sales Details.
+     *
+     * @return Builder<Order>
+     */
+    public function dashboardSalesQuery(Carbon $start, Carbon $end): Builder
+    {
+        return Order::query()
+            ->whereDate('order_date', '>=', $start->toDateString())
+            ->whereDate('order_date', '<=', $end->toDateString())
+            ->where('status', '!=', Order::STATUS_REJECTED);
+    }
+
+    public function dashboardSalesTotal(Carbon $start, Carbon $end): float
+    {
+        return round((float) $this->dashboardSalesQuery($start, $end)->sum('grand_total'), 2);
+    }
+
+    /**
+     * Party-wise sales for the same query as dashboardSalesTotal().
+     *
+     * @return array{
+     *     total_sales: float,
+     *     total_invoices: int,
+     *     total_parties: int,
+     *     parties: list<array<string, mixed>>
+     * }
+     */
+    public function dashboardSalesPartyDetails(Carbon $start, Carbon $end): array
+    {
+        $orders = $this->dashboardSalesQuery($start, $end)
+            ->with([
+                'dealer:id,firm_name',
+                'salesEmployee:id,full_name',
+            ])
+            ->orderBy('order_date')
+            ->orderBy('id')
+            ->get();
+
+        $parties = [];
+
+        foreach ($orders->groupBy(fn (Order $order): int => (int) ($order->dealer_id ?? 0)) as $dealerId => $rows) {
+            $invoices = $rows->map(function (Order $order): array {
+                $invoiceNo = filled($order->bill_number)
+                    ? (string) $order->bill_number
+                    : (string) ($order->shortOrderNo() ?: $order->order_no);
+
+                return [
+                    'id' => $order->id,
+                    'date' => $order->order_date?->toDateString(),
+                    'dealer_id' => $order->dealer_id,
+                    'dealer_name' => $order->dealer?->firm_name ?: 'Unknown party',
+                    'employee_name' => $order->salesEmployee?->full_name ?: '—',
+                    'invoice_no' => $invoiceNo,
+                    'order_no' => $order->order_no,
+                    'sales_amount' => round((float) $order->grand_total, 2),
+                ];
+            })->values()->all();
+
+            $dates = collect($invoices)->pluck('date')->filter()->unique()->values();
+            $employees = collect($invoices)->pluck('employee_name')->unique()->values();
+            $invoiceNos = collect($invoices)->pluck('invoice_no')->unique()->values();
+            $amount = round((float) collect($invoices)->sum('sales_amount'), 2);
+            $count = count($invoices);
+
+            $parties[] = [
+                'dealer_id' => $dealerId > 0 ? (int) $dealerId : null,
+                'dealer_name' => $invoices[0]['dealer_name'] ?? 'Unknown party',
+                'invoice_count' => $count,
+                'sales_amount' => $amount,
+                'date_label' => $dates->count() <= 1
+                    ? (string) ($dates->first() ?: '—')
+                    : $dates->first().' – '.$dates->last(),
+                'employee_label' => $employees->count() <= 1
+                    ? (string) ($employees->first() ?: '—')
+                    : $employees->implode(', '),
+                'invoice_label' => $count === 1
+                    ? (string) ($invoiceNos->first() ?: '—')
+                    : $count.' invoices',
+                'invoices' => $invoices,
+            ];
+        }
+
+        usort($parties, function (array $left, array $right): int {
+            $compare = $right['sales_amount'] <=> $left['sales_amount'];
+
+            return $compare !== 0
+                ? $compare
+                : strcmp((string) $left['dealer_name'], (string) $right['dealer_name']);
+        });
+
+        $totalSales = round((float) $orders->sum('grand_total'), 2);
+
+        return [
+            'total_sales' => $totalSales,
+            'total_invoices' => $orders->count(),
+            'total_parties' => count($parties),
+            'parties' => array_values($parties),
+        ];
     }
 
     /**

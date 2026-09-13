@@ -2,6 +2,7 @@
 
 namespace App\Filament\Widgets;
 
+use App\Filament\Pages\SalesDetails;
 use App\Filament\Resources\Attendances\AttendanceResource;
 use App\Filament\Resources\Collections\CollectionResource;
 use App\Filament\Resources\DealerVisits\DealerVisitResource;
@@ -48,9 +49,7 @@ class AdminDirectorWelcomeWidget extends Widget
                     'tone' => 'teal',
                     'icon' => 'heroicon-o-banknotes',
                     'alert' => false,
-                    'url' => OrderResource::getUrl('index', [
-                        'filters' => ['order_date' => ['date' => $today]],
-                    ]),
+                    'url' => SalesDetails::getUrl(['period' => 'today']),
                 ],
                 [
                     'label' => 'Today Collection',

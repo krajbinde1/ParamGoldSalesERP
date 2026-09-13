@@ -1499,6 +1499,51 @@
         background: #fff;
     }
 
+    .pg-admin-dash .pg-sales-details-table-wrap {
+        margin-top: 1rem;
+        overflow-x: auto;
+    }
+
+    .pg-admin-dash .pg-sales-details-table {
+        width: 100%;
+    }
+
+    .pg-admin-dash .pg-sales-party-toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.4rem;
+        border: 0;
+        background: transparent;
+        padding: 0;
+        color: inherit;
+        font: inherit;
+        font-weight: 650;
+        cursor: pointer;
+        text-align: left;
+    }
+
+    .pg-admin-dash .pg-sales-party-toggle:hover {
+        color: #0F766E;
+    }
+
+    .pg-admin-dash .pg-sales-party-row--open td {
+        background: #F0FDFA;
+    }
+
+    .pg-admin-dash .pg-sales-invoice-table {
+        margin: 0.15rem 0 0.35rem;
+        background: #fff;
+        border: 1px solid var(--pg-border);
+        border-radius: 0.5rem;
+        overflow: hidden;
+    }
+
+    .pg-admin-dash .pg-sales-invoice-row > td {
+        padding: 0.35rem 0.5rem 0.55rem;
+        background: #F8FAFC;
+        border-bottom: 1px solid var(--pg-border);
+    }
+
     @media (max-width: 799px) {
         .pg-admin-dash .pg-team-card__overall {
             margin-left: 0;

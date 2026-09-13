@@ -181,6 +181,118 @@ it('stores an opening-only sundry debtor live balance as debit not credit', func
         ->and($statement['verification']['status_short'])->toBe('Matched');
 });
 
+it('matches equal credit live tally and erp outstanding without adding the two balances', function (): void {
+    $user = tallySyncConnectorUser();
+    $employee = tallySyncEmployee('9813000160');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Dhartidhan Krushi Seva Kendra (Mahora)']);
+    tallySyncMapDealer($dealer, 'Dhartidhan Krushi Seva Kendra (Mahora)');
+    DealerTallyLedger::query()->create([
+        'dealer_id' => $dealer->id,
+        'opening_balance' => 28808.80,
+        'opening_balance_type' => 'credit',
+        'opening_balance_explicit' => true,
+        'financial_start_date' => '2026-04-01',
+    ]);
+    $token = tallySyncConnectorToken($user);
+
+    $this->withToken($token)
+        ->postJson('/api/tally-connector/live-balances', [
+            'tally_online' => true,
+            'balances' => [[
+                'tally_ledger_name' => 'Dhartidhan Krushi Seva Kendra (Mahora)',
+                'closing_balance' => 28808.80,
+                'closing_balance_type' => 'credit',
+            ]],
+        ])
+        ->assertOk();
+
+    $statement = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
+    $rowStatus = app(TallyLiveBalanceService::class)->outstandingRowStatus(
+        $dealer->fresh(),
+        (float) $statement['summary']['current_outstanding_signed'],
+    );
+    $recon = app(TallyLiveBalanceService::class)->outstandingReconciliation();
+
+    expect($statement['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_MATCHED)
+        ->and($statement['verification']['status_short'])->toBe('Matched')
+        ->and($statement['verification']['live_tally_label'])->toBe('₹28,808.80 Cr')
+        ->and($statement['verification']['erp_outstanding_label'])->toBe('₹28,808.80 Cr')
+        ->and($statement['verification']['difference'])->toBe(0.0)
+        ->and($statement['verification']['difference_label'])->toBe('₹0.00')
+        ->and($rowStatus['status'])->toBe(TallyLiveBalanceService::STATUS_MATCHED)
+        ->and($rowStatus['difference'])->toBe(0.0)
+        ->and($recon['mismatched'])->toBe(0)
+        ->and($recon['matched'])->toBe(1);
+});
+
+it('still reports a mismatch when live tally and erp outstanding are opposite dr/cr', function (): void {
+    $user = tallySyncConnectorUser();
+    $employee = tallySyncEmployee('9813000161');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Opposite Side Agro (Mahora)']);
+    tallySyncMapDealer($dealer, 'Opposite Side Agro (Mahora)');
+    DealerTallyLedger::query()->create([
+        'dealer_id' => $dealer->id,
+        'opening_balance' => 28808.80,
+        'opening_balance_type' => 'credit',
+        'opening_balance_explicit' => true,
+        'financial_start_date' => '2026-04-01',
+    ]);
+    $token = tallySyncConnectorToken($user);
+
+    $this->withToken($token)
+        ->postJson('/api/tally-connector/live-balances', [
+            'tally_online' => true,
+            'balances' => [[
+                'tally_ledger_name' => 'Opposite Side Agro (Mahora)',
+                'closing_balance' => 28808.80,
+                'closing_balance_type' => 'debit',
+            ]],
+        ])
+        ->assertOk();
+
+    $statement = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
+
+    expect($statement['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_MISMATCH)
+        ->and($statement['verification']['status_short'])->toBe('Mismatch')
+        ->and($statement['verification']['live_tally_label'])->toBe('₹28,808.80 Dr')
+        ->and($statement['verification']['erp_outstanding_label'])->toBe('₹28,808.80 Cr')
+        ->and($statement['verification']['difference'])->toBe(-57617.60);
+});
+
+it('matches equal credit balances when live type is stored as Cr or the amount is signed', function (): void {
+    $employee = tallySyncEmployee('9813000162');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Credit Alias Agro (Mahora)']);
+    tallySyncMapDealer($dealer, 'Credit Alias Agro (Mahora)');
+    DealerTallyLedger::query()->create([
+        'dealer_id' => $dealer->id,
+        'opening_balance' => 28808.80,
+        'opening_balance_type' => 'credit',
+        'opening_balance_explicit' => true,
+        'financial_start_date' => '2026-04-01',
+        'live_closing_balance' => -28808.80,
+        'live_closing_balance_type' => 'Cr',
+        'live_tally_ledger_name' => 'Credit Alias Agro (Mahora)',
+        'live_synced_at' => now(),
+    ]);
+    TallyLiveSyncState::current()->update([
+        'tally_online' => true,
+        'last_seen_at' => now('Asia/Kolkata'),
+        'last_heartbeat_at' => now('Asia/Kolkata'),
+        'last_balance_sync_at' => now('Asia/Kolkata'),
+    ]);
+
+    $statement = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
+    $recon = app(TallyLiveBalanceService::class)->outstandingReconciliation();
+
+    expect($statement['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_MATCHED)
+        ->and($statement['verification']['live_tally_label'])->toBe('₹28,808.80 Cr')
+        ->and($statement['verification']['erp_outstanding_label'])->toBe('₹28,808.80 Cr')
+        ->and($statement['verification']['difference'])->toBe(0.0)
+        ->and($statement['verification']['difference_label'])->toBe('₹0.00')
+        ->and($recon['matched'])->toBe(1)
+        ->and($recon['mismatched'])->toBe(0);
+});
+
 it('shows a mismatch when live tally closing differs from erp outstanding', function (): void {
     $user = tallySyncConnectorUser();
     $employee = tallySyncEmployee('9813000102');

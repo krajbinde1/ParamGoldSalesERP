@@ -282,13 +282,14 @@ final class TallyLiveBalanceService
             ];
         }
 
-        $matched = DealerTallyBalance::matches(
-            DealerTallyBalance::amountFromSigned($erpSigned),
-            DealerTallyBalance::typeFromSigned($erpSigned),
+        $compared = DealerTallyBalance::compareSignedToBalance(
+            $erpSigned,
             (float) $liveAmount,
             (string) $liveType,
         );
-        $difference = round($erpSigned - $liveSigned, 2);
+        $liveSigned = $compared['right_signed'];
+        $matched = $compared['matched'];
+        $difference = $compared['difference'];
 
         return [
             'status' => $matched ? self::STATUS_MATCHED : self::STATUS_MISMATCH,
@@ -301,7 +302,7 @@ final class TallyLiveBalanceService
             'erp_outstanding_label' => $erpLabel,
             'erp_closing_label' => $erpLabel,
             'tally_closing_label' => IndianCurrency::formatDrCr($liveSigned),
-            'difference' => $difference,
+            'difference' => $matched ? 0.0 : $difference,
             'difference_label' => $matched ? IndianCurrency::formatExact(0) : IndianCurrency::formatDrCr($difference),
             'last_synced_label' => $lastSyncedLabel,
             'live_tally_ledger_name' => $account?->live_tally_ledger_name,
@@ -745,16 +746,13 @@ final class TallyLiveBalanceService
             ];
         }
 
-        $liveAmount = (float) $account->live_closing_balance;
-        $liveType = (string) $account->live_closing_balance_type;
-        $liveSigned = DealerTallyBalance::signed($liveAmount, $liveType);
-        $matched = DealerTallyBalance::matches(
-            DealerTallyBalance::amountFromSigned($erpSigned),
-            DealerTallyBalance::typeFromSigned($erpSigned),
-            $liveAmount,
-            $liveType,
+        $compared = DealerTallyBalance::compareSignedToBalance(
+            $erpSigned,
+            (float) $account->live_closing_balance,
+            (string) $account->live_closing_balance_type,
         );
-        $difference = round($erpSigned - $liveSigned, 2);
+        $matched = $compared['matched'];
+        $difference = $compared['difference'];
 
         return [
             'status' => $matched ? self::STATUS_MATCHED : self::STATUS_MISMATCH,
@@ -773,14 +771,14 @@ final class TallyLiveBalanceService
 
     public static function liveSignedSql(string $dealersTable = 'dealers'): string
     {
-        $credit = DealerTallyBalance::CREDIT;
+        $credit = DealerTallyBalance::creditTypeSql('dealer_tally_ledgers.live_closing_balance_type');
 
         return "(
             SELECT CASE
                 WHEN dealer_tally_ledgers.live_closing_balance IS NULL
                   OR dealer_tally_ledgers.live_closing_balance_type IS NULL
                 THEN NULL
-                WHEN LOWER(dealer_tally_ledgers.live_closing_balance_type) = '{$credit}'
+                WHEN {$credit}
                 THEN -ABS(dealer_tally_ledgers.live_closing_balance)
                 ELSE ABS(dealer_tally_ledgers.live_closing_balance)
             END
