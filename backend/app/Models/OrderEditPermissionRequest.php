@@ -185,11 +185,17 @@ class OrderEditPermissionRequest extends Model
                 continue;
             }
 
+            $oldValue = $this->formatFieldValue((string) $key, $old[$key] ?? null);
+            $newValue = $this->formatFieldValue((string) $key, $new[$key] ?? null);
+            if ($oldValue === $newValue) {
+                continue;
+            }
+
             $rows[] = [
                 'field' => (string) $key,
                 'label' => $label,
-                'old' => $this->formatFieldValue((string) $key, $old[$key] ?? null),
-                'new' => $this->formatFieldValue((string) $key, $new[$key] ?? null),
+                'old' => $oldValue,
+                'new' => $newValue,
             ];
         }
 
@@ -212,9 +218,15 @@ class OrderEditPermissionRequest extends Model
     private function fieldLabel(string $key): ?string
     {
         return match ($key) {
+            'items' => 'Products',
             'vehicle_number' => 'Vehicle No.',
             'transport_charge_type' => 'Transport Type',
             'transport_amount' => 'Transport Charges',
+            'subtotal' => 'Subtotal',
+            'discount_amount' => 'Discount',
+            'taxable_amount' => 'Taxable Value',
+            'gst_amount' => 'GST',
+            'round_off' => 'Round Off',
             'grand_total' => 'Grand Total',
             default => null,
         };
@@ -228,7 +240,8 @@ class OrderEditPermissionRequest extends Model
 
         return match ($key) {
             'transport_charge_type' => TransportChargeType::tryFrom((string) $value)?->label() ?: (string) $value,
-            'transport_amount', 'grand_total' => OrderBillingTransportCalculator::formatMoney((float) $value),
+            'transport_amount', 'subtotal', 'discount_amount', 'taxable_amount', 'gst_amount', 'round_off', 'grand_total'
+                => OrderBillingTransportCalculator::formatMoney((float) $value),
             default => (string) $value,
         };
     }

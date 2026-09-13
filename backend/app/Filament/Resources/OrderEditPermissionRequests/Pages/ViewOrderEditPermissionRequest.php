@@ -49,7 +49,7 @@ class ViewOrderEditPermissionRequest extends ViewRecord
                 ->authorize(fn (): bool => Gate::forUser(auth()->user())->allows('approve', $record))
                 ->requiresConfirmation()
                 ->modalHeading('Approve Edit Permission')
-                ->modalDescription('Admin will be allowed a one-time correction of Vehicle No., Transport Type, and Transport Charges. The order stays Dispatched.')
+                ->modalDescription('Admin will be allowed a one-time correction of the full bill (products, quantity, rate, discount %, vehicle, and transport) so ERP can match the existing Tally bill. The order stays Dispatched. Tally is not changed.')
                 ->modalSubmitActionLabel('Approve')
                 ->action(function () use ($record): void {
                     try {

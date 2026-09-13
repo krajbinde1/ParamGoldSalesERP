@@ -54,31 +54,39 @@ final class DealerLedgerPostingService
             return $this->syncDispatchedOrder($order);
         }
 
-        $existing = $this->lockedExistingErpEntry(
+        $amount = round((float) $order->grand_total, 2);
+        $fingerprint = DealerTallyEntry::makeSourceFingerprint(
             DealerTallyEntry::SOURCE_SALES_ORDER,
             (int) $order->id,
-            $fingerprint,
         );
 
-        if ($existing === null) {
-            return $this->syncDispatchedOrder($order);
-        }
+        return DB::transaction(function () use ($order, $amount, $fingerprint): ?DealerTallyEntry {
+            $existing = $this->lockedExistingErpEntry(
+                DealerTallyEntry::SOURCE_SALES_ORDER,
+                (int) $order->id,
+                $fingerprint,
+            );
 
-        $existing->fill([
-            'dealer_id' => (int) $order->dealer_id,
-            'particulars' => 'Sales Order '.$order->order_no,
-            'voucher_type' => 'Sales',
-            'voucher_no' => (string) $order->order_no,
-            'debit' => $amount,
-            'credit' => 0.0,
-            'source' => DealerTallyEntry::SOURCE_SALES_ORDER,
-            'source_id' => (int) $order->id,
-            'erp_reference' => DealerTallyEntry::salesErpReference((int) $order->id),
-            'fingerprint' => $fingerprint,
-        ]);
-        $existing->save();
+            if ($existing === null) {
+                return $this->syncDispatchedOrder($order);
+            }
 
-        return $existing;
+            $existing->fill([
+                'dealer_id' => (int) $order->dealer_id,
+                'particulars' => 'Sales Order '.$order->order_no,
+                'voucher_type' => 'Sales',
+                'voucher_no' => (string) $order->order_no,
+                'debit' => $amount,
+                'credit' => 0.0,
+                'source' => DealerTallyEntry::SOURCE_SALES_ORDER,
+                'source_id' => (int) $order->id,
+                'erp_reference' => DealerTallyEntry::salesErpReference((int) $order->id),
+                'fingerprint' => $fingerprint,
+            ]);
+            $existing->save();
+
+            return $existing;
+        });
     }
 
     public function syncReceivedCollection(Collection $collection): ?DealerTallyEntry

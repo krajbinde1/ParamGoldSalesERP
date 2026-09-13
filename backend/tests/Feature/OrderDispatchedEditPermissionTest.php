@@ -7,6 +7,8 @@ use App\Actions\Orders\DispatchOrder;
 use App\Actions\Orders\RejectOrderEditPermission;
 use App\Actions\Orders\RequestOrderEditPermission;
 use App\Actions\Orders\SendOrderForBilling;
+use App\Enums\StockItemType;
+use App\Enums\StockTransactionType;
 use App\Enums\UserRole;
 use App\Filament\Resources\OrderEditPermissionRequests\OrderEditPermissionRequestResource;
 use App\Filament\Resources\OrderEditPermissionRequests\Pages\ListOrderEditPermissionRequests;
@@ -14,11 +16,16 @@ use App\Filament\Resources\OrderEditPermissionRequests\Pages\ViewOrderEditPermis
 use App\Filament\Resources\Orders\Pages\ListOrders;
 use App\Filament\Resources\Orders\Pages\ViewOrder;
 use App\Models\AppNotification;
+use App\Models\DealerTallyEntry;
 use App\Models\Employee;
 use App\Models\Order;
 use App\Models\OrderEditPermissionRequest;
+use App\Models\Product;
+use App\Models\StockLedger;
+use App\Models\TallyOutboundVoucher;
 use App\Models\User;
 use App\Models\Vehicle;
+use App\Services\Orders\OrderBillingTransportCalculator;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Gate;
@@ -189,7 +196,9 @@ it('locks dispatched orders from admin edits until the director approves a one-t
         ->and($used->edited_by)->toBe($admin->id)
         ->and(Gate::forUser($admin)->allows('correctDispatchedTransport', $fresh))->toBeFalse();
 
-    expect($used->auditRows())->toHaveCount(4);
+    expect($used->auditRows())->not->toBeEmpty();
+    expect(collect($used->auditRows())->pluck('field')->all())
+        ->toContain('vehicle_number', 'transport_charge_type', 'transport_amount', 'grand_total');
     expect(collect($used->auditRows())->firstWhere('field', 'vehicle_number'))
         ->toMatchArray([
             'label' => 'Vehicle No.',
@@ -504,4 +513,171 @@ it('unlocks existing director-approved requests for a one-time correction', func
     expect($legacyAdminApproved->fresh()->isApprovedUnused())->toBeTrue()
         ->and(Gate::forUser($ctx['admin'])->allows('correctDispatchedTransport', $order->fresh()))->toBeTrue()
         ->and($order->fresh()->status)->toBe(Order::STATUS_DISPATCHED);
+});
+
+it('applies a director-approved full bill correction without duplicating ledger, stock, or tally', function () {
+    Storage::fake('public');
+
+    $employee = dispatchedEditEmployee(UserRole::Employee);
+    $manager = dispatchedEditEmployee(UserRole::Manager);
+    $production = dispatchedEditEmployee(UserRole::ProductionSupervisor);
+    $employee->update(['reporting_manager_id' => $manager->id]);
+    $admin = dispatchedEditAdmin();
+    $director = dispatchedEditDirector();
+
+    $product = Product::query()->create([
+        'product_code' => 'PG-CORR-'.uniqid(),
+        'product_name' => 'Correction Product',
+        'category' => 'General',
+        'dealer_price' => 10,
+        'gst_percentage' => 0,
+        'uom' => 'Nos',
+        'production_unit' => 'Nos',
+        'nos_per_case' => 1,
+        'status' => true,
+        'manufacturing_enabled' => true,
+        'current_finished_stock' => 50,
+        'weighted_average_cost' => 8,
+    ]);
+
+    $order = orderWorkflowPending($employee->id);
+    $order->approve($manager->user->id);
+    $order->items()->create([
+        'product_id' => $product->id,
+        'case_quantity' => 2,
+        'nos_per_case' => 1,
+        'total_quantity_nos' => 2,
+        'quantity' => 2,
+        'unit' => 'Nos',
+        'rate_per_no' => 10,
+        'rate' => 10,
+        'discount_percentage' => 0,
+        'discount_amount' => 0,
+        'gst_percentage' => 0,
+        'base_amount' => 20,
+        'taxable_amount' => 20,
+        'gst_amount' => 0,
+        'final_amount' => 20,
+        'line_total' => 20,
+    ]);
+    OrderBillingTransportCalculator::persistCorrectedTotals($order->fresh());
+
+    $vehicle = Vehicle::query()->create([
+        'vehicle_number' => 'MH12FC'.random_int(1000, 9999),
+        'vehicle_name' => 'Tata Ace',
+        'is_active' => true,
+        'created_by' => $production->user->id,
+    ]);
+
+    app(SendOrderForBilling::class)->execute(
+        order: $order->fresh(),
+        actor: $production->user,
+        vehicleId: $vehicle->id,
+        transportChargeType: 'transport_extra',
+        transportFreight: 0,
+    );
+    app(BillOrderWithDocument::class)->execute(
+        order: $order->fresh(),
+        actor: $admin,
+        bill: UploadedFile::fake()->create('bill.pdf', 100, 'application/pdf'),
+        billNumber: 'BILL-CORR-1',
+    );
+    app(DispatchOrder::class)->execute(
+        order: $order->fresh(),
+        actor: $production->user,
+        remark: 'Loaded',
+    );
+
+    $order = $order->fresh(['items']);
+    $ledgerBefore = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $order->id)
+        ->get();
+    $tallyBefore = TallyOutboundVoucher::query()
+        ->where('source_type', TallyOutboundVoucher::SOURCE_SALES_ORDER)
+        ->where('source_id', $order->id)
+        ->count();
+    $originalDebit = (float) $ledgerBefore->first()?->debit;
+
+    expect($order->status)->toBe(Order::STATUS_DISPATCHED)
+        ->and((float) $product->fresh()->current_finished_stock)->toBe(48.0)
+        ->and($ledgerBefore)->toHaveCount(1)
+        ->and($originalDebit)->toBe((float) $order->grand_total);
+
+    expect(fn () => app(ApplyDispatchedOrderTransportCorrection::class)->execute(
+        order: $order,
+        actor: $admin,
+        vehicleId: $vehicle->id,
+        transportChargeType: 'transport_extra',
+        transportFreight: 0,
+        items: [[
+            'product_id' => $product->id,
+            'case_quantity' => 4,
+            'rate_per_no' => 10,
+            'discount_percentage' => 10,
+            'gst_percentage' => 0,
+        ]],
+    ))->toThrow(AuthorizationException::class);
+
+    $request = app(RequestOrderEditPermission::class)->execute(
+        order: $order,
+        actor: $admin,
+        reason: 'Match ERP bill lines to the actual Tally bill.',
+    )['request'];
+    app(ApproveOrderEditPermission::class)->execute($request->fresh(), $director);
+
+    $corrected = app(ApplyDispatchedOrderTransportCorrection::class)->execute(
+        order: $order->fresh(),
+        actor: $admin,
+        vehicleId: $vehicle->id,
+        transportChargeType: 'transport_extra',
+        transportFreight: 0,
+        items: [[
+            'product_id' => $product->id,
+            'case_quantity' => 4,
+            'rate_per_no' => 10,
+            'discount_percentage' => 10,
+            'gst_percentage' => 0,
+        ]],
+    );
+
+    $fresh = $corrected['order']->load('items');
+    $item = $fresh->items->first();
+    $ledgers = DealerTallyEntry::query()
+        ->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)
+        ->where('source_id', $fresh->id)
+        ->get();
+    $stockLedgers = StockLedger::query()
+        ->where('item_type', StockItemType::FinishedProduct)
+        ->where('reference_type', Order::class)
+        ->where('reference_id', $fresh->id)
+        ->where('product_id', $product->id)
+        ->orderBy('id')
+        ->get();
+
+    expect($fresh->status)->toBe(Order::STATUS_DISPATCHED)
+        ->and((int) $item?->case_quantity)->toBe(4)
+        ->and((float) $item?->rate_per_no)->toBe(10.0)
+        ->and((float) $item?->discount_percentage)->toBe(10.0)
+        ->and((float) $fresh->subtotal)->toBe(40.0)
+        ->and((float) $fresh->discount_amount)->toBe(4.0)
+        ->and((float) $fresh->grand_total)->toBe(36.0)
+        ->and($fresh->canBeEdited())->toBeFalse()
+        ->and($corrected['request']->status)->toBe(OrderEditPermissionRequest::STATUS_USED)
+        ->and(Gate::forUser($admin)->allows('correctDispatchedTransport', $fresh))->toBeFalse()
+        ->and($ledgers)->toHaveCount(1)
+        ->and((float) $ledgers->first()?->debit)->toBe(36.0)
+        ->and((float) $ledgers->first()?->debit)->not->toBe($originalDebit)
+        ->and((float) $product->fresh()->current_finished_stock)->toBe(46.0)
+        ->and($stockLedgers)->toHaveCount(2)
+        ->and((float) $stockLedgers->first()->quantity_out)->toBe(2.0)
+        ->and((float) $stockLedgers->last()->quantity_out)->toBe(2.0)
+        ->and($stockLedgers->last()->transaction_type)->toBe(StockTransactionType::Dispatch)
+        ->and(TallyOutboundVoucher::query()
+            ->where('source_type', TallyOutboundVoucher::SOURCE_SALES_ORDER)
+            ->where('source_id', $fresh->id)
+            ->count())->toBe($tallyBefore);
+
+    $auditFields = collect($corrected['request']->auditRows())->pluck('field')->all();
+    expect($auditFields)->toContain('items', 'discount_amount', 'grand_total');
 });

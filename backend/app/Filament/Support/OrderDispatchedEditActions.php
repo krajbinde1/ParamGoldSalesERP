@@ -39,12 +39,12 @@ final class OrderDispatchedEditActions
                 ->visible(fn (?Order $record = null): bool => ($order = $resolve($record)) !== null
                     && Gate::forUser(auth()->user())->allows('requestDispatchedEdit', $order))
                 ->modalHeading('Request Edit Permission')
-                ->modalDescription('This dispatched order stays locked until the Director approves. You may then correct Vehicle No., Transport Type, and Transport Charges once.')
+                ->modalDescription('This dispatched order stays locked until the Director approves. You may then correct the full bill once: products, cases/quantity, rate, discount %, vehicle, transport type, and transport charges.')
                 ->modalSubmitActionLabel('Send Request to Director')
                 ->form([
                     Textarea::make('reason')
                         ->label('Reason for Edit')
-                        ->placeholder('Incorrect vehicle number / transport type / transport charges entered at Send for Bill.')
+                        ->placeholder('Incorrect quantity / rate / discount / vehicle / transport vs the Tally bill.')
                         ->required()
                         ->minLength(3)
                         ->maxLength(2000)
@@ -83,13 +83,13 @@ final class OrderDispatchedEditActions
                     }
                 })),
             $bindRecord(Action::make('correctDispatchedTransport')
-                ->label('Correct Transport Details')
+                ->label('Correct Bill Details')
                 ->icon('heroicon-o-pencil-square')
                 ->color('primary')
                 ->visible(fn (?Order $record = null): bool => ($order = $resolve($record)) !== null
                     && Gate::forUser(auth()->user())->allows('correctDispatchedTransport', $order))
-                ->modalHeading('Correct Transport Details')
-                ->modalDescription('Director-approved one-time correction. Saving will lock the order again. Status stays Dispatched.')
+                ->modalHeading('Correct Bill Details')
+                ->modalDescription('Director-approved one-time correction to match the existing Tally bill. Saving recalculates totals, updates the dealer Debit, adjusts finished stock only for the quantity difference, and locks the order again. Status stays Dispatched. Tally is not changed and a duplicate Tally Sales voucher is not created.')
                 ->modalSubmitActionLabel('Save Correction')
                 ->fillForm(function (?Order $record = null) use ($resolve): array {
                     $order = $resolve($record);
@@ -124,6 +124,9 @@ final class OrderDispatchedEditActions
                             transportFreight: is_numeric($data['transport_freight'] ?? null)
                                 ? (float) $data['transport_freight']
                                 : -1,
+                            items: isset($data['items']) && is_array($data['items'])
+                                ? array_values($data['items'])
+                                : null,
                         );
                     } catch (AuthorizationException|ValidationException $exception) {
                         $message = $exception instanceof ValidationException

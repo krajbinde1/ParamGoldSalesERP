@@ -35,7 +35,7 @@ final class OrderEditPermissionNotifier
         $adminName = $request->requestedByUser?->name ?: 'Admin';
         $dealer = $order->dealer?->firm_name ?: 'Dealer';
         $title = 'Order Edit Permission Requested';
-        $body = "{$adminName} requested permission to correct transport details on order {$shortNo} ({$dealer}).";
+        $body = "{$adminName} requested permission to correct the dispatched bill on order {$shortNo} ({$dealer}).";
 
         foreach ($this->directorUsers() as $director) {
             $this->store($director, $order, self::TYPE_REQUESTED, $title, $body, [
@@ -67,7 +67,7 @@ final class OrderEditPermissionNotifier
 
         if ($request->isApprovedUnused()) {
             $title = 'Order Edit Permission Approved';
-            $body = "{$director} approved a one-time correction of transport details on order {$shortNo}.";
+            $body = "{$director} approved a one-time full bill correction on order {$shortNo}.";
             $type = self::TYPE_APPROVED;
         } else {
             $title = 'Order Edit Permission Rejected';

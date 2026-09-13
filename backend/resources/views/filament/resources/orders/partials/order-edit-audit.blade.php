@@ -52,7 +52,7 @@
     </style>
 
     @if (count($audits) === 0)
-        <p class="pg-order-edit-audit__empty">No transport corrections recorded.</p>
+        <p class="pg-order-edit-audit__empty">No bill corrections recorded.</p>
     @else
         @foreach ($audits as $audit)
             <div class="pg-order-edit-audit__card">

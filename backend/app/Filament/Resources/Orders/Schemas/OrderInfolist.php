@@ -140,7 +140,7 @@ class OrderInfolist
                             ->visible(fn (Order $record): bool => OrderBillingTransportCalculator::hasSavedAdjustment($record)),
                     ]),
 
-                Section::make('Transport Correction Audit')
+                Section::make('Bill Correction Audit')
                     ->columnSpanFull()
                     ->visible(fn (Order $record): bool => $record->usedEditPermissionAudits() !== [])
                     ->schema([
@@ -238,7 +238,7 @@ class OrderInfolist
                                 TextEntry::make('dispatched_edit_approved_banner')
                                     ->hiddenLabel()
                                     ->visible(fn (Order $record): bool => $record->hasApprovedUnusedEditPermission())
-                                    ->state('Director approved a one-time correction. You may edit Vehicle No., Transport Type, and Transport Charges. Saving will lock the order again.')
+                                    ->state('Director approved a one-time correction. You may edit products, cases/quantity, rate, discount %, vehicle, transport type, and transport charges. Saving will lock the order again. Tally is not changed.')
                                     ->color('info')
                                     ->weight(FontWeight::SemiBold)
                                     ->columnSpanFull(),
