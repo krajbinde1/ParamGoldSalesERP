@@ -58,6 +58,8 @@ class DealerController extends Controller
             'longitude' => 'nullable|numeric|between:-180,180',
             'dealer_type' => 'nullable|in:Distributor,Retailer,Wholesaler',
             'status' => 'nullable|boolean',
+        ], [], [
+            'village' => 'place',
         ]);
 
         $validated['outstanding'] = $validated['outstanding'] ?? 0;
@@ -120,6 +122,8 @@ class DealerController extends Controller
             'longitude' => 'nullable|numeric|between:-180,180',
             'dealer_type' => 'nullable|in:Distributor,Retailer,Wholesaler',
             'status' => 'nullable|boolean',
+        ], [], [
+            'village' => 'place',
         ]);
 
         // Never allow dealer_code to change on edit.

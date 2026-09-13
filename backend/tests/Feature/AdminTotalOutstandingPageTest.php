@@ -358,7 +358,7 @@ it('exports selected employee outstanding to excel with all assigned dealers and
         'Employee Name',
         'Dealer Code',
         'Dealer Name',
-        'Village',
+        'Place',
         'Outstanding Amount',
         'Credit Balance',
     ])
@@ -495,7 +495,7 @@ it('builds a pdf export for the selected employee outstanding list', function ()
         ->toContain('Wagholi')
         ->toContain('Dealer Code')
         ->toContain('Dealer Name')
-        ->toContain('Village')
+        ->toContain('Place')
         ->toContain('Outstanding Amount')
         ->toContain('Total Outstanding')
         ->toContain('Rs.');

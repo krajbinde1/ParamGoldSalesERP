@@ -237,6 +237,8 @@ class EmployeeDealerApplicationController extends Controller
             'address' => ['nullable', 'string', 'max:2000'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
+        ], [], [
+            'village' => 'place',
         ]);
     }
 

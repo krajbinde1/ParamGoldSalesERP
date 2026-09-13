@@ -817,7 +817,7 @@ class _DealerApplicationFormScreenState
                               ? 'Taluka is required.'
                               : null,
                         ),
-                        _field(_village, 'Village / Location'),
+                        _field(_village, 'Place'),
                         _field(
                           _address,
                           'Full Address',

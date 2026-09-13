@@ -78,7 +78,7 @@ class _DealerListScreenState extends State<DealerListScreen> {
                 ? dealers
                 : dealers.where((dealer) {
                     final haystack =
-                        '${dealer.firmName} ${dealer.dealerCode} ${dealer.ownerName ?? ''} ${dealer.village ?? ''}'
+                        '${dealer.firmName} ${dealer.dealerCode} ${dealer.ownerName ?? ''} ${dealer.village ?? ''} ${dealer.mobile ?? ''}'
                             .toLowerCase();
                     return haystack.contains(_query.trim().toLowerCase());
                   }).toList();

@@ -106,6 +106,9 @@ class DealerAccountListItem {
     required this.dealerCode,
     required this.firmName,
     this.ownerName,
+    this.mobile,
+    this.district,
+    this.taluka,
     this.village,
     required this.currentOutstanding,
   });
@@ -114,6 +117,9 @@ class DealerAccountListItem {
   final String dealerCode;
   final String firmName;
   final String? ownerName;
+  final String? mobile;
+  final String? district;
+  final String? taluka;
   final String? village;
   final double currentOutstanding;
 
@@ -123,8 +129,48 @@ class DealerAccountListItem {
         dealerCode: json['dealer_code']?.toString() ?? '',
         firmName: json['firm_name']?.toString() ?? '',
         ownerName: json['owner_name']?.toString(),
+        mobile: json['mobile']?.toString(),
+        district: json['district']?.toString(),
+        taluka: json['taluka']?.toString(),
         village: json['village']?.toString(),
         currentOutstanding: _asDouble(json['current_outstanding']),
+      );
+}
+
+class AssignedDealerListItem {
+  const AssignedDealerListItem({
+    required this.id,
+    required this.firmName,
+    this.dealerCode,
+    this.ownerName,
+    this.mobile,
+    this.email,
+    this.district,
+    this.taluka,
+    this.village,
+  });
+
+  final int id;
+  final String firmName;
+  final String? dealerCode;
+  final String? ownerName;
+  final String? mobile;
+  final String? email;
+  final String? district;
+  final String? taluka;
+  final String? village;
+
+  factory AssignedDealerListItem.fromJson(Map<String, dynamic> json) =>
+      AssignedDealerListItem(
+        id: int.tryParse('${json['id'] ?? 0}') ?? 0,
+        firmName: json['firm_name']?.toString() ?? '',
+        dealerCode: json['dealer_code']?.toString(),
+        ownerName: json['owner_name']?.toString(),
+        mobile: json['mobile']?.toString(),
+        email: json['email']?.toString(),
+        district: json['district']?.toString(),
+        taluka: json['taluka']?.toString(),
+        village: json['village']?.toString(),
       );
 }
 
@@ -135,6 +181,8 @@ class DealerAccountDetail {
     required this.firmName,
     this.ownerName,
     this.mobile,
+    this.district,
+    this.taluka,
     this.village,
     required this.summary,
   });
@@ -144,6 +192,8 @@ class DealerAccountDetail {
   final String firmName;
   final String? ownerName;
   final String? mobile;
+  final String? district;
+  final String? taluka;
   final String? village;
   final DealerAccountSummary summary;
 
@@ -158,6 +208,8 @@ class DealerAccountDetail {
       firmName: json['firm_name']?.toString() ?? '',
       ownerName: json['owner_name']?.toString(),
       mobile: json['mobile']?.toString(),
+      district: json['district']?.toString(),
+      taluka: json['taluka']?.toString(),
       village: json['village']?.toString(),
       summary: DealerAccountSummary.fromJson(summaryRaw),
     );

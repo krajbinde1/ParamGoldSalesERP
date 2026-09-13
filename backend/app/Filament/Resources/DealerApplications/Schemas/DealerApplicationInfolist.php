@@ -33,7 +33,7 @@ class DealerApplicationInfolist
                                     TextEntry::make('state'),
                                     TextEntry::make('district'),
                                     TextEntry::make('taluka'),
-                                    TextEntry::make('village')->label('Village / Location'),
+                                    TextEntry::make('village')->label('Place'),
                                     TextEntry::make('address')->placeholder('—')->columnSpanFull(),
                                     TextEntry::make('employee.full_name')
                                         ->label('Employee')

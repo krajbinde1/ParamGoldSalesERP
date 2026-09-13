@@ -135,7 +135,7 @@ class _DealerVisitDetailScreenState extends State<DealerVisitDetailScreen> {
                         PgInvoiceRow(label: 'Mobile Number', value: detail.mobile!),
                       if (detail.village != null &&
                           detail.village!.trim().isNotEmpty)
-                        PgInvoiceRow(label: 'Village', value: detail.village!),
+                        PgInvoiceRow(label: 'Place', value: detail.village!),
                       if (detail.taluka != null &&
                           detail.taluka!.trim().isNotEmpty)
                         PgInvoiceRow(label: 'Taluka', value: detail.taluka!),

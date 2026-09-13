@@ -98,7 +98,7 @@ class OrderInfoCard extends StatelessWidget {
           PgInvoiceRow(label: 'Order Date', value: orderDate),
           PgInvoiceRow(label: createdByLabel, value: createdBy),
           PgInvoiceRow(label: 'Dealer Name', value: dealerName),
-          PgInvoiceRow(label: 'Dealer Village', value: dealerVillage),
+          PgInvoiceRow(label: 'Dealer Place', value: dealerVillage),
           if (showRemarks)
             PgInvoiceRow(
               label: 'Remarks',

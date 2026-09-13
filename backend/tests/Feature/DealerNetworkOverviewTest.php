@@ -163,7 +163,7 @@ it('opens the existing dealer network overview from the sales operations menu pa
         ->assertSee('Total Dealers')
         ->assertSee('Districts Covered')
         ->assertSee('Talukas Covered')
-        ->assertSee('Villages Covered')
+        ->assertSee('Places Covered')
         ->assertSee('District-wise Dealer Network')
         ->assertSee('Taluka-wise Distribution')
         ->assertSee('Area Network')

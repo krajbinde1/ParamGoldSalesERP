@@ -94,7 +94,7 @@
                 <th>Employee</th>
                 <th>Dealer Code</th>
                 <th>Dealer Name</th>
-                <th>Village</th>
+                <th>Place</th>
                 <th class="num">Outstanding Amount</th>
                 <th class="num">Credit Balance</th>
             </tr>

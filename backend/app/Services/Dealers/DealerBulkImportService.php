@@ -16,6 +16,7 @@ final class DealerBulkImportService
         'assigned_employee' => 'assigned_employee_code',
         'mobile_number' => 'mobile',
         'active' => 'status',
+        'place' => 'village',
     ];
 
     /** @var list<string> */
@@ -216,6 +217,8 @@ final class DealerBulkImportService
             'outstanding' => ['nullable', 'numeric', 'min:0'],
             'latitude' => ['nullable', 'numeric', 'between:-90,90'],
             'longitude' => ['nullable', 'numeric', 'between:-180,180'],
+        ], [], [
+            'village' => 'place',
         ]);
 
         if ($validator->fails()) {

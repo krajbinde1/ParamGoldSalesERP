@@ -36,7 +36,7 @@ final class EmployeeOutstandingExport implements FromArray, ShouldAutoSize, With
             'Employee Name',
             'Dealer Code',
             'Dealer Name',
-            'Village',
+            'Place',
             'Outstanding Amount',
             'Credit Balance',
         ];

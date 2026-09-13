@@ -28,6 +28,56 @@ class DealerAccountApi {
     }
   }
 
+  Future<List<AssignedDealerListItem>> listAssigned() async {
+    try {
+      final response = await _dio.get('/employee/dealers');
+      final body = response.data;
+      if (body is! Map) return const [];
+      final raw = body['data'];
+      if (raw is! List) return const [];
+
+      return raw
+          .whereType<Map>()
+          .map(
+            (item) => AssignedDealerListItem.fromJson(
+              Map<String, dynamic>.from(item),
+            ),
+          )
+          .where((dealer) => dealer.id > 0 && dealer.firmName.isNotEmpty)
+          .toList();
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<AssignedDealerListItem> showAssigned(int dealerId) async {
+    try {
+      final response = await _dio.get('/employee/dealers/$dealerId');
+      return AssignedDealerListItem.fromJson(
+        Map<String, dynamic>.from((response.data as Map)['data'] as Map),
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<AssignedDealerListItem> updateAssigned({
+    required int dealerId,
+    required Map<String, dynamic> payload,
+  }) async {
+    try {
+      final response = await _dio.put(
+        '/employee/dealers/$dealerId',
+        data: payload,
+      );
+      return AssignedDealerListItem.fromJson(
+        Map<String, dynamic>.from((response.data as Map)['data'] as Map),
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
   Future<DealerAccountDetail> show(int dealerId) async {
     try {
       final response = await _dio.get('/dealers/$dealerId');

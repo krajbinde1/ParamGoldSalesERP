@@ -34,6 +34,7 @@ class RoutePermissions {
       '/planning',
       '/targets',
       '/dealer-applications',
+      '/my-dealers',
     ];
 
     if (employeeOnlyPrefixes.any(path.startsWith)) {

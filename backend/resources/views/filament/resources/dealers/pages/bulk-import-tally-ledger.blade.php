@@ -65,7 +65,7 @@
                                         <tr class="bg-gray-50">
                                             <th class="fi-ta-header-cell px-4 py-3 text-start text-xs font-semibold uppercase tracking-wide text-gray-600">Dealer</th>
                                             <th class="fi-ta-header-cell px-4 py-3 text-start text-xs font-semibold uppercase tracking-wide text-gray-600">Code</th>
-                                            <th class="fi-ta-header-cell px-4 py-3 text-start text-xs font-semibold uppercase tracking-wide text-gray-600">Village</th>
+                                            <th class="fi-ta-header-cell px-4 py-3 text-start text-xs font-semibold uppercase tracking-wide text-gray-600">Place</th>
                                             <th class="fi-ta-header-cell px-4 py-3 text-start text-xs font-semibold uppercase tracking-wide text-gray-600">Ledger Status</th>
                                         </tr>
                                     </thead>

@@ -324,15 +324,15 @@ class _DashboardScreenState extends ConsumerState<DashboardScreen> {
                                 ),
                                 _EmployeeModuleItem(
                                   title: 'Create Dealer',
-                                  subtitle: 'New dealer application',
+                                  subtitle: 'Dealer applications & status',
                                   icon: Icons.add_business_outlined,
-                                  onTap: () => _open('/dealer-applications/new'),
+                                  onTap: () => _open('/dealer-applications'),
                                 ),
                                 _EmployeeModuleItem(
                                   title: 'My Dealers',
-                                  subtitle: 'Applications & status',
+                                  subtitle: 'Assigned dealer network',
                                   icon: Icons.store_mall_directory_outlined,
-                                  onTap: () => _open('/dealer-applications'),
+                                  onTap: () => _open('/my-dealers'),
                                 ),
                                 _EmployeeModuleItem(
                                   title: 'Dealer Accounts',

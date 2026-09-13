@@ -79,7 +79,7 @@ class ProductionOrderListCard extends StatelessWidget {
                     style: Theme.of(context).textTheme.bodyMedium,
                   ),
                   Text(
-                    'Village: ${order['dealer_village'] ?? '-'}',
+                    'Place: ${order['dealer_village'] ?? '-'}',
                     style: Theme.of(context).textTheme.bodySmall,
                   ),
                   Text(

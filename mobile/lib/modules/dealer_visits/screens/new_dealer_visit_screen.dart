@@ -372,7 +372,7 @@ class _NewDealerVisitScreenState extends State<NewDealerVisitScreen> {
                     enabled: !_submitting,
                     textCapitalization: TextCapitalization.words,
                     decoration: const InputDecoration(
-                      labelText: 'Village',
+                      labelText: 'Place',
                     ),
                     onChanged: (_) => setState(() {}),
                   ),

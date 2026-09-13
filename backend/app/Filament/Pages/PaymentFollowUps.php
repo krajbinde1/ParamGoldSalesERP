@@ -167,6 +167,7 @@ class PaymentFollowUps extends Page implements HasForms, HasTable
                     ->searchable()
                     ->sortable(),
                 TextColumn::make('village')
+                    ->label('Place')
                     ->placeholder('-')
                     ->toggleable(),
                 TextColumn::make('current_outstanding')

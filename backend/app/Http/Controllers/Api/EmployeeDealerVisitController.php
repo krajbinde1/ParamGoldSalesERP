@@ -75,6 +75,8 @@ class EmployeeDealerVisitController extends Controller
             'accuracy' => ['required', 'numeric', 'min:0'],
             'location_captured_at' => ['required', 'date'],
             'photo' => ['required', 'image', 'mimes:jpeg,jpg,png,webp', 'max:5120'],
+        ], [], [
+            'village' => 'place',
         ]);
 
         $dealer = null;

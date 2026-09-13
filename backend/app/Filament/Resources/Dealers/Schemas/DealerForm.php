@@ -163,7 +163,10 @@ class DealerForm
                                     $component->state($canonical);
                                 }
                             }),
-                        TextInput::make('village')->required()->maxLength(255),
+                        TextInput::make('village')
+                            ->label('Place')
+                            ->required()
+                            ->maxLength(255),
                         TextInput::make('pincode')
                             ->rules([
                                 'nullable',

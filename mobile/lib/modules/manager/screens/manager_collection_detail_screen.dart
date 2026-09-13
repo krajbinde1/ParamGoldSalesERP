@@ -171,7 +171,7 @@ class _ManagerCollectionDetailScreenState
                       if ((dealer['village']?.toString().trim().isNotEmpty ??
                           false))
                         PgInvoiceRow(
-                          label: 'Village',
+                          label: 'Place',
                           value: dealer['village'].toString(),
                         ),
                       PgInvoiceRow(

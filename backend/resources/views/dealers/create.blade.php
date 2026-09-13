@@ -68,7 +68,7 @@
                     </div>
 
                     <div class="col-md-3">
-                        <label class="form-label">Village <span class="text-danger">*</span></label>
+                        <label class="form-label">Place <span class="text-danger">*</span></label>
                         <input type="text" name="village" class="form-control" required>
                     </div>
 

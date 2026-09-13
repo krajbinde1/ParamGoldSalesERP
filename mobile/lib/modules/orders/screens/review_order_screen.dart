@@ -91,7 +91,7 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
                   ),
                 if (draft.dealer.village != null &&
                     draft.dealer.village!.isNotEmpty)
-                  PgInvoiceRow(label: 'Village', value: draft.dealer.village!),
+                  PgInvoiceRow(label: 'Place', value: draft.dealer.village!),
                 if (draft.dealer.mobile != null &&
                     draft.dealer.mobile!.isNotEmpty)
                   PgInvoiceRow(label: 'Mobile', value: draft.dealer.mobile!),

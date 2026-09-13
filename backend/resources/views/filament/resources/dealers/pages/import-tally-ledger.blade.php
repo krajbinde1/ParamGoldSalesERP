@@ -20,7 +20,7 @@
                     <div class="mt-1 font-medium text-slate-900">{{ $dealer['firm_name'] }}</div>
                 </div>
                 <div>
-                    <div class="text-xs font-semibold uppercase text-slate-500">Village</div>
+                    <div class="text-xs font-semibold uppercase text-slate-500">Place</div>
                     <div class="mt-1 font-medium text-slate-900">{{ $dealer['village'] ?: '—' }}</div>
                 </div>
                 <div>

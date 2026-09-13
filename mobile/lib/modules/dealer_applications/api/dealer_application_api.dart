@@ -13,20 +13,17 @@ class DealerApplicationListResult {
   final Map<String, int> counts;
 
   factory DealerApplicationListResult.fromJson(Map<String, dynamic> json) {
-    final applications = (json['data'] as List?)
-            ?.map((item) => Map<String, dynamic>.from(item as Map))
-            .toList() ??
-        const <Map<String, dynamic>>[];
-    final legacy = (json['legacy_dealers'] as List?)
-            ?.map((item) => Map<String, dynamic>.from(item as Map))
-            .toList() ??
-        const <Map<String, dynamic>>[];
+    final applications = ((json['data'] as List?) ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .where((item) => item['item_type']?.toString() != 'dealer')
+        .toList();
     final rawCounts = json['counts'] is Map
         ? Map<String, dynamic>.from(json['counts'] as Map)
         : const <String, dynamic>{};
 
     return DealerApplicationListResult(
-      rows: [...applications, ...legacy],
+      rows: applications,
       counts: {
         'draft': int.tryParse('${rawCounts['draft'] ?? 0}') ?? 0,
         'pending': int.tryParse('${rawCounts['pending'] ?? 0}') ?? 0,

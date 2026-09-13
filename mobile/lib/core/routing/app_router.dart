@@ -34,6 +34,8 @@ import '../../modules/dealer_visits/screens/new_dealer_visit_screen.dart';
 import '../../modules/dealers/screens/dealer_detail_screen.dart';
 import '../../modules/dealers/screens/dealer_ledger_screen.dart';
 import '../../modules/dealers/screens/dealer_list_screen.dart';
+import '../../modules/dealers/screens/edit_assigned_dealer_screen.dart';
+import '../../modules/dealers/screens/my_dealers_screen.dart';
 import '../../modules/dealer_applications/screens/dealer_application_detail_screen.dart';
 import '../../modules/dealer_applications/screens/dealer_application_form_screen.dart';
 import '../../modules/dealer_applications/screens/dealer_applications_screen.dart';
@@ -316,6 +318,19 @@ GoRouter createRouter(
           builder: (_, state) => FieldActivityDetailScreen(
             activityId: int.parse(state.pathParameters['activityId']!),
             auth: auth,
+          ),
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/my-dealers',
+      builder: (_, _) => MyDealersScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':dealerId/edit',
+          builder: (_, state) => EditAssignedDealerScreen(
+            auth: auth,
+            dealerId: int.parse(state.pathParameters['dealerId']!),
           ),
         ),
       ],

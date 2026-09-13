@@ -5,6 +5,7 @@ use App\Actions\Employees\DeleteEmployeeWithUserAccount;
 use App\Actions\Employees\ReassignEmployeeDealers;
 use App\Actions\Employees\UpdateEmployeeWithUserAccount;
 use App\Models\Dealer;
+use App\Models\Employee;
 use App\Services\Dealers\DealerAccessService;
 use App\Services\Dealers\DealerBulkImportService;
 use App\Services\Dealers\DealerBulkImportTemplate;
@@ -42,7 +43,7 @@ function dealerAssignmentEmployeeData(array $overrides = []): array
     ], $overrides);
 }
 
-function createAssignableEmployee(array $overrides = []): \App\Models\Employee
+function createAssignableEmployee(array $overrides = []): Employee
 {
     return app(CreateEmployeeWithUserAccount::class)
         ->execute(dealerAssignmentEmployeeData($overrides))
@@ -50,7 +51,7 @@ function createAssignableEmployee(array $overrides = []): \App\Models\Employee
         ->refresh();
 }
 
-function createAssignedDealer(\App\Models\Employee $employee, array $overrides = []): Dealer
+function createAssignedDealer(Employee $employee, array $overrides = []): Dealer
 {
     static $mobileCounter = 9800000000;
 
@@ -290,7 +291,90 @@ it('scopes dealer access to the assigned employee on mobile api', function () {
         ->getJson('/api/employee/dealers')
         ->assertOk()
         ->assertJsonCount(1, 'data')
-        ->assertJsonPath('data.0.firm_name', 'A Dealer');
+        ->assertJsonPath('data.0.firm_name', 'A Dealer')
+        ->assertJsonPath('data.0.district', 'Pune')
+        ->assertJsonPath('data.0.taluka', 'Haveli')
+        ->assertJsonPath('data.0.village', 'Wagholi');
+});
+
+it('lets an employee update contact and location fields on an assigned dealer', function () {
+    $employee = createAssignableEmployee();
+    $dealer = createAssignedDealer($employee, [
+        'firm_name' => 'Locked Firm Name',
+        'owner_name' => 'Old Owner',
+        'mobile' => '9876500101',
+        'email' => 'old@example.com',
+        'district' => 'Pune',
+        'taluka' => 'Haveli',
+        'village' => 'Wagholi',
+        'gst_no' => '27AABCU9603R1ZM',
+    ]);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->putJson('/api/employee/dealers/'.$dealer->id, [
+            'firm_name' => 'Hacked Firm Name',
+            'gst_no' => '27AAAAA0000A1Z5',
+            'owner_name' => 'New Owner',
+            'mobile' => '9876500102',
+            'email' => 'new.owner@example.com',
+            'district' => 'Jalna',
+            'taluka' => 'Partur',
+            'village' => 'Watur',
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.firm_name', 'Locked Firm Name')
+        ->assertJsonPath('data.owner_name', 'New Owner')
+        ->assertJsonPath('data.mobile', '9876500102')
+        ->assertJsonPath('data.email', 'new.owner@example.com')
+        ->assertJsonPath('data.district', 'Jalna')
+        ->assertJsonPath('data.taluka', 'Partur')
+        ->assertJsonPath('data.village', 'Watur');
+
+    $dealer->refresh();
+
+    expect($dealer->firm_name)->toBe('Locked Firm Name')
+        ->and($dealer->gst_no)->toBe('27AABCU9603R1ZM')
+        ->and($dealer->owner_name)->toBe('New Owner')
+        ->and($dealer->mobile)->toBe('9876500102')
+        ->and($dealer->email)->toBe('new.owner@example.com')
+        ->and($dealer->district)->toBe('Jalna')
+        ->and($dealer->taluka)->toBe('Partur')
+        ->and($dealer->village)->toBe('Watur');
+});
+
+it('does not let an employee edit a dealer assigned to someone else', function () {
+    $employeeA = createAssignableEmployee();
+    $employeeB = createAssignableEmployee();
+    $dealer = createAssignedDealer($employeeB, ['firm_name' => 'Other Team Dealer']);
+
+    $this->actingAs($employeeA->user, 'sanctum')
+        ->putJson('/api/employee/dealers/'.$dealer->id, [
+            'owner_name' => 'Hacked Owner',
+            'mobile' => '9876500199',
+            'district' => 'Pune',
+            'taluka' => 'Haveli',
+            'village' => 'Wagholi',
+        ])
+        ->assertForbidden();
+
+    expect($dealer->fresh()->owner_name)->not->toBe('Hacked Owner');
+});
+
+it('validates mobile email and taluka when an employee edits an assigned dealer', function () {
+    $employee = createAssignableEmployee();
+    $dealer = createAssignedDealer($employee);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->putJson('/api/employee/dealers/'.$dealer->id, [
+            'owner_name' => 'Owner',
+            'mobile' => '12345',
+            'email' => 'not-an-email',
+            'district' => 'Pune',
+            'taluka' => 'Partur',
+            'village' => 'Wagholi',
+        ])
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['mobile', 'email', 'taluka']);
 });
 
 it('reassigns all dealers from one employee to another', function () {

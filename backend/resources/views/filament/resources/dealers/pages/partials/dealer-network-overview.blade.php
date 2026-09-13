@@ -350,7 +350,7 @@
             <strong>{{ number_format($summary['total_talukas']) }}</strong>
         </div>
         <div class="pg-dealer-network__card pg-dealer-network__kpi">
-            <span>Total Villages Covered</span>
+            <span>Total Places Covered</span>
             <strong>{{ number_format($summary['total_villages']) }}</strong>
         </div>
     </div>
@@ -398,7 +398,7 @@
                                 '<strong>' + (marker.dealer_code ? esc(marker.dealer_code) + ' · ' : '') + esc(marker.firm_name || 'Dealer') + '</strong>',
                                 marker.district ? 'District: ' + esc(marker.district) : '',
                                 marker.taluka ? 'Taluka: ' + esc(marker.taluka) : '',
-                                marker.village ? 'Village: ' + esc(marker.village) : '',
+                                marker.village ? 'Place: ' + esc(marker.village) : '',
                                 marker.assigned_employee ? 'Assigned: ' + esc(marker.assigned_employee) : 'Assigned: —',
                             ].filter(Boolean).join('<br>');
                             L.marker(latLng).bindPopup(popup).addTo(cluster);
@@ -503,7 +503,7 @@
                         <div class="pg-dealer-network__area-meta">
                             <span>{{ $area['dealer_count'] }} dealers</span>
                             <span>{{ $area['taluka_count'] }} talukas</span>
-                            <span>{{ $area['village_count'] }} villages</span>
+                            <span>{{ $area['village_count'] }} places</span>
                         </div>
                     </button>
                 @endforeach

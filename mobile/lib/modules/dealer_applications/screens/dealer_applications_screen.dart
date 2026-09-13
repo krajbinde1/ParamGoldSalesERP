@@ -16,8 +16,6 @@ enum _DealerAppTab {
   draft,
   pending,
   approved,
-  correctionRequired,
-  rejected,
 }
 
 class DealerApplicationsScreen extends StatefulWidget {
@@ -37,7 +35,11 @@ class _DealerApplicationsScreenState extends State<DealerApplicationsScreen>
   final Map<_DealerAppTab, Future<DealerApplicationListResult>> _futures = {};
   final Map<_DealerAppTab, int> _counts = {};
 
-  static const _tabs = _DealerAppTab.values;
+  static const _tabs = [
+    _DealerAppTab.draft,
+    _DealerAppTab.pending,
+    _DealerAppTab.approved,
+  ];
 
   @override
   void initState() {
@@ -59,24 +61,35 @@ class _DealerApplicationsScreenState extends State<DealerApplicationsScreen>
         _DealerAppTab.draft => 'draft',
         _DealerAppTab.pending => 'pending',
         _DealerAppTab.approved => 'approved',
-        _DealerAppTab.correctionRequired => 'correction_required',
-        _DealerAppTab.rejected => 'rejected',
       };
 
   String _tabLabel(_DealerAppTab tab) => switch (tab) {
         _DealerAppTab.draft => 'Draft',
         _DealerAppTab.pending => 'Pending',
         _DealerAppTab.approved => 'Approved',
-        _DealerAppTab.correctionRequired => 'Correction',
-        _DealerAppTab.rejected => 'Rejected',
       };
 
   void _reloadAll() {
     setState(() {
       for (final tab in _tabs) {
-        _futures[tab] = _api.list(tab: _tabQuery(tab));
+        _futures[tab] = tab == _DealerAppTab.draft
+            ? _loadDraftAndCorrection()
+            : _api.list(tab: _tabQuery(tab));
       }
     });
+  }
+
+  Future<DealerApplicationListResult> _loadDraftAndCorrection() async {
+    final draft = await _api.list(tab: 'draft');
+    final correction = await _api.list(tab: 'correction_required');
+    return DealerApplicationListResult(
+      rows: [...correction.rows, ...draft.rows],
+      counts: {
+        ...draft.counts,
+        'draft': (draft.counts['draft'] ?? 0) +
+            (correction.counts['correction_required'] ?? 0),
+      },
+    );
   }
 
   Future<void> _openForm({int? id}) async {
@@ -88,9 +101,6 @@ class _DealerApplicationsScreenState extends State<DealerApplicationsScreen>
   }
 
   Future<void> _openDetail(Map<String, dynamic> row) async {
-    if (row['item_type']?.toString() == 'dealer') {
-      return;
-    }
     await context.push('/dealer-applications/${row['id']}');
     if (!mounted) return;
     _reloadAll();
@@ -100,12 +110,12 @@ class _DealerApplicationsScreenState extends State<DealerApplicationsScreen>
   Widget build(BuildContext context) {
     return PgPageScaffold(
       auth: widget.auth,
-      title: 'My Dealers',
+      title: 'Dealer Applications',
       showBack: true,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: () => _openForm(),
         icon: const Icon(Icons.add_rounded),
-        label: const Text('Create Dealer'),
+        label: const Text('New Dealer'),
       ),
       bottom: TabBar(
         controller: _tabController,
@@ -121,16 +131,14 @@ class _DealerApplicationsScreenState extends State<DealerApplicationsScreen>
           for (final tab in _tabs)
             _DealerApplicationTabList(
               future: _futures[tab],
-              emptyMessage: 'No ${_tabLabel(tab).toLowerCase()} dealers.',
+              emptyMessage:
+                  'No ${_tabLabel(tab).toLowerCase()} dealer applications.',
               onRefresh: () async {
                 _reloadAll();
                 await _futures[tab];
               },
               onCounts: (result) {
-                final key = tab == _DealerAppTab.correctionRequired
-                    ? 'correction_required'
-                    : _tabQuery(tab);
-                final count = result.counts[key] ?? result.rows.length;
+                final count = result.counts[_tabQuery(tab)] ?? result.rows.length;
                 if (_counts[tab] != count) {
                   WidgetsBinding.instance.addPostFrameCallback((_) {
                     if (!mounted) return;
@@ -197,7 +205,12 @@ class _DealerApplicationTabList extends StatelessWidget {
           onRefresh: onRefresh,
           child: ListView.builder(
             physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.all(AppSpacing.screenPadding),
+            padding: const EdgeInsets.fromLTRB(
+              AppSpacing.screenPadding,
+              AppSpacing.screenPadding,
+              AppSpacing.screenPadding,
+              96,
+            ),
             itemCount: result.rows.length,
             itemBuilder: (context, index) {
               final row = result.rows[index];
@@ -229,7 +242,17 @@ class _DealerApplicationTabList extends StatelessWidget {
                     const SizedBox(height: 4),
                     Text(row['owner_name']?.toString() ?? '-'),
                     Text(row['mobile']?.toString() ?? '-'),
-                    Text(row['location']?.toString() ?? '-'),
+                    if ((row['district']?.toString() ?? '').trim().isNotEmpty)
+                      Text('District: ${row['district']}'),
+                    if ((row['taluka']?.toString() ?? '').trim().isNotEmpty)
+                      Text('Taluka: ${row['taluka']}'),
+                    if ((row['village']?.toString() ?? '').trim().isNotEmpty)
+                      Text('Place: ${row['village']}'),
+                    if ((row['district']?.toString() ?? '').trim().isEmpty &&
+                        (row['taluka']?.toString() ?? '').trim().isEmpty &&
+                        (row['village']?.toString() ?? '').trim().isEmpty &&
+                        (row['location']?.toString() ?? '').trim().isNotEmpty)
+                      Text(row['location'].toString()),
                     if (row['dealer_code'] != null)
                       Text('Code: ${row['dealer_code']}'),
                     if (submitted != null && submitted.isNotEmpty)

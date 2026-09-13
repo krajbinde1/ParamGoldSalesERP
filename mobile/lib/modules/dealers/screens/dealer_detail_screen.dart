@@ -103,9 +103,13 @@ class _DealerDetailScreenState extends State<DealerDetailScreen> {
                       if ((detail.ownerName ?? '').isNotEmpty)
                         PgInvoiceRow(label: 'Owner Name', value: detail.ownerName!),
                       if ((detail.mobile ?? '').isNotEmpty)
-                        PgInvoiceRow(label: 'Mobile', value: detail.mobile!),
+                        PgInvoiceRow(label: 'Mobile Number', value: detail.mobile!),
+                      if ((detail.district ?? '').isNotEmpty)
+                        PgInvoiceRow(label: 'District', value: detail.district!),
+                      if ((detail.taluka ?? '').isNotEmpty)
+                        PgInvoiceRow(label: 'Taluka', value: detail.taluka!),
                       if ((detail.village ?? '').isNotEmpty)
-                        PgInvoiceRow(label: 'Village', value: detail.village!),
+                        PgInvoiceRow(label: 'Place', value: detail.village!),
                     ],
                   ),
                 ),

@@ -62,6 +62,7 @@ class DealersTable
                 TextColumn::make('taluka')
                     ->searchable(),
                 TextColumn::make('village')
+                    ->label('Place')
                     ->searchable(),
                 TextColumn::make('pincode')
                     ->searchable(),

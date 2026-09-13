@@ -79,7 +79,8 @@ class DealerInfolist
                         TextEntry::make('state'),
                         TextEntry::make('district'),
                         TextEntry::make('taluka'),
-                        TextEntry::make('village'),
+                        TextEntry::make('village')
+                            ->label('Place'),
                         TextEntry::make('pincode')
                             ->placeholder('-'),
                         TextEntry::make('credit_limit')

@@ -32,7 +32,7 @@ class DealerVisitInfolist
                         ->label('Mobile Number')
                         ->visible(fn (DealerVisit $record): bool => $record->is_prospective && filled($record->prospective_mobile)),
                     TextEntry::make('village')
-                        ->label('Village')
+                        ->label('Place')
                         ->state(fn (DealerVisit $record): ?string => $record->displayVillage())
                         ->visible(fn (DealerVisit $record): bool => filled($record->displayVillage())),
                     TextEntry::make('taluka')

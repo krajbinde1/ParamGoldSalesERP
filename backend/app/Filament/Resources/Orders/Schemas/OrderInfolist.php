@@ -48,7 +48,7 @@ class OrderInfolist
                                 : ($record->dealer?->firm_name ?: '—'))
                             ->weight(FontWeight::SemiBold),
                         TextEntry::make('dealer.village')
-                            ->label('Dealer Village')
+                            ->label('Dealer Place')
                             ->placeholder('—'),
                         TextEntry::make('payment_type')
                             ->label('Payment Type')
