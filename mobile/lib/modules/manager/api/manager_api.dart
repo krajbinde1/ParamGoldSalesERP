@@ -465,6 +465,7 @@ class ManagerApi {
     String? dateFrom,
     String? dateTo,
     int? employeeId,
+    String? status,
   }) async {
     try {
       final response = await _dio.get(
@@ -474,6 +475,7 @@ class ManagerApi {
           if (dateFrom != null && dateFrom.isNotEmpty) 'date_from': dateFrom,
           if (dateTo != null && dateTo.isNotEmpty) 'date_to': dateTo,
           if (employeeId != null) 'employee_id': employeeId,
+          if (status != null && status.isNotEmpty) 'status': status,
         },
       );
       return ManagerCollectionListResult.fromJson(

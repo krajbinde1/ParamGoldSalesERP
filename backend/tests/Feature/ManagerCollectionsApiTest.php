@@ -115,6 +115,69 @@ it('lets a manager list only collections from direct reports', function () {
         ->and($ownRow['photo_url'])->toContain('collections/own.jpg');
 });
 
+it('counts and lists only pending collections for pending entries', function () {
+    $manager = managerCollectionsEmployee(UserRole::Manager, '9400000041', 'Pending Manager');
+    $report = managerCollectionsEmployee(UserRole::Employee, '9400000042', 'Pending Sales');
+    $report->update(['reporting_manager_id' => $manager->id]);
+    $dealer = managerCollectionsDealer();
+
+    $pendingThisMonth = managerCollectionsEntry($report->id, $dealer->id, '2026-08-18', 500, Collection::STATUS_PENDING);
+    $pendingOlder = managerCollectionsEntry($report->id, $dealer->id, '2026-06-10', 350, Collection::STATUS_PENDING);
+    $receivedThisMonth = managerCollectionsEntry($report->id, $dealer->id, '2026-08-19', 1200, Collection::STATUS_RECEIVED);
+    $receivedToday = managerCollectionsEntry($report->id, $dealer->id, '2026-08-20', 800, Collection::STATUS_RECEIVED);
+    $receivedOlder = managerCollectionsEntry($report->id, $dealer->id, '2026-06-15', 300, Collection::STATUS_RECEIVED);
+    $notReceived = managerCollectionsEntry($report->id, $dealer->id, '2026-08-17', 400, Collection::STATUS_NOT_RECEIVED, 'Cheque bounce');
+    $rejected = managerCollectionsEntry($report->id, $dealer->id, '2026-08-16', 275, Collection::STATUS_REJECTED, 'Rejected by accounts');
+
+    $summary = $this->actingAs($manager->user)
+        ->getJson('/api/manager/collections?period=month')
+        ->assertOk();
+
+    expect($summary->json('summary.pending_entries'))->toBe(2)
+        ->and($summary->json('summary.total_collection'))->toBe(2300)
+        ->and($summary->json('summary.today_collection'))->toBe(800)
+        ->and($summary->json('summary.month_collection'))->toBe(2000)
+        ->and(collect($summary->json('data'))->pluck('id')->all())
+        ->toContain($pendingThisMonth->id, $receivedThisMonth->id, $receivedToday->id, $notReceived->id, $rejected->id)
+        ->and(collect($summary->json('data'))->pluck('id')->all())
+        ->not->toContain($pendingOlder->id, $receivedOlder->id);
+
+    $pendingList = $this->actingAs($manager->user)
+        ->getJson('/api/manager/collections?period=all&status=pending')
+        ->assertOk();
+
+    $pendingIds = collect($pendingList->json('data'))->pluck('id')->all();
+    expect($pendingList->json('summary.pending_entries'))->toBe(2)
+        ->and($pendingIds)->toContain($pendingThisMonth->id, $pendingOlder->id)
+        ->and($pendingIds)->not->toContain($receivedThisMonth->id, $receivedToday->id, $receivedOlder->id, $notReceived->id, $rejected->id)
+        ->and(collect($pendingList->json('data'))->pluck('status')->unique()->values()->all())
+        ->toBe([Collection::STATUS_PENDING]);
+
+    $totalReceived = $this->actingAs($manager->user)
+        ->getJson('/api/manager/collections?period=all&status=received')
+        ->assertOk();
+
+    expect(collect($totalReceived->json('data'))->pluck('id')->all())
+        ->toContain($receivedThisMonth->id, $receivedToday->id, $receivedOlder->id)
+        ->and(collect($totalReceived->json('data'))->pluck('id')->all())
+        ->not->toContain($pendingThisMonth->id, $notReceived->id, $rejected->id);
+
+    $todayReceived = $this->actingAs($manager->user)
+        ->getJson('/api/manager/collections?period=today&status=received')
+        ->assertOk();
+
+    expect(collect($todayReceived->json('data'))->pluck('id')->all())->toBe([$receivedToday->id]);
+
+    $monthReceived = $this->actingAs($manager->user)
+        ->getJson('/api/manager/collections?period=month&status=received')
+        ->assertOk();
+
+    expect(collect($monthReceived->json('data'))->pluck('id')->all())
+        ->toContain($receivedThisMonth->id, $receivedToday->id)
+        ->and(collect($monthReceived->json('data'))->pluck('id')->all())
+        ->not->toContain($receivedOlder->id, $pendingThisMonth->id, $rejected->id);
+});
+
 it('forbids a manager from viewing another team collection and has no status-change route', function () {
     $manager = managerCollectionsEmployee(UserRole::Manager, '9400000011', 'Scoped Manager');
     $otherManager = managerCollectionsEmployee(UserRole::Manager, '9400000012', 'Foreign Manager');

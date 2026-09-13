@@ -9,6 +9,8 @@ use App\Services\Dashboard\DashboardMetricsService;
 use App\Services\Orders\ManagerOrderAccessService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Validation\Rule;
 
 class ManagerCollectionController extends Controller
 {
@@ -20,13 +22,18 @@ class ManagerCollectionController extends Controller
     public function index(Request $request): JsonResponse
     {
         $validated = $request->validate([
-            'period' => ['nullable', DashboardMetricsService::periodValidationRule()],
+            'period' => ['nullable', 'string', Rule::in([...DashboardMetricsService::PERIOD_KEYS, 'all'])],
             'date_from' => ['nullable', 'date', 'required_if:period,custom'],
             'date_to' => ['nullable', 'date', 'required_if:period,custom', 'after_or_equal:date_from'],
             'start_date' => ['nullable', 'date'],
             'end_date' => ['nullable', 'date', 'after_or_equal:start_date'],
             'employee_id' => ['nullable', 'integer'],
-            'status' => ['nullable', 'string', 'in:pending,received,not_received,rejected'],
+            'status' => ['nullable', 'string', Rule::in([
+                Collection::STATUS_PENDING,
+                Collection::STATUS_RECEIVED,
+                Collection::STATUS_NOT_RECEIVED,
+                Collection::STATUS_REJECTED,
+            ])],
         ]);
 
         $reportIds = $this->access->directReportEmployeeIds($request->user());
@@ -43,7 +50,13 @@ class ManagerCollectionController extends Controller
         $period = $validated['period'] ?? 'month';
         $startDate = $validated['date_from'] ?? $validated['start_date'] ?? null;
         $endDate = $validated['date_to'] ?? $validated['end_date'] ?? null;
-        $range = $this->metrics->resolveDateRange($period, $startDate, $endDate);
+        $range = $period === 'all'
+            ? [
+                'start' => Carbon::parse('2000-01-01', 'Asia/Kolkata')->startOfDay(),
+                'end' => Collection::businessToday()->copy()->endOfDay(),
+                'label' => 'All',
+            ]
+            : $this->metrics->resolveDateRange($period, $startDate, $endDate);
 
         $base = Collection::query()->whereIn('sales_employee_id', $filterIds);
         $today = Collection::businessToday()->toDateString();
@@ -67,18 +80,25 @@ class ManagerCollectionController extends Controller
                 ->count(),
         ];
 
+        $status = $validated['status'] ?? null;
+
         $list = (clone $base)
             ->with([
                 'dealer:id,firm_name',
                 'salesEmployee:id,full_name,employee_code',
             ])
-            ->whereBetween('collection_date', [
-                $range['start']->toDateString(),
-                $range['end']->toDateString(),
-            ])
             ->when(
-                filled($validated['status'] ?? null),
-                fn ($q) => $q->where('status', $validated['status']),
+                $period !== 'all',
+                fn ($q) => $q->whereDate('collection_date', '>=', $range['start']->toDateString())
+                    ->whereDate('collection_date', '<=', $range['end']->toDateString()),
+            )
+            ->when(
+                $status === Collection::STATUS_PENDING,
+                fn ($q) => $q->where('status', Collection::STATUS_PENDING),
+            )
+            ->when(
+                filled($status) && $status !== Collection::STATUS_PENDING,
+                fn ($q) => $q->where('status', $status),
             )
             ->orderByDesc('collection_date')
             ->orderByDesc('id')
@@ -195,6 +215,7 @@ class ManagerCollectionController extends Controller
             Collection::STATUS_PENDING => 'Pending Verification',
             Collection::STATUS_RECEIVED => 'Received',
             Collection::STATUS_NOT_RECEIVED => 'Not Received',
+            Collection::STATUS_REJECTED => 'Rejected',
             default => Collection::statusLabels()[$status] ?? (string) $status,
         };
     }

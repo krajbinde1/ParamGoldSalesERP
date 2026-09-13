@@ -15,6 +15,8 @@ import '../../auth/providers/auth_controller.dart';
 import '../api/manager_api.dart';
 import '../widgets/manager_scrollable_filters.dart';
 
+enum _CollectionCardFilter { none, total, today, month, pending }
+
 class ManagerCollectionsScreen extends StatefulWidget {
   const ManagerCollectionsScreen({super.key, required this.auth});
 
@@ -27,6 +29,7 @@ class ManagerCollectionsScreen extends StatefulWidget {
 
 class _ManagerCollectionsScreenState extends State<ManagerCollectionsScreen> {
   String _period = 'month';
+  _CollectionCardFilter _cardFilter = _CollectionCardFilter.none;
   int? _employeeId;
   DateTime? _dateFrom;
   DateTime? _dateTo;
@@ -49,18 +52,40 @@ class _ManagerCollectionsScreenState extends State<ManagerCollectionsScreen> {
   }
 
   void _reload() {
+    final period = switch (_cardFilter) {
+      _CollectionCardFilter.none => _period,
+      _CollectionCardFilter.total || _CollectionCardFilter.pending => 'all',
+      _CollectionCardFilter.today => 'today',
+      _CollectionCardFilter.month => 'month',
+    };
+    final status = switch (_cardFilter) {
+      _CollectionCardFilter.none => null,
+      _CollectionCardFilter.pending => 'pending',
+      _ => 'received',
+    };
+    final useCustomDates =
+        _cardFilter == _CollectionCardFilter.none && _period == 'custom';
+
     setState(() {
       _future = _api.listCollections(
-        period: _period,
-        dateFrom: _period == 'custom' && _dateFrom != null
+        period: period,
+        dateFrom: useCustomDates && _dateFrom != null
             ? DateFormat('yyyy-MM-dd').format(_dateFrom!)
             : null,
-        dateTo: _period == 'custom' && _dateTo != null
+        dateTo: useCustomDates && _dateTo != null
             ? DateFormat('yyyy-MM-dd').format(_dateTo!)
             : null,
         employeeId: _employeeId,
+        status: status,
       );
     });
+  }
+
+  void _selectCard(_CollectionCardFilter card) {
+    _cardFilter = _cardFilter == card
+        ? _CollectionCardFilter.none
+        : card;
+    _reload();
   }
 
   Future<void> _refresh() async {
@@ -85,6 +110,7 @@ class _ManagerCollectionsScreenState extends State<ManagerCollectionsScreen> {
       );
       if (!mounted || to == null) return;
       setState(() {
+        _cardFilter = _CollectionCardFilter.none;
         _period = 'custom';
         _dateFrom = from;
         _dateTo = to;
@@ -94,6 +120,7 @@ class _ManagerCollectionsScreenState extends State<ManagerCollectionsScreen> {
     }
 
     setState(() {
+      _cardFilter = _CollectionCardFilter.none;
       _period = period;
       _dateFrom = null;
       _dateTo = null;
@@ -164,9 +191,32 @@ class _ManagerCollectionsScreenState extends State<ManagerCollectionsScreen> {
     return switch (status) {
       'received' => PgStatusTone.paid,
       'not_received' => PgStatusTone.rejected,
+      'rejected' => PgStatusTone.rejected,
       _ => PgStatusTone.pending,
     };
   }
+
+  bool get _periodChipsActive =>
+      _cardFilter == _CollectionCardFilter.none;
+
+  String get _listTitle => switch (_cardFilter) {
+        _CollectionCardFilter.total => 'Total Collection',
+        _CollectionCardFilter.today => 'Today Collection',
+        _CollectionCardFilter.month => 'This Month Collection',
+        _CollectionCardFilter.pending => 'Pending Collection Entries',
+        _CollectionCardFilter.none => 'Team Collections',
+      };
+
+  String get _emptyMessage => switch (_cardFilter) {
+        _CollectionCardFilter.total => 'No received collections found.',
+        _CollectionCardFilter.today =>
+          'No received collections found for today.',
+        _CollectionCardFilter.month =>
+          'No received collections found this month.',
+        _CollectionCardFilter.pending => 'No pending collection entries.',
+        _CollectionCardFilter.none =>
+          'No collections found for the selected filters.',
+      };
 
   @override
   Widget build(BuildContext context) {
@@ -214,24 +264,40 @@ class _ManagerCollectionsScreenState extends State<ManagerCollectionsScreen> {
                       value: _currency.format(summary.totalCollection),
                       icon: Icons.payments_rounded,
                       accent: AppColors.primary,
+                      selected:
+                          _cardFilter == _CollectionCardFilter.total,
+                      onTap: () =>
+                          _selectCard(_CollectionCardFilter.total),
                     ),
                     _SummaryTile(
                       label: 'Today Collection',
                       value: _currency.format(summary.todayCollection),
                       icon: Icons.today_rounded,
                       accent: AppColors.info,
+                      selected:
+                          _cardFilter == _CollectionCardFilter.today,
+                      onTap: () =>
+                          _selectCard(_CollectionCardFilter.today),
                     ),
                     _SummaryTile(
                       label: 'This Month Collection',
                       value: _currency.format(summary.monthCollection),
                       icon: Icons.calendar_month_rounded,
                       accent: AppColors.secondary,
+                      selected:
+                          _cardFilter == _CollectionCardFilter.month,
+                      onTap: () =>
+                          _selectCard(_CollectionCardFilter.month),
                     ),
                     _SummaryTile(
                       label: 'Pending Collection Entries',
                       value: '${summary.pendingEntries}',
                       icon: Icons.hourglass_empty_rounded,
                       accent: AppColors.warning,
+                      selected:
+                          _cardFilter == _CollectionCardFilter.pending,
+                      onTap: () =>
+                          _selectCard(_CollectionCardFilter.pending),
                     ),
                   ],
                 ),
@@ -245,15 +311,19 @@ class _ManagerCollectionsScreenState extends State<ManagerCollectionsScreen> {
                     ])
                       ManagerFilterChip(
                         label: entry.$2,
-                        selected: _period == entry.$1,
+                        selected: _periodChipsActive &&
+                            _period == entry.$1,
                         onPressed: () {
-                          if (_period == entry.$1) return;
+                          if (_periodChipsActive &&
+                              _period == entry.$1) {
+                            return;
+                          }
                           _setPeriod(entry.$1);
                         },
                       ),
                     ManagerFilterChip(
                       label: _customChipLabel,
-                      selected: _period == 'custom',
+                      selected: _periodChipsActive && _period == 'custom',
                       onPressed: () => _setPeriod('custom'),
                     ),
                     ManagerFilterChip(
@@ -270,11 +340,11 @@ class _ManagerCollectionsScreenState extends State<ManagerCollectionsScreen> {
                   ],
                 ),
                 const SizedBox(height: AppSpacing.lg),
-                const PgSectionHeader(title: 'Team Collections'),
+                PgSectionHeader(title: _listTitle),
                 if (result.rows.isEmpty)
-                  const PgEmptyState(
-                    message: 'No collections found for the selected filters.',
-                    icon: Icon(Icons.payments_outlined),
+                  PgEmptyState(
+                    message: _emptyMessage,
+                    icon: const Icon(Icons.payments_outlined),
                   )
                 else
                   for (final row in result.rows)
@@ -368,17 +438,32 @@ class _SummaryTile extends StatelessWidget {
     required this.value,
     required this.icon,
     required this.accent,
+    required this.onTap,
+    this.selected = false,
   });
 
   final String label;
   final String value;
   final IconData icon;
   final Color accent;
+  final VoidCallback onTap;
+  final bool selected;
 
   @override
   Widget build(BuildContext context) {
     return PgCard(
+      onTap: onTap,
       padding: const EdgeInsets.fromLTRB(12, 12, 12, 10),
+      gradient: selected
+          ? LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                accent.withValues(alpha: 0.16),
+                accent.withValues(alpha: 0.04),
+              ],
+            )
+          : null,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
@@ -402,7 +487,7 @@ class _SummaryTile extends StatelessWidget {
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                  color: AppColors.textSecondary,
+                  color: selected ? accent : AppColors.textSecondary,
                   fontWeight: FontWeight.w600,
                   height: 1.25,
                 ),
