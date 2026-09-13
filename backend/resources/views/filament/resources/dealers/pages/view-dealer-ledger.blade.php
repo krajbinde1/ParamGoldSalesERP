@@ -6,6 +6,9 @@
     $ledger = $payload['ledger'];
     $verification = $payload['verification'];
     $start = \Illuminate\Support\Carbon::parse($summary['financial_start_date'])->format('d M Y');
+    $canManageTally = $this->canManageTallyLedger();
+    $removedEntries = $canManageTally ? $this->removedTallyAuditRows() : [];
+    $columnCount = $canManageTally ? 9 : 8;
 @endphp
 
 <x-filament-panels::page>
@@ -184,6 +187,19 @@
             text-align: center;
             color: #64748B;
         }
+        .pg-dealer-ledger-table td.pg-dealer-ledger-actions {
+            white-space: nowrap;
+            text-align: right;
+        }
+        .pg-dealer-ledger-audit {
+            margin-top: 1.25rem;
+        }
+        .pg-dealer-ledger-audit h3 {
+            margin: 0 0 0.6rem;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #0F172A;
+        }
     </style>
 
     @if (! $summary['has_tally_ledger'] && collect($ledger)->where('is_opening', false)->isEmpty())
@@ -254,6 +270,9 @@
                     <th class="num">Debit</th>
                     <th class="num">Credit</th>
                     <th class="num">Balance</th>
+                    @if ($canManageTally)
+                        <th></th>
+                    @endif
                 </tr>
             </thead>
             <tbody>
@@ -274,10 +293,17 @@
                         <td class="num">{{ (float) $entry['debit'] > 0 ? IndianCurrency::formatExact($entry['debit']) : '—' }}</td>
                         <td class="num">{{ (float) $entry['credit'] > 0 ? IndianCurrency::formatExact($entry['credit']) : '—' }}</td>
                         <td class="num"><strong>{{ IndianCurrency::formatDrCr($entry['balance_signed']) }}</strong></td>
+                        @if ($canManageTally)
+                            <td class="pg-dealer-ledger-actions">
+                                @if ($entry['can_remove'] ?? false)
+                                    {{ ($this->removeTallyEntryAction)(['entryId' => $entry['id']]) }}
+                                @endif
+                            </td>
+                        @endif
                     </tr>
                 @empty
                     <tr>
-                        <td colspan="8" class="pg-dealer-ledger-empty">No ledger entries yet.</td>
+                        <td colspan="{{ $columnCount }}" class="pg-dealer-ledger-empty">No ledger entries yet.</td>
                     </tr>
                 @endforelse
                 @if ($ledger !== [])
@@ -290,6 +316,9 @@
                         <td class="num">{{ IndianCurrency::formatExact($footerDebit) }}</td>
                         <td class="num">{{ IndianCurrency::formatExact($footerCredit) }}</td>
                         <td class="num"></td>
+                        @if ($canManageTally)
+                            <td></td>
+                        @endif
                     </tr>
                     <tr class="is-closing">
                         <td></td>
@@ -300,9 +329,51 @@
                         <td class="num">{{ $closingIsDebit ? $closingLabel : '—' }}</td>
                         <td class="num">{{ ! $closingIsDebit ? $closingLabel : '—' }}</td>
                         <td class="num"></td>
+                        @if ($canManageTally)
+                            <td></td>
+                        @endif
                     </tr>
                 @endif
             </tbody>
         </table>
     </div>
+
+    @if ($removedEntries !== [])
+        <div class="pg-dealer-ledger-audit">
+            <h3>Removed Tally entries</h3>
+            <p class="pg-dealer-ledger-note is-info">
+                These vouchers are excluded from ERP outstanding. Actual Tally data was not changed.
+            </p>
+            <div class="pg-dealer-ledger-table-wrap">
+                <table class="pg-dealer-ledger-table">
+                    <thead>
+                        <tr>
+                            <th>Date</th>
+                            <th>Voucher No.</th>
+                            <th>Source</th>
+                            <th>Debit/Credit</th>
+                            <th class="num">Amount</th>
+                            <th>Reason</th>
+                            <th>Removed by</th>
+                            <th>Removed at</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($removedEntries as $removed)
+                            <tr>
+                                <td>{{ $removed['date'] ? \Illuminate\Support\Carbon::parse($removed['date'])->format('d M Y') : '—' }}</td>
+                                <td>{{ $removed['voucher_no'] }}</td>
+                                <td>{{ $removed['source_label'] }}</td>
+                                <td>{{ $removed['side'] }}</td>
+                                <td class="num">{{ $removed['amount_label'] }}</td>
+                                <td>{{ $removed['reason'] }}</td>
+                                <td>{{ $removed['removed_by'] }}</td>
+                                <td>{{ $removed['removed_at'] ?: '—' }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    @endif
 </x-filament-panels::page>

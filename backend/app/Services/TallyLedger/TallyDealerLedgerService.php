@@ -32,6 +32,7 @@ final class TallyDealerLedgerService
         $running = $openingSigned;
 
         $entries[] = [
+            'id' => null,
             'date' => $startDate,
             'particulars' => 'Opening Balance',
             'voucher_type' => null,
@@ -43,6 +44,7 @@ final class TallyDealerLedgerService
             'source' => 'opening_balance',
             'source_label' => DealerTallyEntry::sourceLabel('opening_balance'),
             'source_id' => null,
+            'can_remove' => false,
         ];
 
         $rows = DealerTallyEntry::query()
@@ -63,6 +65,7 @@ final class TallyDealerLedgerService
             $running = round($running + $debit - $credit, 2);
 
             $entries[] = [
+                'id' => (int) $row->id,
                 'date' => $row->entry_date?->toDateString(),
                 'particulars' => $row->particulars,
                 'voucher_type' => $row->voucher_type,
@@ -74,6 +77,7 @@ final class TallyDealerLedgerService
                 'source' => (string) $row->source,
                 'source_label' => DealerTallyEntry::sourceLabel((string) $row->source, $row->voucher_type),
                 'source_id' => $row->source_id !== null ? (int) $row->source_id : null,
+                'can_remove' => DealerTallyEntry::isRemovableSource((string) $row->source),
             ];
         }
 
@@ -132,6 +136,7 @@ final class TallyDealerLedgerService
                 SELECT COALESCE(SUM(dealer_tally_entries.debit), 0) - COALESCE(SUM(dealer_tally_entries.credit), 0)
                 FROM dealer_tally_entries
                 WHERE dealer_tally_entries.dealer_id = {$dealersTable}.id
+                  AND dealer_tally_entries.removed_at IS NULL
                   AND dealer_tally_entries.entry_date >= COALESCE((
                       SELECT dealer_tally_ledgers.financial_start_date
                       FROM dealer_tally_ledgers

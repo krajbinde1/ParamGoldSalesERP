@@ -2,12 +2,16 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Str;
 
 class DealerTallyEntry extends Model
 {
+    public const REMOVED_SCOPE = 'not_removed';
+
     public const SOURCE_TALLY_IMPORT = 'tally_import';
 
     public const SOURCE_TALLY_JOURNAL = 'tally_journal';
@@ -19,6 +23,8 @@ class DealerTallyEntry extends Model
     public const SOURCE_LABEL_TALLY_JOURNAL = 'Tally - Journal';
 
     public const SALES_ENTRY_KEY = 'sales';
+
+    private static bool $removedAtColumnReady = false;
 
     protected $fillable = [
         'dealer_id',
@@ -41,7 +47,26 @@ class DealerTallyEntry extends Model
         'erp_reference',
         'fingerprint',
         'source_row',
+        'removed_at',
+        'removed_by',
+        'removal_reason',
+        'original_snapshot',
     ];
+
+    protected static function booted(): void
+    {
+        static::addGlobalScope(self::REMOVED_SCOPE, function (Builder $builder): void {
+            $model = $builder->getModel();
+            if (! self::$removedAtColumnReady) {
+                if (! Schema::hasColumn($model->getTable(), 'removed_at')) {
+                    return;
+                }
+                self::$removedAtColumnReady = true;
+            }
+
+            $builder->whereNull($model->qualifyColumn('removed_at'));
+        });
+    }
 
     protected function casts(): array
     {
@@ -53,7 +78,28 @@ class DealerTallyEntry extends Model
             'credit' => 'decimal:2',
             'source_id' => 'integer',
             'source_row' => 'integer',
+            'removed_at' => 'datetime',
+            'original_snapshot' => 'array',
         ];
+    }
+
+    /**
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeWithRemoved(Builder $query): Builder
+    {
+        return $query->withoutGlobalScope(self::REMOVED_SCOPE);
+    }
+
+    /**
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeOnlyRemoved(Builder $query): Builder
+    {
+        return $query->withoutGlobalScope(self::REMOVED_SCOPE)
+            ->whereNotNull($query->getModel()->qualifyColumn('removed_at'));
     }
 
     public function dealer(): BelongsTo
@@ -64,6 +110,58 @@ class DealerTallyEntry extends Model
     public function import(): BelongsTo
     {
         return $this->belongsTo(DealerTallyImport::class, 'import_id');
+    }
+
+    public function removedBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'removed_by');
+    }
+
+    public static function isRemovableSource(?string $source): bool
+    {
+        return in_array((string) $source, [
+            self::SOURCE_TALLY_IMPORT,
+            self::SOURCE_TALLY_JOURNAL,
+        ], true);
+    }
+
+    public function isRemoved(): bool
+    {
+        return $this->removed_at !== null;
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    public function auditSnapshot(): array
+    {
+        return [
+            'id' => $this->id,
+            'dealer_id' => $this->dealer_id,
+            'import_id' => $this->import_id,
+            'entry_date' => $this->entry_date?->toDateString(),
+            'particulars' => $this->particulars,
+            'voucher_type' => $this->voucher_type,
+            'voucher_no' => $this->voucher_no,
+            'tally_voucher_type' => $this->tally_voucher_type,
+            'tally_voucher_no' => $this->tally_voucher_no,
+            'tally_entry_date' => $this->tally_entry_date?->toDateString(),
+            'tally_voucher_guid' => $this->tally_voucher_guid,
+            'tally_master_id' => $this->tally_master_id,
+            'tally_entry_key' => $this->tally_entry_key,
+            'debit' => round((float) $this->debit, 2),
+            'credit' => round((float) $this->credit, 2),
+            'source' => $this->source,
+            'source_id' => $this->source_id,
+            'erp_reference' => $this->erp_reference,
+            'fingerprint' => $this->fingerprint,
+            'source_row' => $this->source_row,
+        ];
+    }
+
+    public static function makeRemovedFingerprint(string $originalFingerprint, int $id): string
+    {
+        return hash('sha256', $originalFingerprint.'|removed|'.$id);
     }
 
     public static function makeFingerprint(

@@ -1,5 +1,6 @@
 <?php
 
+use App\Actions\Dealers\RemoveTallyLedgerEntry;
 use App\Enums\UserRole;
 use App\Filament\Resources\Dealers\Pages\ImportTallyLedger;
 use App\Filament\Resources\Dealers\Pages\ListDealers;
@@ -18,8 +19,10 @@ use App\Services\Dealers\DealerLedgerService;
 use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Services\TallyLedger\TallyLedgerExcelParser;
 use App\Services\TallyLedger\TallyLedgerImportService;
+use App\Services\TallySync\TallyDealerMappingService;
 use App\Services\TallySync\TallyLiveBalanceService;
 use App\Support\IndianCurrency;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 use PhpOffice\PhpSpreadsheet\Shared\Date as ExcelDate;
@@ -181,6 +184,46 @@ function tallyImportAdmin(): User
         'role' => UserRole::Employee->value,
         'job_role' => 'Admin',
     ]);
+}
+
+function tallyImportDirector(): User
+{
+    return User::query()->create([
+        'name' => 'Tally Director',
+        'email' => 'tally.director.'.uniqid().'@example.com',
+        'password' => 'password',
+        'role' => UserRole::Director->value,
+        'job_role' => 'Director',
+    ]);
+}
+
+function seedDealerTallyAccount(Dealer $dealer, float $opening = 0.0, string $openingType = 'debit'): DealerTallyLedger
+{
+    return DealerTallyLedger::query()->create([
+        'dealer_id' => $dealer->id,
+        'opening_balance' => $opening,
+        'opening_balance_type' => $openingType,
+        'opening_balance_explicit' => true,
+        'financial_start_date' => '2026-04-01',
+        'last_imported_at' => now('Asia/Kolkata'),
+    ]);
+}
+
+function seedDealerTallyEntry(Dealer $dealer, array $overrides = []): DealerTallyEntry
+{
+    $voucherNo = (string) ($overrides['voucher_no'] ?? 'V-'.uniqid());
+
+    return DealerTallyEntry::query()->create(array_merge([
+        'dealer_id' => $dealer->id,
+        'entry_date' => '2026-08-26',
+        'particulars' => 'State Bank of India',
+        'voucher_type' => 'Receipt',
+        'voucher_no' => $voucherNo,
+        'debit' => 0,
+        'credit' => 0,
+        'source' => DealerTallyEntry::SOURCE_TALLY_IMPORT,
+        'fingerprint' => hash('sha256', $dealer->id.'|'.$voucherNo.'|'.uniqid('', true)),
+    ], $overrides));
 }
 
 it('formats ledger amounts with paise and dr/cr', function (): void {
@@ -832,7 +875,7 @@ it('lets admin change mapping from the cached tally ledger list', function (): v
         'last_seen_at' => now('Asia/Kolkata'),
     ]);
 
-    $options = app(\App\Services\TallySync\TallyDealerMappingService::class)->searchLedgers('');
+    $options = app(TallyDealerMappingService::class)->searchLedgers('');
     expect($options)->toHaveKey('acacacac-acac-acac-acac-acacacacacac')
         ->and($options['acacacac-acac-acac-acac-acacacacacac'])->toBe('Replacement Tally Party');
 
@@ -1378,4 +1421,256 @@ it('shows tally ledger status on the dealer list and updates it after import and
         ->assertSee('Not Imported')
         ->assertDontSee('Ledger Imported')
         ->assertTableActionVisible('importTallyLedger', $dealer);
+});
+
+it('removes a stale tally import receipt from outstanding and keeps an audit row', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100401');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Ramkrishna Krushi Seva Kendra (Majalgaon)']);
+    $admin = tallyImportAdmin();
+    seedDealerTallyAccount($dealer, 52590.43);
+    $keptSales = seedDealerTallyEntry($dealer, [
+        'entry_date' => '2026-08-22',
+        'particulars' => 'Sales @5%',
+        'voucher_type' => 'Sales',
+        'voucher_no' => 'PG-KEEP-1',
+        'debit' => 10000,
+        'credit' => 0,
+        'source' => DealerTallyEntry::SOURCE_TALLY_IMPORT,
+    ]);
+    $receipt = seedDealerTallyEntry($dealer, [
+        'entry_date' => '2026-08-26',
+        'particulars' => 'State Bank of India',
+        'voucher_type' => 'Receipt',
+        'voucher_no' => '482',
+        'debit' => 0,
+        'credit' => 45675,
+        'source' => DealerTallyEntry::SOURCE_TALLY_IMPORT,
+    ]);
+    $erpSales = seedDealerTallyEntry($dealer, [
+        'entry_date' => '2026-08-22',
+        'particulars' => 'ERP Sales',
+        'voucher_type' => 'Sales',
+        'voucher_no' => 'PG-ERP-1',
+        'debit' => 5000,
+        'credit' => 0,
+        'source' => DealerTallyEntry::SOURCE_SALES_ORDER,
+        'source_id' => 1,
+    ]);
+
+    $before = app(TallyDealerLedgerService::class)->statement($dealer);
+    expect($before['summary']['current_outstanding_signed'])->toBe(21915.43)
+        ->and(collect($before['ledger'])->firstWhere('voucher_no', '482')['can_remove'])->toBeTrue()
+        ->and(collect($before['ledger'])->firstWhere('source', 'opening_balance')['can_remove'])->toBeFalse()
+        ->and(collect($before['ledger'])->firstWhere('voucher_no', 'PG-ERP-1')['can_remove'])->toBeFalse();
+
+    $sqlOutstanding = round((float) Dealer::query()
+        ->whereKey($dealer->id)
+        ->selectRaw(TallyDealerLedgerService::signedCurrentOutstandingSql().' as outstanding')
+        ->value('outstanding'), 2);
+    expect($sqlOutstanding)->toBe(21915.43);
+
+    Livewire::actingAs($admin)
+        ->test(ViewDealerLedger::class, ['record' => $dealer->getRouteKey()])
+        ->assertSuccessful()
+        ->assertSee('Remove Tally Entry')
+        ->assertSee('482')
+        ->callAction('removeTallyEntry', [
+            'reason' => 'Receipt deleted in actual Tally',
+        ], [
+            'entryId' => $receipt->id,
+        ])
+        ->assertNotified()
+        ->assertSee('₹67,590.43 Dr')
+        ->assertSee('Removed Tally entries')
+        ->assertSee('Receipt deleted in actual Tally');
+
+    $after = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
+    expect($after['summary']['current_outstanding_signed'])->toBe(67590.43)
+        ->and($after['summary']['current_outstanding_label'])->toBe('₹67,590.43 Dr')
+        ->and(collect($after['ledger'])->firstWhere('voucher_no', '482'))->toBeNull()
+        ->and(collect($after['ledger'])->firstWhere('voucher_no', 'PG-KEEP-1'))->not->toBeNull()
+        ->and(collect($after['ledger'])->firstWhere('voucher_no', 'PG-ERP-1'))->not->toBeNull()
+        ->and($after['verification']['erp_outstanding_label'])->toBe('₹67,590.43 Dr');
+
+    expect(DealerTallyEntry::query()->whereKey($receipt->id)->exists())->toBeFalse()
+        ->and(DealerTallyEntry::query()->whereKey($keptSales->id)->exists())->toBeTrue()
+        ->and(DealerTallyEntry::query()->whereKey($erpSales->id)->exists())->toBeTrue();
+
+    $audit = DealerTallyEntry::query()->onlyRemoved()->whereKey($receipt->id)->first();
+    expect($audit)->not->toBeNull()
+        ->and($audit->removed_by)->toBe($admin->id)
+        ->and($audit->removal_reason)->toBe('Receipt deleted in actual Tally')
+        ->and($audit->removed_at)->not->toBeNull()
+        ->and((float) $audit->credit)->toBe(45675.0)
+        ->and($audit->original_snapshot['voucher_no'])->toBe('482')
+        ->and((float) $audit->original_snapshot['credit'])->toBe(45675.0)
+        ->and($audit->original_snapshot['fingerprint'])->not->toBe($audit->fingerprint);
+
+    $sqlAfter = round((float) Dealer::query()
+        ->whereKey($dealer->id)
+        ->selectRaw(TallyDealerLedgerService::signedCurrentOutstandingSql().' as outstanding')
+        ->value('outstanding'), 2);
+    expect($sqlAfter)->toBe(67590.43);
+});
+
+it('recalculates live tally comparison after a stale tally receipt is removed', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100402');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Ramkrishna Live Compare Dealer']);
+    $admin = tallyImportAdmin();
+    seedDealerTallyAccount($dealer, 52590.43);
+    $receipt = seedDealerTallyEntry($dealer, [
+        'voucher_no' => '482',
+        'credit' => 45675,
+        'source' => DealerTallyEntry::SOURCE_TALLY_IMPORT,
+    ]);
+
+    app(TallyLiveBalanceService::class)->ingest('office-pc-1', true, [[
+        'tally_ledger_name' => $dealer->firm_name,
+        'closing_balance' => 52590.43,
+        'closing_balance_type' => 'debit',
+    ]]);
+
+    $before = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
+    expect($before['summary']['current_outstanding_signed'])->toBe(6915.43)
+        ->and($before['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_MISMATCH)
+        ->and($before['verification']['erp_outstanding_label'])->toBe('₹6,915.43 Dr')
+        ->and($before['verification']['live_tally_label'])->toBe('₹52,590.43 Dr');
+
+    app(RemoveTallyLedgerEntry::class)->execute($receipt, $admin, 'Stale Tally receipt 482');
+
+    $after = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
+    expect($after['summary']['current_outstanding_signed'])->toBe(52590.43)
+        ->and($after['summary']['current_outstanding_label'])->toBe('₹52,590.43 Dr')
+        ->and($after['verification']['erp_outstanding_label'])->toBe('₹52,590.43 Dr')
+        ->and($after['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_MATCHED)
+        ->and($after['verification']['balance_matched'])->toBeTrue()
+        ->and($after['verification']['difference'])->toBe(0.0);
+});
+
+it('allows director to remove a tally journal row and refuses erp sales, collection, and opening', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100403');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Remove Source Guard Dealer']);
+    $director = tallyImportDirector();
+    seedDealerTallyAccount($dealer, 1000);
+    $journal = seedDealerTallyEntry($dealer, [
+        'voucher_type' => 'Journal',
+        'voucher_no' => 'J-9',
+        'particulars' => 'Journal',
+        'debit' => 250,
+        'credit' => 0,
+        'source' => DealerTallyEntry::SOURCE_TALLY_JOURNAL,
+        'tally_voucher_guid' => 'guid-journal-9',
+        'tally_entry_key' => 'party',
+    ]);
+    $sales = seedDealerTallyEntry($dealer, [
+        'voucher_no' => 'ERP-S',
+        'debit' => 100,
+        'credit' => 0,
+        'source' => DealerTallyEntry::SOURCE_SALES_ORDER,
+        'source_id' => 11,
+    ]);
+    $collection = seedDealerTallyEntry($dealer, [
+        'voucher_no' => 'ERP-C',
+        'debit' => 0,
+        'credit' => 50,
+        'source' => DealerTallyEntry::SOURCE_COLLECTION,
+        'source_id' => 12,
+    ]);
+
+    app(RemoveTallyLedgerEntry::class)->execute($journal, $director, 'Journal reversed in Tally');
+
+    expect(DealerTallyEntry::query()->whereKey($journal->id)->exists())->toBeFalse()
+        ->and(DealerTallyEntry::query()->onlyRemoved()->whereKey($journal->id)->value('tally_voucher_guid'))->toBeNull()
+        ->and(DealerTallyEntry::query()->onlyRemoved()->whereKey($journal->id)->value('tally_entry_key'))->toBe('removed:'.$journal->id)
+        ->and(DealerTallyEntry::query()->whereKey($sales->id)->exists())->toBeTrue()
+        ->and(DealerTallyEntry::query()->whereKey($collection->id)->exists())->toBeTrue();
+
+    expect(fn () => app(RemoveTallyLedgerEntry::class)->execute($sales, $director, 'Should not remove ERP sales'))
+        ->toThrow(ValidationException::class);
+    expect(fn () => app(RemoveTallyLedgerEntry::class)->execute($collection, $director, 'Should not remove ERP collection'))
+        ->toThrow(ValidationException::class);
+
+    $opening = new DealerTallyEntry([
+        'dealer_id' => $dealer->id,
+        'source' => 'opening_balance',
+        'debit' => 1000,
+        'credit' => 0,
+        'fingerprint' => hash('sha256', 'opening-'.$dealer->id),
+    ]);
+    $opening->id = 0;
+    expect(fn () => app(RemoveTallyLedgerEntry::class)->execute($opening, $director, 'Should not remove opening'))
+        ->toThrow(ValidationException::class);
+});
+
+it('hides remove tally entry from employees and rejects the action', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100404');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Employee Cannot Remove Dealer']);
+    seedDealerTallyAccount($dealer, 1000);
+    $receipt = seedDealerTallyEntry($dealer, [
+        'voucher_no' => '99',
+        'credit' => 100,
+    ]);
+
+    Livewire::actingAs($employee->user)
+        ->test(ViewDealerLedger::class, ['record' => $dealer->getRouteKey()])
+        ->assertSuccessful()
+        ->assertDontSee('Remove Tally Entry')
+        ->assertActionHidden('removeTallyEntry');
+
+    expect(fn () => app(RemoveTallyLedgerEntry::class)->execute(
+        $receipt,
+        $employee->user,
+        'Trying to remove as employee',
+    ))->toThrow(AuthorizationException::class);
+
+    expect(DealerTallyEntry::query()->whereKey($receipt->id)->exists())->toBeTrue();
+});
+
+it('allows the same tally voucher to be re-imported after it was removed', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100405');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Reimport After Remove Dealer']);
+    $admin = tallyImportAdmin();
+    $path = tallyLedgerExcel(typicalTallyRows($dealer->firm_name));
+
+    app(TallyLedgerImportService::class)->import($path, (int) $dealer->id, $admin, 'first.xlsx');
+
+    $receipt = DealerTallyEntry::query()
+        ->where('dealer_id', $dealer->id)
+        ->where('voucher_no', 'RT-22')
+        ->first();
+    expect($receipt)->not->toBeNull();
+
+    $originalFingerprint = $receipt->fingerprint;
+    app(RemoveTallyLedgerEntry::class)->execute($receipt, $admin, 'Deleted in Tally');
+
+    expect(DealerTallyEntry::query()->where('fingerprint', $originalFingerprint)->exists())->toBeFalse();
+
+    $again = app(TallyLedgerImportService::class)->import($path, (int) $dealer->id, $admin, 'second.xlsx');
+
+    expect($again['imported_count'])->toBe(1)
+        ->and($again['duplicate_count'])->toBe(1)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->where('voucher_no', 'RT-22')->exists())->toBeTrue()
+        ->and(DealerTallyEntry::query()->onlyRemoved()->where('dealer_id', $dealer->id)->where('voucher_no', 'RT-22')->exists())->toBeTrue()
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(2);
+});
+
+it('keeps removed tally audit rows when the tally ledger is reset', function (): void {
+    $employee = ledgerEmployee(UserRole::Employee, '9811100406');
+    $dealer = ledgerDealer($employee, ['firm_name' => 'Reset Keeps Audit Dealer']);
+    $admin = tallyImportAdmin();
+    $path = tallyLedgerExcel(typicalTallyRows($dealer->firm_name));
+    app(TallyLedgerImportService::class)->import($path, (int) $dealer->id, $admin, 'reset-audit.xlsx');
+
+    $receipt = DealerTallyEntry::query()
+        ->where('dealer_id', $dealer->id)
+        ->where('voucher_no', 'RT-22')
+        ->first();
+    app(RemoveTallyLedgerEntry::class)->execute($receipt, $admin, 'Keep this audit after reset');
+
+    app(TallyLedgerImportService::class)->resetForDealer($dealer);
+
+    expect(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(0)
+        ->and(DealerTallyEntry::query()->onlyRemoved()->where('dealer_id', $dealer->id)->count())->toBe(1)
+        ->and(DealerTallyEntry::query()->onlyRemoved()->where('dealer_id', $dealer->id)->value('removal_reason'))
+        ->toBe('Keep this audit after reset');
 });

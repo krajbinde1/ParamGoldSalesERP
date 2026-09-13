@@ -2,22 +2,30 @@
 
 namespace App\Filament\Resources\Dealers\Pages;
 
+use App\Actions\Dealers\RemoveTallyLedgerEntry;
 use App\Exceptions\TallyMappingException;
 use App\Filament\Pages\PossibleDuplicateSales;
 use App\Filament\Resources\Dealers\DealerResource;
 use App\Models\Dealer;
+use App\Models\DealerTallyEntry;
 use App\Models\TallyConnectorLedger;
 use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Services\TallyLedger\TallyLedgerImportService;
 use App\Services\TallySync\TallyConnectorStatusService;
 use App\Services\TallySync\TallyDealerMappingService;
 use App\Services\TallySync\TallyLiveBalanceService;
+use App\Support\IndianCurrency;
 use Filament\Actions\Action;
 use Filament\Actions\ActionGroup;
 use Filament\Forms\Components\Select;
+use Filament\Forms\Components\Textarea;
+use Filament\Forms\Components\TextInput;
 use Filament\Notifications\Notification;
 use Filament\Resources\Pages\ViewRecord;
+use Filament\Support\Enums\Size;
+use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Contracts\Support\Htmlable;
+use Illuminate\Validation\ValidationException;
 
 class ViewDealerLedger extends ViewRecord
 {
@@ -63,7 +71,7 @@ class ViewDealerLedger extends ViewRecord
 
     protected function getHeaderActions(): array
     {
-        $canImport = (auth()->user()?->isAdminUser() ?? false) || (auth()->user()?->isDirectorUser() ?? false);
+        $canImport = $this->canManageTallyLedger();
         $mapping = $this->mappingStatus();
         $isAdmin = auth()->user()?->isAdminUser() ?? false;
 
@@ -194,6 +202,160 @@ class ViewDealerLedger extends ViewRecord
         $record = $this->getRecord();
 
         return app(TallyDealerLedgerService::class)->statement($record);
+    }
+
+    public function canManageTallyLedger(): bool
+    {
+        $user = auth()->user();
+
+        return ($user?->isAdminUser() ?? false) || ($user?->isDirectorUser() ?? false);
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function removedTallyAuditRows(): array
+    {
+        if (! $this->canManageTallyLedger()) {
+            return [];
+        }
+
+        /** @var Dealer $dealer */
+        $dealer = $this->getRecord();
+
+        return DealerTallyEntry::query()
+            ->onlyRemoved()
+            ->where('dealer_id', $dealer->id)
+            ->with('removedBy:id,name')
+            ->orderByDesc('removed_at')
+            ->orderByDesc('id')
+            ->get()
+            ->map(function (DealerTallyEntry $entry): array {
+                $debit = round((float) $entry->debit, 2);
+                $credit = round((float) $entry->credit, 2);
+                $isDebit = $debit > 0;
+
+                return [
+                    'voucher_no' => filled($entry->voucher_no) ? (string) $entry->voucher_no : '—',
+                    'date' => $entry->entry_date?->toDateString(),
+                    'side' => $isDebit ? 'Debit' : 'Credit',
+                    'amount_label' => IndianCurrency::formatExact($isDebit ? $debit : $credit),
+                    'reason' => (string) $entry->removal_reason,
+                    'removed_by' => $entry->removedBy?->name ?? '—',
+                    'removed_at' => $entry->removed_at?->timezone('Asia/Kolkata')->format('d M Y • h:i A'),
+                    'source_label' => DealerTallyEntry::sourceLabel((string) $entry->source, $entry->voucher_type),
+                ];
+            })
+            ->all();
+    }
+
+    public function removeTallyEntryAction(): Action
+    {
+        return Action::make('removeTallyEntry')
+            ->label('Remove Tally Entry')
+            ->color('danger')
+            ->link()
+            ->size(Size::ExtraSmall)
+            ->visible(fn (): bool => $this->canManageTallyLedger())
+            ->authorize(fn (): bool => $this->canManageTallyLedger())
+            ->modalHeading('Remove Tally Entry')
+            ->modalDescription('This removes the voucher from ERP ledger calculation only. Actual Tally data is not changed.')
+            ->modalSubmitActionLabel('Remove Tally Entry')
+            ->fillForm(function (Action $action): array {
+                $entry = $this->findRemovableTallyEntry((int) ($action->getArguments()['entryId'] ?? 0));
+                if ($entry === null) {
+                    return [];
+                }
+
+                $debit = round((float) $entry->debit, 2);
+                $credit = round((float) $entry->credit, 2);
+                $isDebit = $debit > 0;
+
+                return [
+                    'voucher_no' => filled($entry->voucher_no) ? (string) $entry->voucher_no : '—',
+                    'entry_date' => $entry->entry_date?->format('d M Y') ?? '—',
+                    'side' => $isDebit ? 'Debit' : 'Credit',
+                    'amount' => IndianCurrency::formatExact($isDebit ? $debit : $credit),
+                ];
+            })
+            ->form([
+                TextInput::make('voucher_no')
+                    ->label('Voucher No.')
+                    ->disabled()
+                    ->dehydrated(false),
+                TextInput::make('entry_date')
+                    ->label('Date')
+                    ->disabled()
+                    ->dehydrated(false),
+                TextInput::make('side')
+                    ->label('Debit/Credit')
+                    ->disabled()
+                    ->dehydrated(false),
+                TextInput::make('amount')
+                    ->label('Amount')
+                    ->disabled()
+                    ->dehydrated(false),
+                Textarea::make('reason')
+                    ->label('Reason')
+                    ->required()
+                    ->minLength(3)
+                    ->maxLength(2000)
+                    ->rows(3)
+                    ->helperText('Explain why this Tally-imported voucher should be excluded from ERP outstanding.'),
+            ])
+            ->action(function (array $data, array $arguments): void {
+                $entry = $this->findRemovableTallyEntry((int) ($arguments['entryId'] ?? 0));
+                if ($entry === null) {
+                    Notification::make()
+                        ->danger()
+                        ->title('Tally entry not found')
+                        ->send();
+
+                    return;
+                }
+
+                try {
+                    app(RemoveTallyLedgerEntry::class)->execute(
+                        $entry,
+                        auth()->user(),
+                        (string) ($data['reason'] ?? ''),
+                    );
+                } catch (AuthorizationException $exception) {
+                    Notification::make()
+                        ->danger()
+                        ->title($exception->getMessage())
+                        ->send();
+
+                    return;
+                } catch (ValidationException $exception) {
+                    Notification::make()
+                        ->danger()
+                        ->title(collect($exception->errors())->flatten()->first() ?: 'This entry cannot be removed.')
+                        ->send();
+
+                    return;
+                }
+
+                $this->refreshRecord();
+
+                Notification::make()
+                    ->success()
+                    ->title('Tally entry removed')
+                    ->body('ERP outstanding was recalculated. Actual Tally data was not changed.')
+                    ->send();
+            });
+    }
+
+    private function findRemovableTallyEntry(int $entryId): ?DealerTallyEntry
+    {
+        if ($entryId <= 0) {
+            return null;
+        }
+
+        return DealerTallyEntry::query()
+            ->where('dealer_id', $this->getRecord()->getKey())
+            ->whereKey($entryId)
+            ->first();
     }
 
     private function dealerHasTallyImportData(): bool

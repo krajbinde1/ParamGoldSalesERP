@@ -136,6 +136,7 @@ final class TallyLedgerImportService
                     TallyLedgerConfig::SOURCE,
                     DealerTallyEntry::SOURCE_TALLY_JOURNAL,
                 ])
+                ->whereNull('removed_at')
                 ->delete();
             DealerTallyImport::query()->where('dealer_id', $dealer->id)->delete();
             if (! DealerTallyEntry::query()->where('dealer_id', $dealer->id)->exists()) {
