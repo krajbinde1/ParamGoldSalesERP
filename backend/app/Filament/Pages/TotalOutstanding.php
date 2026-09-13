@@ -198,11 +198,15 @@ class TotalOutstanding extends Page implements HasForms, HasTable
                     ->badge()
                     ->state(fn (Dealer $record): string => $this->dealerTallyStatus($record)['label'])
                     ->color(fn (Dealer $record): string => match ($this->dealerTallyStatus($record)['status']) {
-                        TallyLiveBalanceService::STATUS_MATCHED => 'success',
+                        TallyLiveBalanceService::STATUS_MATCHED,
+                        TallyLiveBalanceService::STATUS_MATCHED_ROUND_OFF => 'success',
                         TallyLiveBalanceService::STATUS_MISMATCH => 'warning',
                         default => 'gray',
                     })
-                    ->description(fn (Dealer $record): ?string => $this->dealerTallyStatus($record)['status'] === TallyLiveBalanceService::STATUS_MISMATCH
+                    ->description(fn (Dealer $record): ?string => in_array($this->dealerTallyStatus($record)['status'], [
+                        TallyLiveBalanceService::STATUS_MISMATCH,
+                        TallyLiveBalanceService::STATUS_MATCHED_ROUND_OFF,
+                    ], true)
                         ? $this->dealerTallyStatus($record)['difference_label']
                         : null),
             ])
@@ -389,8 +393,12 @@ class TotalOutstanding extends Page implements HasForms, HasTable
 
     private function dealerTableDescription(): string
     {
+        if ($this->tallyStatusFilter === TallyLiveBalanceService::STATUS_MATCHED) {
+            return 'Dealers whose ERP outstanding and Live Tally balance match exactly, or differ by ₹1.00 or less (round-off). Click a dealer to open the ledger.';
+        }
+
         if ($this->tallyStatusFilter === TallyLiveBalanceService::STATUS_MISMATCH) {
-            return 'Dealers whose ERP outstanding and Live Tally balance do not match. Click a dealer to open the ledger.';
+            return 'Dealers whose ERP outstanding and Live Tally balance differ by more than ₹1.00. Round-off differences of ₹1.00 or less are treated as matched. Click a dealer to open the ledger.';
         }
 
         if ($this->selectedEmployeeId() !== null) {

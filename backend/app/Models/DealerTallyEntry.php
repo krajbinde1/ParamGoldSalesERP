@@ -20,7 +20,7 @@ class DealerTallyEntry extends Model
 
     public const SOURCE_COLLECTION = 'collection';
 
-    public const SOURCE_LABEL_TALLY_JOURNAL = 'Tally - Journal';
+    public const SOURCE_LABEL_TALLY_JOURNAL = 'Tally - Journal/Adjustment';
 
     public const SALES_ENTRY_KEY = 'sales';
 
@@ -206,11 +206,45 @@ class DealerTallyEntry extends Model
         return hash('sha256', self::SOURCE_TALLY_JOURNAL.'|'.$voucherGuid.'|'.$entryKey);
     }
 
+    public static function isOperationalTallyVoucherType(?string $voucherType): bool
+    {
+        $normalized = self::normalizedVoucherType($voucherType);
+        if ($normalized === '') {
+            return false;
+        }
+
+        foreach (['sales', 'receipt', 'payment', 'purchase', 'contra'] as $type) {
+            if ($normalized === $type || str_starts_with($normalized, $type.' ')) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public static function isJournalVoucherType(?string $voucherType): bool
     {
-        $normalized = Str::of((string) $voucherType)->lower()->replace('_', ' ')->squish()->toString();
+        $normalized = self::normalizedVoucherType($voucherType);
+        if ($normalized === '' || self::isOperationalTallyVoucherType($voucherType)) {
+            return false;
+        }
 
-        return $normalized === 'journal' || str_starts_with($normalized, 'journal ');
+        if ($normalized === 'journal' || str_starts_with($normalized, 'journal ')) {
+            return true;
+        }
+
+        foreach (['bad debt', 'write off', 'writeoff', 'round off', 'roundoff', 'adjustment'] as $needle) {
+            if ($normalized === $needle || str_contains($normalized, $needle)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    public static function normalizedVoucherType(?string $voucherType): string
+    {
+        return Str::of((string) $voucherType)->lower()->replace(['_', '-'], ' ')->squish()->toString();
     }
 
     public static function sourceLabel(?string $source, ?string $voucherType = null): string

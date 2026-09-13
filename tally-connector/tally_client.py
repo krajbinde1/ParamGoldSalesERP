@@ -157,7 +157,15 @@ class TallyClient:
             "<FILTER>IsJournalVoucher</FILTER>"
             "</COLLECTION>"
             '<SYSTEM TYPE="Formulae" NAME="IsJournalVoucher">'
-            "$$IsSysNameEqual:$VoucherTypeName:Journal"
+            "$$IsJournal OR $$IsSysNameEqual:$VoucherTypeName:Journal"
+            ' OR $$StringContains:$VoucherTypeName:"Bad Debt"'
+            ' OR $$StringContains:$VoucherTypeName:"Write Off"'
+            ' OR $$StringContains:$VoucherTypeName:"Write-Off"'
+            ' OR $$StringContains:$VoucherTypeName:"WriteOff"'
+            ' OR $$StringContains:$VoucherTypeName:"Round Off"'
+            ' OR $$StringContains:$VoucherTypeName:"Round-Off"'
+            ' OR $$StringContains:$VoucherTypeName:"RoundOff"'
+            ' OR $$StringContains:$VoucherTypeName:"Adjustment"'
             "</SYSTEM>"
             "</TDLMESSAGE></TDL>"
             "</DESC></BODY></ENVELOPE>"
@@ -246,7 +254,7 @@ def parse_journal_vouchers(xml: str) -> list[dict[str, str | float | bool | int 
                 continue
             entries.append(
                 {
-                    "voucher_type": "Journal",
+                    "voucher_type": voucher_type or "Journal",
                     "voucher_guid": guid,
                     "master_id": master_id.strip()[:100],
                     "voucher_no": voucher_no.strip(),
@@ -278,9 +286,20 @@ def _voucher_type(block: str, attrs: str) -> str:
     return re.sub(r"\s+", " ", name).strip()
 
 
+def _is_operational_type(voucher_type: str) -> bool:
+    normalized = re.sub(r"[\s_\-]+", " ", (voucher_type or "").strip().lower())
+    if normalized == "":
+        return False
+    return any(
+        normalized == prefix or normalized.startswith(prefix + " ")
+        for prefix in ("sales", "receipt", "payment", "purchase", "contra")
+    )
+
+
 def _is_journal_type(voucher_type: str) -> bool:
-    normalized = re.sub(r"[\s_]+", " ", (voucher_type or "").strip().lower())
-    return normalized == "journal" or normalized.startswith("journal ")
+    if _is_operational_type(voucher_type):
+        return False
+    return bool((voucher_type or "").strip())
 
 
 def _voucher_date(block: str, attrs: str) -> str:

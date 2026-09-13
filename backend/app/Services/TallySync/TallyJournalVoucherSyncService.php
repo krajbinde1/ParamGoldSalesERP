@@ -93,7 +93,10 @@ final class TallyJournalVoucherSyncService
     private function upsertRow(TallyDealerMappingService $mappings, array $row, array &$presentKeys): string
     {
         $voucherType = trim((string) ($row['voucher_type'] ?? 'Journal'));
-        if (! DealerTallyEntry::isJournalVoucherType($voucherType)) {
+        if ($voucherType === '') {
+            $voucherType = 'Journal';
+        }
+        if (DealerTallyEntry::isOperationalTallyVoucherType($voucherType)) {
             return 'skipped';
         }
 
@@ -152,7 +155,7 @@ final class TallyJournalVoucherSyncService
             : DealerTallyEntry::makeFingerprint(
                 $dealerId,
                 $date,
-                'Journal',
+                $voucherType,
                 $voucherNo,
                 $debit,
                 $credit,
@@ -163,9 +166,9 @@ final class TallyJournalVoucherSyncService
             'dealer_id' => $dealerId,
             'entry_date' => $date,
             'particulars' => $particulars,
-            'voucher_type' => 'Journal',
+            'voucher_type' => $voucherType,
             'voucher_no' => $voucherNo !== '' ? $voucherNo : null,
-            'tally_voucher_type' => $voucherType !== '' ? $voucherType : 'Journal',
+            'tally_voucher_type' => $voucherType,
             'tally_voucher_no' => $voucherNo !== '' ? $voucherNo : null,
             'tally_entry_date' => $date,
             'tally_voucher_guid' => $guid !== '' ? $guid : null,
@@ -276,8 +279,14 @@ final class TallyJournalVoucherSyncService
                     ->orWhere(function ($journal): void {
                         $journal->where('source', DealerTallyEntry::SOURCE_TALLY_IMPORT)
                             ->where(function ($type): void {
-                                $type->whereRaw('LOWER(COALESCE(voucher_type, ?)) = ?', ['', 'journal'])
-                                    ->orWhereRaw('LOWER(COALESCE(voucher_type, ?)) LIKE ?', ['', 'journal %']);
+                                $type->whereRaw("LOWER(COALESCE(voucher_type, '')) = ?", ['journal'])
+                                    ->orWhereRaw("LOWER(COALESCE(voucher_type, '')) LIKE ?", ['journal %'])
+                                    ->orWhereRaw("LOWER(COALESCE(voucher_type, '')) LIKE ?", ['%bad debt%'])
+                                    ->orWhereRaw("LOWER(COALESCE(voucher_type, '')) LIKE ?", ['%write off%'])
+                                    ->orWhereRaw("LOWER(COALESCE(voucher_type, '')) LIKE ?", ['%write-off%'])
+                                    ->orWhereRaw("LOWER(COALESCE(voucher_type, '')) LIKE ?", ['%round off%'])
+                                    ->orWhereRaw("LOWER(COALESCE(voucher_type, '')) LIKE ?", ['%round-off%'])
+                                    ->orWhereRaw("LOWER(COALESCE(voucher_type, '')) LIKE ?", ['%adjustment%']);
                             });
                     });
             });

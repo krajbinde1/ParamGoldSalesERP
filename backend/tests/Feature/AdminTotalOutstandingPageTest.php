@@ -831,3 +831,68 @@ it('shows all live tally balances matched when every synced dealer agrees with e
         ->assertSee('All Live Tally Balances Matched')
         ->assertDontSee('Have Tally Balance Mismatch');
 });
+
+it('treats a live tally difference of one rupee or less as matched round-off, not mismatch', function (): void {
+    $director = outstandingPageDirector();
+    $akash = outstandingPageEmployee('Akash Round Off', '9940000024');
+
+    $roundOff = outstandingPageDealer([
+        'firm_name' => 'Round Off Live Dealer',
+        'assigned_employee_id' => $akash->id,
+        'opening_balance' => 1,
+        'opening_balance_date' => '2026-04-01',
+    ]);
+    outstandingTallyAccount($roundOff, 52590.43, 'debit');
+    $roundOff->tallyLedger->update([
+        'live_closing_balance' => 52590.13,
+        'live_closing_balance_type' => 'debit',
+        'live_synced_at' => now(),
+    ]);
+
+    $mismatch = outstandingPageDealer([
+        'firm_name' => 'Real Mismatch Live Dealer',
+        'assigned_employee_id' => $akash->id,
+        'opening_balance' => 1,
+        'opening_balance_date' => '2026-04-01',
+    ]);
+    outstandingTallyAccount($mismatch, 1000, 'debit');
+    $mismatch->tallyLedger->update([
+        'live_closing_balance' => 400,
+        'live_closing_balance_type' => 'debit',
+        'live_synced_at' => now(),
+    ]);
+
+    TallyLiveSyncState::current()->update([
+        'tally_online' => true,
+        'last_seen_at' => now(),
+        'last_balance_sync_at' => now(),
+    ]);
+
+    $recon = app(TallyLiveBalanceService::class)->outstandingReconciliation($akash->id);
+    expect($recon['matched'])->toBe(1)
+        ->and($recon['mismatched'])->toBe(1)
+        ->and($recon['banner'])->toBe(TallyLiveBalanceService::STATUS_MISMATCH);
+
+    $row = app(TallyLiveBalanceService::class)->outstandingRowStatus(
+        $roundOff->fresh(),
+        52590.43,
+    );
+    expect($row['status'])->toBe(TallyLiveBalanceService::STATUS_MATCHED_ROUND_OFF)
+        ->and($row['label'])->toBe('Matched (Round-off)')
+        ->and($row['difference'])->toBe(0.30);
+
+    $page = Livewire::actingAs($director)
+        ->test(TotalOutstanding::class)
+        ->assertSuccessful()
+        ->assertSee('Matched (Round-off)');
+
+    $page->call('selectEmployee', $akash->id)
+        ->call('filterTallyStatus', TallyLiveBalanceService::STATUS_MISMATCH)
+        ->assertCanSeeTableRecords([$mismatch])
+        ->assertCanNotSeeTableRecords([$roundOff]);
+
+    $page->call('filterTallyStatus', TallyLiveBalanceService::STATUS_MISMATCH)
+        ->call('filterTallyStatus', TallyLiveBalanceService::STATUS_MATCHED)
+        ->assertCanSeeTableRecords([$roundOff])
+        ->assertCanNotSeeTableRecords([$mismatch]);
+});

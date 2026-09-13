@@ -18,6 +18,8 @@ final class TallyLiveBalanceService
 {
     public const STATUS_MATCHED = 'matched';
 
+    public const STATUS_MATCHED_ROUND_OFF = 'matched_round_off';
+
     public const STATUS_MISMATCH = 'mismatch';
 
     public const STATUS_OFFLINE = 'offline';
@@ -288,22 +290,21 @@ final class TallyLiveBalanceService
             (string) $liveType,
         );
         $liveSigned = $compared['right_signed'];
-        $matched = $compared['matched'];
-        $difference = $compared['difference'];
+        $presentation = $this->liveComparePresentation($compared);
 
         return [
-            'status' => $matched ? self::STATUS_MATCHED : self::STATUS_MISMATCH,
-            'status_label' => $matched ? 'Live Tally Matched' : 'Live Tally Balance Mismatch',
-            'status_short' => $matched ? 'Matched' : 'Mismatch',
+            'status' => $presentation['status'],
+            'status_label' => $presentation['status_label'],
+            'status_short' => $presentation['status_short'],
             'tally_online' => true,
-            'balance_matched' => $matched,
+            'balance_matched' => $presentation['balance_matched'],
             'live_tally_signed' => $liveSigned,
             'live_tally_label' => IndianCurrency::formatDrCr($liveSigned),
             'erp_outstanding_label' => $erpLabel,
             'erp_closing_label' => $erpLabel,
             'tally_closing_label' => IndianCurrency::formatDrCr($liveSigned),
-            'difference' => $matched ? 0.0 : $difference,
-            'difference_label' => $matched ? IndianCurrency::formatExact(0) : IndianCurrency::formatDrCr($difference),
+            'difference' => $presentation['difference'],
+            'difference_label' => $presentation['difference_label'],
             'last_synced_label' => $lastSyncedLabel,
             'live_tally_ledger_name' => $account?->live_tally_ledger_name,
             ...$this->connectorStatusFields($connector),
@@ -663,6 +664,8 @@ final class TallyLiveBalanceService
         $table = (new Dealer)->getTable();
         $erp = TallyDealerLedgerService::signedCurrentOutstandingSql($table);
         $live = self::liveSignedSql($table);
+        $absDiff = DealerTallyBalance::liveAbsDifferenceSql($erp, $live);
+        $tolerance = DealerTallyBalance::LIVE_ROUND_OFF_TOLERANCE;
 
         $row = Dealer::query()
             ->where('status', true)
@@ -672,8 +675,8 @@ final class TallyLiveBalanceService
             )
             ->toBase()
             ->selectRaw("COALESCE(SUM(CASE WHEN ({$live}) IS NULL THEN 1 ELSE 0 END), 0) as not_synced")
-            ->selectRaw("COALESCE(SUM(CASE WHEN ({$live}) IS NOT NULL AND ROUND(({$erp}) - ({$live}), 2) = 0 THEN 1 ELSE 0 END), 0) as matched")
-            ->selectRaw("COALESCE(SUM(CASE WHEN ({$live}) IS NOT NULL AND ROUND(({$erp}) - ({$live}), 2) <> 0 THEN 1 ELSE 0 END), 0) as mismatched")
+            ->selectRaw("COALESCE(SUM(CASE WHEN ({$live}) IS NOT NULL AND {$absDiff} <= {$tolerance} THEN 1 ELSE 0 END), 0) as matched")
+            ->selectRaw("COALESCE(SUM(CASE WHEN ({$live}) IS NOT NULL AND {$absDiff} > {$tolerance} THEN 1 ELSE 0 END), 0) as mismatched")
             ->first();
 
         $matched = (int) ($row->matched ?? 0);
@@ -718,11 +721,13 @@ final class TallyLiveBalanceService
         $table = $query->getModel()->getTable();
         $erp = TallyDealerLedgerService::signedCurrentOutstandingSql($table);
         $live = self::liveSignedSql($table);
+        $absDiff = DealerTallyBalance::liveAbsDifferenceSql($erp, $live);
+        $tolerance = DealerTallyBalance::LIVE_ROUND_OFF_TOLERANCE;
 
         return match ($status) {
             self::STATUS_NOT_SYNCED => $query->whereRaw("({$live}) IS NULL"),
-            self::STATUS_MATCHED => $query->whereRaw("({$live}) IS NOT NULL AND ROUND(({$erp}) - ({$live}), 2) = 0"),
-            self::STATUS_MISMATCH => $query->whereRaw("({$live}) IS NOT NULL AND ROUND(({$erp}) - ({$live}), 2) <> 0"),
+            self::STATUS_MATCHED => $query->whereRaw("({$live}) IS NOT NULL AND {$absDiff} <= {$tolerance}"),
+            self::STATUS_MISMATCH => $query->whereRaw("({$live}) IS NOT NULL AND {$absDiff} > {$tolerance}"),
             default => $query,
         };
     }
@@ -751,14 +756,76 @@ final class TallyLiveBalanceService
             (float) $account->live_closing_balance,
             (string) $account->live_closing_balance_type,
         );
-        $matched = $compared['matched'];
-        $difference = $compared['difference'];
+        $presentation = $this->liveComparePresentation($compared);
 
         return [
-            'status' => $matched ? self::STATUS_MATCHED : self::STATUS_MISMATCH,
-            'label' => $matched ? 'Matched' : 'Mismatch',
-            'difference' => $matched ? 0.0 : $difference,
-            'difference_label' => $matched ? null : IndianCurrency::formatDrCr($difference),
+            'status' => $presentation['status'],
+            'label' => $presentation['label'],
+            'difference' => $presentation['difference'],
+            'difference_label' => $presentation['row_difference_label'],
+        ];
+    }
+
+    /**
+     * @param  array{
+     *     matched: bool,
+     *     round_off: bool,
+     *     within_tolerance: bool,
+     *     difference: float,
+     *     right_signed: float
+     * }  $compared
+     * @return array{
+     *     status: string,
+     *     status_label: string,
+     *     status_short: string,
+     *     label: string,
+     *     balance_matched: bool,
+     *     difference: float,
+     *     difference_label: string,
+     *     row_difference_label: string|null
+     * }
+     */
+    private function liveComparePresentation(array $compared): array
+    {
+        $difference = $compared['difference'];
+
+        if ($compared['matched']) {
+            return [
+                'status' => self::STATUS_MATCHED,
+                'status_label' => 'Live Tally Matched',
+                'status_short' => 'Matched',
+                'label' => 'Matched',
+                'balance_matched' => true,
+                'difference' => 0.0,
+                'difference_label' => IndianCurrency::formatExact(0),
+                'row_difference_label' => null,
+            ];
+        }
+
+        $differenceLabel = IndianCurrency::formatDrCr($difference);
+
+        if ($compared['round_off']) {
+            return [
+                'status' => self::STATUS_MATCHED_ROUND_OFF,
+                'status_label' => 'Live Tally Matched (Round-off)',
+                'status_short' => 'Matched (Round-off)',
+                'label' => 'Matched (Round-off)',
+                'balance_matched' => true,
+                'difference' => $difference,
+                'difference_label' => $differenceLabel,
+                'row_difference_label' => $differenceLabel,
+            ];
+        }
+
+        return [
+            'status' => self::STATUS_MISMATCH,
+            'status_label' => 'Live Tally Balance Mismatch',
+            'status_short' => 'Mismatch',
+            'label' => 'Mismatch',
+            'balance_matched' => false,
+            'difference' => $difference,
+            'difference_label' => $differenceLabel,
+            'row_difference_label' => $differenceLabel,
         ];
     }
 

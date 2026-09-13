@@ -4,8 +4,10 @@ use App\Models\Collection;
 use App\Models\DealerTallyEntry;
 use App\Models\DealerTallyLedger;
 use App\Models\TallyDealerMapping;
+use App\Models\TallyLiveSyncState;
 use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Services\TallySync\TallyDealerMappingService;
+use App\Services\TallySync\TallyLiveBalanceService;
 
 it('posts a mapped tally journal debit onto the dealer ledger', function (): void {
     $user = tallySyncConnectorUser();
@@ -55,7 +57,7 @@ it('posts a mapped tally journal debit onto the dealer ledger', function (): voi
         ->and($entry->particulars)->toBe('Interest receivable')
         ->and($entry->tally_voucher_guid)->toBe('dddddddd-dddd-dddd-dddd-ddddddddddd1')
         ->and($entry->tally_master_id)->toBe('501')
-        ->and($statement['ledger'][1]['source_label'])->toBe('Tally - Journal')
+        ->and($statement['ledger'][1]['source_label'])->toBe('Tally - Journal/Adjustment')
         ->and($statement['summary']['current_outstanding_signed'])->toBe(1500.0);
 });
 
@@ -362,4 +364,109 @@ it('does not guess a similarly named ledger for journal posting', function (): v
 
     expect(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(0)
         ->and(app(TallyDealerMappingService::class)->dealerIdForLedger(null, 'Shree Ganesh Trading'))->toBeNull();
+});
+
+it('imports a tally bad debt write-off onto the dealer ledger and then live tally matches', function (): void {
+    $user = tallySyncConnectorUser();
+    $employee = tallySyncEmployee('9813000410');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Write Off Party Agro']);
+    TallyDealerMapping::query()->create([
+        'tally_ledger_name' => 'Write Off Party Agro',
+        'tally_ledger_name_normalized' => TallyDealerMapping::normalizeName('Write Off Party Agro'),
+        'tally_ledger_guid' => 'aaaaaaaa-bbbb-cccc-dddd-writeoff0001',
+        'dealer_id' => $dealer->id,
+    ]);
+    DealerTallyLedger::query()->create([
+        'dealer_id' => $dealer->id,
+        'opening_balance' => 1000,
+        'opening_balance_type' => 'debit',
+        'opening_balance_explicit' => true,
+        'financial_start_date' => '2026-04-01',
+        'live_closing_balance' => 300,
+        'live_closing_balance_type' => 'debit',
+        'live_tally_ledger_name' => 'Write Off Party Agro',
+        'live_synced_at' => now('Asia/Kolkata'),
+    ]);
+    TallyLiveSyncState::current()->update([
+        'tally_online' => true,
+        'last_seen_at' => now('Asia/Kolkata'),
+        'last_heartbeat_at' => now('Asia/Kolkata'),
+        'last_balance_sync_at' => now('Asia/Kolkata'),
+    ]);
+
+    $before = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
+    expect($before['summary']['current_outstanding_signed'])->toBe(1000.0)
+        ->and($before['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_MISMATCH);
+
+    $token = tallySyncConnectorToken($user);
+    $this->withToken($token)
+        ->postJson('/api/tally-connector/journal-vouchers', [
+            'connector_id' => 'office-pc-1',
+            'tally_online' => true,
+            'sync_complete' => true,
+            'seen_voucher_guids' => ['dddddddd-dddd-dddd-dddd-writeoff0001'],
+            'entries' => [[
+                'voucher_type' => 'Bad Debts',
+                'voucher_guid' => 'dddddddd-dddd-dddd-dddd-writeoff0001',
+                'master_id' => '880',
+                'voucher_no' => 'BD-7',
+                'date' => '2026-08-20',
+                'narration' => 'Bad debt written off',
+                'party_ledger_name' => 'Write Off Party Agro',
+                'party_ledger_guid' => 'aaaaaaaa-bbbb-cccc-dddd-writeoff0001',
+                'debit' => 0,
+                'credit' => 700,
+                'entry_index' => 0,
+            ]],
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.created', 1)
+        ->assertJsonPath('data.skipped', 0);
+
+    $entry = DealerTallyEntry::query()->where('dealer_id', $dealer->id)->first();
+    $after = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
+
+    expect($entry)->not->toBeNull()
+        ->and($entry->source)->toBe(DealerTallyEntry::SOURCE_TALLY_JOURNAL)
+        ->and($entry->voucher_type)->toBe('Bad Debts')
+        ->and($entry->voucher_no)->toBe('BD-7')
+        ->and($entry->entry_date?->toDateString())->toBe('2026-08-20')
+        ->and((float) $entry->credit)->toBe(700.0)
+        ->and($entry->particulars)->toBe('Bad debt written off')
+        ->and($after['ledger'][1]['source_label'])->toBe('Tally - Journal/Adjustment')
+        ->and($after['summary']['current_outstanding_signed'])->toBe(300.0)
+        ->and($after['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_MATCHED)
+        ->and($after['verification']['difference'])->toBe(0.0);
+});
+
+it('does not import sales or receipt vouchers through the journal adjustment endpoint', function (): void {
+    $user = tallySyncConnectorUser();
+    $employee = tallySyncEmployee('9813000411');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Skip Sales Journal Firm']);
+    TallyDealerMapping::query()->create([
+        'tally_ledger_name' => 'Skip Sales Journal Firm',
+        'tally_ledger_name_normalized' => TallyDealerMapping::normalizeName('Skip Sales Journal Firm'),
+        'tally_ledger_guid' => 'aaaaaaaa-bbbb-cccc-dddd-skipsales0001',
+        'dealer_id' => $dealer->id,
+    ]);
+    $token = tallySyncConnectorToken($user);
+
+    $this->withToken($token)
+        ->postJson('/api/tally-connector/journal-vouchers', [
+            'tally_online' => true,
+            'entries' => [[
+                'voucher_type' => 'Sales',
+                'voucher_guid' => 'dddddddd-dddd-dddd-dddd-skipsales0001',
+                'voucher_no' => 'PG/26-27/0001',
+                'date' => '2026-08-20',
+                'party_ledger_name' => 'Skip Sales Journal Firm',
+                'debit' => 500,
+                'credit' => 0,
+                'entry_index' => 0,
+            ]],
+        ])
+        ->assertOk()
+        ->assertJsonPath('data.skipped', 1);
+
+    expect(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe(0);
 });

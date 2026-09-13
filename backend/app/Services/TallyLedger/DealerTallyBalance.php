@@ -8,6 +8,12 @@ final class DealerTallyBalance
 
     public const CREDIT = 'credit';
 
+    /**
+     * Live Tally vs ERP outstanding: differences within this amount (inclusive)
+     * are treated as round-off, not mismatch. Do not raise this above 1.00.
+     */
+    public const LIVE_ROUND_OFF_TOLERANCE = 1.0;
+
     public static function typeFromSigned(float $signed): string
     {
         return round($signed, 2) < 0 ? self::CREDIT : self::DEBIT;
@@ -60,18 +66,34 @@ final class DealerTallyBalance
     /**
      * Compare a signed ERP outstanding to a Live Tally amount + Dr/Cr.
      *
-     * @return array{matched: bool, difference: float, right_signed: float}
+     * @return array{
+     *     matched: bool,
+     *     round_off: bool,
+     *     within_tolerance: bool,
+     *     difference: float,
+     *     right_signed: float
+     * }
      */
     public static function compareSignedToBalance(float $leftSigned, float $rightAmount, string $rightType): array
     {
         $rightSigned = self::signed($rightAmount, $rightType);
         $difference = self::difference($leftSigned, $rightSigned);
+        $absolute = abs($difference);
+        $matched = $difference === 0.0;
+        $roundOff = ! $matched && $absolute <= self::LIVE_ROUND_OFF_TOLERANCE;
 
         return [
-            'matched' => $difference === 0.0,
+            'matched' => $matched,
+            'round_off' => $roundOff,
+            'within_tolerance' => $matched || $roundOff,
             'difference' => $difference,
             'right_signed' => $rightSigned,
         ];
+    }
+
+    public static function liveAbsDifferenceSql(string $leftSql, string $rightSql): string
+    {
+        return "ABS(ROUND(({$leftSql}) - ({$rightSql}), 2))";
     }
 
     public static function matches(?float $leftAmount, ?string $leftType, ?float $rightAmount, ?string $rightType): bool

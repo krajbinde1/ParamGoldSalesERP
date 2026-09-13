@@ -213,15 +213,17 @@
     @php
         $verifyStatus = $verification['status'] ?? null;
         $verifyTone = match ($verifyStatus) {
-            'matched' => 'is-ok',
+            'matched', 'matched_round_off' => 'is-ok',
             'mismatch' => 'is-warn',
             'offline' => 'is-offline',
             default => 'is-info',
         };
         $verifyHeading = match ($verifyStatus) {
             'matched' => 'Live Tally Matched',
+            'matched_round_off' => 'Live Tally Matched (Round-off)',
             'mismatch' => 'Live Tally Balance Mismatch',
             default => $verification['status_label'] ?? 'Live Tally',
+        };
         };
     @endphp
     <div class="pg-dealer-ledger-note {{ $verifyTone }}">

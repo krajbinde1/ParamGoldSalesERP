@@ -239,6 +239,28 @@ class JournalVoucherParseTest(unittest.TestCase):
         self.assertTrue(rows[0]["cancelled"])
         self.assertEqual(rows[0]["credit"], 800.0)
 
+    def test_parses_bad_debt_write_off_voucher(self) -> None:
+        xml = """
+        <VOUCHER VCHTYPE="Bad Debts">
+            <VOUCHERTYPENAME>Bad Debts</VOUCHERTYPENAME>
+            <GUID>eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee</GUID>
+            <DATE>20260820</DATE>
+            <VOUCHERNUMBER>BD-7</VOUCHERNUMBER>
+            <NARRATION>Bad debt written off</NARRATION>
+            <ALLLEDGERENTRIES.LIST>
+              <LEDGERNAME>Write Off Party Agro</LEDGERNAME>
+              <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+              <AMOUNT>700.00</AMOUNT>
+            </ALLLEDGERENTRIES.LIST>
+        </VOUCHER>
+        """
+        rows = parse_journal_vouchers(xml)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["voucher_type"], "Bad Debts")
+        self.assertEqual(rows[0]["voucher_no"], "BD-7")
+        self.assertEqual(rows[0]["credit"], 700.0)
+        self.assertEqual(rows[0]["narration"], "Bad debt written off")
+
 
 if __name__ == "__main__":
     unittest.main()

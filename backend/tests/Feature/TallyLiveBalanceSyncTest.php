@@ -1207,3 +1207,79 @@ it('does not overwrite an existing dealer guid when the ledger catalog is refres
         ->and(TallyDealerMapping::query()->where('dealer_id', $dealer->id)->count())->toBe(1)
         ->and(TallyConnectorLedger::query()->where('tally_ledger_guid', '44444444-4444-4444-4444-444444444444')->exists())->toBeTrue();
 });
+
+it('treats a live tally difference of one rupee or less as matched round-off and keeps the actual difference', function (): void {
+    $employee = tallySyncEmployee('9813000163');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Round Off Paise Agro']);
+    tallySyncMapDealer($dealer, 'Round Off Paise Agro');
+    DealerTallyLedger::query()->create([
+        'dealer_id' => $dealer->id,
+        'opening_balance' => 52590.43,
+        'opening_balance_type' => 'debit',
+        'opening_balance_explicit' => true,
+        'financial_start_date' => '2026-04-01',
+        'live_closing_balance' => 52590.13,
+        'live_closing_balance_type' => 'debit',
+        'live_tally_ledger_name' => 'Round Off Paise Agro',
+        'live_synced_at' => now(),
+    ]);
+    TallyLiveSyncState::current()->update([
+        'tally_online' => true,
+        'last_seen_at' => now('Asia/Kolkata'),
+        'last_heartbeat_at' => now('Asia/Kolkata'),
+        'last_balance_sync_at' => now('Asia/Kolkata'),
+    ]);
+
+    $statement = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
+    $rowStatus = app(TallyLiveBalanceService::class)->outstandingRowStatus(
+        $dealer->fresh(),
+        (float) $statement['summary']['current_outstanding_signed'],
+    );
+    $recon = app(TallyLiveBalanceService::class)->outstandingReconciliation();
+
+    expect($statement['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_MATCHED_ROUND_OFF)
+        ->and($statement['verification']['status_short'])->toBe('Matched (Round-off)')
+        ->and($statement['verification']['status_label'])->toBe('Live Tally Matched (Round-off)')
+        ->and($statement['verification']['balance_matched'])->toBeTrue()
+        ->and($statement['verification']['difference'])->toBe(0.30)
+        ->and($statement['verification']['difference_label'])->toBe('₹0.30 Dr')
+        ->and($rowStatus['status'])->toBe(TallyLiveBalanceService::STATUS_MATCHED_ROUND_OFF)
+        ->and($rowStatus['difference'])->toBe(0.30)
+        ->and($recon['matched'])->toBe(1)
+        ->and($recon['mismatched'])->toBe(0)
+        ->and($recon['banner'])->toBe(TallyLiveBalanceService::STATUS_MATCHED);
+});
+
+it('keeps a live tally difference above one rupee as a mismatch without adjusting ledgers', function (): void {
+    $employee = tallySyncEmployee('9813000164');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Six Hundred Gap Agro']);
+    tallySyncMapDealer($dealer, 'Six Hundred Gap Agro');
+    DealerTallyLedger::query()->create([
+        'dealer_id' => $dealer->id,
+        'opening_balance' => 1000,
+        'opening_balance_type' => 'debit',
+        'opening_balance_explicit' => true,
+        'financial_start_date' => '2026-04-01',
+        'live_closing_balance' => 400,
+        'live_closing_balance_type' => 'debit',
+        'live_tally_ledger_name' => 'Six Hundred Gap Agro',
+        'live_synced_at' => now(),
+    ]);
+    TallyLiveSyncState::current()->update([
+        'tally_online' => true,
+        'last_seen_at' => now('Asia/Kolkata'),
+        'last_heartbeat_at' => now('Asia/Kolkata'),
+        'last_balance_sync_at' => now('Asia/Kolkata'),
+    ]);
+
+    $beforeCount = DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count();
+    $statement = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
+    $recon = app(TallyLiveBalanceService::class)->outstandingReconciliation();
+
+    expect($statement['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_MISMATCH)
+        ->and($statement['verification']['difference'])->toBe(600.0)
+        ->and($statement['verification']['balance_matched'])->toBeFalse()
+        ->and($recon['mismatched'])->toBe(1)
+        ->and($recon['matched'])->toBe(0)
+        ->and(DealerTallyEntry::query()->where('dealer_id', $dealer->id)->count())->toBe($beforeCount);
+});
