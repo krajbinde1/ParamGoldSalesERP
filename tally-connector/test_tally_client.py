@@ -8,31 +8,55 @@ from tally_client import (
 
 
 class ClosingBalanceSignTest(unittest.TestCase):
-    def test_opening_only_debtor_positive_amount_is_debit(self) -> None:
+    def test_opening_only_debtor_positive_amount_with_isdebit_no_is_credit(self) -> None:
         parsed = interpret_closing_balance(
-            "30003",
+            "28808.80",
             tally_is_debit=False,
+            opening_is_debit=False,
+            tally_is_negative=False,
             deemed_positive=True,
-            parent="Sundry Debtors",
+            parent="SO Akash Mundhe",
         )
-        self.assertEqual(parsed["closing_balance"], 30003.0)
-        self.assertEqual(parsed["closing_balance_type"], "debit")
+        self.assertEqual(parsed["closing_balance"], 28808.8)
+        self.assertEqual(parsed["closing_balance_type"], "credit")
 
-    def test_opening_only_debtor_xml_without_isdebit_is_debit(self) -> None:
+    def test_dhartidhan_xml_isdebit_no_is_credit(self) -> None:
         xml = """
-        <LEDGER NAME="Kakde Patil Krushi seva Kendra (Dhabadi)">
-            <NAME>Kakde Patil Krushi seva Kendra (Dhabadi)</NAME>
-            <PARENT>Sundry Debtors</PARENT>
+        <LEDGER NAME="Dhartidhan Krushi Seva Kendra (Mahora)">
+            <NAME>Dhartidhan Krushi Seva Kendra (Mahora)</NAME>
+            <PARENT>SO Akash Mundhe</PARENT>
             <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
             <TALLYISDEBIT>No</TALLYISDEBIT>
-            <OPENINGBALANCE>30003.00</OPENINGBALANCE>
-            <CLOSINGBALANCE>30003.00</CLOSINGBALANCE>
+            <TALLYOPENISDEBIT>No</TALLYOPENISDEBIT>
+            <TALLYISNEGATIVE>No</TALLYISNEGATIVE>
+            <OPENINGBALANCE>28808.80</OPENINGBALANCE>
+            <CLOSINGBALANCE>28808.80</CLOSINGBALANCE>
+        </LEDGER>
+        """
+        rows = parse_ledger_closing_balances(f"<ENVELOPE>{xml}</ENVELOPE>")
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0]["closing_balance"], 28808.8)
+        self.assertEqual(rows[0]["closing_balance_type"], "credit")
+        self.assertEqual(rows[0]["tally_is_debit"], False)
+
+    def test_kakde_patil_xml_isdebit_yes_is_debit(self) -> None:
+        xml = """
+        <LEDGER NAME="Kakde Patil Ksk (Dhabadi)">
+            <NAME>Kakde Patil Ksk (Dhabadi)</NAME>
+            <PARENT>SO Akash Mundhe</PARENT>
+            <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+            <TALLYISDEBIT>Yes</TALLYISDEBIT>
+            <TALLYOPENISDEBIT>Yes</TALLYOPENISDEBIT>
+            <TALLYISNEGATIVE>No</TALLYISNEGATIVE>
+            <OPENINGBALANCE>-30003.00</OPENINGBALANCE>
+            <CLOSINGBALANCE>-30003.00</CLOSINGBALANCE>
         </LEDGER>
         """
         rows = parse_ledger_closing_balances(f"<ENVELOPE>{xml}</ENVELOPE>")
         self.assertEqual(len(rows), 1)
         self.assertEqual(rows[0]["closing_balance"], 30003.0)
         self.assertEqual(rows[0]["closing_balance_type"], "debit")
+        self.assertEqual(rows[0]["tally_is_debit"], True)
 
     def test_debtor_with_transactions_uses_isdebit_yes(self) -> None:
         parsed = interpret_closing_balance(
@@ -82,10 +106,9 @@ class ClosingBalanceSignTest(unittest.TestCase):
         self.assertEqual(parsed["closing_balance"], 30003.0)
         self.assertEqual(parsed["closing_balance_type"], "credit")
 
-    def test_opening_is_debit_yes_for_opening_only_ledger(self) -> None:
+    def test_opening_is_debit_used_only_when_closing_isdebit_is_missing(self) -> None:
         parsed = interpret_closing_balance(
             "30003",
-            tally_is_debit=False,
             opening_is_debit=True,
             deemed_positive=True,
         )

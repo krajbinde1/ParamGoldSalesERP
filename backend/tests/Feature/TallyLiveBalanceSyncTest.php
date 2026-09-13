@@ -141,8 +141,8 @@ it('reinterprets a negative tally xml closing balance as debit when the connecto
 it('stores an opening-only sundry debtor live balance as debit not credit', function (): void {
     $user = tallySyncConnectorUser();
     $employee = tallySyncEmployee('9813000111');
-    $dealer = tallySyncDealer($employee, ['firm_name' => 'Kakde Patil Krushi seva Kendra (Dhabadi)']);
-    tallySyncMapDealer($dealer, 'Kakde Patil Krushi seva Kendra (Dhabadi)');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Kakde Patil Ksk (Dhabadi)']);
+    tallySyncMapDealer($dealer, 'Kakde Patil Ksk (Dhabadi)');
     DealerTallyLedger::query()->create([
         'dealer_id' => $dealer->id,
         'opening_balance' => 30003,
@@ -156,15 +156,16 @@ it('stores an opening-only sundry debtor live balance as debit not credit', func
         ->postJson('/api/tally-connector/live-balances', [
             'tally_online' => true,
             'balances' => [[
-                'tally_ledger_name' => 'Kakde Patil Krushi seva Kendra (Dhabadi)',
+                'tally_ledger_name' => 'Kakde Patil Ksk (Dhabadi)',
                 'closing_balance' => 30003,
-                'closing_balance_type' => 'credit',
-                'closing_balance_raw' => '30003.00',
-                'closing_balance_numeric' => 30003,
-                'tally_is_debit' => false,
-                'opening_is_debit' => false,
+                'closing_balance_type' => 'debit',
+                'closing_balance_raw' => '-30003.00',
+                'closing_balance_numeric' => -30003,
+                'tally_is_debit' => true,
+                'opening_is_debit' => true,
+                'tally_is_negative' => false,
                 'deemed_positive' => true,
-                'ledger_parent' => 'Sundry Debtors',
+                'ledger_parent' => 'SO Akash Mundhe',
             ]],
         ])
         ->assertOk();
@@ -201,11 +202,19 @@ it('matches equal credit live tally and erp outstanding without adding the two b
             'balances' => [[
                 'tally_ledger_name' => 'Dhartidhan Krushi Seva Kendra (Mahora)',
                 'closing_balance' => 28808.80,
-                'closing_balance_type' => 'credit',
+                'closing_balance_type' => 'debit',
+                'closing_balance_raw' => '28808.80',
+                'closing_balance_numeric' => 28808.80,
+                'tally_is_debit' => false,
+                'opening_is_debit' => false,
+                'tally_is_negative' => false,
+                'deemed_positive' => true,
+                'ledger_parent' => 'SO Akash Mundhe',
             ]],
         ])
         ->assertOk();
 
+    $account = $dealer->fresh()->tallyLedger;
     $statement = app(TallyDealerLedgerService::class)->statement($dealer->fresh());
     $rowStatus = app(TallyLiveBalanceService::class)->outstandingRowStatus(
         $dealer->fresh(),
@@ -213,7 +222,9 @@ it('matches equal credit live tally and erp outstanding without adding the two b
     );
     $recon = app(TallyLiveBalanceService::class)->outstandingReconciliation();
 
-    expect($statement['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_MATCHED)
+    expect($account?->live_closing_balance_type)->toBe('credit')
+        ->and((float) $account?->live_closing_balance)->toBe(28808.80)
+        ->and($statement['verification']['status'])->toBe(TallyLiveBalanceService::STATUS_MATCHED)
         ->and($statement['verification']['status_short'])->toBe('Matched')
         ->and($statement['verification']['live_tally_label'])->toBe('₹28,808.80 Cr')
         ->and($statement['verification']['erp_outstanding_label'])->toBe('₹28,808.80 Cr')

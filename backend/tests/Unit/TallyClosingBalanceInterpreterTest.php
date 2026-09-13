@@ -2,18 +2,21 @@
 
 use App\Services\TallySync\TallyClosingBalanceInterpreter;
 
-it('treats an opening-only sundry debtor positive amount as debit', function (): void {
+it('treats $$IsDebit No on a deemed-positive party ledger as credit', function (): void {
     $parsed = TallyClosingBalanceInterpreter::interpret([
-        'closing_balance' => 30003,
-        'closing_balance_type' => 'credit',
-        'closing_balance_raw' => '30003.00',
+        'closing_balance' => 28808.80,
+        'closing_balance_type' => 'debit',
+        'closing_balance_raw' => '28808.80',
+        'closing_balance_numeric' => 28808.80,
         'tally_is_debit' => false,
+        'opening_is_debit' => false,
+        'tally_is_negative' => false,
         'deemed_positive' => true,
-        'ledger_parent' => 'Sundry Debtors',
+        'ledger_parent' => 'SO Akash Mundhe',
     ]);
 
-    expect($parsed['amount'])->toBe(30003.0)
-        ->and($parsed['type'])->toBe('debit');
+    expect($parsed['amount'])->toBe(28808.80)
+        ->and($parsed['type'])->toBe('credit');
 });
 
 it('keeps a debtor with transactions as debit when $$IsDebit is yes', function (): void {

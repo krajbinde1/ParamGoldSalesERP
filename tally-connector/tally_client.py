@@ -444,7 +444,8 @@ def interpret_closing_balance(
     """Map Tally XML ClosingBalance to ERP Dr/Cr using Tally indicators.
 
     Never uses a hardcoded "positive = Cr / negative = Dr" rule.
-    Dr/Cr comes from $$IsDebit, $$IsNegative, IsDeemedPositive, and ledger parent.
+    $$IsDebit:$ClosingBalance Yes = Dr, No = Cr. That matches the Tally screen
+    even when CLOSINGBALANCE is a positive deemed-positive amount.
     """
     raw = (
         (raw or "")
@@ -470,8 +471,16 @@ def interpret_closing_balance(
         balance_type = "debit"
     elif label_credit and not label_debit:
         balance_type = "credit"
-    elif tally_is_debit is True or opening_is_debit is True:
+    elif tally_is_debit is True:
         balance_type = "debit"
+    elif tally_is_debit is False:
+        # Tally screen Dr/Cr is $$IsDebit:$ClosingBalance. "No" means Cr.
+        # Do not default deemed-positive / Sundry Debtor ledgers to Dr.
+        balance_type = "credit"
+    elif opening_is_debit is True:
+        balance_type = "debit"
+    elif opening_is_debit is False:
+        balance_type = "credit"
     elif nature == "debit" and is_negative is True:
         # Unnatural side for assets/debtors = Credit (advance).
         balance_type = "credit"
@@ -481,9 +490,6 @@ def interpret_closing_balance(
     elif nature == "credit":
         balance_type = "credit"
     else:
-        # Sundry Debtors / unknown party ledgers: a positive opening-only
-        # amount is still Dr. $$IsDebit=No is not trusted as Cr here because
-        # Collection XML often drops the debit flag on opening balances.
         balance_type = "debit"
 
     return {

@@ -9,8 +9,8 @@ final class TallyClosingBalanceInterpreter
     /**
      * Interpret a live Tally closing-balance row from the connector.
      *
-     * Dr/Cr is taken from Tally indicators ($$IsDebit, $$IsNegative,
-     * IsDeemedPositive, parent). A positive Sundry Debtor opening is Dr.
+     * Dr/Cr is taken from Tally indicators. $$IsDebit:$ClosingBalance Yes = Dr,
+     * No = Cr — including deemed-positive party ledgers with a positive amount.
      *
      * @param  array<string, mixed>  $row
      * @return array{amount: float, type: string, raw: string, numeric: float}
@@ -60,8 +60,14 @@ final class TallyClosingBalanceInterpreter
             $type = DealerTallyBalance::DEBIT;
         } elseif ($labelCredit && ! $labelDebit) {
             $type = DealerTallyBalance::CREDIT;
-        } elseif ($tallyIsDebit === true || $openingIsDebit === true) {
+        } elseif ($tallyIsDebit === true) {
             $type = DealerTallyBalance::DEBIT;
+        } elseif ($tallyIsDebit === false) {
+            $type = DealerTallyBalance::CREDIT;
+        } elseif ($openingIsDebit === true) {
+            $type = DealerTallyBalance::DEBIT;
+        } elseif ($openingIsDebit === false) {
+            $type = DealerTallyBalance::CREDIT;
         } elseif ($nature === 'debit' && $isNegative === true) {
             $type = DealerTallyBalance::CREDIT;
         } elseif ($nature === 'credit' && $isNegative === true) {
