@@ -224,7 +224,6 @@
             'mismatch' => 'Live Tally Balance Mismatch',
             default => $verification['status_label'] ?? 'Live Tally',
         };
-        };
     @endphp
     <div class="pg-dealer-ledger-note {{ $verifyTone }}">
         <strong>{{ $verifyHeading }}</strong>

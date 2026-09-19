@@ -50,6 +50,14 @@ final class PaymentFollowUpPerformanceService
             ->get()
             ->keyBy('dealer_id');
 
+        $closedWithoutOpenDealerIds = PaymentFollowUpCycle::query()
+            ->where('status', PaymentFollowUpCycle::STATUS_CLOSED)
+            ->whereNotIn('dealer_id', $openByDealer->keys()->all() ?: [0])
+            ->distinct()
+            ->pluck('dealer_id')
+            ->all();
+        $closedWithoutOpenSet = array_fill_keys($closedWithoutOpenDealerIds, true);
+
         $outstandingDealerIds = Dealer::query()
             ->where('status', true)
             ->whereNotNull('assigned_employee_id')
@@ -78,7 +86,7 @@ final class PaymentFollowUpPerformanceService
                 } elseif ($next < $today) {
                     $overdue[$employeeId] = ($overdue[$employeeId] ?? 0) + 1;
                 }
-            } elseif (isset($outstandingDealerSet[$dealer->id])) {
+            } elseif (isset($outstandingDealerSet[$dealer->id]) && ! isset($closedWithoutOpenSet[$dealer->id])) {
                 $noFollowUp[$employeeId] = ($noFollowUp[$employeeId] ?? 0) + 1;
             }
         }

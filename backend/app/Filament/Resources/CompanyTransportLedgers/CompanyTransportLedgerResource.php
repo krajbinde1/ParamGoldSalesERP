@@ -91,7 +91,7 @@ class CompanyTransportLedgerResource extends Resource
 
     public static function canCreate(): bool
     {
-        return auth()->user()?->can('create', CompanyTransportLedgerEntry::class) ?? false;
+        return auth()->user()?->isAdminUser() ?? false;
     }
 
     public static function canEdit(Model $record): bool

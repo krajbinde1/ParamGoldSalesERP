@@ -14,6 +14,7 @@ use App\Enums\UserRole;
 use App\Filament\Resources\CompanyTransportLedgers\Pages\ListCompanyTransportLedgers;
 use App\Models\CompanyTransportLedgerEntry;
 use App\Models\Dealer;
+use App\Models\Employee;
 use App\Models\Order;
 use App\Models\User;
 use App\Models\Vehicle;
@@ -24,7 +25,7 @@ use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
 
-function ctlEmployee(UserRole $role, string $mobile): \App\Models\Employee
+function ctlEmployee(UserRole $role, string $mobile): Employee
 {
     $tail = substr(preg_replace('/\D/', '', $mobile) ?: '0000', -4);
 
@@ -63,7 +64,7 @@ function ctlAdmin(): User
 }
 
 /**
- * @return array{order: Order, production: \App\Models\Employee, admin: User, vehicle: Vehicle, director: User}
+ * @return array{order: Order, production: Employee, admin: User, vehicle: Vehicle, director: User}
  */
 function ctlDispatchedCompanyTransportOrder(float $freight = 40, string $chargeType = 'company_transport'): array
 {
@@ -300,7 +301,7 @@ it('reverses and reposts credit when dispatched company transport is corrected',
         ->and($summary['current_balance'])->toBe(55.0);
 });
 
-it('lets production supervisor view the expenses ledger without add, edit, or delete', function () {
+it('lets production supervisor view the expenses ledger and add expenses without edit or delete', function (): void {
     $ctx = ctlDispatchedCompanyTransportOrder(40);
     app(DispatchOrder::class)->execute(
         order: $ctx['order']->fresh(),
@@ -324,7 +325,7 @@ it('lets production supervisor view the expenses ledger without add, edit, or de
     ])->assertOk();
 
     expect($login->json('permissions'))->toContain('company_transport_view')
-        ->and($login->json('permissions'))->not->toContain('company_transport_expense_create')
+        ->and($login->json('permissions'))->toContain('company_transport_expense_create')
         ->and($login->json('user.role'))->toBe(UserRole::ProductionSupervisor->value);
 
     $me = $this->withToken($login->json('token'))
@@ -333,11 +334,12 @@ it('lets production supervisor view the expenses ledger without add, edit, or de
         ->json('permissions');
 
     expect($me)->toContain('company_transport_view')
-        ->and($me)->not->toContain('company_transport_expense_create');
+        ->and($me)->toContain('company_transport_expense_create');
 
     expect(Gate::forUser($ctx['production']->user)->allows('viewAny', CompanyTransportLedgerEntry::class))->toBeTrue()
-        ->and(Gate::forUser($ctx['production']->user)->allows('create', CompanyTransportLedgerEntry::class))->toBeFalse()
-        ->and(Gate::forUser($ctx['admin'])->allows('create', CompanyTransportLedgerEntry::class))->toBeTrue();
+        ->and(Gate::forUser($ctx['production']->user)->allows('create', CompanyTransportLedgerEntry::class))->toBeTrue()
+        ->and(Gate::forUser($ctx['admin'])->allows('create', CompanyTransportLedgerEntry::class))->toBeTrue()
+        ->and(Gate::forUser($ctx['director'])->allows('create', CompanyTransportLedgerEntry::class))->toBeFalse();
 
     $ledger = $this->actingAs($ctx['production']->user, 'sanctum')
         ->getJson('/api/production/company-transport/ledger')
@@ -364,7 +366,7 @@ it('lets production supervisor view the expenses ledger without add, edit, or de
         ->assertJsonPath('data.entry_kind', 'debit')
         ->assertJsonPath('data.debit_amount', 15);
 
-    $this->actingAs($ctx['production']->user, 'sanctum')
+    $created = $this->actingAs($ctx['production']->user, 'sanctum')
         ->postJson('/api/production/company-transport/expenses', [
             'transaction_date' => now('Asia/Kolkata')->toDateString(),
             'amount' => 10,
@@ -372,11 +374,38 @@ it('lets production supervisor view the expenses ledger without add, edit, or de
             'paid_to' => 'NHAI',
             'payment_mode' => CompanyTransportPaymentMode::Upi->value,
         ])
-        ->assertForbidden();
+        ->assertCreated()
+        ->json('data');
 
-    $this->actingAs($ctx['production']->user, 'sanctum')
+    expect((float) $created['debit_amount'])->toBe(10.0)
+        ->and($created['entry_kind'])->toBe('debit')
+        ->and($created['paid_to'])->toBe('NHAI');
+
+    $attachment = $this->actingAs($ctx['production']->user, 'sanctum')
         ->postJson('/api/production/company-transport/expenses/attachment', [
             'attachment' => UploadedFile::fake()->image('pump.jpg'),
+        ])
+        ->assertOk()
+        ->json('data.attachment_path');
+
+    expect($attachment)->not->toBeEmpty();
+
+    $afterCreate = $this->actingAs($ctx['production']->user, 'sanctum')
+        ->getJson('/api/production/company-transport/ledger')
+        ->assertOk()
+        ->json('data');
+
+    expect((float) $afterCreate['summary']['total_expense'])->toBe(25.0)
+        ->and((float) $afterCreate['summary']['current_balance'])->toBe(15.0)
+        ->and($afterCreate['entries'])->toHaveCount(3);
+
+    $this->actingAs($ctx['director'], 'sanctum')
+        ->postJson('/api/production/company-transport/expenses', [
+            'transaction_date' => now('Asia/Kolkata')->toDateString(),
+            'amount' => 5,
+            'expense_type' => CompanyTransportExpenseType::Toll->value,
+            'paid_to' => 'NHAI',
+            'payment_mode' => CompanyTransportPaymentMode::Upi->value,
         ])
         ->assertForbidden();
 
@@ -390,7 +419,7 @@ it('lets production supervisor view the expenses ledger without add, edit, or de
 
     expect($forced->entry_kind)->toBe(CompanyTransportEntryKind::Debit)
         ->and(CompanyTransportLedgerEntry::query()->where('entry_kind', CompanyTransportEntryKind::Credit)->count())->toBe(1)
-        ->and(CompanyTransportLedgerEntry::query()->where('entry_kind', CompanyTransportEntryKind::Debit)->count())->toBe(2);
+        ->and(CompanyTransportLedgerEntry::query()->where('entry_kind', CompanyTransportEntryKind::Debit)->count())->toBe(3);
 });
 
 it('blocks production supervisor from editing expenses and never deletes ledger rows', function () {
@@ -629,5 +658,3 @@ it('filters the admin company transport ledger from shared summary cards', funct
         ->assertSet('ledgerView', 'all')
         ->assertCanSeeTableRecords([$credit, $expense]);
 });
-
-

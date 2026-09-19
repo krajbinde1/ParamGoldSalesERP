@@ -58,7 +58,7 @@ final class PaymentFollowUpStatus
         };
     }
 
-    public static function fromOpenNextDate(?string $nextFollowUpDate, bool $hasOpenCycle, bool $lastCycleClosed, float $currentOutstanding): string
+    public static function fromOpenNextDate(?string $nextFollowUpDate, bool $hasOpenCycle, bool $lastCycleClosed, float $currentOutstanding = 0.0): string
     {
         if ($hasOpenCycle && $nextFollowUpDate !== null && $nextFollowUpDate !== '') {
             $today = self::todayDate();
@@ -74,7 +74,7 @@ final class PaymentFollowUpStatus
             return self::UPCOMING;
         }
 
-        if ($lastCycleClosed && $currentOutstanding <= 0) {
+        if ($lastCycleClosed) {
             return self::CLOSED;
         }
 

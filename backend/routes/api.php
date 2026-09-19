@@ -206,6 +206,7 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::post('ta-da-claims/{taDaClaim}/approve', [ManagerTaDaClaimController::class, 'approve']);
         Route::post('ta-da-claims/{taDaClaim}/reject', [ManagerTaDaClaimController::class, 'reject']);
         Route::get('payment-follow-ups', [ManagerPaymentFollowUpController::class, 'index']);
+        Route::post('payment-follow-ups/{dealer}', [ManagerPaymentFollowUpController::class, 'store']);
         Route::get('payment-follow-ups/{dealer}', [ManagerPaymentFollowUpController::class, 'show']);
     });
 
@@ -311,6 +312,7 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::get('ledger-sales', [DirectorLedgerSalesController::class, 'index']);
         Route::get('ledger-sales/{dealer}', [DirectorLedgerSalesController::class, 'show']);
         Route::get('payment-follow-ups', [DirectorPaymentFollowUpController::class, 'index']);
+        Route::post('payment-follow-ups/{dealer}', [DirectorPaymentFollowUpController::class, 'store']);
         Route::get('payment-follow-ups/{dealer}', [DirectorPaymentFollowUpController::class, 'show']);
         Route::get('production-batches/pending-approvals', [DirectorProductionBatchController::class, 'pendingApprovals']);
         Route::post('production-batches/{batch}/approve-deviation', [DirectorProductionBatchController::class, 'approveDeviation']);
