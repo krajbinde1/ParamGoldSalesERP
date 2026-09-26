@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\DealerApplicationDocumentController;
+use App\Http\Controllers\Api\Director\PaymentRequestPaymentProofController;
 use App\Http\Controllers\Api\Director\PaymentRequestSupportingDocumentController;
 use App\Http\Controllers\DealerController;
 use App\Http\Controllers\Inventory\StockItemLedgerPrintController;
@@ -32,6 +33,11 @@ Route::middleware('auth')->group(function () {
         '/payment-requests/{paymentRequest}/supporting-documents/{supportingDocument}',
         [PaymentRequestSupportingDocumentController::class, 'show']
     )->name('payment-requests.supporting-documents.show');
+
+    Route::get(
+        '/payment-requests/{paymentRequest}/payment-proofs/{paymentProof}',
+        [PaymentRequestPaymentProofController::class, 'show']
+    )->name('payment-requests.payment-proofs.show');
 
     Route::get(
         '/dealer-applications/{dealerApplication}/documents/{dealerApplicationDocument}',

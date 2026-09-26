@@ -29,7 +29,17 @@ class ListAttendances extends ListRecords
 
     protected function getTableQuery(): Builder
     {
+        $today = Attendance::businessToday()->toDateString();
+
         return parent::getTableQuery()
-            ->whereDate('attendance_date', Attendance::businessToday()->toDateString());
+            ->where(function (Builder $query) use ($today): void {
+                $query->whereDate('attendance_date', $today)
+                    ->orWhere(function (Builder $open) use ($today): void {
+                        $open->whereDate('attendance_date', '<', $today)
+                            ->whereNotNull('punch_in_time')
+                            ->whereNull('punch_out_time');
+                    })
+                    ->orWhere('punch_out_correction_status', 'pending');
+            });
     }
 }

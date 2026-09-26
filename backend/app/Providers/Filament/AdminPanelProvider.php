@@ -14,6 +14,7 @@ use App\Http\Controllers\Admin\InventoryStockReportPdfController;
 use App\Http\Controllers\Admin\ProductionBatchSheetPrintController;
 use App\Http\Controllers\Admin\TotalOutstandingPdfController;
 use App\Http\Controllers\Api\DealerApplicationDocumentController;
+use App\Http\Controllers\Api\Director\PaymentRequestPaymentProofController;
 use App\Http\Controllers\Api\Director\PaymentRequestSupportingDocumentController;
 use App\Http\Middleware\RestrictOrdersOnlyFilamentAccess;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse as LoginResponseContract;
@@ -105,6 +106,11 @@ class AdminPanelProvider extends PanelProvider
                     '/payment-requests/{paymentRequest}/supporting-documents/{supportingDocument}',
                     [PaymentRequestSupportingDocumentController::class, 'show']
                 )->name('payment-requests.supporting-documents.show');
+
+                Route::get(
+                    '/payment-requests/{paymentRequest}/payment-proofs/{paymentProof}',
+                    [PaymentRequestPaymentProofController::class, 'show']
+                )->name('payment-requests.payment-proofs.show');
 
                 Route::get(
                     '/dealer-applications/{dealerApplication}/documents/{dealerApplicationDocument}',

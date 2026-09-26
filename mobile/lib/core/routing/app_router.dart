@@ -8,6 +8,7 @@ import '../../modules/attendance/screens/attendance_detail.dart';
 import '../../modules/attendance/screens/attendance_history.dart';
 import '../../modules/attendance/screens/attendance_home.dart';
 import '../../modules/attendance/screens/punch_in_screen.dart';
+import '../../modules/attendance/screens/punch_out_correction_screen.dart';
 import '../../modules/attendance/screens/punch_out_screen.dart';
 import '../../modules/auth/providers/auth_controller.dart';
 import '../../modules/auth/screens/change_password_screen.dart';
@@ -431,6 +432,10 @@ GoRouter createRouter(
     GoRoute(
       path: '/attendance/punch-out',
       builder: (_, _) => const PunchOutScreen(),
+    ),
+    GoRoute(
+      path: '/attendance/punch-out-correction',
+      builder: (_, _) => const PunchOutCorrectionScreen(),
     ),
     GoRoute(
       path: '/attendance/history',

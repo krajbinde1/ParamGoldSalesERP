@@ -57,6 +57,16 @@ class AttendanceResource extends Resource
         ];
     }
 
+    public static function getEloquentQuery(): Builder
+    {
+        return parent::getEloquentQuery()
+            ->with([
+                'employee',
+                'punchOutCorrections.requestedByUser',
+                'punchOutCorrections.reviewedByUser',
+            ]);
+    }
+
     public static function getPages(): array
     {
         return [

@@ -25,12 +25,19 @@ class TodayAttendanceNotifier extends AsyncNotifier<Attendance?> {
     return (await ref.watch(repositoryProvider.future)).today();
   }
 
-  Future<Attendance> punch(String action) async {
+  Future<Attendance> punch(
+    String action, {
+    String? latePunchOutReason,
+    String? latePunchOutReasonNote,
+  }) async {
     if (state.isLoading) {
       throw StateError('Attendance request already in progress.');
     }
     final current = state.value;
-    if (action == 'punch-in' && current?.punchIn != null) {
+    if (action == 'punch-in' && current?.previousPunchOutPending == true) {
+      throw const AttendanceApiException('Previous Punch Out Pending');
+    }
+    if (action == 'punch-in' && current?.canPunchIn == false) {
       throw const AttendanceApiException('You have already punched in today.');
     }
     if (action == 'punch-out' && current?.punchIn == null) {
@@ -54,7 +61,12 @@ class TodayAttendanceNotifier extends AsyncNotifier<Attendance?> {
     state = await AsyncValue.guard(() async {
       return (await ref.read(
         repositoryProvider.future,
-      )).punch(action, await CaptureService().capture());
+      )).punch(
+        action,
+        await CaptureService().capture(),
+        latePunchOutReason: latePunchOutReason,
+        latePunchOutReasonNote: latePunchOutReasonNote,
+      );
     });
     if (state.hasError) throw state.error!;
 
@@ -90,6 +102,26 @@ class TodayAttendanceNotifier extends AsyncNotifier<Attendance?> {
 
     await refreshRouteTrackingStatusFromRef(ref);
     return attendance;
+  }
+
+  Future<Attendance> submitPunchOutCorrection({
+    required DateTime actualPunchOut,
+    required String reason,
+    String? reasonNote,
+  }) async {
+    if (state.isLoading) {
+      throw StateError('Attendance request already in progress.');
+    }
+    state = const AsyncLoading();
+    state = await AsyncValue.guard(() async {
+      return (await ref.read(repositoryProvider.future)).submitPunchOutCorrection(
+        actualPunchOut: actualPunchOut,
+        reason: reason,
+        reasonNote: reasonNote,
+      );
+    });
+    if (state.hasError) throw state.error!;
+    return state.requireValue!;
   }
 
   Future<void> refresh() =>

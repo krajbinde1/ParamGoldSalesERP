@@ -145,7 +145,7 @@ class PaymentRequestInfolist
                         Section::make('Payment Proof')
                             ->columnSpan(1)
                             ->visible(fn (PaymentRequest $record): bool => $record->status === PaymentRequest::STATUS_PAYMENT_DONE
-                                || filled($record->payment_proof_path))
+                                || $record->hasPaymentProofs())
                             ->schema([
                                 TextEntry::make('payment_done_at')
                                     ->label('Payment Done At')
@@ -157,26 +157,20 @@ class PaymentRequestInfolist
                                 TextEntry::make('payment_remark')
                                     ->label('Payment Remark')
                                     ->placeholder('—'),
-                                TextEntry::make('payment_proof_action')
-                                    ->label('Payment Proof')
-                                    ->state(function (PaymentRequest $record): HtmlString|string {
-                                        $url = $record->paymentProofUrl();
-                                        if (blank($url)) {
-                                            return '—';
-                                        }
+                                TextEntry::make('payment_proofs_panel')
+                                    ->label('Payment Proofs')
+                                    ->html()
+                                    ->state(fn (PaymentRequest $record): string => 'proofs')
+                                    ->formatStateUsing(function ($state, PaymentRequest $record): HtmlString {
+                                        $record->loadMissing(['paymentProofs.uploadedByUser:id,name']);
 
                                         return new HtmlString(
-                                            '<a href="'.e($url).'" target="_blank" rel="noopener noreferrer" '
-                                            .'style="display:inline-flex;align-items:center;gap:6px;border-radius:8px;background:#0d9488;padding:6px 10px;font-size:13px;font-weight:600;color:#fff;text-decoration:none;">'
-                                            .'<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true" style="width:14px;height:14px;flex-shrink:0;display:block;">'
-                                            .'<path stroke-linecap="round" stroke-linejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />'
-                                            .'<path stroke-linecap="round" stroke-linejoin="round" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />'
-                                            .'</svg>'
-                                            .'View Proof'
-                                            .'</a>'
+                                            view('filament.resources.payment-requests.partials.payment-proofs', [
+                                                'proofs' => $record->paymentProofItems(),
+                                            ])->render()
                                         );
                                     })
-                                    ->html(),
+                                    ->columnSpanFull(),
                             ]),
                     ]),
 

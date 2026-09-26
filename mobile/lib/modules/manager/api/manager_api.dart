@@ -339,6 +339,42 @@ class ManagerApi {
     }
   }
 
+  Future<Map<String, dynamic>> approvePunchOutCorrection({
+    required int attendanceId,
+    required int correctionId,
+    String? remark,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/manager/team-attendance/$attendanceId/punch-out-corrections/$correctionId/approve',
+        data: {if (remark != null && remark.trim().isNotEmpty) 'remark': remark.trim()},
+      );
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<Map<String, dynamic>> rejectPunchOutCorrection({
+    required int attendanceId,
+    required int correctionId,
+    String? remark,
+  }) async {
+    try {
+      final response = await _dio.post(
+        '/manager/team-attendance/$attendanceId/punch-out-corrections/$correctionId/reject',
+        data: {if (remark != null && remark.trim().isNotEmpty) 'remark': remark.trim()},
+      );
+      return Map<String, dynamic>.from(
+        (response.data as Map)['data'] as Map,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
   Future<ManagerRouteTrackingListResult> listRouteTracking({
     String? date,
     String? search,

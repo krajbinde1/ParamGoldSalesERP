@@ -35,6 +35,14 @@ class AttendanceDetail extends StatelessWidget {
                 value: attendance.workingHours ?? '—',
                 emphasize: true,
               ),
+              if (attendance.isLatePunchOut)
+                PgInvoiceRow(
+                  label: 'Punch Out Flag',
+                  value: attendance.latePunchOutReasonLabel?.trim().isNotEmpty ==
+                          true
+                      ? 'Late Punch Out (${attendance.latePunchOutReasonLabel})'
+                      : 'Late Punch Out',
+                ),
             ],
           ),
         ),

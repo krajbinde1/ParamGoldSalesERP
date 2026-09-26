@@ -213,7 +213,7 @@ class _StatusCardState extends State<StatusCard> {
     if (status == null) return AppColors.textMuted;
     final lower = status.toLowerCase();
     if (lower.contains('absent')) return AppColors.rejectedFg;
-    if (lower.contains('half')) return AppColors.pendingFg;
+    if (lower.contains('half') || lower.contains('late')) return AppColors.pendingFg;
     if (lower.contains('punched')) return AppColors.info;
     if (lower.contains('present')) return AppColors.approvedFg;
     return AppColors.textSecondary;

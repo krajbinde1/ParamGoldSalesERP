@@ -36,22 +36,18 @@ class Attendance extends Model
             $calculator = app(AttendanceStatusCalculator::class);
 
             if (filled($attendance->punch_in_time) && filled($attendance->punch_out_time)) {
-                $punchIn = Carbon::parse(
-                    $attendance->attendance_date->toDateString().' '.$attendance->punch_in_time,
-                    AttendanceCalendar::TIMEZONE,
-                );
-                $punchOut = Carbon::parse(
-                    $attendance->attendance_date->toDateString().' '.$attendance->punch_out_time,
-                    AttendanceCalendar::TIMEZONE,
-                );
+                $punchIn = $attendance->punchInAt();
+                $punchOut = $attendance->punchOutAt();
 
-                if ($punchOut->lessThan($punchIn)) {
-                    $punchOut->addDay();
+                if ($punchIn !== null && $punchOut !== null) {
+                    if ($punchOut->lessThan($punchIn)) {
+                        $punchOut = $punchOut->copy()->addDay();
+                    }
+
+                    $minutes = max(0, (int) $punchIn->diffInMinutes($punchOut));
+                    $attendance->working_hours = sprintf('%02d:%02d', intdiv($minutes, 60), $minutes % 60);
+                    $attendance->total_working_minutes = $minutes;
                 }
-
-                $minutes = $punchIn->diffInMinutes($punchOut);
-                $attendance->working_hours = sprintf('%02d:%02d', intdiv($minutes, 60), $minutes % 60);
-                $attendance->total_working_minutes = $minutes;
             } elseif (filled($attendance->punch_in_time) && blank($attendance->punch_out_time)) {
                 $attendance->working_hours = null;
                 $attendance->total_working_minutes = null;
@@ -69,6 +65,7 @@ class Attendance extends Model
         'employee_id', 'attendance_date', 'punch_in_time', 'punch_out_time', 'attendance_status', 'working_hours',
         'punch_in_location', 'punch_out_location', 'punch_in_latitude', 'punch_in_longitude', 'punch_out_latitude', 'punch_out_longitude',
         'remarks', 'approved_by', 'approval_status', 'punch_in_photo', 'punch_out_photo', 'rejection_reason', 'approved_at', 'rejected_by', 'rejected_at', 'total_working_minutes', 'total_route_distance_km',
+        'punch_out_at', 'is_late_punch_out', 'late_punch_out_reason', 'late_punch_out_reason_note', 'punch_out_correction_status',
     ];
 
     protected function casts(): array
@@ -79,6 +76,8 @@ class Attendance extends Model
             'punch_out_latitude' => 'decimal:7', 'punch_out_longitude' => 'decimal:7',
             'approved_at' => 'datetime', 'rejected_at' => 'datetime', 'total_working_minutes' => 'integer',
             'total_route_distance_km' => 'decimal:2',
+            'punch_out_at' => 'datetime',
+            'is_late_punch_out' => 'boolean',
         ];
     }
 
@@ -241,6 +240,11 @@ class Attendance extends Model
         return $this->hasMany(EmployeeRoutePoint::class);
     }
 
+    public function punchOutCorrections(): HasMany
+    {
+        return $this->hasMany(AttendancePunchOutCorrection::class)->latest('id');
+    }
+
     public function approver(): BelongsTo
     {
         return $this->belongsTo(Employee::class, 'approved_by');
@@ -265,6 +269,10 @@ class Attendance extends Model
 
     public function punchOutAt(): ?Carbon
     {
+        if (filled($this->punch_out_at)) {
+            return Carbon::parse($this->punch_out_at)->timezone(AttendanceCalendar::TIMEZONE);
+        }
+
         if (blank($this->punch_out_time)) {
             return null;
         }
@@ -273,5 +281,19 @@ class Attendance extends Model
             $this->attendance_date->toDateString().' '.$this->punch_out_time,
             AttendanceCalendar::TIMEZONE,
         );
+    }
+
+    public function latePunchOutReasonLabel(): ?string
+    {
+        if (! $this->is_late_punch_out) {
+            return null;
+        }
+
+        $label = AttendancePunchOutCorrection::REASON_LABELS[$this->late_punch_out_reason] ?? $this->late_punch_out_reason;
+        if (filled($this->late_punch_out_reason_note)) {
+            return trim((string) $label.': '.$this->late_punch_out_reason_note);
+        }
+
+        return $label ? (string) $label : 'Late Punch Out';
     }
 }

@@ -22,7 +22,7 @@ class AttendancesTable
         $calculator = app(AttendanceStatusCalculator::class);
 
         return $table
-            ->heading("Today's Attendance (IST)")
+            ->heading("Today's Attendance & Pending Punch Outs (IST)")
             ->columns([
                 TextColumn::make('employee.full_name')
                     ->label('Employee')
@@ -55,6 +55,35 @@ class AttendancesTable
                         AttendanceStatusCalculator::STATUS_LEAVE => 'gray',
                         default => 'gray',
                     }),
+                TextColumn::make('is_late_punch_out')
+                    ->label('Punch Out')
+                    ->badge()
+                    ->formatStateUsing(function (Attendance $record): string {
+                        if ($record->punch_out_correction_status === 'pending') {
+                            return 'Correction Pending';
+                        }
+                        if (blank($record->punch_out_time) && $record->attendance_date->toDateString() < AttendanceCalendar::today()->toDateString()) {
+                            return 'Previous Punch Out Pending';
+                        }
+                        if ($record->is_late_punch_out) {
+                            return 'Late Punch Out';
+                        }
+
+                        return filled($record->punch_out_time) ? 'On time' : 'Open';
+                    })
+                    ->color(function (Attendance $record): string {
+                        if ($record->punch_out_correction_status === 'pending') {
+                            return 'warning';
+                        }
+                        if (blank($record->punch_out_time) && $record->attendance_date->toDateString() < AttendanceCalendar::today()->toDateString()) {
+                            return 'danger';
+                        }
+                        if ($record->is_late_punch_out) {
+                            return 'warning';
+                        }
+
+                        return filled($record->punch_out_time) ? 'success' : 'info';
+                    }),
                 TextColumn::make('approval_status')
                     ->label('Approval Status')
                     ->badge()
@@ -84,6 +113,23 @@ class AttendancesTable
                 SelectFilter::make('attendance_status')
                     ->label('Attendance Status')
                     ->options(Attendance::ATTENDANCE_STATUS_LABELS),
+                SelectFilter::make('punch_out_flag')
+                    ->label('Punch Out Flag')
+                    ->options([
+                        'late' => 'Late Punch Out',
+                        'correction_pending' => 'Correction Pending',
+                        'previous_pending' => 'Previous Punch Out Pending',
+                    ])
+                    ->query(function (Builder $query, array $data): Builder {
+                        return match ($data['value'] ?? null) {
+                            'late' => $query->where('is_late_punch_out', true),
+                            'correction_pending' => $query->where('punch_out_correction_status', 'pending'),
+                            'previous_pending' => $query
+                                ->whereNull('punch_out_time')
+                                ->whereDate('attendance_date', '<', AttendanceCalendar::today()->toDateString()),
+                            default => $query,
+                        };
+                    }),
                 SelectFilter::make('approval_status')
                     ->label('Approval Status')
                     ->options(Attendance::APPROVAL_STATUS_LABELS),

@@ -2,14 +2,18 @@
 
 namespace App\Http\Controllers\Api\Manager;
 
+use App\Actions\Attendance\ApprovePunchOutCorrection;
+use App\Actions\Attendance\RejectPunchOutCorrection;
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
+use App\Models\AttendancePunchOutCorrection;
 use App\Models\Employee;
 use App\Services\EmployeeRouteAnalysisService;
 use App\Services\Orders\ManagerOrderAccessService;
 use App\Support\AttendanceCalendar;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 class ManagerTeamAttendanceController extends Controller
 {
@@ -54,8 +58,20 @@ class ManagerTeamAttendanceController extends Controller
             ->get()
             ->keyBy('employee_id');
 
-        $rows = $employees->map(function (Employee $employee) use ($attendances, $date): array {
-            $attendance = $attendances->get($employee->id);
+        $openPrevious = Attendance::query()
+            ->with(['punchOutCorrections' => fn ($q) => $q->where('status', AttendancePunchOutCorrection::STATUS_PENDING)])
+            ->whereIn('employee_id', $employees->pluck('id')->all())
+            ->whereDate('attendance_date', '<', $date)
+            ->whereNotNull('punch_in_time')
+            ->whereNull('punch_out_time')
+            ->orderByDesc('attendance_date')
+            ->orderByDesc('id')
+            ->get()
+            ->unique('employee_id')
+            ->keyBy('employee_id');
+
+        $rows = $employees->map(function (Employee $employee) use ($attendances, $openPrevious, $date): array {
+            $attendance = $attendances->get($employee->id) ?? $openPrevious->get($employee->id);
 
             if ($attendance === null) {
                 return [
@@ -72,10 +88,14 @@ class ManagerTeamAttendanceController extends Controller
                     'total_working_minutes' => null,
                     'total_route_distance_km' => null,
                     'has_attendance' => false,
+                    'is_late_punch_out' => false,
+                    'late_punch_out_reason_label' => null,
+                    'punch_out_correction_status' => null,
+                    'previous_punch_out_pending' => false,
                 ];
             }
 
-            return $this->listItem($attendance, $employee);
+            return $this->listItem($attendance, $employee, $date);
         })->values();
 
         $punchedIn = $rows->filter(fn (array $row): bool => $row['has_attendance'] === true)->count();
@@ -147,11 +167,17 @@ class ManagerTeamAttendanceController extends Controller
     {
         $this->ensureTeamAttendance($request, $attendance);
 
-        $attendance->load('employee:id,full_name,employee_code,mobile,designation,department');
+        $attendance->load([
+            'employee:id,full_name,employee_code,mobile,designation,department',
+            'punchOutCorrections.requestedByUser:id,name',
+            'punchOutCorrections.reviewedByUser:id,name',
+        ]);
         $analysis = $this->routeAnalysisService->analyze($attendance);
         $routePoints = $this->routeAnalysisService->formatRoutePointsForResponse($attendance);
         $hasRoute = count($routePoints) > 0
             || ($attendance->punch_in_latitude !== null && $attendance->punch_in_longitude !== null);
+        $pendingCorrection = $attendance->punchOutCorrections
+            ->first(fn (AttendancePunchOutCorrection $row): bool => $row->isPending());
 
         return response()->json([
             'data' => [
@@ -174,6 +200,10 @@ class ManagerTeamAttendanceController extends Controller
                     'total_route_distance_km' => $attendance->total_route_distance_km !== null
                         ? (float) $attendance->total_route_distance_km
                         : ($analysis['summary']['total_distance_km'] ?? null),
+                    'is_late_punch_out' => (bool) $attendance->is_late_punch_out,
+                    'late_punch_out_reason' => $attendance->late_punch_out_reason,
+                    'late_punch_out_reason_label' => $attendance->latePunchOutReasonLabel(),
+                    'punch_out_correction_status' => $attendance->punch_out_correction_status,
                     'punch_in' => [
                         'time' => $this->formatIstDateTime($attendance->punchInAt()),
                         'location' => $attendance->punch_in_location,
@@ -189,6 +219,12 @@ class ManagerTeamAttendanceController extends Controller
                         'photo_url' => $this->photoUrl($attendance->punch_out_photo),
                     ],
                 ],
+                'pending_correction' => $pendingCorrection?->toApiArray(),
+                'can_review_punch_out_correction' => $pendingCorrection !== null
+                    && Gate::forUser($request->user())->allows('review', $pendingCorrection),
+                'punch_out_corrections' => $attendance->punchOutCorrections
+                    ->map(fn (AttendancePunchOutCorrection $row): array => $row->toApiArray())
+                    ->values(),
                 'summary' => $analysis['summary'],
                 'has_route' => $hasRoute,
                 'route_points' => $routePoints,
@@ -198,12 +234,59 @@ class ManagerTeamAttendanceController extends Controller
         ]);
     }
 
+    public function approvePunchOutCorrection(
+        Request $request,
+        Attendance $attendance,
+        AttendancePunchOutCorrection $correction,
+    ): JsonResponse {
+        $this->ensureTeamAttendance($request, $attendance);
+        $this->ensureCorrectionMatches($attendance, $correction);
+        Gate::forUser($request->user())->authorize('review', $correction);
+
+        $validated = $request->validate([
+            'remark' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        app(ApprovePunchOutCorrection::class)->execute(
+            $correction,
+            $request->user(),
+            $validated['remark'] ?? null,
+        );
+
+        return $this->show($request, $attendance->fresh());
+    }
+
+    public function rejectPunchOutCorrection(
+        Request $request,
+        Attendance $attendance,
+        AttendancePunchOutCorrection $correction,
+    ): JsonResponse {
+        $this->ensureTeamAttendance($request, $attendance);
+        $this->ensureCorrectionMatches($attendance, $correction);
+        Gate::forUser($request->user())->authorize('review', $correction);
+
+        $validated = $request->validate([
+            'remark' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        app(RejectPunchOutCorrection::class)->execute(
+            $correction,
+            $request->user(),
+            $validated['remark'] ?? null,
+        );
+
+        return $this->show($request, $attendance->fresh());
+    }
+
     /**
      * @return array<string, mixed>
      */
-    private function listItem(Attendance $attendance, ?Employee $employee = null): array
+    private function listItem(Attendance $attendance, ?Employee $employee = null, ?string $viewDate = null): array
     {
         $employee ??= $attendance->employee;
+        $previousPending = blank($attendance->punch_out_time)
+            && $viewDate !== null
+            && $attendance->attendance_date->toDateString() < $viewDate;
 
         return [
             'id' => $attendance->id,
@@ -212,7 +295,7 @@ class ManagerTeamAttendanceController extends Controller
             'employee_code' => $employee?->employee_code ?? $attendance->employee?->employee_code,
             'attendance_date' => $attendance->attendance_date->toDateString(),
             'attendance_status' => $attendance->attendance_status,
-            'display_status' => $this->displayStatus($attendance),
+            'display_status' => $this->displayStatus($attendance, $previousPending),
             'punch_in_time' => $this->formatIstDateTime($attendance->punchInAt()),
             'punch_out_time' => $this->formatIstDateTime($attendance->punchOutAt()),
             'working_hours' => $attendance->working_hours,
@@ -223,20 +306,43 @@ class ManagerTeamAttendanceController extends Controller
             'has_attendance' => true,
             'has_route' => $attendance->total_route_distance_km !== null
                 || ($attendance->punch_in_latitude !== null && $attendance->punch_in_longitude !== null),
+            'is_late_punch_out' => (bool) $attendance->is_late_punch_out,
+            'late_punch_out_reason_label' => $attendance->latePunchOutReasonLabel(),
+            'punch_out_correction_status' => $attendance->punch_out_correction_status,
+            'previous_punch_out_pending' => $previousPending,
         ];
     }
 
-    private function displayStatus(Attendance $attendance): string
+    private function displayStatus(Attendance $attendance, bool $previousPending = false): string
     {
         if ($attendance->punchInAt() === null) {
             return 'Not Punched In';
         }
 
         if ($attendance->punchOutAt() === null) {
+            if ($attendance->punch_out_correction_status === AttendancePunchOutCorrection::STATUS_PENDING) {
+                return 'Punch Out Correction Pending';
+            }
+
+            if ($previousPending || $attendance->attendance_date->toDateString() < AttendanceCalendar::today()->toDateString()) {
+                return 'Previous Punch Out Pending';
+            }
+
             return 'Working';
         }
 
+        if ($attendance->is_late_punch_out) {
+            return 'Late Punch Out';
+        }
+
         return 'Completed';
+    }
+
+    private function ensureCorrectionMatches(Attendance $attendance, AttendancePunchOutCorrection $correction): void
+    {
+        if ((int) $correction->attendance_id !== (int) $attendance->id) {
+            abort(404);
+        }
     }
 
     /**

@@ -38,10 +38,16 @@ class AttendanceApiService {
 
   Future<Attendance?> today() async {
     final d = await _get('/attendance/today');
-    final raw = d['attendance'];
-    return raw is Map
-        ? Attendance.fromJson(Map<String, dynamic>.from(raw))
-        : null;
+    if (d is! Map) return null;
+    final payload = Map<String, dynamic>.from(d);
+    final raw = payload['attendance'];
+    if (raw is Map) {
+      return Attendance.fromJson({
+        ...Map<String, dynamic>.from(raw),
+        ...payload,
+      });
+    }
+    return null;
   }
 
   Future<List<Attendance>> history(DateTime m) async {
@@ -73,13 +79,23 @@ class AttendanceApiService {
     return AttendanceMonthlySummary.fromJson(payload);
   }
 
-  Future<Attendance> punch(String action, PunchCapture c) async {
+  Future<Attendance> punch(
+    String action,
+    PunchCapture c, {
+    String? latePunchOutReason,
+    String? latePunchOutReasonNote,
+  }) async {
     try {
       final f = FormData.fromMap({
         'latitude': c.latitude,
         'longitude': c.longitude,
         'location_address': c.address,
         'captured_at': c.capturedAt.toIso8601String(),
+        if (latePunchOutReason != null)
+          'late_punch_out_reason': latePunchOutReason,
+        if (latePunchOutReasonNote != null &&
+            latePunchOutReasonNote.trim().isNotEmpty)
+          'late_punch_out_reason_note': latePunchOutReasonNote.trim(),
         'photo': await MultipartFile.fromFile(
           c.photoPath,
           filename: File(c.photoPath).uri.pathSegments.last,
@@ -88,6 +104,41 @@ class AttendanceApiService {
       final r = await _dio.post('/attendance/$action', data: f);
       return Attendance.fromJson(
         Map<String, dynamic>.from(r.data['data'] as Map),
+      );
+    } on DioException catch (e) {
+      throw _error(e);
+    }
+  }
+
+  Future<Attendance> submitPunchOutCorrection({
+    required DateTime actualPunchOut,
+    required String reason,
+    String? reasonNote,
+  }) async {
+    try {
+      final r = await _dio.post(
+        '/attendance/punch-out-correction',
+        data: {
+          'actual_punch_out_date': _date(actualPunchOut),
+          'actual_punch_out_time':
+              '${actualPunchOut.hour.toString().padLeft(2, '0')}:${actualPunchOut.minute.toString().padLeft(2, '0')}',
+          'reason': reason,
+          if (reasonNote != null && reasonNote.trim().isNotEmpty)
+            'reason_note': reasonNote.trim(),
+        },
+      );
+      final body = r.data is Map ? Map<String, dynamic>.from(r.data as Map) : {};
+      final data = body['data'] is Map
+          ? Map<String, dynamic>.from(body['data'] as Map)
+          : <String, dynamic>{};
+      final raw = data['attendance'];
+      if (raw is Map) {
+        return Attendance.fromJson({...Map<String, dynamic>.from(raw), ...data});
+      }
+      final today = await this.today();
+      if (today != null) return today;
+      throw const AttendanceApiException(
+        'Punch out correction submitted, but attendance could not be refreshed.',
       );
     } on DioException catch (e) {
       throw _error(e);

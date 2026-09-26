@@ -68,9 +68,19 @@ class AttendanceRepository {
     return api.monthlySummary(month);
   }
 
-  Future<Attendance> punch(String action, PunchCapture c) async {
+  Future<Attendance> punch(
+    String action,
+    PunchCapture c, {
+    String? latePunchOutReason,
+    String? latePunchOutReasonNote,
+  }) async {
     try {
-      final value = await api.punch(action, c);
+      final value = await api.punch(
+        action,
+        c,
+        latePunchOutReason: latePunchOutReason,
+        latePunchOutReasonNote: latePunchOutReasonNote,
+      );
       await _persistToday(value, queue: _readQueue());
       return value;
     } on AttendanceApiException catch (e) {
@@ -79,6 +89,20 @@ class AttendanceRepository {
     } on SocketException {
       return _saveOffline(action, c);
     }
+  }
+
+  Future<Attendance> submitPunchOutCorrection({
+    required DateTime actualPunchOut,
+    required String reason,
+    String? reasonNote,
+  }) async {
+    final value = await api.submitPunchOutCorrection(
+      actualPunchOut: actualPunchOut,
+      reason: reason,
+      reasonNote: reasonNote,
+    );
+    await _persistToday(value, queue: _readQueue());
+    return value;
   }
 
   Future<Attendance> _saveOffline(String action, PunchCapture c) async {
@@ -241,6 +265,18 @@ class AttendanceRepository {
       workingHours: value.workingHours,
       status: value.status,
       isPendingSync: pending,
+      previousPunchOutPending: value.previousPunchOutPending,
+      punchInAllowed: value.punchInAllowed,
+      punchOutAllowed: value.punchOutAllowed,
+      latePunchOutReasonRequired: value.latePunchOutReasonRequired,
+      punchOutCorrectionRequired: value.punchOutCorrectionRequired,
+      punchOutCorrectionPending: value.punchOutCorrectionPending,
+      isLatePunchOut: value.isLatePunchOut,
+      latePunchOutReason: value.latePunchOutReason,
+      latePunchOutReasonLabel: value.latePunchOutReasonLabel,
+      punchOutCorrectionStatus: value.punchOutCorrectionStatus,
+      pendingCorrection: value.pendingCorrection,
+      latePunchOutReasons: value.latePunchOutReasons,
     );
     await prefs.setString(_todayKey, jsonEncode(toSave.toJson()));
   }
@@ -276,6 +312,11 @@ class AttendanceRepository {
       Map<String, dynamic>.from(jsonDecode(raw) as Map),
     );
     final n = AttendanceFormat.istNow();
+    if (a.previousPunchOutPending ||
+        a.punchOutCorrectionPending ||
+        a.punchOutCorrectionRequired) {
+      return a;
+    }
     return a.date.year == n.year &&
             a.date.month == n.month &&
             a.date.day == n.day

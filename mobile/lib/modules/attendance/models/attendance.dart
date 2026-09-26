@@ -18,6 +18,18 @@ class Attendance {
     this.workingHours,
     this.status = 'Absent',
     this.isPendingSync = false,
+    this.previousPunchOutPending = false,
+    this.punchInAllowed,
+    this.punchOutAllowed,
+    this.latePunchOutReasonRequired = false,
+    this.punchOutCorrectionRequired = false,
+    this.punchOutCorrectionPending = false,
+    this.isLatePunchOut = false,
+    this.latePunchOutReason,
+    this.latePunchOutReasonLabel,
+    this.punchOutCorrectionStatus,
+    this.pendingCorrection,
+    this.latePunchOutReasons = const [],
   });
   final int? id, employeeId;
   final DateTime date;
@@ -26,13 +38,41 @@ class Attendance {
   final String? inAddress, outAddress, inPhoto, outPhoto, workingHours;
   final String status;
   final bool isPendingSync;
-  bool get canPunchIn => punchIn == null;
-  bool get canPunchOut => punchIn != null && punchOut == null;
+  final bool previousPunchOutPending;
+  final bool? punchInAllowed;
+  final bool? punchOutAllowed;
+  final bool latePunchOutReasonRequired;
+  final bool punchOutCorrectionRequired;
+  final bool punchOutCorrectionPending;
+  final bool isLatePunchOut;
+  final String? latePunchOutReason;
+  final String? latePunchOutReasonLabel;
+  final String? punchOutCorrectionStatus;
+  final Map<String, dynamic>? pendingCorrection;
+  final List<Map<String, String>> latePunchOutReasons;
+  bool get canPunchIn => punchInAllowed ?? punchIn == null;
+  bool get canPunchOut =>
+      punchOutAllowed ?? (punchIn != null && punchOut == null);
 
   factory Attendance.fromJson(Map<String, dynamic> j) {
     final date = AttendanceFormat.parseDate(j['date'] ?? j['attendance_date']);
     double? number(dynamic v) => v == null ? null : double.tryParse('$v');
     final minutes = int.tryParse('${j['total_working_minutes'] ?? ''}');
+    bool flag(dynamic v) => v == true || v == 1 || v == '1' || v == 'true';
+    List<Map<String, String>> reasons() {
+      final raw = j['late_punch_out_reasons'];
+      if (raw is! List) return const [];
+      return raw
+          .whereType<Map>()
+          .map(
+            (e) => {
+              'value': '${e['value'] ?? ''}',
+              'label': '${e['label'] ?? e['value'] ?? ''}',
+            },
+          )
+          .where((e) => e['value']!.isNotEmpty)
+          .toList();
+    }
 
     return Attendance(
       id: int.tryParse('${j['id'] ?? ''}'),
@@ -40,17 +80,17 @@ class Attendance {
       date: date,
       punchIn: AttendanceFormat.parseIstDateTime(
         date,
-        j['punch_in_time'] ??
+        j['punch_in_at'] ??
+            j['punch_in'] ??
             j['punch_in_time_ist'] ??
-            j['punch_in_at'] ??
-            j['punch_in'],
+            j['punch_in_time'],
       ),
       punchOut: AttendanceFormat.parseIstDateTime(
         date,
-        j['punch_out_time'] ??
+        j['punch_out_at'] ??
+            j['punch_out'] ??
             j['punch_out_time_ist'] ??
-            j['punch_out_at'] ??
-            j['punch_out'],
+            j['punch_out_time'],
       ),
       inLatitude: number(j['in_latitude'] ?? j['punch_in_latitude']),
       inLongitude: number(j['in_longitude'] ?? j['punch_in_longitude']),
@@ -67,6 +107,24 @@ class Attendance {
           (minutes == null ? null : '${minutes ~/ 60}h ${minutes % 60}m'),
       status: '${j['status'] ?? j['attendance_status'] ?? 'Absent'}',
       isPendingSync: j['is_pending_sync'] == true,
+      previousPunchOutPending: flag(j['previous_punch_out_pending']),
+      punchInAllowed: j.containsKey('punch_in_allowed')
+          ? flag(j['punch_in_allowed'])
+          : null,
+      punchOutAllowed: j.containsKey('punch_out_allowed')
+          ? flag(j['punch_out_allowed'])
+          : null,
+      latePunchOutReasonRequired: flag(j['late_punch_out_reason_required']),
+      punchOutCorrectionRequired: flag(j['punch_out_correction_required']),
+      punchOutCorrectionPending: flag(j['punch_out_correction_pending']),
+      isLatePunchOut: flag(j['is_late_punch_out']),
+      latePunchOutReason: j['late_punch_out_reason']?.toString(),
+      latePunchOutReasonLabel: j['late_punch_out_reason_label']?.toString(),
+      punchOutCorrectionStatus: j['punch_out_correction_status']?.toString(),
+      pendingCorrection: j['pending_correction'] is Map
+          ? Map<String, dynamic>.from(j['pending_correction'] as Map)
+          : null,
+      latePunchOutReasons: reasons(),
     );
   }
 
@@ -91,6 +149,18 @@ class Attendance {
     'working_hours': workingHours,
     'status': status,
     'is_pending_sync': isPendingSync,
+    'previous_punch_out_pending': previousPunchOutPending,
+    'punch_in_allowed': punchInAllowed,
+    'punch_out_allowed': punchOutAllowed,
+    'late_punch_out_reason_required': latePunchOutReasonRequired,
+    'punch_out_correction_required': punchOutCorrectionRequired,
+    'punch_out_correction_pending': punchOutCorrectionPending,
+    'is_late_punch_out': isLatePunchOut,
+    'late_punch_out_reason': latePunchOutReason,
+    'late_punch_out_reason_label': latePunchOutReasonLabel,
+    'punch_out_correction_status': punchOutCorrectionStatus,
+    'pending_correction': pendingCorrection,
+    'late_punch_out_reasons': latePunchOutReasons,
   };
 }
 

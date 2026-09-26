@@ -114,6 +114,10 @@ class _ManagerTeamAttendanceScreenState
 
   PgStatusTone _statusTone(String status) {
     final value = status.toLowerCase();
+    if (value.contains('late') || value.contains('correction')) {
+      return PgStatusTone.pending;
+    }
+    if (value.contains('previous')) return PgStatusTone.rejected;
     if (value.contains('working')) return PgStatusTone.info;
     if (value.contains('completed') || value == 'present') {
       return PgStatusTone.approved;
@@ -123,7 +127,10 @@ class _ManagerTeamAttendanceScreenState
     return PgStatusTone.pending;
   }
 
-  bool _isWorking(String status) => status.toLowerCase().contains('working');
+  bool _isWorking(String status) {
+    final value = status.toLowerCase();
+    return value.contains('working') || value.contains('previous');
+  }
 
   bool _isNotPunchedIn(String status, bool hasAttendance) {
     if (!hasAttendance) return true;
@@ -1007,6 +1014,8 @@ class ManagerTeamAttendanceDetailScreen extends StatefulWidget {
 class _ManagerTeamAttendanceDetailScreenState
     extends State<ManagerTeamAttendanceDetailScreen> {
   late Future<Map<String, dynamic>> _future;
+  bool _acting = false;
+  final _remark = TextEditingController();
 
   ManagerApi get _api => ManagerApi(
     ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
@@ -1016,6 +1025,12 @@ class _ManagerTeamAttendanceDetailScreenState
   void initState() {
     super.initState();
     _future = _api.getTeamAttendance(widget.attendanceId);
+  }
+
+  @override
+  void dispose() {
+    _remark.dispose();
+    super.dispose();
   }
 
   Future<void> _reload() async {
@@ -1033,6 +1048,50 @@ class _ManagerTeamAttendanceDetailScreenState
   Map<String, dynamic> _asMap(Object? value) {
     if (value is Map) return Map<String, dynamic>.from(value);
     return const {};
+  }
+
+  Future<void> _reviewCorrection(
+    Map<String, dynamic> pending, {
+    required bool approve,
+  }) async {
+    final correctionId = int.tryParse('${pending['id'] ?? ''}');
+    if (correctionId == null || _acting) return;
+    setState(() => _acting = true);
+    try {
+      if (approve) {
+        await _api.approvePunchOutCorrection(
+          attendanceId: widget.attendanceId,
+          correctionId: correctionId,
+          remark: _remark.text,
+        );
+      } else {
+        await _api.rejectPunchOutCorrection(
+          attendanceId: widget.attendanceId,
+          correctionId: correctionId,
+          remark: _remark.text,
+        );
+      }
+      if (!mounted) return;
+      _remark.clear();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            approve
+                ? 'Punch out correction approved.'
+                : 'Punch out correction rejected.',
+          ),
+        ),
+      );
+      await _reload();
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(errorMessage(error))),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _acting = false);
+    }
   }
 
   @override
@@ -1067,6 +1126,12 @@ class _ManagerTeamAttendanceDetailScreenState
           final distance = attendance['total_route_distance_km'] ??
               summary['total_distance_km'];
           final hasRoute = data['has_route'] == true;
+          final pendingCorrection = _asMap(data['pending_correction']);
+          final canReview = data['can_review_punch_out_correction'] == true;
+          final corrections = ((data['punch_out_corrections'] as List?) ?? const [])
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList();
 
           return ListView(
             padding: const EdgeInsets.all(AppSpacing.screenPadding),
@@ -1108,6 +1173,17 @@ class _ManagerTeamAttendanceDetailScreenState
                           ? '-'
                           : workingHours,
                     ),
+                    if (attendance['is_late_punch_out'] == true)
+                      PgInvoiceRow(
+                        label: 'Punch Out Flag',
+                        value: attendance['late_punch_out_reason_label']
+                                    ?.toString()
+                                    .trim()
+                                    .isNotEmpty ==
+                                true
+                            ? 'Late Punch Out (${attendance['late_punch_out_reason_label']})'
+                            : 'Late Punch Out',
+                      ),
                     PgInvoiceRow(
                       label: 'Route Distance',
                       value: distance == null
@@ -1117,6 +1193,109 @@ class _ManagerTeamAttendanceDetailScreenState
                   ],
                 ),
               ),
+              if (pendingCorrection.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.md),
+                PgCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Punch Out Correction',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      PgInvoiceRow(
+                        label: 'Requested Punch Out',
+                        value: pendingCorrection['requested_punch_out_time_label']
+                                ?.toString() ??
+                            '-',
+                      ),
+                      PgInvoiceRow(
+                        label: 'Reason',
+                        value: [
+                          pendingCorrection['reason_label']?.toString() ?? '-',
+                          if ((pendingCorrection['reason_note']?.toString() ?? '')
+                              .trim()
+                              .isNotEmpty)
+                            pendingCorrection['reason_note'].toString(),
+                        ].join(': '),
+                      ),
+                      PgInvoiceRow(
+                        label: 'Requested By',
+                        value: pendingCorrection['requested_by_name']?.toString() ??
+                            '-',
+                      ),
+                      if (canReview) ...[
+                        const SizedBox(height: AppSpacing.sm),
+                        TextField(
+                          controller: _remark,
+                          maxLength: 500,
+                          enabled: !_acting,
+                          decoration: const InputDecoration(
+                            labelText: 'Remark (optional)',
+                          ),
+                        ),
+                        const SizedBox(height: AppSpacing.sm),
+                        Row(
+                          children: [
+                            Expanded(
+                              child: OutlinedButton(
+                                onPressed: _acting
+                                    ? null
+                                    : () => _reviewCorrection(
+                                          pendingCorrection,
+                                          approve: false,
+                                        ),
+                                child: const Text('Reject'),
+                              ),
+                            ),
+                            const SizedBox(width: AppSpacing.sm),
+                            Expanded(
+                              child: FilledButton(
+                                onPressed: _acting
+                                    ? null
+                                    : () => _reviewCorrection(
+                                          pendingCorrection,
+                                          approve: true,
+                                        ),
+                                child: const Text('Approve'),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ],
+              if (corrections.isNotEmpty) ...[
+                const SizedBox(height: AppSpacing.md),
+                PgCard(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Correction Audit',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                      const SizedBox(height: AppSpacing.sm),
+                      ...corrections.map(
+                        (row) => Padding(
+                          padding: const EdgeInsets.only(bottom: AppSpacing.sm),
+                          child: Text(
+                            '${row['status']?.toString().toUpperCase() ?? '-'} · '
+                            '${row['requested_punch_out_time_label'] ?? '-'} · '
+                            '${row['reason_label'] ?? '-'}'
+                            '${row['reviewed_by_name'] != null ? ' · ${row['reviewed_by_name']}' : ''}'
+                            '${row['reviewed_at_label'] != null ? ' · ${row['reviewed_at_label']}' : ''}',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: AppSpacing.md),
               PgCard(
                 child: Column(

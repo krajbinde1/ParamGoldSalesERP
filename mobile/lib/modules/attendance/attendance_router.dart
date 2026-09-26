@@ -4,6 +4,7 @@ import 'screens/attendance_detail.dart';
 import 'screens/attendance_history.dart';
 import 'screens/attendance_home.dart';
 import 'screens/punch_in_screen.dart';
+import 'screens/punch_out_correction_screen.dart';
 import 'screens/punch_out_screen.dart';
 
 final attendanceRouter = GoRouter(
@@ -17,6 +18,10 @@ final attendanceRouter = GoRouter(
     GoRoute(
       path: '/attendance/punch-out',
       builder: (_, _) => const PunchOutScreen(),
+    ),
+    GoRoute(
+      path: '/attendance/punch-out-correction',
+      builder: (_, _) => const PunchOutCorrectionScreen(),
     ),
     GoRoute(
       path: '/attendance/history',

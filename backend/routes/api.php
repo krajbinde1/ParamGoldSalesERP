@@ -19,6 +19,7 @@ use App\Http\Controllers\Api\Director\DirectorPaymentRequestController;
 use App\Http\Controllers\Api\Director\DirectorProductionBatchController;
 use App\Http\Controllers\Api\Director\DirectorRouteTrackingController;
 use App\Http\Controllers\Api\Director\DirectorTaDaClaimController;
+use App\Http\Controllers\Api\Director\PaymentRequestPaymentProofController;
 use App\Http\Controllers\Api\Director\PaymentRequestSupportingDocumentController;
 use App\Http\Controllers\Api\EmployeeAuthController;
 use App\Http\Controllers\Api\EmployeeCollectionController;
@@ -183,6 +184,14 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::get('team-attendance', [ManagerTeamAttendanceController::class, 'index']);
         Route::get('team-attendance/employees/{employee}', [ManagerTeamAttendanceController::class, 'employeeHistory']);
         Route::get('team-attendance/{attendance}', [ManagerTeamAttendanceController::class, 'show']);
+        Route::post(
+            'team-attendance/{attendance}/punch-out-corrections/{correction}/approve',
+            [ManagerTeamAttendanceController::class, 'approvePunchOutCorrection']
+        );
+        Route::post(
+            'team-attendance/{attendance}/punch-out-corrections/{correction}/reject',
+            [ManagerTeamAttendanceController::class, 'rejectPunchOutCorrection']
+        );
         Route::get('route-tracking', [ManagerRouteTrackingController::class, 'index']);
         Route::get('route-tracking/{attendance}', [ManagerRouteTrackingController::class, 'show']);
         Route::get('team-activity', [ManagerTeamActivityController::class, 'index']);
@@ -331,12 +340,17 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
             'payment-requests/{paymentRequest}/supporting-documents/{supportingDocument}',
             [PaymentRequestSupportingDocumentController::class, 'show']
         );
+        Route::get(
+            'payment-requests/{paymentRequest}/payment-proofs/{paymentProof}',
+            [PaymentRequestPaymentProofController::class, 'show']
+        );
     });
 });
 
 Route::middleware(['auth:sanctum', 'role:employee,manager'])->prefix('attendance')->group(function () {
     Route::post('punch-in', [AttendanceController::class, 'punchIn']);
     Route::post('punch-out', [AttendanceController::class, 'punchOut']);
+    Route::post('punch-out-correction', [AttendanceController::class, 'submitPunchOutCorrection']);
     Route::get('today', [AttendanceController::class, 'today']);
     Route::get('history', [AttendanceController::class, 'history']);
     Route::get('monthly-summary', [AttendanceController::class, 'monthlySummary']);

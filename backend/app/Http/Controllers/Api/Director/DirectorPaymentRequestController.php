@@ -7,6 +7,7 @@ use App\Actions\PaymentRequests\BulkApprovePaymentRequests;
 use App\Actions\PaymentRequests\RejectPaymentRequest;
 use App\Http\Controllers\Controller;
 use App\Models\PaymentRequest;
+use App\Models\PaymentRequestPaymentProof;
 use App\Services\PaymentRequests\PaymentRequestApproverResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -330,6 +331,7 @@ class DirectorPaymentRequestController extends Controller
             'payment_done_at' => $pr->payment_done_at?->timezone('Asia/Kolkata')?->toIso8601String(),
             'payment_remark' => $pr->payment_remark,
             'payment_proof_url' => $pr->paymentProofUrl(),
+            'payment_proofs' => $this->paymentProofsPayload($pr),
             'payment_status' => $pr->paymentStatusLabel(),
             'timeline' => $pr->approvalTimeline(),
             'reminder_count' => (int) ($pr->reminder_count ?? 0),
@@ -350,6 +352,7 @@ class DirectorPaymentRequestController extends Controller
             'lastRemindedByUser:id,name',
         ]);
         $this->safeLoadSupportingDocuments($paymentRequest);
+        $this->safeLoadPaymentProofs($paymentRequest);
 
         return $paymentRequest;
     }
@@ -392,5 +395,74 @@ class DirectorPaymentRequestController extends Controller
 
             return [];
         }
+    }
+
+    private function safeLoadPaymentProofs(PaymentRequest $paymentRequest): void
+    {
+        try {
+            if (! Schema::hasTable('payment_request_payment_proofs')) {
+                return;
+            }
+            $paymentRequest->load(['paymentProofs.uploadedByUser:id,name']);
+        } catch (Throwable $e) {
+            Log::warning('Payment request payment proofs load skipped: '.$e->getMessage(), [
+                'payment_request_id' => $paymentRequest->id,
+            ]);
+        }
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function paymentProofsPayload(PaymentRequest $pr): array
+    {
+        try {
+            if (! $pr->relationLoaded('paymentProofs')) {
+                $this->safeLoadPaymentProofs($pr);
+            }
+            if (! $pr->relationLoaded('paymentProofs')) {
+                return $this->legacyPaymentProofPayload($pr);
+            }
+
+            $items = $pr->paymentProofs
+                ->map(fn (PaymentRequestPaymentProof $proof): array => $proof->toApiArray())
+                ->values()
+                ->all();
+
+            return $items !== [] ? $items : $this->legacyPaymentProofPayload($pr);
+        } catch (Throwable $e) {
+            Log::warning('Payment request payment proofs payload failed: '.$e->getMessage(), [
+                'payment_request_id' => $pr->id,
+            ]);
+
+            return $this->legacyPaymentProofPayload($pr);
+        }
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    private function legacyPaymentProofPayload(PaymentRequest $pr): array
+    {
+        $url = $pr->paymentProofUrl();
+        if (blank($url) || blank($pr->payment_proof_path)) {
+            return [];
+        }
+
+        $name = basename(str_replace('\\', '/', (string) $pr->payment_proof_path));
+
+        return [[
+            'id' => null,
+            'file_name' => $name !== '' ? $name : 'Payment Proof',
+            'mime_type' => str_ends_with(strtolower($name), '.pdf') ? 'application/pdf' : 'image/jpeg',
+            'file_size' => 0,
+            'file_size_label' => null,
+            'is_pdf' => str_ends_with(strtolower($name), '.pdf'),
+            'is_image' => ! str_ends_with(strtolower($name), '.pdf'),
+            'view_path' => null,
+            'view_url' => $url,
+            'download_url' => $url,
+            'public_url' => $url,
+        ]];
     }
 }

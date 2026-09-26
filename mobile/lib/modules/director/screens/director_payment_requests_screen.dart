@@ -925,8 +925,10 @@ class _PaymentRequestCard extends StatelessWidget {
     final requestId = _requestIdOnly(data);
     final paymentDoneAt = _fmtDateTime(data['payment_done_at']);
     final paymentDoneBy = _personText(data['payment_done_by']);
+    final proofs = (data['payment_proofs'] as List?) ?? const [];
     final hasProof = '${data['payment_proof_url'] ?? ''}'.trim().isNotEmpty ||
-        '${data['payment_proof_path'] ?? ''}'.trim().isNotEmpty;
+        '${data['payment_proof_path'] ?? ''}'.trim().isNotEmpty ||
+        proofs.isNotEmpty;
 
     final badgeLabel = switch (mode) {
       _PaymentCardMode.pending => 'Pending',
@@ -1479,6 +1481,22 @@ class _DirectorPaymentRequestDetailScreenState
             .toList() ??
         const <Map<String, dynamic>>[];
     final proof = '${d?['payment_proof_url'] ?? ''}'.trim();
+    final paymentProofs = (d?['payment_proofs'] as List?)
+            ?.map((e) => Map<String, dynamic>.from(e as Map))
+            .toList() ??
+        const <Map<String, dynamic>>[];
+    final proofItems = paymentProofs.isNotEmpty
+        ? paymentProofs
+        : (proof.isEmpty
+            ? const <Map<String, dynamic>>[]
+            : <Map<String, dynamic>>[
+                {
+                  'file_name': 'Payment Proof',
+                  'view_url': proof,
+                  'view_path': '',
+                  'mime_type': '',
+                },
+              ]);
     final supportingDocs = (d?['supporting_documents'] as List?)
             ?.map((e) => Map<String, dynamic>.from(e as Map))
             .toList() ??
@@ -1605,19 +1623,37 @@ class _DirectorPaymentRequestDetailScreenState
                                         ),
                                   ],
                                 ),
-                                if (proof.isNotEmpty) ...[
+                                if (proofItems.isNotEmpty) ...[
                                   const SizedBox(height: 12),
                                   _SectionCard(
-                                    title: 'Payment Proof',
+                                    title: proofItems.length == 1
+                                        ? 'Payment Proof'
+                                        : 'Payment Proofs (${proofItems.length})',
                                     children: [
-                                      SelectableText(
-                                        proof,
-                                        style: const TextStyle(
-                                          fontSize: 13,
-                                          color: AppColors.primary,
-                                          fontWeight: FontWeight.w600,
+                                      for (final doc in proofItems)
+                                        _SupportingDocumentTile(
+                                          document: doc,
+                                          onView: () => openSecureDocument(
+                                            context,
+                                            dio: ApiClient(
+                                              SessionStore(),
+                                              onUnauthorized:
+                                                  widget.auth.sessionExpired,
+                                            ).dio,
+                                            title:
+                                                '${doc['file_name'] ?? 'Payment Proof'}',
+                                            mimeType:
+                                                '${doc['mime_type'] ?? ''}',
+                                            viewPath:
+                                                '${doc['view_path'] ?? ''}',
+                                            viewUrl:
+                                                '${doc['view_url'] ?? doc['public_url'] ?? ''}',
+                                            documentId: int.tryParse(
+                                              '${doc['id'] ?? ''}',
+                                            ),
+                                            paymentRequestId: widget.requestId,
+                                          ),
                                         ),
-                                      ),
                                     ],
                                   ),
                                 ],

@@ -10,7 +10,9 @@ use App\Actions\PaymentRequests\SendPaymentRequestReminder;
 use App\Actions\PaymentRequests\StorePaymentRequestSupportingDocuments;
 use App\Filament\Resources\PaymentRequests\PaymentRequestResource;
 use App\Models\PaymentRequest;
+use App\Models\PaymentRequestPaymentProof;
 use App\Models\PaymentRequestSupportingDocument;
+use Closure;
 use Filament\Actions\Action;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
@@ -23,6 +25,7 @@ use Illuminate\Contracts\Support\Htmlable;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\HtmlString;
+use Illuminate\Validation\ValidationException;
 
 class ViewPaymentRequest extends ViewRecord
 {
@@ -315,18 +318,46 @@ class ViewPaymentRequest extends ViewRecord
                         ->label('Payment Remark')
                         ->rows(3)
                         ->maxLength(2000),
-                    FileUpload::make('payment_proof')
+                    FileUpload::make('payment_proofs')
                         ->label('Payment Screenshot / Proof')
-                        ->acceptedFileTypes(['image/jpeg', 'image/png', 'image/webp'])
-                        ->maxSize(10240)
+                        ->helperText('Upload one PDF, one image, or multiple images (PDF, JPG, JPEG, PNG, WEBP). Max 10 MB each. A PDF cannot be mixed with images. Remove any selected file before Confirm Payment Done if needed.')
+                        ->multiple()
+                        ->appendFiles()
+                        ->previewable()
+                        ->deletable()
+                        ->openable()
+                        ->downloadable()
+                        ->panelLayout('compact')
+                        ->storeFiles(false)
                         ->required()
-                        ->storeFiles(false),
+                        ->acceptedFileTypes([
+                            'application/pdf',
+                            'image/jpeg',
+                            'image/png',
+                            'image/webp',
+                        ])
+                        ->maxSize(PaymentRequestPaymentProof::MAX_SIZE_KB)
+                        ->maxFiles(PaymentRequestPaymentProof::MAX_FILES)
+                        ->rules([
+                            fn (): Closure => function (string $attribute, $value, Closure $fail): void {
+                                $files = collect(is_array($value) ? $value : [$value])
+                                    ->filter(fn ($file): bool => $file instanceof UploadedFile)
+                                    ->values()
+                                    ->all();
+
+                                try {
+                                    PaymentRequestPaymentProof::assertUploadedFiles($files);
+                                } catch (ValidationException $e) {
+                                    $fail((string) (collect($e->errors())->flatten()->first() ?: 'Invalid payment proof.'));
+                                }
+                            },
+                        ]),
                 ])
                 ->action(function (array $data) use ($record): void {
                     app(MarkPaymentRequestPaid::class)->execute(
                         paymentRequest: $record,
                         actor: auth()->user(),
-                        proof: $data['payment_proof'],
+                        proofs: $data['payment_proofs'] ?? [],
                         remark: $data['payment_remark'] ?? null,
                     );
 
@@ -342,6 +373,7 @@ class ViewPaymentRequest extends ViewRecord
                         'payment_remark',
                         'payment_proof_path',
                     ]);
+                    $this->record->refresh();
                 }),
         ];
     }

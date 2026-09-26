@@ -156,6 +156,13 @@ class PaymentRequest extends Model
         return $this->hasMany(PaymentRequestSupportingDocument::class)->latest('id');
     }
 
+    public function paymentProofs(): HasMany
+    {
+        return $this->hasMany(PaymentRequestPaymentProof::class)
+            ->orderBy('sort_order')
+            ->orderBy('id');
+    }
+
     public function isAwaitingApproval(): bool
     {
         return in_array($this->status, [
@@ -510,11 +517,72 @@ class PaymentRequest extends Model
 
     public function paymentProofUrl(): ?string
     {
-        if (blank($this->payment_proof_path)) {
-            return null;
+        if (filled($this->payment_proof_path)) {
+            return url('storage/'.ltrim(str_replace('\\', '/', (string) $this->payment_proof_path), '/'));
         }
 
-        return url('storage/'.ltrim(str_replace('\\', '/', $this->payment_proof_path), '/'));
+        $first = $this->relationLoaded('paymentProofs')
+            ? $this->paymentProofs->first()
+            : $this->paymentProofs()->first();
+
+        return $first?->publicUrl();
+    }
+
+    public function hasPaymentProofs(): bool
+    {
+        if (filled($this->payment_proof_path)) {
+            return true;
+        }
+
+        if ($this->relationLoaded('paymentProofs')) {
+            return $this->paymentProofs->isNotEmpty();
+        }
+
+        return $this->paymentProofs()->exists();
+    }
+
+    /**
+     * @return list<array<string, mixed>>
+     */
+    public function paymentProofItems(): array
+    {
+        $proofs = $this->relationLoaded('paymentProofs')
+            ? $this->paymentProofs
+            : $this->paymentProofs()->with('uploadedByUser:id,name')->get();
+
+        if ($proofs->isNotEmpty()) {
+            return $proofs
+                ->map(function (PaymentRequestPaymentProof $proof): array {
+                    $urls = $proof->webUrls();
+
+                    return [
+                        'id' => $proof->id,
+                        'file_name' => $proof->original_file_name,
+                        'file_size_label' => $proof->humanFileSize(),
+                        'is_pdf' => $proof->isPdf(),
+                        'view_url' => $urls['view'],
+                        'download_url' => $urls['download'],
+                    ];
+                })
+                ->values()
+                ->all();
+        }
+
+        $legacyUrl = $this->paymentProofUrl();
+        if (blank($legacyUrl) || blank($this->payment_proof_path)) {
+            return [];
+        }
+
+        $name = basename(str_replace('\\', '/', (string) $this->payment_proof_path));
+
+        return [[
+            'id' => null,
+            'file_name' => $name !== '' ? $name : 'Payment Proof',
+            'file_size_label' => null,
+            'is_pdf' => str_ends_with(strtolower($name), '.pdf'),
+            'view_url' => $legacyUrl,
+            'download_url' => $legacyUrl,
+        ]];
     }
 
     /**

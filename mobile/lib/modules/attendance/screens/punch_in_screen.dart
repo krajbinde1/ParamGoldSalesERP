@@ -82,11 +82,13 @@ class PunchScreen extends StatelessWidget {
     required this.message,
     required this.busy,
     required this.onPressed,
+    this.extra,
   });
   final String title, message;
   final Widget icon;
   final bool busy;
   final VoidCallback onPressed;
+  final Widget? extra;
   @override
   Widget build(BuildContext context) => PgPageScaffold(
     title: title,
@@ -108,6 +110,10 @@ class PunchScreen extends StatelessWidget {
             Text(title, style: Theme.of(context).textTheme.headlineMedium),
             const SizedBox(height: AppSpacing.sm),
             Text(message, textAlign: TextAlign.center),
+            if (extra != null) ...[
+              const SizedBox(height: AppSpacing.lg),
+              Flexible(child: SingleChildScrollView(child: extra)),
+            ],
             const Spacer(),
             SizedBox(
               width: double.infinity,

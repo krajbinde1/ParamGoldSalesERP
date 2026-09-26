@@ -2,16 +2,20 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Actions\Attendance\RecordLatePunchOut;
+use App\Actions\Attendance\SubmitPunchOutCorrection;
 use App\Http\Controllers\Controller;
 use App\Models\Attendance;
+use App\Models\AttendancePunchOutCorrection;
 use App\Models\EmployeeRoutePoint;
+use App\Services\Attendance\AttendancePunchWorkflow;
 use App\Services\Attendance\AttendanceStatusCalculator;
 use App\Support\AttendanceCalendar;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Validation\ValidationException;
+use Illuminate\Validation\Rule;
 
 class AttendanceController extends Controller
 {
@@ -66,6 +70,12 @@ class AttendanceController extends Controller
         $employeeId = $this->employeeId($request);
         $today = Attendance::businessToday()->toDateString();
         $now = Attendance::businessNow();
+        $workflow = app(AttendancePunchWorkflow::class);
+
+        $previousOpen = $workflow->previousDayOpenAttendance($employeeId);
+        if ($previousOpen !== null) {
+            return $this->ok('Previous Punch Out Pending', $this->todayPayload($employeeId), 422);
+        }
 
         if (Attendance::query()
             ->where('employee_id', $employeeId)
@@ -103,46 +113,107 @@ class AttendanceController extends Controller
             ->whereDate('attendance_date', $today)
             ->first();
 
-        if ($attendance === null) {
+        if ($attendance !== null) {
+            if ($attendance->punch_out_time) {
+                return $this->ok('Already punched out.', null, 422);
+            }
+
+            $attendance->update([
+                'punch_out_time' => $now->format('H:i:s'),
+                'punch_out_latitude' => $validated['latitude'],
+                'punch_out_longitude' => $validated['longitude'],
+                'punch_out_location' => $validated['location_address'],
+                'punch_out_photo' => str_replace('\\', '/', $request->file('photo')->store('attendance', 'public')),
+                'total_working_minutes' => $attendance->punchInAt()?->diffInMinutes($now),
+            ]);
+
+            $fresh = $attendance->fresh();
+            app(\App\Services\EmployeeRouteAnalysisService::class)
+                ->recalculateAndPersistDistance($fresh);
+
+            return $this->ok('Punch out recorded.', $this->formatAttendance($fresh->fresh()));
+        }
+
+        $workflow = app(AttendancePunchWorkflow::class);
+        $open = $workflow->previousDayOpenAttendance($employeeId);
+        if ($open === null) {
             return $this->ok('Punch in is required first.', null, 422);
         }
 
-        if ($attendance->punch_out_time) {
-            return $this->ok('Already punched out.', null, 422);
+        if ($workflow->pendingCorrection($open) !== null) {
+            return $this->ok(
+                'A punch-out correction is already pending approval.',
+                $this->todayPayload($employeeId),
+                422,
+            );
         }
 
-        $attendance->update([
-            'punch_out_time' => $now->format('H:i:s'),
+        if ($workflow->isMoreThan24Hours($open, $now)) {
+            return $this->ok('Request Punch Out Correction', $this->todayPayload($employeeId), 422);
+        }
+
+        $late = $request->validate([
+            'late_punch_out_reason' => ['required', 'string', Rule::in(array_keys(AttendancePunchOutCorrection::REASON_LABELS))],
+            'late_punch_out_reason_note' => [
+                'nullable',
+                'string',
+                'max:500',
+                Rule::requiredIf($request->input('late_punch_out_reason') === AttendancePunchOutCorrection::REASON_OTHER),
+            ],
+        ]);
+
+        $fresh = app(RecordLatePunchOut::class)->execute($open, [
             'punch_out_latitude' => $validated['latitude'],
             'punch_out_longitude' => $validated['longitude'],
             'punch_out_location' => $validated['location_address'],
             'punch_out_photo' => str_replace('\\', '/', $request->file('photo')->store('attendance', 'public')),
-            'total_working_minutes' => $attendance->punchInAt()?->diffInMinutes($now),
+            'late_punch_out_reason' => $late['late_punch_out_reason'],
+            'late_punch_out_reason_note' => $late['late_punch_out_reason_note'] ?? null,
+        ], $now);
+
+        return $this->ok('Late punch out recorded.', $this->formatAttendance($fresh));
+    }
+
+    public function submitPunchOutCorrection(Request $request): JsonResponse
+    {
+        $this->logRequest($request);
+        $employeeId = $this->employeeId($request);
+        $workflow = app(AttendancePunchWorkflow::class);
+        $open = $workflow->openAttendance($employeeId);
+
+        if ($open === null) {
+            return $this->ok('Punch in is required first.', null, 422);
+        }
+
+        $validated = $request->validate([
+            'actual_punch_out_date' => ['required', 'date'],
+            'actual_punch_out_time' => ['required', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
+            'reason' => ['required', 'string', Rule::in(array_keys(AttendancePunchOutCorrection::REASON_LABELS))],
+            'reason_note' => [
+                'nullable',
+                'string',
+                'max:500',
+                Rule::requiredIf($request->input('reason') === AttendancePunchOutCorrection::REASON_OTHER),
+            ],
         ]);
 
-        $fresh = $attendance->fresh();
-        app(\App\Services\EmployeeRouteAnalysisService::class)
-            ->recalculateAndPersistDistance($fresh);
+        $correction = app(SubmitPunchOutCorrection::class)->execute(
+            $open,
+            $request->user(),
+            $validated,
+        );
 
-        return $this->ok('Punch out recorded.', $this->formatAttendance($fresh->fresh()));
+        return $this->ok('Punch out correction submitted for approval.', [
+            'correction' => $correction->toApiArray(),
+            ...$this->todayPayload($employeeId),
+        ], 201);
     }
 
     public function today(Request $request): JsonResponse
     {
         $this->logRequest($request);
-        $employeeId = $this->employeeId($request);
-        $today = Attendance::businessToday()->toDateString();
 
-        $attendance = Attendance::query()
-            ->where('employee_id', $employeeId)
-            ->whereDate('attendance_date', $today)
-            ->first();
-
-        return $this->ok('Today attendance.', [
-            'attendance' => $attendance ? $this->formatAttendance($attendance) : null,
-            'punch_in_allowed' => $attendance === null,
-            'punch_out_allowed' => $attendance !== null && blank($attendance->punch_out_time),
-        ]);
+        return $this->ok('Today attendance.', $this->todayPayload($this->employeeId($request)));
     }
 
     public function history(Request $request): JsonResponse
@@ -273,6 +344,47 @@ class AttendanceController extends Controller
             'approval_status' => $attendance->approval_status,
             'remarks' => $attendance->remarks,
             'timezone' => 'Asia/Kolkata',
+            'is_late_punch_out' => (bool) $attendance->is_late_punch_out,
+            'late_punch_out_reason' => $attendance->late_punch_out_reason,
+            'late_punch_out_reason_label' => $attendance->latePunchOutReasonLabel(),
+            'punch_out_correction_status' => $attendance->punch_out_correction_status,
+        ];
+    }
+
+    /**
+     * @return array<string, mixed>
+     */
+    private function todayPayload(int $employeeId): array
+    {
+        $state = app(AttendancePunchWorkflow::class)->todayState($employeeId);
+        $attendance = $state['attendance'] instanceof Attendance
+            ? $this->formatAttendance($state['attendance'])
+            : null;
+
+        $pending = $state['pending_correction'] instanceof AttendancePunchOutCorrection
+            ? $state['pending_correction']->toApiArray()
+            : null;
+
+        $flags = [
+            'previous_punch_out_pending' => (bool) $state['previous_punch_out_pending'],
+            'punch_in_allowed' => (bool) $state['punch_in_allowed'],
+            'punch_out_allowed' => (bool) $state['punch_out_allowed'],
+            'late_punch_out_reason_required' => (bool) $state['late_punch_out_reason_required'],
+            'punch_out_correction_required' => (bool) $state['punch_out_correction_required'],
+            'punch_out_correction_pending' => (bool) $state['punch_out_correction_pending'],
+            'open_elapsed_minutes' => (int) $state['open_elapsed_minutes'],
+            'late_punch_out_reasons' => $state['late_punch_out_reasons'],
+            'pending_correction' => $pending,
+            'banner' => $state['previous_punch_out_pending'] ? 'Previous Punch Out Pending' : null,
+        ];
+
+        if (is_array($attendance)) {
+            $attendance = [...$attendance, ...$flags];
+        }
+
+        return [
+            'attendance' => $attendance,
+            ...$flags,
         ];
     }
 
