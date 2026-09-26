@@ -43,6 +43,9 @@ class PaymentRequestObserver
             PaymentRequest::STATUS_REJECTED_SECOND => $this->safe(
                 fn () => $this->notifier->notifyRejectedBySecond($fresh)
             ),
+            PaymentRequest::STATUS_REJECTED => $this->safe(
+                fn () => $this->notifier->notifyRejectedByAdmin($fresh)
+            ),
             PaymentRequest::STATUS_PAYMENT_DONE => $this->safe(
                 fn () => $this->notifier->notifyPaymentDone($fresh)
             ),

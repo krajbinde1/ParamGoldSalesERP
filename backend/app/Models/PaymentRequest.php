@@ -26,6 +26,8 @@ class PaymentRequest extends Model
 
     public const STATUS_PAYMENT_DONE = 'payment_done';
 
+    public const STATUS_REJECTED = 'rejected';
+
     public const STATUS_LABELS = [
         self::STATUS_PENDING_FIRST => 'Pending First Approval',
         self::STATUS_PENDING_SECOND => 'Pending Second Approval',
@@ -33,6 +35,7 @@ class PaymentRequest extends Model
         self::STATUS_REJECTED_FIRST => 'Rejected by First Approver',
         self::STATUS_REJECTED_SECOND => 'Rejected by Second Approver',
         self::STATUS_PAYMENT_DONE => 'Payment Done',
+        self::STATUS_REJECTED => 'Rejected',
     ];
 
     private const BUSINESS_TIMEZONE = 'Asia/Kolkata';
@@ -59,6 +62,10 @@ class PaymentRequest extends Model
         'payment_done_at',
         'payment_remark',
         'payment_proof_path',
+        'rejected_by',
+        'rejected_by_name',
+        'rejected_at',
+        'rejection_reason',
         'reminder_count',
         'last_reminded_at',
         'last_reminded_by',
@@ -71,6 +78,7 @@ class PaymentRequest extends Model
             'first_approved_at' => 'datetime',
             'second_approved_at' => 'datetime',
             'payment_done_at' => 'datetime',
+            'rejected_at' => 'datetime',
             'last_reminded_at' => 'datetime',
             'reminder_count' => 'integer',
         ];
@@ -133,6 +141,11 @@ class PaymentRequest extends Model
         return $this->belongsTo(User::class, 'payment_done_by');
     }
 
+    public function rejectedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'rejected_by');
+    }
+
     public function lastRemindedByUser(): BelongsTo
     {
         return $this->belongsTo(User::class, 'last_reminded_by');
@@ -188,7 +201,7 @@ class PaymentRequest extends Model
             self::STATUS_PENDING_FIRST, self::STATUS_PENDING_SECOND => 'warning',
             self::STATUS_APPROVED_FOR_PAYMENT => 'success',
             self::STATUS_PAYMENT_DONE => 'info',
-            self::STATUS_REJECTED_FIRST, self::STATUS_REJECTED_SECOND => 'danger',
+            self::STATUS_REJECTED_FIRST, self::STATUS_REJECTED_SECOND, self::STATUS_REJECTED => 'danger',
             default => 'gray',
         };
     }
@@ -198,6 +211,7 @@ class PaymentRequest extends Model
         return match ($this->status) {
             self::STATUS_PAYMENT_DONE => 'Payment Done',
             self::STATUS_APPROVED_FOR_PAYMENT => 'Pending Payment',
+            self::STATUS_REJECTED, self::STATUS_REJECTED_FIRST, self::STATUS_REJECTED_SECOND => 'Rejected',
             default => '—',
         };
     }
@@ -211,6 +225,7 @@ class PaymentRequest extends Model
             self::STATUS_PAYMENT_DONE => 'Payment Done',
             self::STATUS_REJECTED_FIRST => 'Rejected (First)',
             self::STATUS_REJECTED_SECOND => 'Rejected (Second)',
+            self::STATUS_REJECTED => 'Rejected',
             default => $this->displayStatusLabel(),
         };
     }
@@ -271,15 +286,68 @@ class PaymentRequest extends Model
 
     public function canBeMarkedPaid(): bool
     {
-        return $this->status === self::STATUS_APPROVED_FOR_PAYMENT;
+        return $this->status === self::STATUS_APPROVED_FOR_PAYMENT
+            && ! $this->isRejected();
+    }
+
+    public function canBeRejectedByAdmin(): bool
+    {
+        return in_array($this->status, [
+            self::STATUS_PENDING_FIRST,
+            self::STATUS_PENDING_SECOND,
+            self::STATUS_APPROVED_FOR_PAYMENT,
+        ], true);
+    }
+
+    public function isAdminRejected(): bool
+    {
+        return $this->status === self::STATUS_REJECTED;
     }
 
     public function isRejected(): bool
     {
         return in_array($this->status, [
+            self::STATUS_REJECTED,
             self::STATUS_REJECTED_FIRST,
             self::STATUS_REJECTED_SECOND,
         ], true);
+    }
+
+    public function rejectionActorLabel(): string
+    {
+        if ($this->isAdminRejected()) {
+            $name = trim((string) ($this->rejected_by_name ?: $this->rejectedByUser?->name ?: ''));
+
+            return $name !== '' ? $name.' (Admin)' : 'Admin';
+        }
+
+        if ($this->status === self::STATUS_REJECTED_FIRST) {
+            return trim(($this->first_approver_name ?: '—').' ('.($this->first_approver_role ?: 'First Approver').')');
+        }
+
+        return trim(($this->second_approver_name ?: '—').' ('.($this->second_approver_role ?: 'Second Approver').')');
+    }
+
+    public function rejectionAtLabel(): string
+    {
+        $at = match (true) {
+            $this->isAdminRejected() => $this->rejected_at,
+            $this->status === self::STATUS_REJECTED_FIRST => $this->first_approved_at,
+            default => $this->second_approved_at,
+        };
+
+        return $at ? $at->timezone(self::BUSINESS_TIMEZONE)->format('d M Y, h:i A') : '—';
+    }
+
+    public function rejectionReasonLabel(): string
+    {
+        $reason = match (true) {
+            $this->isAdminRejected() => $this->rejection_reason,
+            $this->status === self::STATUS_REJECTED_FIRST => $this->first_rejection_remark,
+            default => $this->second_rejection_remark,
+        };
+
+        return filled($reason) ? (string) $reason : '—';
     }
 
     public static function generateRequestNo(): string
@@ -387,6 +455,12 @@ class PaymentRequest extends Model
 
     public function markPaymentDone(User $actor, string $proofPath, ?string $remark = null): void
     {
+        if ($this->isRejected()) {
+            throw ValidationException::withMessages([
+                'status' => ['Payment cannot be marked done because this request was rejected.'],
+            ]);
+        }
+
         if (! $this->canBeMarkedPaid()) {
             throw ValidationException::withMessages([
                 'status' => ['Payment can only be marked done after both approvals.'],
@@ -405,6 +479,32 @@ class PaymentRequest extends Model
             'payment_done_at' => Carbon::now(self::BUSINESS_TIMEZONE),
             'payment_remark' => filled($remark) ? trim($remark) : null,
             'payment_proof_path' => $proofPath,
+        ]);
+    }
+
+    public function rejectByAdmin(User $actor, string $reason): void
+    {
+        if (! $this->canBeRejectedByAdmin()) {
+            throw ValidationException::withMessages([
+                'status' => $this->status === self::STATUS_PAYMENT_DONE
+                    ? ['Payment request cannot be rejected after Payment Done.']
+                    : ['This payment request cannot be rejected in its current status.'],
+            ]);
+        }
+
+        $reason = trim($reason);
+        if (mb_strlen($reason) < 3) {
+            throw ValidationException::withMessages([
+                'rejection_reason' => ['Rejection reason is required (minimum 3 characters).'],
+            ]);
+        }
+
+        $this->update([
+            'status' => self::STATUS_REJECTED,
+            'rejected_by' => $actor->id,
+            'rejected_by_name' => $actor->name,
+            'rejected_at' => Carbon::now(self::BUSINESS_TIMEZONE),
+            'rejection_reason' => $reason,
         ]);
     }
 
@@ -446,6 +546,61 @@ class PaymentRequest extends Model
                 'remark' => null,
             ],
         ];
+
+        if ($this->isAdminRejected()) {
+            $firstApproved = filled($this->first_approved_at) || filled($this->first_approved_by);
+            if ($firstApproved) {
+                $steps[] = [
+                    'key' => 'first_approval',
+                    'label' => 'First Approval',
+                    'badge' => 'Approved',
+                    'actor' => $this->first_approver_name ?: $firstExpected,
+                    'actor_role' => 'Director',
+                    'at' => $format($this->first_approved_at),
+                    'completed' => true,
+                    'is_current' => false,
+                    'is_rejection' => false,
+                    'not_started' => false,
+                    'pending' => false,
+                    'remark' => null,
+                ];
+            }
+
+            $secondApproved = filled($this->second_approved_at) || filled($this->second_approved_by);
+            if ($secondApproved) {
+                $steps[] = [
+                    'key' => 'second_approval',
+                    'label' => 'Second Approval',
+                    'badge' => 'Approved',
+                    'actor' => $this->second_approver_name ?: $secondExpected,
+                    'actor_role' => 'Director',
+                    'at' => $format($this->second_approved_at),
+                    'completed' => true,
+                    'is_current' => false,
+                    'is_rejection' => false,
+                    'not_started' => false,
+                    'pending' => false,
+                    'remark' => null,
+                ];
+            }
+
+            $steps[] = [
+                'key' => 'rejected',
+                'label' => 'Rejected',
+                'badge' => 'Rejected',
+                'actor' => $this->rejected_by_name ?: $this->rejectedByUser?->name,
+                'actor_role' => 'Admin',
+                'at' => $format($this->rejected_at),
+                'completed' => false,
+                'is_current' => true,
+                'is_rejection' => true,
+                'not_started' => false,
+                'pending' => false,
+                'remark' => $this->rejection_reason,
+            ];
+
+            return $steps;
+        }
 
         $firstRejected = $this->status === self::STATUS_REJECTED_FIRST;
         $firstApproved = filled($this->first_approved_at)

@@ -252,7 +252,8 @@ class PaymentFollowUpCycle {
 
   bool get isClosed =>
       displayStatus.toLowerCase() == 'closed' ||
-      statusLabel.toUpperCase() == 'CLOSED';
+      statusLabel.toUpperCase() == 'CLOSED' ||
+      statusLabel.toUpperCase().contains('CLOSED');
 }
 
 class PaymentFollowUpEntry {

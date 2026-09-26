@@ -48,7 +48,7 @@ void main() {
       expect(permissions.canManageInventoryMasters, isFalse);
     });
 
-    test('production supervisor can view company transport but cannot create expenses', () {
+    test('production supervisor can view company transport and create expenses', () {
       final permissions = PermissionService(
         const [
           'production_dashboard',
@@ -59,17 +59,17 @@ void main() {
       );
 
       expect(permissions.canViewCompanyTransport, isTrue);
-      expect(permissions.canCreateCompanyTransportExpense, isFalse);
+      expect(permissions.canCreateCompanyTransportExpense, isTrue);
     });
 
-    test('company transport expense create requires explicit permission', () {
+    test('company transport expense create stays off for director even with the permission key', () {
       final permissions = PermissionService(
         const ['company_transport_view', 'company_transport_expense_create'],
-        UserRole.productionSupervisor,
+        UserRole.director,
       );
 
       expect(permissions.canViewCompanyTransport, isTrue);
-      expect(permissions.canCreateCompanyTransportExpense, isTrue);
+      expect(permissions.canCreateCompanyTransportExpense, isFalse);
     });
 
     test('stock adjustment only when stock_adjustment is granted', () {

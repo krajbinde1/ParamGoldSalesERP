@@ -142,6 +142,13 @@ class _PaymentFollowUpListScreenState extends State<PaymentFollowUpListScreen> {
                       selected: _statusFilter == 'no_follow_up',
                       onTap: () => _toggleStatus('no_follow_up'),
                     ),
+                    _CountChip(
+                      label: 'Payment Received / Closed',
+                      value: data.counts.closed,
+                      color: AppColors.success,
+                      selected: _statusFilter == 'closed',
+                      onTap: () => _toggleStatus('closed'),
+                    ),
                   ],
                 ),
                 const SizedBox(height: AppSpacing.md),

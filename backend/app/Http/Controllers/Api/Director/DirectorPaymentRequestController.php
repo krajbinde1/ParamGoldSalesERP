@@ -31,6 +31,7 @@ class DirectorPaymentRequestController extends Controller
             ->with([
                 'createdByUser:id,name',
                 'paymentDoneByUser:id,name',
+                'rejectedByUser:id,name',
             ])
             ->latest('id');
 
@@ -94,6 +95,7 @@ class DirectorPaymentRequestController extends Controller
                 ]);
             } elseif ($status === 'rejected') {
                 $query->whereIn('status', [
+                    PaymentRequest::STATUS_REJECTED,
                     PaymentRequest::STATUS_REJECTED_FIRST,
                     PaymentRequest::STATUS_REJECTED_SECOND,
                 ]);
@@ -116,6 +118,7 @@ class DirectorPaymentRequestController extends Controller
                 ]);
             } elseif ($status === 'rejected') {
                 $query->whereIn('status', [
+                    PaymentRequest::STATUS_REJECTED,
                     PaymentRequest::STATUS_REJECTED_FIRST,
                     PaymentRequest::STATUS_REJECTED_SECOND,
                 ]);
@@ -290,6 +293,10 @@ class DirectorPaymentRequestController extends Controller
             'first_approved_at' => $pr->first_approved_at?->timezone('Asia/Kolkata')?->toIso8601String(),
             'second_approved_by' => $pr->second_approved_by,
             'second_approved_at' => $pr->second_approved_at?->timezone('Asia/Kolkata')?->toIso8601String(),
+            'rejected_by' => $pr->rejected_by,
+            'rejected_by_name' => $pr->rejected_by_name ?: $pr->rejectedByUser?->name,
+            'rejected_at' => $pr->rejected_at?->timezone('Asia/Kolkata')?->toIso8601String(),
+            'rejection_reason' => $pr->rejection_reason,
             'payment_done_at' => $pr->payment_done_at?->timezone('Asia/Kolkata')?->toIso8601String(),
             'payment_done_by' => $pr->paymentDoneByUser?->name,
             'payment_proof_url' => $pr->paymentProofUrl(),
@@ -316,6 +323,10 @@ class DirectorPaymentRequestController extends Controller
             'second_approver_role' => $pr->second_approver_role,
             'second_approved_at' => $pr->second_approved_at?->timezone('Asia/Kolkata')?->toIso8601String(),
             'second_rejection_remark' => $pr->second_rejection_remark,
+            'rejected_by' => $pr->rejected_by,
+            'rejected_by_name' => $pr->rejected_by_name ?: $pr->rejectedByUser?->name,
+            'rejected_at' => $pr->rejected_at?->timezone('Asia/Kolkata')?->toIso8601String(),
+            'rejection_reason' => $pr->rejection_reason,
             'payment_done_at' => $pr->payment_done_at?->timezone('Asia/Kolkata')?->toIso8601String(),
             'payment_remark' => $pr->payment_remark,
             'payment_proof_url' => $pr->paymentProofUrl(),
@@ -335,6 +346,7 @@ class DirectorPaymentRequestController extends Controller
             'firstApprovedByUser:id,name',
             'secondApprovedByUser:id,name',
             'paymentDoneByUser:id,name',
+            'rejectedByUser:id,name',
             'lastRemindedByUser:id,name',
         ]);
         $this->safeLoadSupportingDocuments($paymentRequest);

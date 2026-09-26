@@ -36,6 +36,8 @@ final class PaymentRequestPushNotifier
 
     public const TYPE_REJECTED_SECOND = 'payment_request_rejected_second';
 
+    public const TYPE_REJECTED_ADMIN = 'payment_request_rejected_admin';
+
     public const TYPE_PAYMENT_DONE = 'payment_request_payment_done';
 
     public function __construct(
@@ -191,6 +193,36 @@ final class PaymentRequestPushNotifier
                 user: $first,
                 paymentRequest: $paymentRequest,
                 type: self::TYPE_REJECTED_SECOND.'_first',
+                title: 'Payment Request Rejected',
+                body: $body,
+                extra: ['remark' => $reason],
+            );
+        }
+    }
+
+    public function notifyRejectedByAdmin(PaymentRequest $paymentRequest): void
+    {
+        $reason = trim((string) ($paymentRequest->rejection_reason ?? ''));
+        $by = trim((string) ($paymentRequest->rejected_by_name ?? 'Admin'));
+        $body = "Payment request {$paymentRequest->request_no} was rejected by {$by}.";
+        if ($reason !== '') {
+            $body .= " Reason: {$reason}";
+        }
+
+        $seen = [];
+        foreach (array_filter([
+            $this->approvers->firstApprover(),
+            $this->approvers->secondApprover(),
+        ]) as $user) {
+            if (isset($seen[$user->id]) || (int) $user->id === (int) ($paymentRequest->rejected_by ?? 0)) {
+                continue;
+            }
+            $seen[$user->id] = true;
+
+            $this->dispatchStatusUpdate(
+                user: $user,
+                paymentRequest: $paymentRequest,
+                type: self::TYPE_REJECTED_ADMIN,
                 title: 'Payment Request Rejected',
                 body: $body,
                 extra: ['remark' => $reason],

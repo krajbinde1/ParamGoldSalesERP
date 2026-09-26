@@ -83,7 +83,13 @@ class _PaymentFollowUpDetailScreenState
     return switch (key) {
       'overdue' || 'missed' => PgStatusTone.rejected,
       'due_today' || 'pending' => PgStatusTone.pending,
-      'closed' || 'kept' || 'open' => PgStatusTone.paid,
+      'closed' ||
+      'kept' ||
+      'open' ||
+      'payment_received' ||
+      'payment_received_closed' ||
+      'closed_payment_received' =>
+        PgStatusTone.paid,
       'upcoming' => PgStatusTone.info,
       _ => PgStatusTone.neutral,
     };
@@ -181,8 +187,27 @@ class _PaymentFollowUpDetailScreenState
                 final openCycles = detail.cycles
                     .where((cycle) => !cycle.isClosed)
                     .toList();
-                final previousCycles = detail.cycles
+                final closedCycles = detail.cycles
                     .where((cycle) => cycle.isClosed)
+                    .toList();
+                final currentCycles = openCycles.isNotEmpty
+                    ? openCycles
+                    : (closedCycles.isEmpty
+                        ? const <PaymentFollowUpCycle>[]
+                        : [
+                            closedCycles.reduce(
+                              (left, right) =>
+                                  left.cycleNumber >= right.cycleNumber
+                                      ? left
+                                      : right,
+                            ),
+                          ]);
+                final currentCycleNumbers =
+                    currentCycles.map((cycle) => cycle.cycleNumber).toSet();
+                final previousCycles = detail.cycles
+                    .where(
+                      (cycle) => !currentCycleNumbers.contains(cycle.cycleNumber),
+                    )
                     .toList()
                     .reversed
                     .toList();
@@ -322,20 +347,20 @@ class _PaymentFollowUpDetailScreenState
                     ),
                   ),
                 ],
-                if (openCycles.isNotEmpty) ...[
+                if (currentCycles.isNotEmpty) ...[
                   const SizedBox(height: AppSpacing.lg),
                   Text(
-                    'Current Open Cycle',
+                    'Current Payment Cycle',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
                           fontWeight: FontWeight.w800,
                         ),
                   ),
                   const SizedBox(height: AppSpacing.sm),
-                  ...openCycles.map(
+                  ...currentCycles.map(
                     (cycle) => _ExpandableCycleCard(
-                      key: ValueKey('cycle-${cycle.cycleNumber}-open'),
+                      key: ValueKey('cycle-${cycle.cycleNumber}-current'),
                       cycle: cycle,
-                      isCurrent: true,
+                      isCurrent: !cycle.isClosed,
                       statusTone: _statusTone,
                       entryCard: _entryCard,
                     ),

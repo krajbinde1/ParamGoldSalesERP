@@ -58,5 +58,14 @@ void main() {
     expect(detail.nextFollowUpAvailableMessage, isNull);
     expect(detail.cycles.single.entries.single.remark, 'Dealer requested 5 days');
     expect(detail.cycles.single.isClosed, isFalse);
+
+    final closed = PaymentFollowUpCycle.fromJson({
+      'cycle_number': 1,
+      'opening_outstanding_label': '₹47,992',
+      'status_label': 'PAYMENT RECEIVED / CLOSED',
+      'display_status': 'closed',
+      'entries': const [],
+    });
+    expect(closed.isClosed, isTrue);
   });
 }

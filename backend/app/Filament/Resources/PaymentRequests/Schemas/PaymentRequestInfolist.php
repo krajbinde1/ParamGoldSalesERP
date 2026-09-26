@@ -22,7 +22,7 @@ class PaymentRequestInfolist
             PaymentRequest::STATUS_PENDING_FIRST, PaymentRequest::STATUS_PENDING_SECOND => 'warning',
             PaymentRequest::STATUS_APPROVED_FOR_PAYMENT => 'info',
             PaymentRequest::STATUS_PAYMENT_DONE => 'success',
-            PaymentRequest::STATUS_REJECTED_FIRST, PaymentRequest::STATUS_REJECTED_SECOND => 'danger',
+            PaymentRequest::STATUS_REJECTED_FIRST, PaymentRequest::STATUS_REJECTED_SECOND, PaymentRequest::STATUS_REJECTED => 'danger',
             default => 'gray',
         };
     }
@@ -75,7 +75,14 @@ class PaymentRequestInfolist
                                             ->placeholder('—'),
                                         TextEntry::make('payment_status')
                                             ->label('Payment Status')
-                                            ->state(fn (PaymentRequest $record): string => $record->paymentStatusLabel()),
+                                            ->state(fn (PaymentRequest $record): string => $record->paymentStatusLabel())
+                                            ->badge()
+                                            ->color(fn (PaymentRequest $record): string => match ($record->paymentStatusLabel()) {
+                                                'Payment Done' => 'success',
+                                                'Pending Payment' => 'warning',
+                                                'Rejected' => 'danger',
+                                                default => 'gray',
+                                            }),
                                         TextEntry::make('edit_lock_status')
                                             ->label('Edit Access')
                                             ->state(function (PaymentRequest $record): HtmlString|string {
@@ -179,27 +186,13 @@ class PaymentRequestInfolist
                     ->schema([
                         TextEntry::make('rejected_by_display')
                             ->label('Rejected By')
-                            ->state(function (PaymentRequest $record): string {
-                                if ($record->status === PaymentRequest::STATUS_REJECTED_FIRST) {
-                                    return trim(($record->first_approver_name ?: '—').' ('.($record->first_approver_role ?: 'First Approver').')');
-                                }
-
-                                return trim(($record->second_approver_name ?: '—').' ('.($record->second_approver_role ?: 'Second Approver').')');
-                            }),
+                            ->state(fn (PaymentRequest $record): string => $record->rejectionActorLabel()),
                         TextEntry::make('rejected_at_display')
-                            ->label('Date & Time')
-                            ->state(function (PaymentRequest $record): string {
-                                $at = $record->status === PaymentRequest::STATUS_REJECTED_FIRST
-                                    ? $record->first_approved_at
-                                    : $record->second_approved_at;
-
-                                return $at ? $at->timezone('Asia/Kolkata')->format('d M Y, h:i A') : '—';
-                            }),
+                            ->label('Rejected Date/Time')
+                            ->state(fn (PaymentRequest $record): string => $record->rejectionAtLabel()),
                         TextEntry::make('rejection_remark_display')
-                            ->label('Rejection Remark')
-                            ->state(fn (PaymentRequest $record): string => $record->status === PaymentRequest::STATUS_REJECTED_FIRST
-                                ? ($record->first_rejection_remark ?: '—')
-                                : ($record->second_rejection_remark ?: '—'))
+                            ->label('Rejection Reason')
+                            ->state(fn (PaymentRequest $record): string => $record->rejectionReasonLabel())
                             ->columnSpanFull(),
                     ]),
             ]);

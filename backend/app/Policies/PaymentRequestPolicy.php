@@ -63,6 +63,12 @@ class PaymentRequestPolicy
             && $paymentRequest->canBeSecondApproved();
     }
 
+    public function reject(User $user, PaymentRequest $paymentRequest): bool
+    {
+        return $user->isAdminUser()
+            && $paymentRequest->canBeRejectedByAdmin();
+    }
+
     public function markPaid(User $user, PaymentRequest $paymentRequest): bool
     {
         return $user->isAdminUser()

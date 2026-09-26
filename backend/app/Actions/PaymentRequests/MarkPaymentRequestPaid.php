@@ -23,9 +23,11 @@ final class MarkPaymentRequestPaid
             throw new AuthorizationException('You are not allowed to mark this payment as done.');
         }
 
-        if (! $paymentRequest->canBeMarkedPaid()) {
+        if (! $paymentRequest->canBeMarkedPaid() || $paymentRequest->isRejected()) {
             throw ValidationException::withMessages([
-                'status' => ['Payment can only be marked done after both approvals.'],
+                'status' => $paymentRequest->isRejected()
+                    ? ['Payment cannot be marked done because this request was rejected.']
+                    : ['Payment can only be marked done after both approvals.'],
             ]);
         }
 

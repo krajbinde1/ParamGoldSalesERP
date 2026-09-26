@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\PaymentRequests\Pages;
 
+use App\Actions\PaymentRequests\AdminRejectPaymentRequest;
 use App\Actions\PaymentRequests\DeletePaymentRequest;
 use App\Actions\PaymentRequests\DeletePaymentRequestSupportingDocument;
 use App\Actions\PaymentRequests\MarkPaymentRequestPaid;
@@ -53,7 +54,7 @@ class ViewPaymentRequest extends ViewRecord
             PaymentRequest::STATUS_PENDING_FIRST, PaymentRequest::STATUS_PENDING_SECOND => 'warning',
             PaymentRequest::STATUS_APPROVED_FOR_PAYMENT => 'info',
             PaymentRequest::STATUS_PAYMENT_DONE => 'success',
-            PaymentRequest::STATUS_REJECTED_FIRST, PaymentRequest::STATUS_REJECTED_SECOND => 'danger',
+            PaymentRequest::STATUS_REJECTED_FIRST, PaymentRequest::STATUS_REJECTED_SECOND, PaymentRequest::STATUS_REJECTED => 'danger',
             default => 'gray',
         };
         $badgeClass = match ($statusColor) {
@@ -260,6 +261,45 @@ class ViewPaymentRequest extends ViewRecord
                         'reminder_count',
                         'last_reminded_at',
                         'last_reminded_by',
+                    ]);
+                    $this->record->refresh();
+                }),
+            Action::make('reject')
+                ->label('Reject')
+                ->color('danger')
+                ->visible(fn (): bool => Gate::forUser(auth()->user())->allows('reject', $record))
+                ->authorize(fn (): bool => Gate::forUser(auth()->user())->allows('reject', $record))
+                ->requiresConfirmation()
+                ->modalHeading('Reject Payment')
+                ->modalDescription('Are you sure you want to reject this payment request? First Approval, Second Approval, and Payment Done will be stopped.')
+                ->modalSubmitActionLabel('Reject Payment')
+                ->form([
+                    Textarea::make('rejection_reason')
+                        ->label('Rejection Reason')
+                        ->helperText('Rejection reason is mandatory.')
+                        ->required()
+                        ->minLength(3)
+                        ->maxLength(2000)
+                        ->rows(3),
+                ])
+                ->action(function (array $data) use ($record): void {
+                    app(AdminRejectPaymentRequest::class)->execute(
+                        paymentRequest: $record,
+                        actor: auth()->user(),
+                        reason: $data['rejection_reason'] ?? '',
+                    );
+
+                    Notification::make()
+                        ->title('Payment request rejected')
+                        ->danger()
+                        ->send();
+
+                    $this->refreshFormData([
+                        'status',
+                        'rejected_by',
+                        'rejected_by_name',
+                        'rejected_at',
+                        'rejection_reason',
                     ]);
                     $this->record->refresh();
                 }),

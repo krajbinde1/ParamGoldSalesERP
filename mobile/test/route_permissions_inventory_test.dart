@@ -35,6 +35,7 @@ void main() {
         '/production/orders/1',
         '/production/entry',
         '/production/company-transport',
+        '/production/company-transport/expense',
         '/production/inwards',
         '/production/inwards/new',
         '/production/raw-materials/create',
@@ -49,6 +50,25 @@ void main() {
           reason: path,
         );
       }
+    });
+  });
+
+  group('Production supervisor company transport access', () {
+    test('allows transport ledger and add expense screens', () {
+      expect(
+        RoutePermissions.canAccessPath(
+          '/production/company-transport',
+          UserRole.productionSupervisor,
+        ),
+        isTrue,
+      );
+      expect(
+        RoutePermissions.canAccessPath(
+          '/production/company-transport/expense',
+          UserRole.productionSupervisor,
+        ),
+        isTrue,
+      );
     });
   });
 

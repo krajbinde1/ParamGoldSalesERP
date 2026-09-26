@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\PaymentRequests\Tables;
 
+use App\Actions\PaymentRequests\AdminRejectPaymentRequest;
 use App\Actions\PaymentRequests\DeletePaymentRequest;
 use App\Actions\PaymentRequests\SendPaymentRequestReminder;
 use App\Filament\Support\TodayDateFilter;
@@ -13,6 +14,7 @@ use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteAction;
 use Filament\Actions\EditAction;
 use Filament\Actions\ViewAction;
+use Filament\Forms\Components\Textarea;
 use Filament\Notifications\Notification;
 use Filament\Tables\Columns\TextColumn;
 use Filament\Tables\Filters\SelectFilter;
@@ -131,6 +133,7 @@ class PaymentRequestsTable
                     ->color(fn (string $state): string => match ($state) {
                         'Payment Done' => 'success',
                         'Pending Payment' => 'warning',
+                        'Rejected' => 'danger',
                         default => 'gray',
                     })
                     ->width('8.5rem'),
@@ -155,6 +158,7 @@ class PaymentRequestsTable
                                 ->constrainPendingMyApproval($query, auth()->user()),
                             'approved_for_payment' => $query->where('status', PaymentRequest::STATUS_APPROVED_FOR_PAYMENT),
                             'rejected' => $query->whereIn('status', [
+                                PaymentRequest::STATUS_REJECTED,
                                 PaymentRequest::STATUS_REJECTED_FIRST,
                                 PaymentRequest::STATUS_REJECTED_SECOND,
                             ]),
@@ -186,6 +190,44 @@ class PaymentRequestsTable
                         }
                     }),
                 ViewAction::make(),
+                Action::make('reject')
+                    ->label('Reject')
+                    ->icon('heroicon-o-x-circle')
+                    ->color('danger')
+                    ->visible(fn (PaymentRequest $record): bool => Gate::forUser(auth()->user())->allows('reject', $record))
+                    ->authorize(fn (PaymentRequest $record): bool => Gate::forUser(auth()->user())->allows('reject', $record))
+                    ->requiresConfirmation()
+                    ->modalHeading('Reject Payment')
+                    ->modalDescription('Are you sure you want to reject this payment request? First Approval, Second Approval, and Payment Done will be stopped.')
+                    ->modalSubmitActionLabel('Reject Payment')
+                    ->form([
+                        Textarea::make('rejection_reason')
+                            ->label('Rejection Reason')
+                            ->helperText('Rejection reason is mandatory.')
+                            ->required()
+                            ->minLength(3)
+                            ->maxLength(2000)
+                            ->rows(3),
+                    ])
+                    ->action(function (PaymentRequest $record, array $data): void {
+                        try {
+                            app(AdminRejectPaymentRequest::class)->execute(
+                                paymentRequest: $record,
+                                actor: auth()->user(),
+                                reason: $data['rejection_reason'] ?? '',
+                            );
+
+                            Notification::make()
+                                ->title('Payment request rejected')
+                                ->danger()
+                                ->send();
+                        } catch (\Throwable) {
+                            Notification::make()
+                                ->title('Unable to reject payment request')
+                                ->danger()
+                                ->send();
+                        }
+                    }),
                 EditAction::make()
                     ->visible(fn (PaymentRequest $record): bool => Gate::forUser(auth()->user())->allows('update', $record)),
                 DeleteAction::make()

@@ -46,7 +46,8 @@ class PermissionService {
   bool get canViewCompanyTransport =>
       has('company_transport_view') || role.isProductionSupervisor;
   bool get canCreateCompanyTransportExpense =>
-      has('company_transport_expense_create');
+      !role.isDirector &&
+      (has('company_transport_expense_create') || role.isProductionSupervisor);
 
   /// Stock adjustment — Admin web / PS when granted. Director mobile is view-only.
   bool get canAdjustStock => has('stock_adjustment') && !role.isDirector;

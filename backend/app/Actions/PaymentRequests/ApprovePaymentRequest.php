@@ -11,6 +11,10 @@ final class ApprovePaymentRequest
 {
     public function execute(PaymentRequest $paymentRequest, User $actor): PaymentRequest
     {
+        if ($paymentRequest->isRejected()) {
+            throw new AuthorizationException('This payment request has been rejected.');
+        }
+
         if ($paymentRequest->canBeFirstApproved()) {
             if (! Gate::forUser($actor)->allows('approveFirst', $paymentRequest)) {
                 throw new AuthorizationException('You are not allowed to perform first approval.');
