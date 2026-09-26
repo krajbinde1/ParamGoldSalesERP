@@ -8,25 +8,37 @@ return new class extends Migration
 {
     public function up(): void
     {
-        if (Schema::hasTable('payment_request_payment_proofs')) {
+        if (! Schema::hasTable('payment_request_payment_proofs')) {
+            Schema::create('payment_request_payment_proofs', function (Blueprint $table): void {
+                $table->id();
+                $table->foreignId('payment_request_id')
+                    ->constrained('payment_requests')
+                    ->cascadeOnDelete();
+                $table->string('original_file_name');
+                $table->string('stored_file_path');
+                $table->string('mime_type', 100);
+                $table->unsignedBigInteger('file_size')->default(0);
+                $table->unsignedSmallInteger('sort_order')->default(0);
+                $table->foreignId('uploaded_by')->nullable()->constrained('users')->nullOnDelete();
+                $table->timestamps();
+
+                $table->index(
+                    ['payment_request_id', 'sort_order'],
+                    'pr_proofs_req_sort_idx'
+                );
+            });
+
             return;
         }
 
-        Schema::create('payment_request_payment_proofs', function (Blueprint $table): void {
-            $table->id();
-            $table->foreignId('payment_request_id')
-                ->constrained('payment_requests')
-                ->cascadeOnDelete();
-            $table->string('original_file_name');
-            $table->string('stored_file_path');
-            $table->string('mime_type', 100);
-            $table->unsignedBigInteger('file_size')->default(0);
-            $table->unsignedSmallInteger('sort_order')->default(0);
-            $table->foreignId('uploaded_by')->nullable()->constrained('users')->nullOnDelete();
-            $table->timestamps();
-
-            $table->index(['payment_request_id', 'sort_order']);
-        });
+        if (! Schema::hasIndex('payment_request_payment_proofs', 'pr_proofs_req_sort_idx')) {
+            Schema::table('payment_request_payment_proofs', function (Blueprint $table): void {
+                $table->index(
+                    ['payment_request_id', 'sort_order'],
+                    'pr_proofs_req_sort_idx'
+                );
+            });
+        }
     }
 
     public function down(): void
