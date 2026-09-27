@@ -202,6 +202,7 @@ it('queues one receipt voucher when a collection is marked received', function (
         ->and($voucher->status)->toBe(TallyOutboundVoucher::STATUS_PENDING)
         ->and($voucher->payload['party']['tally_ledger_name'])->toBe('Collection Party Ledger')
         ->and($voucher->payload['collection']['amount'])->toEqual(5000.0)
+        ->and($voucher->payload['collection']['debit_ledger'])->toBe('State Bank of India')
         ->and($voucher->payload['collection']['payment_mode'])->toBe('UPI')
         ->and($voucher->payload['collection']['receipt_no'])->toBe($collection->receipt_no);
 
@@ -681,3 +682,58 @@ it('queues one tally receipt only when a collection is newly marked received on 
     Carbon::setTestNow();
 });
 
+it('debits State Bank of India on a newly received collection without changing synced receipts', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-27 15:00:00', 'Asia/Kolkata'));
+
+    $user = tallySyncConnectorUser();
+    $employee = tallySyncEmployee('9813000301');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'SBI Receipt Dealer']);
+    tallySyncMapDealer($dealer, 'SBI Receipt Party');
+    $collection = tallySyncPendingCollection($dealer, $employee, [
+        'payment_mode' => 'Cash',
+        'bank_name' => null,
+        'collection_date' => '2026-09-27',
+        'amount' => 12500,
+    ]);
+    $collection->transitionTo(Collection::STATUS_RECEIVED);
+
+    $voucher = TallyOutboundVoucher::query()
+        ->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)
+        ->where('source_id', $collection->id)
+        ->firstOrFail();
+    $token = tallySyncConnectorToken($user);
+
+    $pending = $this->withToken($token)
+        ->getJson('/api/tally-connector/pending')
+        ->assertOk()
+        ->assertJsonPath('data.0.erp_reference', 'ERP-COL-'.$collection->id)
+        ->assertJsonPath('data.0.payload.collection.debit_ledger', 'State Bank of India')
+        ->assertJsonPath('data.0.payload.party.tally_ledger_name', 'SBI Receipt Party');
+
+    expect($voucher->payload['collection']['debit_ledger'])->toBe(TallyOutboundEnqueueService::RECEIPT_DEBIT_LEDGER)
+        ->and($voucher->payload['party']['tally_ledger_name'])->toBe('SBI Receipt Party')
+        ->and($pending->json('data.0.payload.collection.amount'))->toEqual(12500);
+
+    $this->withToken($token)
+        ->postJson('/api/tally-connector/vouchers/'.$voucher->id.'/claim', [
+            'connector_id' => 'office-pc-sbi',
+        ])
+        ->assertOk();
+    $this->withToken($token)
+        ->postJson('/api/tally-connector/vouchers/'.$voucher->id.'/synced', [
+            'tally_voucher_no' => 'TALLY-RCPT-SBI-1',
+        ])
+        ->assertOk();
+
+    $syncedPayload = $voucher->fresh()->payload;
+    $collection->update(['amount' => 1, 'payment_mode' => 'UPI']);
+    app(TallyOutboundEnqueueService::class)->queueReceivedCollection($collection->fresh());
+
+    expect(TallyOutboundVoucher::query()->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(1)
+        ->and($voucher->fresh()->status)->toBe(TallyOutboundVoucher::STATUS_SYNCED)
+        ->and($voucher->fresh()->payload)->toBe($syncedPayload)
+        ->and($voucher->fresh()->payload['collection']['debit_ledger'])->toBe('State Bank of India')
+        ->and($voucher->fresh()->payload['collection']['amount'])->toEqual(12500.0);
+
+    Carbon::setTestNow();
+});

@@ -493,7 +493,7 @@ final class PaymentFollowUpService
 
             if ($alreadyLogged) {
                 $receivedToDate = round((float) ($cycle->payment_received_amount ?? $collection->amount), 2);
-                if ($this->shouldCloseCycle($cycle, $receivedToDate, $outstandingAfter) && $cycle->isOpen()) {
+                if ($this->shouldCloseCycle($cycle, $receivedToDate, $outstandingAfter, $collection) && $cycle->isOpen()) {
                     $cycle->update([
                         'status' => PaymentFollowUpCycle::STATUS_CLOSED,
                         'closed_at' => $now,
@@ -528,7 +528,7 @@ final class PaymentFollowUpService
                 'payment_received_amount' => $receivedToDate,
             ];
 
-            if ($this->shouldCloseCycle($cycle, $receivedToDate, $outstandingAfter)) {
+            if ($this->shouldCloseCycle($cycle, $receivedToDate, $outstandingAfter, $collection)) {
                 $payload['status'] = PaymentFollowUpCycle::STATUS_CLOSED;
                 $payload['closed_at'] = $now;
                 $payload['closing_outstanding'] = $outstandingAfter;
@@ -540,13 +540,21 @@ final class PaymentFollowUpService
     }
 
     /**
-     * Close when the latest committed amount is received, even if dealer outstanding remains.
-     * An unpaid past-due commitment in the same cycle keeps the cycle open.
-     * Full ledger recovery still closes a cycle that has no commitment amount.
+     * Close the current cycle when a Received collection was created after the latest follow-up,
+     * even if the amount is less than the commitment. Older collections keep the previous cover rule.
+     * Full ledger recovery still closes a cycle that has no remaining outstanding.
      */
-    private function shouldCloseCycle(PaymentFollowUpCycle $cycle, float $receivedToDate, float $outstandingAfter): bool
-    {
+    private function shouldCloseCycle(
+        PaymentFollowUpCycle $cycle,
+        float $receivedToDate,
+        float $outstandingAfter,
+        Collection $collection,
+    ): bool {
         if ($outstandingAfter <= 0) {
+            return true;
+        }
+
+        if ($this->collectionBelongsToCurrentFollowUp($collection, $cycle)) {
             return true;
         }
 
@@ -558,6 +566,23 @@ final class PaymentFollowUpService
         $commitmentAmount = $this->cycleCommitmentAmount($cycle);
 
         return $commitmentAmount !== null && $receivedToDate >= $commitmentAmount;
+    }
+
+    private function collectionBelongsToCurrentFollowUp(Collection $collection, PaymentFollowUpCycle $cycle): bool
+    {
+        $cycle->loadMissing('entries');
+        $latest = $this->latestDatedFollowUp($cycle->entries);
+        if ($latest === null) {
+            return false;
+        }
+
+        $followUpAt = $latest->followed_up_at ?? $latest->created_at;
+        $createdAt = $collection->created_at;
+        if ($followUpAt === null || $createdAt === null) {
+            return false;
+        }
+
+        return $createdAt->greaterThanOrEqualTo($followUpAt);
     }
 
     private function cycleCommitmentAmount(PaymentFollowUpCycle $cycle): ?float
@@ -615,6 +640,7 @@ final class PaymentFollowUpService
         }
 
         $today = PaymentFollowUpStatus::todayDate();
+        $outstandingSql = TallyDealerLedgerService::signedCurrentOutstandingSql('dealers');
 
         return match ($status) {
             PaymentFollowUpStatus::OVERDUE => $query->whereHas(
@@ -637,13 +663,18 @@ final class PaymentFollowUpService
                 ->whereHas(
                     'latestPaymentFollowUpCycle',
                     fn (Builder $cycle) => $cycle->where('status', PaymentFollowUpCycle::STATUS_CLOSED),
-                ),
+                )
+                ->whereRaw($outstandingSql.' <= 0'),
             PaymentFollowUpStatus::NO_FOLLOW_UP => $query
                 ->whereDoesntHave('openPaymentFollowUpCycle')
-                ->whereDoesntHave(
-                    'latestPaymentFollowUpCycle',
-                    fn (Builder $cycle) => $cycle->where('status', PaymentFollowUpCycle::STATUS_CLOSED),
-                ),
+                ->where(function (Builder $builder) use ($outstandingSql): void {
+                    $builder
+                        ->whereDoesntHave(
+                            'latestPaymentFollowUpCycle',
+                            fn (Builder $cycle) => $cycle->where('status', PaymentFollowUpCycle::STATUS_CLOSED),
+                        )
+                        ->orWhereRaw($outstandingSql.' > 0');
+                }),
             default => $query,
         };
     }
@@ -1371,7 +1402,9 @@ final class PaymentFollowUpService
         }
 
         if ($lastCycleClosed) {
-            return PaymentFollowUpStatus::CLOSED;
+            return $outstanding > 0
+                ? PaymentFollowUpStatus::NO_FOLLOW_UP
+                : PaymentFollowUpStatus::CLOSED;
         }
 
         return PaymentFollowUpStatus::NO_FOLLOW_UP;

@@ -112,7 +112,7 @@ def _receipt_voucher(payload: dict[str, Any], remote_id: str, party_name: str, s
     if amount <= 0:
         raise VoucherBuildError("Receipt voucher amount must be greater than zero.")
 
-    cash_ledger = _receipt_debit_ledger(collection, settings)
+    debit_ledger = _receipt_debit_ledger(collection, settings)
     voucher_no = str(collection.get("receipt_no") or remote_id).strip()
     narration = _receipt_narration(collection, remote_id)
 
@@ -126,7 +126,7 @@ def _receipt_voucher(payload: dict[str, Any], remote_id: str, party_name: str, s
         "<PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>"
         f"<EFFECTIVEDATE>{date_xml}</EFFECTIVEDATE>"
         f"<NARRATION>{_x(narration)}</NARRATION>"
-        f"{_ledger_entry(cash_ledger, debit=amount)}"
+        f"{_ledger_entry(debit_ledger, debit=amount)}"
         f"{_ledger_entry(party_name, credit=amount, is_party=True)}"
     )
 

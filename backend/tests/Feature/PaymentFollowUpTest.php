@@ -207,8 +207,8 @@ it('closes the payment cycle when the committed amount is received and starts a 
     Carbon::setTestNow(Carbon::parse('2026-09-20 10:00:00', 'Asia/Kolkata'));
 
     $closedDetail = app(PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
-    expect($closedDetail['status'])->toBe('closed')
-        ->and($closedDetail['status_label'])->toBe('Closed / Payment Received')
+    expect($closedDetail['status'])->toBe('no_follow_up')
+        ->and($closedDetail['status_label'])->toBe('No Follow-up')
         ->and($closedDetail['cycles'])->toHaveCount(1)
         ->and($closedDetail['cycles'][0]['display_status'])->toBe('closed')
         ->and($closedDetail['cycles'][0]['status_label'])->toBe('PAYMENT RECEIVED / CLOSED')
@@ -293,16 +293,17 @@ it('closes the current cycle on commitment payment even when dealer outstanding 
         ->getJson('/api/employee/payment-follow-ups')
         ->assertOk();
 
-    expect($detail['status'])->toBe('closed')
-        ->and($detail['status_label'])->toBe('Closed / Payment Received')
+    expect($detail['status'])->toBe('no_follow_up')
+        ->and($detail['status_label'])->toBe('No Follow-up')
         ->and($detail['cycles'][0]['display_status'])->toBe('closed')
         ->and($detail['cycles'][0]['status_label'])->toBe('PAYMENT RECEIVED / CLOSED')
         ->and($detail['cycles'][0]['status'])->toBe('closed')
         ->and((float) $detail['current_due'])->toBe(17992.0)
         ->and((float) $detail['current_outstanding'])->toBe(17992.0)
         ->and($detail['can_add_follow_up'])->toBeTrue()
-        ->and($list->json('data.0.status'))->toBe('closed')
-        ->and($list->json('counts.closed'))->toBe(1)
+        ->and($list->json('data.0.status'))->toBe('no_follow_up')
+        ->and($list->json('counts.closed'))->toBe(0)
+        ->and($list->json('counts.no_follow_up'))->toBe(1)
         ->and($list->json('counts.overdue'))->toBe(0)
         ->and(app(TallyDealerLedgerService::class)->signedCurrentOutstanding($dealer->fresh()))->toBe(17992.0);
 
@@ -323,7 +324,7 @@ it('closes the current cycle on commitment payment even when dealer outstanding 
         ->assertJsonPath('cycles.1.opening_outstanding', 17992);
 });
 
-it('keeps the cycle open when received payment is less than the committed amount', function (): void {
+it('closes the current cycle on a received payment even when the amount is less than the commitment', function (): void {
     $employee = paymentFollowUpEmployee('9811300032');
     $admin = paymentFollowUpAdmin();
     $dealer = paymentFollowUpDealer($employee, 'Partial Commitment Dealer', 47992);
@@ -336,9 +337,11 @@ it('keeps the cycle open when received payment is less than the committed amount
         ])
         ->assertCreated();
 
+    Carbon::setTestNow(Carbon::parse('2026-09-10 11:00:00', 'Asia/Kolkata'));
+
     $collection = Collection::query()->create([
         'receipt_no' => 'RCP-PFU-PARTIAL',
-        'collection_date' => '2026-09-12',
+        'collection_date' => '2026-09-10',
         'dealer_id' => $dealer->id,
         'sales_employee_id' => $employee->id,
         'amount' => 10000,
@@ -348,14 +351,121 @@ it('keeps the cycle open when received payment is less than the committed amount
 
     app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_RECEIVED, $admin);
 
+    $detail = app(PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
+    $list = $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/employee/payment-follow-ups')
+        ->assertOk();
+
+    expect($detail['status'])->toBe('no_follow_up')
+        ->and($detail['cycles'][0]['status'])->toBe('closed')
+        ->and($detail['cycles'][0]['display_status'])->toBe('closed')
+        ->and((float) $detail['cycles'][0]['payment_received_amount'])->toBe(10000.0)
+        ->and((float) $detail['current_due'])->toBe(37992.0)
+        ->and($list->json('data.0.status'))->toBe('no_follow_up')
+        ->and($list->json('counts.overdue'))->toBe(0)
+        ->and($list->json('counts.no_follow_up'))->toBe(1);
+});
+
+it('does not close the cycle for a collection created before the current follow-up', function (): void {
+    $employee = paymentFollowUpEmployee('9811300045');
+    $admin = paymentFollowUpAdmin();
+    $dealer = paymentFollowUpDealer($employee, 'Older Collection Dealer', 80000);
+
+    Carbon::setTestNow(Carbon::parse('2026-09-08 10:00:00', 'Asia/Kolkata'));
+    $older = Collection::query()->create([
+        'receipt_no' => 'RCP-PFU-OLDER',
+        'collection_date' => '2026-09-08',
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'amount' => 20000,
+        'status' => Collection::STATUS_PENDING,
+        'remarks' => 'Created before follow-up',
+    ]);
+
+    Carbon::setTestNow(Carbon::parse('2026-09-09 10:00:00', 'Asia/Kolkata'));
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'Promised 25000',
+            'expected_amount' => 25000,
+            'next_follow_up_date' => '2026-09-12',
+        ])
+        ->assertCreated();
+
     Carbon::setTestNow(Carbon::parse('2026-09-16 10:00:00', 'Asia/Kolkata'));
+    app(UpdateCollectionStatus::class)->execute($older, Collection::STATUS_RECEIVED, $admin);
 
     $detail = app(PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
 
-    expect($detail['cycles'][0]['status'])->toBe('open')
+    expect($detail['status'])->toBe('overdue')
+        ->and($detail['cycles'][0]['status'])->toBe('open')
         ->and($detail['cycles'][0]['display_status'])->toBe('overdue')
-        ->and((float) $detail['cycles'][0]['payment_received_amount'])->toBe(10000.0)
-        ->and((float) $detail['current_due'])->toBe(37992.0);
+        ->and((float) $detail['cycles'][0]['payment_received_amount'])->toBe(20000.0)
+        ->and((float) $detail['current_outstanding'])->toBe(60000.0);
+});
+
+it('moves a partially received current-cycle payment to no follow-up set then starts a new cycle', function (): void {
+    $employee = paymentFollowUpEmployee('9811300046');
+    $admin = paymentFollowUpAdmin();
+    $director = paymentFollowUpDirector();
+    $dealer = paymentFollowUpDealer($employee, 'Twenty Thousand Of Twenty Five Dealer', 90000);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'Promised 25000',
+            'expected_amount' => 25000,
+            'next_follow_up_date' => '2026-09-12',
+        ])
+        ->assertCreated();
+
+    Carbon::setTestNow(Carbon::parse('2026-09-16 10:00:00', 'Asia/Kolkata'));
+    $collection = Collection::query()->create([
+        'receipt_no' => 'RCP-PFU-20K',
+        'collection_date' => '2026-09-16',
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'amount' => 20000,
+        'status' => Collection::STATUS_PENDING,
+        'remarks' => 'Partial recovery',
+    ]);
+    app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_RECEIVED, $admin);
+
+    $detail = app(PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
+    $list = $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/employee/payment-follow-ups')
+        ->assertOk();
+    $monitor = $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/payment-follow-ups')
+        ->assertOk();
+
+    expect($detail['status'])->toBe('no_follow_up')
+        ->and($detail['cycles'][0]['status'])->toBe('closed')
+        ->and($detail['cycles'][0]['entries'][0]['commitment_status'])->toBe('missed')
+        ->and($detail['cycles'][0]['entries'][1]['entry_type'])->toBe('payment_received')
+        ->and((float) $detail['cycles'][0]['payment_received_amount'])->toBe(20000.0)
+        ->and((float) $detail['current_outstanding'])->toBe(70000.0)
+        ->and($list->json('data.0.status'))->toBe('no_follow_up')
+        ->and($list->json('counts.overdue'))->toBe(0)
+        ->and($list->json('counts.no_follow_up'))->toBe(1)
+        ->and(collect($monitor->json('today_actions.overdue'))->pluck('dealer_name'))
+        ->not->toContain('Twenty Thousand Of Twenty Five Dealer')
+        ->and(collect($monitor->json('today_actions.no_follow_up_set'))->pluck('dealer_name'))
+        ->toContain('Twenty Thousand Of Twenty Five Dealer');
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'Next follow-up for remaining due',
+            'expected_amount' => 70000,
+            'next_follow_up_date' => '2026-09-25',
+        ])
+        ->assertCreated()
+        ->assertJsonCount(2, 'cycles')
+        ->assertJsonPath('status', 'upcoming')
+        ->assertJsonPath('cycles.0.status', 'closed')
+        ->assertJsonPath('cycles.0.entries.0.commitment_status', 'missed')
+        ->assertJsonPath('cycles.1.cycle_number', 2)
+        ->assertJsonPath('cycles.1.status', 'open')
+        ->assertJsonPath('cycles.1.opening_outstanding', 70000)
+        ->assertJsonPath('cycles.1.entries.0.commitment_status', 'pending');
 });
 
 it('stops marking a fully received commitment overdue even when dealer outstanding remains', function (): void {
@@ -393,8 +503,8 @@ it('stops marking a fully received commitment overdue even when dealer outstandi
         ->getJson('/api/director/payment-follow-ups')
         ->assertOk();
 
-    expect($detail['status'])->toBe('closed')
-        ->and($detail['display_status'] ?? $detail['status'])->toBe('closed')
+    expect($detail['status'])->toBe('no_follow_up')
+        ->and($detail['display_status'] ?? $detail['status'])->toBe('pending')
         ->and($detail['current_cycle_status'] ?? 'closed')->toBe('closed')
         ->and($detail['cycles'][0]['display_status'])->toBe('closed')
         ->and($detail['cycles'][0]['status_label'])->toBe('PAYMENT RECEIVED / CLOSED')
@@ -402,8 +512,9 @@ it('stops marking a fully received commitment overdue even when dealer outstandi
         ->and($detail['cycles'][0]['missed_commitment_count'])->toBe(0)
         ->and((float) $detail['cycles'][0]['payment_received_amount'])->toBe(50000.0)
         ->and((float) $detail['current_outstanding'])->toBe(75000.0)
-        ->and($list->json('data.0.status'))->toBe('closed')
-        ->and($list->json('counts.overdue'))->toBe(0);
+        ->and($list->json('data.0.status'))->toBe('no_follow_up')
+        ->and($list->json('counts.overdue'))->toBe(0)
+        ->and($list->json('counts.no_follow_up'))->toBe(1);
 
     $overdueNames = app(PaymentFollowUpService::class)
         ->applyStatusFilter(app(PaymentFollowUpService::class)->adminDealersQuery(), 'overdue')
@@ -411,11 +522,14 @@ it('stops marking a fully received commitment overdue even when dealer outstandi
 
     $row = collect($monitor->json('data'))->firstWhere('dealer_name', 'Baliraja Overdue Fix Dealer');
     expect($row)->not->toBeNull()
-        ->and($row['display_status'] ?? null)->toBe('closed')
+        ->and($row['status'])->toBe('no_follow_up')
+        ->and($row['display_status'] ?? null)->toBe('pending')
         ->and($row['missed_count'] ?? 0)->toBe(0)
         ->and($monitor->json('summary.overdue_dealers'))->toBe(0)
         ->and(collect($monitor->json('today_actions.overdue'))->pluck('dealer_name'))
         ->not->toContain('Baliraja Overdue Fix Dealer')
+        ->and(collect($monitor->json('today_actions.no_follow_up_set'))->pluck('dealer_name'))
+        ->toContain('Baliraja Overdue Fix Dealer')
         ->and($overdueNames)->not->toContain('Baliraja Overdue Fix Dealer');
 });
 
@@ -466,7 +580,7 @@ it('does not clear overdue using pending or rejected collections', function (): 
         ->and($rejectedDetail['cycles'][0]['missed_commitment_count'])->toBe(1);
 });
 
-it('keeps overdue when another unpaid past-due commitment remains after a later payment', function (): void {
+it('closes the cycle when a later received payment belongs to the current follow-up and preserves missed labels', function (): void {
     $employee = paymentFollowUpEmployee('9811300043');
     $admin = paymentFollowUpAdmin();
     $dealer = paymentFollowUpDealer($employee, 'Second Commitment Overdue Dealer', 150000);
@@ -504,9 +618,9 @@ it('keeps overdue when another unpaid past-due commitment remains after a later 
 
     $detail = app(PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
 
-    expect($detail['status'])->toBe('overdue')
-        ->and($detail['cycles'][0]['status'])->toBe('open')
-        ->and($detail['cycles'][0]['display_status'])->toBe('overdue')
+    expect($detail['status'])->toBe('no_follow_up')
+        ->and($detail['cycles'][0]['status'])->toBe('closed')
+        ->and($detail['cycles'][0]['display_status'])->toBe('closed')
         ->and($detail['cycles'][0]['entries'][0]['commitment_status'])->toBe('kept')
         ->and($detail['cycles'][0]['entries'][1]['commitment_status'])->toBe('missed')
         ->and($detail['cycles'][0]['missed_commitment_count'])->toBe(1);
