@@ -112,7 +112,7 @@ def _receipt_voucher(payload: dict[str, Any], remote_id: str, party_name: str, s
     if amount <= 0:
         raise VoucherBuildError("Receipt voucher amount must be greater than zero.")
 
-    debit_ledger = _receipt_debit_ledger(collection, settings)
+    debit_ledger = receipt_debit_ledger(collection, settings)
     voucher_no = str(collection.get("receipt_no") or remote_id).strip()
     narration = _receipt_narration(collection, remote_id)
 
@@ -131,20 +131,14 @@ def _receipt_voucher(payload: dict[str, Any], remote_id: str, party_name: str, s
     )
 
 
-def _receipt_debit_ledger(collection: dict[str, Any], settings: Settings) -> str:
+def receipt_debit_ledger(collection: dict[str, Any], settings: Settings) -> str:
+    target = str(settings.receipt_debit_ledger or "").strip() or "State Bank of India"
     explicit = str(collection.get("debit_ledger") or "").strip()
-    if explicit:
+    if explicit and explicit.casefold() not in {"cash", "bank"}:
         return explicit
 
-    # Older outbox rows queued before ERP sent debit_ledger keep Cash/Bank mapping.
-    return _cash_or_bank_ledger(str(collection.get("payment_mode") or "Cash"), settings)
-
-
-def _cash_or_bank_ledger(payment_mode: str, settings: Settings) -> str:
-    mode = payment_mode.strip().lower()
-    if mode in {"", "cash"}:
-        return settings.cash_ledger
-    return settings.bank_ledger
+    # Unsynced Cash/Bank payloads and older rows without debit_ledger post to SBI.
+    return target
 
 
 def _sales_narration(order: dict[str, Any], remote_id: str) -> str:

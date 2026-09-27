@@ -13,8 +13,7 @@ ERP never talks to Tally. This program must keep running on the office PC while 
 3. These Tally ledgers already exist (the connector will **not** create dealer ledgers):
    - Party ledgers for dealers that are mapped in ERP
    - Sales, GST, Round Off
-   - **State Bank of India** (receipt debit on new ERP collections)
-   - Cash / Bank names in `.env` are fallbacks only for older receipt outbox rows
+   - **State Bank of India** (receipt debit on eligible ERP collections)
 4. ERP Phase 1 is live (`/api/tally-connector/...`).
 
 ## One-time setup
@@ -67,7 +66,7 @@ Press **Ctrl+C** to stop the continuous run.
 ## How vouchers are posted
 
 - **Sales** from a billed ERP order: party **Dr** `grand_total`, Sales **Cr**, GST **Cr**, Round Off if needed.
-- **Receipt** from a received collection: **State Bank of India** **Dr**, party **Cr** (ERP sends `collection.debit_ledger`). Older queued rows without that field still use Cash/Bank from `.env`.
+- **Receipt** from a received collection: **State Bank of India** **Dr**, party **Cr**. Unsynced outbox rows that still store Cash are rewritten on the same voucher; already synced receipts are not changed.
 - Party ledger name is the **exact** ERP mapping (`tally_dealer_mappings`). If it is missing, the voucher is failed. No ledger is created or guessed.
 - `REMOTEID` = ERP unique reference (`ERP-SO-{order_id}` / `ERP-COL-{collection_id}`) so Tally will not create a second voucher.
 

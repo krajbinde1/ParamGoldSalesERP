@@ -21,7 +21,9 @@ final class TallyConnectorService
             (int) config('tally.connector.pending_limit_max', 50),
         ));
 
-        app(TallyOutboundEnqueueService::class)->skipIneligibleQueuedReceipts();
+        $enqueue = app(TallyOutboundEnqueueService::class);
+        $enqueue->skipIneligibleQueuedReceipts();
+        $enqueue->rewriteUnsyncedReceiptDebitLedgers();
 
         return TallyOutboundVoucher::query()
             ->claimable()

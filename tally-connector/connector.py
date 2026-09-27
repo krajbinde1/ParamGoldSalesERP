@@ -9,7 +9,7 @@ from config import Settings, load_settings
 from erp_client import ErpApiError, ErpClient
 from logutil import log
 from tally_client import TallyClient, TallyError
-from vouchers import VoucherBuildError, build_voucher_xml
+from vouchers import VoucherBuildError, build_voucher_xml, receipt_debit_ledger
 
 
 def main() -> int:
@@ -244,6 +244,17 @@ def process_voucher(
         claimed = erp.claim(voucher_id)
         claimed_payload = claimed.get("data") if isinstance(claimed.get("data"), dict) else voucher
         xml = build_voucher_xml(claimed_payload, settings)
+        collection = (
+            claimed_payload.get("payload", {}).get("collection")
+            if isinstance(claimed_payload.get("payload"), dict)
+            else {}
+        )
+        if voucher_type == "Receipt" and isinstance(collection, dict):
+            debit = receipt_debit_ledger(collection, settings)
+            party = str(
+                (claimed_payload.get("payload") or {}).get("party", {}).get("tally_ledger_name") or ""
+            )
+            log("Syncing", f"{reference}  debit={debit}  credit={party}")
         result = tally.import_voucher(xml)
         if not result.succeeded:
             raise TallyError(result.error_message())

@@ -20,6 +20,7 @@ def _settings() -> Settings:
         round_off_ledger="Round Off",
         cash_ledger="Cash",
         bank_ledger="Bank",
+        receipt_debit_ledger="State Bank of India",
     )
 
 
@@ -52,7 +53,7 @@ class ReceiptVoucherLedgerTest(unittest.TestCase):
         credit_at = xml.index("<LEDGERNAME>SBI Receipt Party</LEDGERNAME>")
         self.assertLess(debit_at, credit_at)
 
-    def test_legacy_receipt_without_debit_ledger_still_uses_cash(self) -> None:
+    def test_unsynced_cash_payload_debits_state_bank_of_india(self) -> None:
         xml = build_voucher_xml(
             {
                 "voucher_type": "Receipt",
@@ -64,15 +65,37 @@ class ReceiptVoucherLedgerTest(unittest.TestCase):
                         "receipt_no": "RCP-OLD-1",
                         "amount": 1000,
                         "payment_mode": "Cash",
+                        "debit_ledger": "Cash",
                     },
                 },
             },
             _settings(),
         )
 
-        self.assertIn("<LEDGERNAME>Cash</LEDGERNAME>", xml)
+        self.assertIn("<LEDGERNAME>State Bank of India</LEDGERNAME>", xml)
         self.assertIn("<LEDGERNAME>Legacy Party</LEDGERNAME>", xml)
-        self.assertNotIn("<LEDGERNAME>State Bank of India</LEDGERNAME>", xml)
+        self.assertNotIn("<LEDGERNAME>Cash</LEDGERNAME>", xml)
+
+    def test_legacy_receipt_without_debit_ledger_debits_state_bank_of_india(self) -> None:
+        xml = build_voucher_xml(
+            {
+                "voucher_type": "Receipt",
+                "erp_reference": "ERP-COL-101",
+                "payload": {
+                    "date": "2026-09-12",
+                    "party": {"tally_ledger_name": "Legacy Party"},
+                    "collection": {
+                        "receipt_no": "RCP-OLD-2",
+                        "amount": 1000,
+                        "payment_mode": "Cash",
+                    },
+                },
+            },
+            _settings(),
+        )
+
+        self.assertIn("<LEDGERNAME>State Bank of India</LEDGERNAME>", xml)
+        self.assertNotIn("<LEDGERNAME>Cash</LEDGERNAME>", xml)
 
 
 if __name__ == "__main__":

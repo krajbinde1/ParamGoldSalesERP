@@ -534,7 +534,7 @@ it('does not reset a tally xml failure when mapping is saved', function (): void
     $voucher = TallyOutboundVoucher::query()->where('erp_reference', 'ERP-COL-'.$collection->id)->firstOrFail();
     $voucher->update([
         'status' => TallyOutboundVoucher::STATUS_FAILED,
-        'last_error' => 'Could not find ledger Cash',
+        'last_error' => 'Could not find ledger GST',
     ]);
 
     TallyConnectorLedger::query()->create([
@@ -546,9 +546,9 @@ it('does not reset a tally xml failure when mapping is saved', function (): void
     app(TallyDealerMappingService::class)->assign($dealer, 'aaaaaaaa-bbbb-cccc-dddd-444444444444');
 
     expect($voucher->fresh()->status)->toBe(TallyOutboundVoucher::STATUS_FAILED)
-        ->and($voucher->fresh()->last_error)->toBe('Could not find ledger Cash')
+        ->and($voucher->fresh()->last_error)->toBe('Could not find ledger GST')
         ->and(app(TallyOutboundEnqueueService::class)->postingStatus($collection->fresh())['label'])->toBe('Failed')
-        ->and(app(TallyOutboundEnqueueService::class)->postingStatus($collection->fresh())['error'])->toBe('Could not find ledger Cash');
+        ->and(app(TallyOutboundEnqueueService::class)->postingStatus($collection->fresh())['error'])->toBe('Could not find ledger GST');
 });
 
 function tallySyncHistoricalReceivedCollection(Dealer $dealer, Employee $employee): Collection
@@ -734,6 +734,77 @@ it('debits State Bank of India on a newly received collection without changing s
         ->and($voucher->fresh()->payload)->toBe($syncedPayload)
         ->and($voucher->fresh()->payload['collection']['debit_ledger'])->toBe('State Bank of India')
         ->and($voucher->fresh()->payload['collection']['amount'])->toEqual(12500.0);
+
+    Carbon::setTestNow();
+});
+
+it('rewrites an unsynced cash receipt payload to state bank of india without duplicating', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-27 16:00:00', 'Asia/Kolkata'));
+
+    $user = tallySyncConnectorUser();
+    $employee = tallySyncEmployee('9813000302');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Cash Payload Dealer']);
+    tallySyncMapDealer($dealer, 'Cash Payload Party');
+    $collection = tallySyncPendingCollection($dealer, $employee, [
+        'payment_mode' => 'Cash',
+        'amount' => 20000,
+        'collection_date' => '2026-09-27',
+    ]);
+    $collection->transitionTo(Collection::STATUS_RECEIVED);
+
+    $voucher = TallyOutboundVoucher::query()
+        ->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)
+        ->where('source_id', $collection->id)
+        ->firstOrFail();
+
+    $payload = $voucher->payload;
+    $payload['collection']['debit_ledger'] = 'Cash';
+    $payload['collection']['payment_mode'] = 'Cash';
+    $voucher->update(['payload' => $payload]);
+
+    $token = tallySyncConnectorToken($user);
+    $pending = $this->withToken($token)
+        ->getJson('/api/tally-connector/pending')
+        ->assertOk()
+        ->assertJsonPath('data.0.erp_reference', 'ERP-COL-'.$collection->id)
+        ->assertJsonPath('data.0.payload.collection.debit_ledger', 'State Bank of India')
+        ->assertJsonPath('data.0.payload.party.tally_ledger_name', 'Cash Payload Party');
+
+    expect(TallyOutboundVoucher::query()->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(1)
+        ->and($voucher->fresh()->status)->toBe(TallyOutboundVoucher::STATUS_PENDING)
+        ->and($voucher->fresh()->payload['collection']['debit_ledger'])->toBe('State Bank of India')
+        ->and($voucher->fresh()->payload['collection']['amount'])->toEqual(20000.0)
+        ->and($voucher->fresh()->payload['collection']['payment_mode'])->toBe('Cash')
+        ->and($pending->json('data.0.payload.collection.amount'))->toEqual(20000);
+
+    Carbon::setTestNow();
+});
+
+it('retries a failed cash-ledger receipt on the same outbox row after rewriting the debit ledger', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-27 16:10:00', 'Asia/Kolkata'));
+
+    $employee = tallySyncEmployee('9813000303');
+    $dealer = tallySyncDealer($employee);
+    tallySyncMapDealer($dealer, 'Retry SBI Party');
+    $collection = tallySyncPendingCollection($dealer, $employee, ['payment_mode' => 'Cash']);
+    $collection->transitionTo(Collection::STATUS_RECEIVED);
+
+    $voucher = TallyOutboundVoucher::query()->where('erp_reference', 'ERP-COL-'.$collection->id)->firstOrFail();
+    $payload = $voucher->payload;
+    $payload['collection']['debit_ledger'] = 'Cash';
+    $voucher->update([
+        'payload' => $payload,
+        'status' => TallyOutboundVoucher::STATUS_FAILED,
+        'last_error' => 'Could not find ledger Cash',
+    ]);
+
+    app(TallyOutboundEnqueueService::class)->queueReceivedCollection($collection->fresh());
+
+    expect(TallyOutboundVoucher::query()->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(1)
+        ->and($voucher->fresh()->status)->toBe(TallyOutboundVoucher::STATUS_PENDING)
+        ->and($voucher->fresh()->last_error)->toBeNull()
+        ->and($voucher->fresh()->payload['collection']['debit_ledger'])->toBe('State Bank of India')
+        ->and($voucher->fresh()->payload['collection']['amount'])->toEqual(5000.0);
 
     Carbon::setTestNow();
 });

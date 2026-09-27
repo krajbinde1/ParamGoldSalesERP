@@ -37,6 +37,7 @@ class Settings:
     round_off_ledger: str
     cash_ledger: str
     bank_ledger: str
+    receipt_debit_ledger: str
 
 
 def load_settings() -> Settings:
@@ -61,4 +62,8 @@ def load_settings() -> Settings:
         round_off_ledger=_optional("TALLY_ROUND_OFF_LEDGER", "Round Off") or "Round Off",
         cash_ledger=_optional("TALLY_CASH_LEDGER", "Cash") or "Cash",
         bank_ledger=_optional("TALLY_BANK_LEDGER", "Bank") or "Bank",
+        receipt_debit_ledger=(
+            _optional("TALLY_RECEIPT_DEBIT_LEDGER", "State Bank of India")
+            or "State Bank of India"
+        ),
     )

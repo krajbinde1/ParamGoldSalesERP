@@ -81,7 +81,7 @@ final class TallyOutboundEnqueueService
         $mapping = $this->resolveMapping($collection->dealer);
         $payload = $this->receiptPayload($collection, $mapping['ledger'], $mapping['guid']);
 
-        return $this->insertOnce(
+        $voucher = $this->insertOnce(
             sourceType: TallyOutboundVoucher::SOURCE_COLLECTION,
             sourceId: (int) $collection->id,
             voucherType: TallyOutboundVoucher::VOUCHER_RECEIPT,
@@ -90,6 +90,37 @@ final class TallyOutboundEnqueueService
             mappingError: $mapping['error'],
             refreshIfUnsynced: true,
         );
+
+        return $this->rewriteUnsyncedReceiptDebitLedger($voucher);
+    }
+
+    /**
+     * Point unsynced receipt outbox rows at State Bank of India without inserting a second voucher.
+     * Synced and skipped rows are left unchanged.
+     */
+    public function rewriteUnsyncedReceiptDebitLedgers(): int
+    {
+        $updated = 0;
+
+        TallyOutboundVoucher::query()
+            ->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)
+            ->where('voucher_type', TallyOutboundVoucher::VOUCHER_RECEIPT)
+            ->whereIn('status', [
+                TallyOutboundVoucher::STATUS_PENDING,
+                TallyOutboundVoucher::STATUS_CLAIMED,
+                TallyOutboundVoucher::STATUS_FAILED,
+            ])
+            ->orderBy('id')
+            ->each(function (TallyOutboundVoucher $voucher) use (&$updated): void {
+                $before = $voucher->payload;
+                $beforeStatus = $voucher->status;
+                $fresh = $this->rewriteUnsyncedReceiptDebitLedger($voucher);
+                if ($fresh->payload !== $before || $fresh->status !== $beforeStatus) {
+                    $updated++;
+                }
+            });
+
+        return $updated;
     }
 
     public function requeueReceivedCollectionsForDealer(Dealer $dealer): void
@@ -523,6 +554,58 @@ final class TallyOutboundEnqueueService
         $name = trim((string) config('tally.receipt.debit_ledger', self::RECEIPT_DEBIT_LEDGER));
 
         return $name !== '' ? $name : self::RECEIPT_DEBIT_LEDGER;
+    }
+
+    private function rewriteUnsyncedReceiptDebitLedger(TallyOutboundVoucher $voucher): TallyOutboundVoucher
+    {
+        if ($voucher->source_type !== TallyOutboundVoucher::SOURCE_COLLECTION
+            || $voucher->voucher_type !== TallyOutboundVoucher::VOUCHER_RECEIPT) {
+            return $voucher;
+        }
+
+        if ($voucher->isSynced() || $voucher->isSkipped()) {
+            return $voucher;
+        }
+
+        if ($voucher->hasBlockingClaim(null)) {
+            return $voucher;
+        }
+
+        $target = $this->receiptDebitLedger();
+        $payload = is_array($voucher->payload) ? $voucher->payload : [];
+        $collection = is_array($payload['collection'] ?? null) ? $payload['collection'] : [];
+        $current = trim((string) ($collection['debit_ledger'] ?? ''));
+        $needsLedger = $current !== $target;
+        $cashFailure = $this->isCashLedgerFailure($voucher->last_error);
+
+        if (! $needsLedger && ! $cashFailure) {
+            return $voucher;
+        }
+
+        if ($needsLedger) {
+            $collection['debit_ledger'] = $target;
+            $payload['collection'] = $collection;
+            $voucher->payload = $payload;
+        }
+
+        if ($cashFailure && $voucher->isFailed()) {
+            $voucher->status = TallyOutboundVoucher::STATUS_PENDING;
+            $voucher->last_error = null;
+            $voucher->claimed_at = null;
+            $voucher->claimed_until = null;
+            $voucher->claimed_by = null;
+        }
+
+        $voucher->save();
+
+        return $voucher;
+    }
+
+    private function isCashLedgerFailure(?string $error): bool
+    {
+        $text = strtolower(trim((string) $error));
+
+        return $text !== '' && str_contains($text, 'ledger cash');
     }
 
     /**
