@@ -3,8 +3,13 @@
 namespace App\Http\Controllers\Api;
 
 use App\Http\Controllers\Controller;
+use App\Models\Collection;
+use App\Models\Dealer;
+use App\Models\PaymentFollowUpCycle;
+use App\Models\PaymentFollowUpEntry;
 use App\Models\TallyLiveSyncState;
 use App\Models\TallyOutboundVoucher;
+use App\Services\PaymentFollowUps\PaymentFollowUpService;
 use App\Services\TallySync\TallyConnectorService;
 use App\Services\TallySync\TallyJournalVoucherSyncService;
 use App\Services\TallySync\TallyLiveBalanceService;
@@ -93,6 +98,119 @@ final class TallyConnectorController extends Controller
         } catch (Throwable $exception) {
             return $this->connectorFailure($exception, 'lookup');
         }
+    }
+
+    public function paymentFollowUpTrace(Request $request, PaymentFollowUpService $followUps): JsonResponse
+    {
+        $validated = $request->validate([
+            'q' => ['required', 'string', 'min:3', 'max:120'],
+        ]);
+
+        $dealer = Dealer::query()
+            ->where('firm_name', 'like', '%'.trim($validated['q']).'%')
+            ->orderBy('id')
+            ->first();
+
+        if ($dealer === null) {
+            return response()->json([
+                'message' => 'Dealer not found.',
+                'data' => null,
+            ], 404);
+        }
+
+        $cycles = PaymentFollowUpCycle::query()
+            ->where('dealer_id', $dealer->id)
+            ->orderBy('cycle_number')
+            ->get();
+        $entries = PaymentFollowUpEntry::query()
+            ->where('dealer_id', $dealer->id)
+            ->orderBy('id')
+            ->get();
+        $collections = Collection::query()
+            ->where('dealer_id', $dealer->id)
+            ->orderBy('id')
+            ->get();
+
+        $detail = $followUps->dealerDetail($dealer->fresh());
+        $latestFollowUp = $entries
+            ->where('entry_type', PaymentFollowUpEntry::TYPE_FOLLOW_UP)
+            ->sortBy('id')
+            ->last();
+        $payment20k = $collections->first(
+            fn (Collection $row): bool => abs((float) $row->amount - 20000) < 0.011,
+        );
+
+        return response()->json([
+            'dealer' => [
+                'id' => $dealer->id,
+                'dealer_code' => $dealer->dealer_code,
+                'firm_name' => $dealer->firm_name,
+                'assigned_employee_id' => $dealer->assigned_employee_id,
+            ],
+            'latest_follow_up' => $latestFollowUp === null ? null : [
+                'id' => $latestFollowUp->id,
+                'cycle_id' => $latestFollowUp->cycle_id,
+                'followed_up_at' => $latestFollowUp->followed_up_at?->timezone('Asia/Kolkata')?->toDateTimeString(),
+                'created_at' => $latestFollowUp->created_at?->timezone('Asia/Kolkata')?->toDateTimeString(),
+                'expected_amount' => $latestFollowUp->expected_amount,
+                'next_follow_up_date' => $latestFollowUp->next_follow_up_date?->toDateString(),
+                'remark' => $latestFollowUp->remark,
+            ],
+            'collection_20000' => $payment20k === null ? null : [
+                'id' => $payment20k->id,
+                'receipt_no' => $payment20k->receipt_no,
+                'amount' => $payment20k->amount,
+                'status' => $payment20k->status,
+                'collection_date' => $payment20k->collection_date?->toDateString(),
+                'created_at' => $payment20k->created_at?->timezone('Asia/Kolkata')?->toDateTimeString(),
+                'received_at' => $payment20k->received_at?->timezone('Asia/Kolkata')?->toDateTimeString(),
+                'created_gte_follow_up' => $latestFollowUp?->followed_up_at && $payment20k->created_at
+                    ? $payment20k->created_at->greaterThanOrEqualTo($latestFollowUp->followed_up_at)
+                    : null,
+                'received_gte_follow_up' => $latestFollowUp?->followed_up_at && $payment20k->received_at
+                    ? $payment20k->received_at->greaterThanOrEqualTo($latestFollowUp->followed_up_at)
+                    : null,
+            ],
+            'cycles' => $cycles->map(fn (PaymentFollowUpCycle $cycle): array => [
+                'id' => $cycle->id,
+                'cycle_number' => $cycle->cycle_number,
+                'status' => $cycle->status,
+                'payment_received_amount' => $cycle->payment_received_amount,
+                'opening_outstanding' => $cycle->opening_outstanding,
+                'closing_outstanding' => $cycle->closing_outstanding,
+                'collection_id' => $cycle->collection_id,
+                'closed_at' => $cycle->closed_at?->timezone('Asia/Kolkata')?->toDateTimeString(),
+            ])->all(),
+            'entries' => $entries->map(fn (PaymentFollowUpEntry $entry): array => [
+                'id' => $entry->id,
+                'cycle_id' => $entry->cycle_id,
+                'entry_type' => $entry->entry_type,
+                'expected_amount' => $entry->expected_amount,
+                'collection_id' => $entry->collection_id,
+                'followed_up_at' => $entry->followed_up_at?->timezone('Asia/Kolkata')?->toDateTimeString(),
+                'next_follow_up_date' => $entry->next_follow_up_date?->toDateString(),
+                'remark' => $entry->remark,
+            ])->all(),
+            'api_detail' => [
+                'status' => $detail['status'] ?? null,
+                'status_label' => $detail['status_label'] ?? null,
+                'current_outstanding' => $detail['current_outstanding'] ?? null,
+                'can_add_follow_up' => $detail['can_add_follow_up'] ?? null,
+                'cycles' => collect($detail['cycles'] ?? [])->map(fn ($cycle) => [
+                    'id' => $cycle['id'] ?? null,
+                    'status' => $cycle['status'] ?? null,
+                    'display_status' => $cycle['display_status'] ?? null,
+                    'payment_received_amount' => $cycle['payment_received_amount'] ?? null,
+                    'missed_commitment_count' => $cycle['missed_commitment_count'] ?? null,
+                    'entries' => collect($cycle['entries'] ?? [])->map(fn ($entry) => [
+                        'id' => $entry['id'] ?? null,
+                        'entry_type' => $entry['entry_type'] ?? null,
+                        'commitment_status' => $entry['commitment_status'] ?? null,
+                        'expected_amount' => $entry['expected_amount'] ?? null,
+                    ])->all(),
+                ])->all(),
+            ],
+        ]);
     }
 
     public function claim(Request $request, TallyOutboundVoucher $tallyOutboundVoucher): JsonResponse

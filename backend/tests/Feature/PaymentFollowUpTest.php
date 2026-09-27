@@ -366,10 +366,10 @@ it('closes the current cycle on a received payment even when the amount is less 
         ->and($list->json('counts.no_follow_up'))->toBe(1);
 });
 
-it('does not close the cycle for a collection created before the current follow-up', function (): void {
+it('closes the cycle when Admin Received happens after the follow-up even if the collection was created earlier', function (): void {
     $employee = paymentFollowUpEmployee('9811300045');
     $admin = paymentFollowUpAdmin();
-    $dealer = paymentFollowUpDealer($employee, 'Older Collection Dealer', 80000);
+    $dealer = paymentFollowUpDealer($employee, 'Anand Krushi Kendra (Zari)', 73585.50);
 
     Carbon::setTestNow(Carbon::parse('2026-09-08 10:00:00', 'Asia/Kolkata'));
     $older = Collection::query()->create([
@@ -395,12 +395,107 @@ it('does not close the cycle for a collection created before the current follow-
     app(UpdateCollectionStatus::class)->execute($older, Collection::STATUS_RECEIVED, $admin);
 
     $detail = app(PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
+    $list = $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/employee/payment-follow-ups')
+        ->assertOk();
+
+    expect($detail['status'])->toBe('no_follow_up')
+        ->and($detail['cycles'][0]['status'])->toBe('closed')
+        ->and($detail['cycles'][0]['display_status'])->toBe('closed')
+        ->and($detail['cycles'][0]['entries'][0]['commitment_status'])->toBe('missed')
+        ->and((float) $detail['cycles'][0]['payment_received_amount'])->toBe(20000.0)
+        ->and((float) $detail['current_outstanding'])->toBe(53585.5)
+        ->and($list->json('data.0.status'))->toBe('no_follow_up')
+        ->and($list->json('counts.overdue'))->toBe(0)
+        ->and($list->json('counts.no_follow_up'))->toBe(1);
+});
+
+it('does not close the cycle for a collection already received before the current follow-up', function (): void {
+    $employee = paymentFollowUpEmployee('9811300047');
+    $admin = paymentFollowUpAdmin();
+    $dealer = paymentFollowUpDealer($employee, 'Prior Received Dealer', 80000);
+
+    Carbon::setTestNow(Carbon::parse('2026-09-08 10:00:00', 'Asia/Kolkata'));
+    $prior = Collection::query()->create([
+        'receipt_no' => 'RCP-PFU-PRIOR',
+        'collection_date' => '2026-09-08',
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'amount' => 20000,
+        'status' => Collection::STATUS_PENDING,
+    ]);
+    app(UpdateCollectionStatus::class)->execute($prior, Collection::STATUS_RECEIVED, $admin);
+
+    Carbon::setTestNow(Carbon::parse('2026-09-09 10:00:00', 'Asia/Kolkata'));
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'Promised 25000',
+            'expected_amount' => 25000,
+            'next_follow_up_date' => '2026-09-12',
+        ])
+        ->assertCreated();
+
+    Carbon::setTestNow(Carbon::parse('2026-09-16 10:00:00', 'Asia/Kolkata'));
+    $detail = app(PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
 
     expect($detail['status'])->toBe('overdue')
         ->and($detail['cycles'][0]['status'])->toBe('open')
-        ->and($detail['cycles'][0]['display_status'])->toBe('overdue')
-        ->and((float) $detail['cycles'][0]['payment_received_amount'])->toBe(20000.0)
         ->and((float) $detail['current_outstanding'])->toBe(60000.0);
+});
+
+it('closes a stuck open cycle on read after a short in-cycle Received was already logged', function (): void {
+    $employee = paymentFollowUpEmployee('9811300048');
+    $admin = paymentFollowUpAdmin();
+    $dealer = paymentFollowUpDealer($employee, 'Stuck Anand Cycle Dealer', 73585.50);
+
+    Carbon::setTestNow(Carbon::parse('2026-09-09 10:00:00', 'Asia/Kolkata'));
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'Promised 25000',
+            'expected_amount' => 25000,
+            'next_follow_up_date' => '2026-09-12',
+        ])
+        ->assertCreated();
+
+    Carbon::setTestNow(Carbon::parse('2026-09-08 09:00:00', 'Asia/Kolkata'));
+    $collection = Collection::query()->create([
+        'receipt_no' => 'RCP-PFU-STUCK-20K',
+        'collection_date' => '2026-09-08',
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'amount' => 20000,
+        'status' => Collection::STATUS_PENDING,
+    ]);
+    $collection->created_at = Carbon::parse('2026-09-08 09:00:00', 'Asia/Kolkata');
+    $collection->save();
+
+    Carbon::setTestNow(Carbon::parse('2026-09-16 10:00:00', 'Asia/Kolkata'));
+    app(UpdateCollectionStatus::class)->execute($collection->fresh(), Collection::STATUS_RECEIVED, $admin);
+
+    $cycle = \App\Models\PaymentFollowUpCycle::query()
+        ->where('dealer_id', $dealer->id)
+        ->where('status', \App\Models\PaymentFollowUpCycle::STATUS_CLOSED)
+        ->first();
+    expect($cycle)->not->toBeNull();
+
+    $cycle->update([
+        'status' => \App\Models\PaymentFollowUpCycle::STATUS_OPEN,
+        'closed_at' => null,
+        'closing_outstanding' => null,
+    ]);
+
+    Carbon::setTestNow(Carbon::parse('2026-09-27 18:00:00', 'Asia/Kolkata'));
+    $detail = app(PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
+    $list = $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/employee/payment-follow-ups')
+        ->assertOk();
+
+    expect($detail['status'])->toBe('no_follow_up')
+        ->and($detail['cycles'][0]['status'])->toBe('closed')
+        ->and($detail['cycles'][0]['entries'][0]['commitment_status'])->toBe('missed')
+        ->and((float) $detail['current_outstanding'])->toBe(53585.5)
+        ->and($list->json('data.0.status'))->toBe('no_follow_up')
+        ->and($list->json('counts.overdue'))->toBe(0);
 });
 
 it('moves a partially received current-cycle payment to no follow-up set then starts a new cycle', function (): void {

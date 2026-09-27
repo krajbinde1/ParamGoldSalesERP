@@ -281,6 +281,21 @@ class PaymentFollowUps extends Page implements HasForms, HasTable
             $query->whereKey($this->filterDealerId());
         }
 
+        $query->clone()
+            ->whereHas('openPaymentFollowUpCycle')
+            ->get()
+            ->each(fn (Dealer $dealer) => $service->reconcileOpenCycleFromReceivedCollections($dealer));
+
+        $query = $service->adminDealersQuery();
+
+        if ($this->filterEmployeeId()) {
+            $query->where('assigned_employee_id', $this->filterEmployeeId());
+        }
+
+        if ($this->filterDealerId()) {
+            $query->whereKey($this->filterDealerId());
+        }
+
         $service->applyStatusFilter($query, $this->filterStatus());
 
         $from = $this->data['from_date'] ?? null;

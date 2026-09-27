@@ -52,6 +52,11 @@ final class PaymentFollowUpService
     public function listForAssignedEmployee(int $employeeId, ?string $search = null): array
     {
         $dealers = $this->assignedDealersQuery($employeeId, $search)->get();
+        foreach ($dealers as $dealer) {
+            $this->reconcileOpenCycleFromReceivedCollections($dealer);
+        }
+
+        $dealers = $this->assignedDealersQuery($employeeId, $search)->get();
         $rows = $dealers->map(fn (Dealer $dealer): array => $this->listRow($dealer))->all();
 
         usort($rows, function (array $left, array $right): int {
@@ -122,6 +127,26 @@ final class PaymentFollowUpService
      */
     public function directorMonitoringDashboard(?int $employeeId = null, ?array $assignedEmployeeIds = null): array
     {
+        $query = $this->adminDealersQuery()
+            ->with([
+                'paymentFollowUpCycles' => fn ($cycles) => $cycles->orderBy('cycle_number'),
+                'paymentFollowUpCycles.entries.collection:id,collection_date,received_at,amount,status',
+            ]);
+
+        if ($assignedEmployeeIds !== null) {
+            if ($assignedEmployeeIds === []) {
+                $query->whereRaw('1 = 0');
+            } else {
+                $query->whereIn('assigned_employee_id', $assignedEmployeeIds);
+            }
+        }
+
+        if ($employeeId !== null) {
+            $query->where('assigned_employee_id', $employeeId);
+        }
+
+        $query->get()->each(fn (Dealer $dealer) => $this->reconcileOpenCycleFromReceivedCollections($dealer));
+
         $query = $this->adminDealersQuery()
             ->with([
                 'paymentFollowUpCycles' => fn ($cycles) => $cycles->orderBy('cycle_number'),
@@ -478,6 +503,15 @@ final class PaymentFollowUpService
                 return;
             }
 
+            $loggedOnOtherCycle = PaymentFollowUpEntry::query()
+                ->where('collection_id', $collection->id)
+                ->where('entry_type', PaymentFollowUpEntry::TYPE_PAYMENT_RECEIVED)
+                ->where('cycle_id', '!=', $cycle->id)
+                ->exists();
+            if ($loggedOnOtherCycle) {
+                return;
+            }
+
             $outstandingAfter = $this->currentOutstanding($dealer);
             $receivedAmount = round((float) $collection->amount, 2);
             $now = Carbon::now(PaymentFollowUpStatus::TIMEZONE);
@@ -540,9 +574,11 @@ final class PaymentFollowUpService
     }
 
     /**
-     * Close the current cycle when a Received collection was created after the latest follow-up,
-     * even if the amount is less than the commitment. Older collections keep the previous cover rule.
-     * Full ledger recovery still closes a cycle that has no remaining outstanding.
+     * Close the current cycle when Admin marks a collection Received at or after
+     * the latest follow-up, even if the collection row was created earlier and the
+     * amount is less than the commitment. Collections already Received before that
+     * follow-up keep the previous cover rule. Full ledger recovery still closes a
+     * cycle that has no remaining outstanding.
      */
     private function shouldCloseCycle(
         PaymentFollowUpCycle $cycle,
@@ -577,12 +613,63 @@ final class PaymentFollowUpService
         }
 
         $followUpAt = $latest->followed_up_at ?? $latest->created_at;
-        $createdAt = $collection->created_at;
-        if ($followUpAt === null || $createdAt === null) {
+        $inCycleAt = $collection->received_at ?? $collection->created_at;
+        if ($followUpAt === null || $inCycleAt === null) {
             return false;
         }
 
-        return $createdAt->greaterThanOrEqualTo($followUpAt);
+        return $inCycleAt->greaterThanOrEqualTo($followUpAt);
+    }
+
+    /**
+     * Re-evaluate Received collections already on an open cycle. Needed because
+     * CollectionObserver only runs on status transition, so a cycle that stayed
+     * open under the old created_at rule never closed after deploy.
+     */
+    public function reconcileOpenCycleFromReceivedCollections(Dealer $dealer): void
+    {
+        $cycle = PaymentFollowUpCycle::query()
+            ->where('dealer_id', $dealer->id)
+            ->where('status', PaymentFollowUpCycle::STATUS_OPEN)
+            ->first();
+
+        if ($cycle === null) {
+            return;
+        }
+
+        $loggedIds = PaymentFollowUpEntry::query()
+            ->where('cycle_id', $cycle->id)
+            ->where('entry_type', PaymentFollowUpEntry::TYPE_PAYMENT_RECEIVED)
+            ->whereNotNull('collection_id')
+            ->pluck('collection_id')
+            ->all();
+
+        $collections = Collection::query()
+            ->where('dealer_id', $dealer->id)
+            ->where('status', Collection::STATUS_RECEIVED)
+            ->orderBy('id')
+            ->get();
+
+        foreach ($collections as $collection) {
+            $alreadyOnCycle = in_array((int) $collection->id, array_map('intval', $loggedIds), true);
+            $loggedElsewhere = PaymentFollowUpEntry::query()
+                ->where('collection_id', $collection->id)
+                ->where('entry_type', PaymentFollowUpEntry::TYPE_PAYMENT_RECEIVED)
+                ->where('cycle_id', '!=', $cycle->id)
+                ->exists();
+            if ($loggedElsewhere) {
+                continue;
+            }
+            if (! $alreadyOnCycle && ! $this->collectionBelongsToCurrentFollowUp($collection, $cycle)) {
+                continue;
+            }
+
+            $this->closeOpenCycleFromReceivedCollection($collection);
+            $cycle->refresh();
+            if (! $cycle->isOpen()) {
+                break;
+            }
+        }
     }
 
     private function cycleCommitmentAmount(PaymentFollowUpCycle $cycle): ?float
@@ -707,6 +794,9 @@ final class PaymentFollowUpService
      */
     public function dealerDetail(Dealer $dealer): array
     {
+        $this->reconcileOpenCycleFromReceivedCollections($dealer);
+        $dealer = $dealer->fresh() ?? $dealer;
+
         $dealer->load([
             'assignedEmployee:id,full_name',
             'paymentFollowUpCycles' => fn ($query) => $query->orderBy('cycle_number'),
