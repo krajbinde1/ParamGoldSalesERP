@@ -1,0 +1,15 @@
+build-release.bat
+
+..............
+ssh -p 65002 u630302848@156.67.211.241
+
+cd /home/u630302848/paramgold-erp/
+
+./deploy.sh
+
+...........................
+
+git status
+git add .
+git commit -m "Fix dealer ledger and latest updates"
+git push origin main

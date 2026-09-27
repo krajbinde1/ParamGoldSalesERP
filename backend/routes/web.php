@@ -5,12 +5,16 @@ use App\Http\Controllers\Api\Director\PaymentRequestPaymentProofController;
 use App\Http\Controllers\Api\Director\PaymentRequestSupportingDocumentController;
 use App\Http\Controllers\DealerController;
 use App\Http\Controllers\Inventory\StockItemLedgerPrintController;
+use App\Http\Controllers\MobileApkDownloadController;
 use App\Http\Controllers\ProfileController;
 use Illuminate\Support\Facades\Route;
 
 Route::get('/', function () {
     return view('welcome');
 });
+
+Route::get('/apk/paramgold-latest.apk', MobileApkDownloadController::class)
+    ->name('mobile.apk.latest');
 
 Route::get('/dashboard', function () {
     return view('dashboard');

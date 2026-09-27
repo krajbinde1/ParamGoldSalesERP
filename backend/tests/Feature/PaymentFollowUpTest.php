@@ -358,6 +358,160 @@ it('keeps the cycle open when received payment is less than the committed amount
         ->and((float) $detail['current_due'])->toBe(37992.0);
 });
 
+it('stops marking a fully received commitment overdue even when dealer outstanding remains', function (): void {
+    $employee = paymentFollowUpEmployee('9811300041');
+    $admin = paymentFollowUpAdmin();
+    $dealer = paymentFollowUpDealer($employee, 'Baliraja Overdue Fix Dealer', 125000);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'Promised 50000',
+            'expected_amount' => 50000,
+            'next_follow_up_date' => '2026-09-12',
+        ])
+        ->assertCreated();
+
+    $collection = Collection::query()->create([
+        'receipt_no' => 'RCP-PFU-FULL-LATE',
+        'collection_date' => '2026-09-14',
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'amount' => 50000,
+        'status' => Collection::STATUS_PENDING,
+        'remarks' => 'Full commitment received after due date',
+    ]);
+
+    app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_RECEIVED, $admin);
+
+    Carbon::setTestNow(Carbon::parse('2026-09-16 10:00:00', 'Asia/Kolkata'));
+
+    $detail = app(PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
+    $list = $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/employee/payment-follow-ups')
+        ->assertOk();
+    $monitor = $this->actingAs(paymentFollowUpAdmin(), 'sanctum')
+        ->getJson('/api/director/payment-follow-ups')
+        ->assertOk();
+
+    expect($detail['status'])->toBe('closed')
+        ->and($detail['display_status'] ?? $detail['status'])->toBe('closed')
+        ->and($detail['current_cycle_status'] ?? 'closed')->toBe('closed')
+        ->and($detail['cycles'][0]['display_status'])->toBe('closed')
+        ->and($detail['cycles'][0]['status_label'])->toBe('PAYMENT RECEIVED / CLOSED')
+        ->and($detail['cycles'][0]['entries'][0]['commitment_status'])->toBe('kept')
+        ->and($detail['cycles'][0]['missed_commitment_count'])->toBe(0)
+        ->and((float) $detail['cycles'][0]['payment_received_amount'])->toBe(50000.0)
+        ->and((float) $detail['current_outstanding'])->toBe(75000.0)
+        ->and($list->json('data.0.status'))->toBe('closed')
+        ->and($list->json('counts.overdue'))->toBe(0);
+
+    $overdueNames = app(PaymentFollowUpService::class)
+        ->applyStatusFilter(app(PaymentFollowUpService::class)->adminDealersQuery(), 'overdue')
+        ->pluck('firm_name');
+
+    $row = collect($monitor->json('data'))->firstWhere('dealer_name', 'Baliraja Overdue Fix Dealer');
+    expect($row)->not->toBeNull()
+        ->and($row['display_status'] ?? null)->toBe('closed')
+        ->and($row['missed_count'] ?? 0)->toBe(0)
+        ->and($monitor->json('summary.overdue_dealers'))->toBe(0)
+        ->and(collect($monitor->json('today_actions.overdue'))->pluck('dealer_name'))
+        ->not->toContain('Baliraja Overdue Fix Dealer')
+        ->and($overdueNames)->not->toContain('Baliraja Overdue Fix Dealer');
+});
+
+it('does not clear overdue using pending or rejected collections', function (): void {
+    $employee = paymentFollowUpEmployee('9811300042');
+    $admin = paymentFollowUpAdmin();
+    $dealer = paymentFollowUpDealer($employee, 'Pending Collection Overdue Dealer', 80000);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'Promised 50000',
+            'expected_amount' => 50000,
+            'next_follow_up_date' => '2026-09-12',
+        ])
+        ->assertCreated();
+
+    Collection::query()->create([
+        'receipt_no' => 'RCP-PFU-PENDING',
+        'collection_date' => '2026-09-12',
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'amount' => 50000,
+        'status' => Collection::STATUS_PENDING,
+        'remarks' => 'Not verified yet',
+    ]);
+
+    Carbon::setTestNow(Carbon::parse('2026-09-16 10:00:00', 'Asia/Kolkata'));
+
+    $pendingDetail = app(PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
+    expect($pendingDetail['status'])->toBe('overdue')
+        ->and($pendingDetail['cycles'][0]['display_status'])->toBe('overdue')
+        ->and($pendingDetail['cycles'][0]['entries'][0]['commitment_status'])->toBe('missed');
+
+    $rejected = Collection::query()->create([
+        'receipt_no' => 'RCP-PFU-REJECTED',
+        'collection_date' => '2026-09-13',
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'amount' => 50000,
+        'status' => Collection::STATUS_PENDING,
+        'remarks' => 'Will reject',
+    ]);
+    app(UpdateCollectionStatus::class)->execute($rejected, Collection::STATUS_REJECTED, $admin, 'Bounced');
+
+    $rejectedDetail = app(PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
+    expect($rejectedDetail['status'])->toBe('overdue')
+        ->and($rejectedDetail['cycles'][0]['display_status'])->toBe('overdue')
+        ->and($rejectedDetail['cycles'][0]['missed_commitment_count'])->toBe(1);
+});
+
+it('keeps overdue when another unpaid past-due commitment remains after a later payment', function (): void {
+    $employee = paymentFollowUpEmployee('9811300043');
+    $admin = paymentFollowUpAdmin();
+    $dealer = paymentFollowUpDealer($employee, 'Second Commitment Overdue Dealer', 150000);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'First promise 50000',
+            'expected_amount' => 50000,
+            'next_follow_up_date' => '2026-09-10',
+        ])
+        ->assertCreated();
+
+    Carbon::setTestNow(Carbon::parse('2026-09-11 10:00:00', 'Asia/Kolkata'));
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'Second promise 40000',
+            'expected_amount' => 40000,
+            'next_follow_up_date' => '2026-09-12',
+        ])
+        ->assertCreated();
+
+    Carbon::setTestNow(Carbon::parse('2026-09-16 10:00:00', 'Asia/Kolkata'));
+
+    $collection = Collection::query()->create([
+        'receipt_no' => 'RCP-PFU-SECOND-ONLY',
+        'collection_date' => '2026-09-16',
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'amount' => 50000,
+        'status' => Collection::STATUS_PENDING,
+        'remarks' => 'Covers the first past-due commitment; second remains unpaid',
+    ]);
+    app(UpdateCollectionStatus::class)->execute($collection, Collection::STATUS_RECEIVED, $admin);
+
+    $detail = app(PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
+
+    expect($detail['status'])->toBe('overdue')
+        ->and($detail['cycles'][0]['status'])->toBe('open')
+        ->and($detail['cycles'][0]['display_status'])->toBe('overdue')
+        ->and($detail['cycles'][0]['entries'][0]['commitment_status'])->toBe('kept')
+        ->and($detail['cycles'][0]['entries'][1]['commitment_status'])->toBe('missed')
+        ->and($detail['cycles'][0]['missed_commitment_count'])->toBe(1);
+});
+
 it('marks a missed commitment without closing the cycle and continues follow-ups in the same cycle', function (): void {
     $employee = paymentFollowUpEmployee('9811300011');
     $dealer = paymentFollowUpDealer($employee, 'Missed Commitment Dealer');
@@ -391,7 +545,7 @@ it('marks a missed commitment without closing the cycle and continues follow-ups
         ->assertJsonCount(1, 'cycles')
         ->assertJsonPath('cycles.0.cycle_number', 1)
         ->assertJsonPath('cycles.0.status', 'open')
-        ->assertJsonPath('cycles.0.display_status', 'open')
+        ->assertJsonPath('cycles.0.display_status', 'overdue')
         ->assertJsonPath('cycles.0.entries.0.commitment_status', 'missed')
         ->assertJsonPath('cycles.0.entries.1.commitment_status', 'pending')
         ->assertJsonPath('cycles.0.follow_up_count', 2);

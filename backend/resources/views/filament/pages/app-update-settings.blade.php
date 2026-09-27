@@ -30,6 +30,19 @@
                     <dd class="mt-1 break-all text-sm font-medium text-gray-950 dark:text-white">{{ $this->currentSettings['apk_url'] }}</dd>
                 </div>
                 <div>
+                    <dt class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Published APK</dt>
+                    <dd class="mt-1 text-sm font-medium text-gray-950 dark:text-white">
+                        @if ($this->currentApk['exists'])
+                            {{ $this->currentApk['url_path'] }} · {{ $this->currentApkSizeLabel() }}
+                            @if ($this->currentApk['updated_at'])
+                                · {{ $this->currentApk['updated_at'] }}
+                            @endif
+                        @else
+                            Not uploaded yet
+                        @endif
+                    </dd>
+                </div>
+                <div>
                     <dt class="text-xs uppercase tracking-wide text-gray-500 dark:text-gray-400">Last Updated At</dt>
                     <dd class="mt-1 text-sm font-medium text-gray-950 dark:text-white">{{ $this->currentSettings['updated_at'] ?? 'Not saved yet' }}</dd>
                 </div>

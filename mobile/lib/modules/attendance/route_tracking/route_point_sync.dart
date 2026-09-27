@@ -1,6 +1,7 @@
 import 'models/route_point.dart';
 import 'route_point_api.dart';
 import 'route_point_store.dart';
+import 'route_tracking_config.dart';
 import 'route_tracking_log.dart';
 
 typedef InvalidAttendanceHandler =
@@ -9,7 +10,7 @@ typedef InvalidAttendanceHandler =
 class RoutePointSync {
   RoutePointSync(this._store, this._api, {this.onInvalidAttendance});
 
-  static const batchSize = 50;
+  static const batchSize = routeSyncBatchSize;
   static const invalidAttendanceMessage =
       'Route points can only be submitted for an active punch-in session';
 
@@ -47,6 +48,7 @@ class RoutePointSync {
     int? activeAttendanceId,
     bool allowClosedAttendance = false,
   }) async {
+    await _store.reload();
     var pending = _store.pendingPoints();
     if (pending.isEmpty) {
       routeTrackingLog('Sync skipped: no pending route points');
@@ -72,6 +74,7 @@ class RoutePointSync {
           '(active=$activeAttendanceId)',
         );
         await _store.retainOnlyAttendance(activeAttendanceId);
+        await _store.reload();
         pending = _store.pendingPoints();
       }
     }
@@ -108,7 +111,8 @@ class RoutePointSync {
 
       final points = entry.value;
       var offset = 0;
-      while (offset < points.length) {
+      var batchesThisRun = 0;
+      while (offset < points.length && batchesThisRun < 5) {
         final batch = points.skip(offset).take(batchSize).toList();
         routeTrackingLog(
           'Uploading batch: uploadedAttendanceId=$uploadAttendanceId '
@@ -146,6 +150,7 @@ class RoutePointSync {
           break;
         }
         offset += batch.length;
+        batchesThisRun++;
       }
     }
   }

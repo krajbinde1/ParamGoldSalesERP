@@ -9,11 +9,12 @@ import 'route_tracking_config.dart';
 import 'route_tracking_log.dart';
 
 class RouteCaptureRules {
-  static const duplicateDistanceMeters = 5.0;
+  static const duplicateDistanceMeters = 8.0;
 
   static Duration get captureInterval => routeCaptureInterval;
   static double get movementThresholdMeters => routeMovementThresholdMeters;
   static double get maxAccuracyMeters => routeMaxAccuracyMeters;
+  static double get stationaryRadiusMeters => routeStationaryRadiusMeters;
 
   static bool isValidCoordinate(double latitude, double longitude) {
     if (latitude.abs() < 0.000001 && longitude.abs() < 0.000001) {
@@ -110,13 +111,11 @@ class RouteCaptureRules {
       'last=($lastLat, $lastLng)',
     );
 
-    // Reject near-duplicate coordinates within a short window.
-    if (distance <= duplicateDistanceMeters &&
-        elapsed != null &&
-        elapsed < routeDuplicateCoordWindow) {
+    // Reject near-duplicate / GPS jitter.
+    if (distance <= stationaryRadiusMeters) {
       routeTrackingLog(
-        'Skip capture: duplicate coord within '
-        '${routeDuplicateCoordWindow.inSeconds}s',
+        'Skip capture: stationary/jitter ${distance.toStringAsFixed(1)}m '
+        '(<= ${stationaryRadiusMeters}m)',
       );
       return false;
     }
@@ -143,23 +142,13 @@ class RouteCaptureRules {
       return true;
     }
 
-    // Heartbeat: max 60s since last saved point, but skip pure stationary.
-    if (elapsed != null &&
-        elapsed >= captureInterval &&
-        distance > duplicateDistanceMeters) {
+    // Slow travel: keep the path without saving GPS jitter every few seconds.
+    if (elapsed != null && elapsed >= captureInterval) {
       routeTrackingLog(
-        'Capture allowed: ${captureInterval.inSeconds}s interval with '
-        '${distance.toStringAsFixed(1)}m movement',
+        'Capture allowed: slow movement ${distance.toStringAsFixed(1)}m '
+        'over ${elapsed.inSeconds}s',
       );
       return true;
-    }
-
-    if (distance <= duplicateDistanceMeters) {
-      routeTrackingLog(
-        'Skip capture: stationary within ${duplicateDistanceMeters}m '
-        '(avoid unnecessary stationary points)',
-      );
-      return false;
     }
 
     routeTrackingLog(
@@ -201,8 +190,8 @@ class RouteCaptureRules {
     if (Platform.isAndroid) {
       return AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: 0,
-        intervalDuration: const Duration(seconds: 10),
+        distanceFilter: 20,
+        intervalDuration: const Duration(seconds: 15),
         forceLocationManager: false,
       );
     }
@@ -220,8 +209,8 @@ class RouteCaptureRules {
     if (Platform.isAndroid) {
       return AndroidSettings(
         accuracy: LocationAccuracy.high,
-        distanceFilter: routeMovementThresholdMeters.round(),
-        intervalDuration: routeCaptureInterval,
+        distanceFilter: routeStationaryRadiusMeters.round(),
+        intervalDuration: const Duration(seconds: 15),
         forceLocationManager: false,
         foregroundNotificationConfig: withGeolocatorNotification
             ? const ForegroundNotificationConfig(
@@ -236,9 +225,9 @@ class RouteCaptureRules {
     }
     return AppleSettings(
       accuracy: LocationAccuracy.high,
-      distanceFilter: routeMovementThresholdMeters.round(),
+      distanceFilter: routeStationaryRadiusMeters.round(),
       activityType: ActivityType.otherNavigation,
-      pauseLocationUpdatesAutomatically: false,
+      pauseLocationUpdatesAutomatically: true,
       allowBackgroundLocationUpdates: true,
       showBackgroundLocationIndicator: true,
     );

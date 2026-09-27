@@ -2,8 +2,10 @@
 
 namespace App\Filament\Pages;
 
+use App\Services\MobileApp\MobileApkPublisher;
 use App\Services\MobileApp\MobileAppVersionService;
 use BackedEnum;
+use Filament\Forms\Components\FileUpload;
 use Filament\Forms\Components\Textarea;
 use Filament\Forms\Components\TextInput;
 use Filament\Forms\Components\Toggle;
@@ -14,7 +16,9 @@ use Filament\Pages\Page;
 use Filament\Schemas\Components\Section;
 use Filament\Schemas\Schema;
 use Filament\Support\Icons\Heroicon;
+use Illuminate\Http\UploadedFile;
 use Illuminate\Validation\ValidationException;
+use Throwable;
 
 class AppUpdateSettings extends Page implements HasForms
 {
@@ -51,6 +55,16 @@ class AppUpdateSettings extends Page implements HasForms
      */
     public array $currentSettings = [];
 
+    /**
+     * @var array{exists: bool, size_bytes: ?int, updated_at: ?string, url_path: string}
+     */
+    public array $currentApk = [
+        'exists' => false,
+        'size_bytes' => null,
+        'updated_at' => null,
+        'url_path' => '/apk/paramgold-latest.apk',
+    ];
+
     public static function canAccess(): bool
     {
         return auth()->user()?->isAdminUser() === true;
@@ -67,11 +81,14 @@ class AppUpdateSettings extends Page implements HasForms
             'force_update' => $this->currentSettings['force_update'],
             'apk_url' => $this->currentSettings['apk_url'],
             'update_message' => $this->currentSettings['message'],
+            'apk' => null,
         ]);
     }
 
     public function form(Schema $schema): Schema
     {
+        $maxKilobytes = MobileApkPublisher::MAX_KILOBYTES;
+
         return $schema
             ->components([
                 Section::make('Mobile app version')
@@ -114,6 +131,29 @@ class AppUpdateSettings extends Page implements HasForms
                             ->rows(3)
                             ->maxLength(2000)
                             ->placeholder(MobileAppVersionService::DEFAULT_MESSAGE),
+                        FileUpload::make('apk')
+                            ->label('Release APK')
+                            ->helperText('Optional. Upload a release .apk to replace /apk/paramgold-latest.apk when you click Save Settings. Maximum 100 MB. If the upload fails, the current APK and version settings are not changed.')
+                            ->acceptedFileTypes([
+                                'application/vnd.android.package-archive',
+                                'application/java-archive',
+                                'application/zip',
+                                'application/octet-stream',
+                            ])
+                            ->rules([
+                                'nullable',
+                                'file',
+                                'extensions:apk',
+                                'max:'.$maxKilobytes,
+                            ])
+                            ->maxSize($maxKilobytes)
+                            ->disk('local')
+                            ->visibility('private')
+                            ->storeFiles(false)
+                            ->downloadable(false)
+                            ->openable(false)
+                            ->previewable(false)
+                            ->dehydrated(),
                     ])
                     ->columns(1),
             ])
@@ -124,18 +164,61 @@ class AppUpdateSettings extends Page implements HasForms
     {
         abort_unless(static::canAccess(), 403);
 
+        $apkReplaced = false;
+
         try {
             $state = $this->form->getState();
+            $uploaded = $this->uploadedApkFromState($state);
+
+            if ($uploaded !== null) {
+                app(MobileApkPublisher::class)->replaceLatest($uploaded);
+                $apkReplaced = true;
+            }
+
+            unset($state['apk']);
             app(MobileAppVersionService::class)->save($state, auth()->user());
-        } catch (ValidationException $e) {
-            throw $e;
+        } catch (ValidationException $exception) {
+            $errors = $exception->errors();
+            if (array_key_exists('apk', $errors) && ! array_key_exists('data.apk', $errors)) {
+                $errors['data.apk'] = $errors['apk'];
+            }
+
+            $first = collect($errors)->flatten()->first();
+            if (is_string($first) && str_contains(strtolower($first), 'apk')) {
+                Notification::make()
+                    ->danger()
+                    ->title('APK upload failed')
+                    ->body($first)
+                    ->send();
+            }
+
+            throw ValidationException::withMessages($errors);
+        } catch (Throwable $exception) {
+            Notification::make()
+                ->danger()
+                ->title('APK upload failed')
+                ->body($exception->getMessage().' The current APK and version settings were not changed.')
+                ->send();
+
+            return;
         }
 
+        $this->data['apk'] = null;
         $this->refreshCurrentSettings();
+        $this->form->fill([
+            'latest_version' => $this->currentSettings['latest_version'],
+            'latest_build' => $this->currentSettings['latest_build'],
+            'force_update' => $this->currentSettings['force_update'],
+            'apk_url' => $this->currentSettings['apk_url'],
+            'update_message' => $this->currentSettings['message'],
+            'apk' => null,
+        ]);
 
         Notification::make()
             ->title('App update settings saved')
-            ->body('GET /api/app-version now returns these values. No .env change is required.')
+            ->body($apkReplaced
+                ? 'Release APK replaced at /apk/paramgold-latest.apk and the download URL was verified. GET /api/app-version now returns these values.'
+                : 'GET /api/app-version now returns these values. No .env change is required.')
             ->success()
             ->send();
     }
@@ -145,8 +228,36 @@ class AppUpdateSettings extends Page implements HasForms
         return ($this->currentSettings['source'] ?? 'config') === 'config';
     }
 
+    public function currentApkSizeLabel(): string
+    {
+        $bytes = $this->currentApk['size_bytes'] ?? null;
+        if (! $this->currentApk['exists'] || $bytes === null) {
+            return 'Not uploaded yet';
+        }
+
+        if ($bytes >= 1048576) {
+            return number_format($bytes / 1048576, 1).' MB';
+        }
+
+        return number_format($bytes / 1024, 0).' KB';
+    }
+
+    /**
+     * @param  array<string, mixed>  $state
+     */
+    private function uploadedApkFromState(array $state): ?UploadedFile
+    {
+        $apk = $state['apk'] ?? null;
+        if (is_array($apk)) {
+            $apk = array_values($apk)[0] ?? null;
+        }
+
+        return $apk instanceof UploadedFile ? $apk : null;
+    }
+
     private function refreshCurrentSettings(): void
     {
         $this->currentSettings = app(MobileAppVersionService::class)->current();
+        $this->currentApk = app(MobileApkPublisher::class)->currentMeta();
     }
 }

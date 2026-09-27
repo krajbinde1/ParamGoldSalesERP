@@ -17,8 +17,8 @@ return [
     | After each release:
     | 1. Bump Flutter pubspec.yaml version AND +build number
     | 2. Build app-release.apk
-    | 3. Replace https://paramgold.in/apk/paramgold-latest.apk
-    | 4. Admin Web → App Update Settings → save version + build
+    | 3. Admin Web → App Update Settings → upload the APK and save version + build
+    |    (this replaces /apk/paramgold-latest.apk; no manual server copy needed)
     |
     | latest_build must match (or stay below) the uploaded APK's build, or
     | installed apps will loop on the update screen.

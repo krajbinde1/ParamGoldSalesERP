@@ -64,7 +64,10 @@ class RouteTrackingService {
       await disableRuntimeCleanup();
       return;
     }
-    if (_storeReady) return;
+    if (_storeReady) {
+      await _store?.reload();
+      return;
+    }
     await RouteTrackingForeground.init().timeout(const Duration(seconds: 3));
     _bindTaskDataCallback();
     final prefs = await SharedPreferences.getInstance().timeout(
@@ -216,19 +219,18 @@ class RouteTrackingService {
   Future<bool> _startTrackingEngines() async {
     routeTrackingLog('Foreground service start request');
     final started = await RouteTrackingForeground.start();
-    if (!started || Platform.isIOS) {
+    if (Platform.isAndroid) {
+      if (started) {
+        await _cancelLocalStream();
+        routeTrackingLog('Foreground service started');
+        return true;
+      }
       await _startLocalStreamFallback();
-    } else {
-      await _cancelLocalStream();
-    }
-    if (Platform.isAndroid && !started) {
       routeTrackingLog('Foreground service failed to start');
       return false;
     }
-    if (started) {
-      routeTrackingLog('Foreground service started');
-    }
-    return started || !Platform.isAndroid;
+    await _startLocalStreamFallback();
+    return true;
   }
 
   Future<void> _handleInvalidAttendance(
@@ -451,6 +453,7 @@ class RouteTrackingService {
         );
         await _startTrackingEngines();
         await store.retainOnlyAttendance(attendanceId);
+        await store.compactBloatedQueue();
         await _refreshUiStatus();
         return statusMessage;
       }
@@ -502,6 +505,7 @@ class RouteTrackingService {
         ),
       );
       await store.retainOnlyAttendance(attendanceId);
+      await store.compactBloatedQueue();
 
       // Persist API base for native/FGS isolate visibility (release = production).
       final prefs = await SharedPreferences.getInstance();
@@ -622,6 +626,14 @@ class RouteTrackingService {
         }
       }
 
+      // Stop GPS/FGS before the last upload so the isolate cannot restore
+      // already-synced points into SharedPreferences.
+      if (session != null) {
+        await store.saveSession(session.copyWith(isActive: false));
+      }
+      await _cancelLocalStream();
+      await RouteTrackingForeground.stop();
+
       if (attendanceId != null && attendanceId > 0) {
         try {
           await _sync!.syncPending(
@@ -635,8 +647,6 @@ class RouteTrackingService {
         }
       }
 
-      await _cancelLocalStream();
-      await RouteTrackingForeground.stop();
       await store.clearSession();
       statusMessage = 'Punch out complete';
       await _refreshUiStatus();
@@ -855,9 +865,6 @@ class RouteTrackingService {
           await _startTrackingEngines();
         }
         await RouteTrackingForeground.requestSync();
-        await _sync?.syncPending(allowClosedAttendance: true).timeout(
-          const Duration(seconds: 8),
-        );
         await _refreshUiStatus();
         return;
       }

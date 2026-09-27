@@ -55,19 +55,23 @@ String _moneyLabel(Map<String, dynamic> row, String numberKey, String labelKey) 
   return _compactInr(double.tryParse('${row[numberKey] ?? 0}') ?? 0);
 }
 
-PgStatusTone _statusTone(String status) => switch (status) {
-      'overdue' => PgStatusTone.rejected,
-      'due_today' => PgStatusTone.pending,
-      'upcoming' => PgStatusTone.info,
-      'closed' => PgStatusTone.paid,
-      'high' => PgStatusTone.rejected,
-      'medium' => PgStatusTone.pending,
-      'low' => PgStatusTone.paid,
-      'missed' => PgStatusTone.rejected,
-      'kept' => PgStatusTone.paid,
-      'pending' => PgStatusTone.info,
-      _ => PgStatusTone.neutral,
-    };
+PgStatusTone _statusTone(String status) {
+  final key = status.toLowerCase().replaceAll(RegExp(r'[^a-z0-9]+'), '_');
+  return switch (key) {
+    'overdue' || 'missed' => PgStatusTone.rejected,
+    'due_today' || 'pending' => PgStatusTone.pending,
+    'upcoming' => PgStatusTone.info,
+    'closed' ||
+    'payment_received' ||
+    'payment_received_closed' ||
+    'closed_payment_received' ||
+    'kept' => PgStatusTone.paid,
+    'high' => PgStatusTone.rejected,
+    'medium' => PgStatusTone.pending,
+    'low' => PgStatusTone.paid,
+    _ => PgStatusTone.neutral,
+  };
+}
 
 class DirectorPaymentFollowUpStatusScreen extends StatefulWidget {
   const DirectorPaymentFollowUpStatusScreen({
@@ -1532,7 +1536,15 @@ class _DirectorPaymentFollowUpHistoryScreenState
                 children.add(const PgLoadingState());
               } else {
                   final timeline = _chronological(detail);
-                  final status = detail.displayStatus.toLowerCase();
+                  final statusKey = [
+                    detail.currentCycleStatusLabel,
+                    detail.displayStatus,
+                    detail.statusLabel,
+                  ].firstWhere(
+                    (value) => value.trim().isNotEmpty,
+                    orElse: () => '',
+                  );
+                  final status = statusKey.toLowerCase();
                   children.addAll([
                     PgCard(
                     child: Column(

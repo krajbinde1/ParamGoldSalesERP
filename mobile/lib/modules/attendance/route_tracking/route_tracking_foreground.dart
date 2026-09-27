@@ -23,6 +23,9 @@ class RouteTrackingTaskHandler extends TaskHandler {
   RoutePointStore? _store;
   RoutePointSync? _sync;
   bool _handlingPosition = false;
+  DateTime? _nextSyncAt;
+  int _syncFailStreak = 0;
+  bool _compactedThisStart = false;
 
   @override
   Future<void> onStart(DateTime timestamp, TaskStarter starter) async {
@@ -45,9 +48,13 @@ class RouteTrackingTaskHandler extends TaskHandler {
       'Foreground service started attendanceId=${session!.attendanceId} '
       'employeeId=${session.employeeId}',
     );
+    if (!_compactedThisStart) {
+      _compactedThisStart = true;
+      await _store?.compactBloatedQueue();
+    }
     await _startPositionStream();
     await _captureOnce(source: '${routeTrackingSource}_fgs_start');
-    await _syncPendingQuietly();
+    await _syncPendingQuietly(force: true);
     _publishStatus();
   }
 
@@ -65,7 +72,6 @@ class RouteTrackingTaskHandler extends TaskHandler {
         await FlutterForegroundTask.stopService();
         return;
       }
-      await _captureOnce(source: '${routeTrackingSource}_fgs_poll');
       await _syncPendingQuietly();
       _publishStatus();
     } catch (error, stackTrace) {
@@ -84,17 +90,20 @@ class RouteTrackingTaskHandler extends TaskHandler {
   void onReceiveData(Object data) {
     routeTrackingLog('FGS onReceiveData: $data');
     if (data is Map && data['command'] == 'sync') {
-      unawaited(_syncPendingQuietly());
+      unawaited(_syncPendingQuietly(force: true));
     }
   }
 
   Future<void> _ensureReady() async {
-    // Always reload prefs so system-recreated FGS sees latest session writes.
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.reload();
-    _store = RoutePointStore(prefs);
-    final api = await RoutePointApi.create();
-    _sync = RoutePointSync(_store!, api);
+    if (_store == null) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.reload();
+      _store = RoutePointStore(prefs);
+      final api = await RoutePointApi.create();
+      _sync = RoutePointSync(_store!, api);
+      return;
+    }
+    await _store!.reload();
   }
 
   Future<void> _startPositionStream() async {
@@ -147,27 +156,55 @@ class RouteTrackingTaskHandler extends TaskHandler {
     await RouteCaptureRules.captureIfNeeded(store: store, source: source);
   }
 
-  Future<void> _syncPendingQuietly() async {
+  Future<void> _syncPendingQuietly({bool force = false}) async {
     try {
       final store = _store;
       final sync = _sync;
       if (store == null || sync == null) return;
+      final now = DateTime.now();
+      if (!force && _nextSyncAt != null && now.isBefore(_nextSyncAt!)) {
+        return;
+      }
       final attendanceId = store.session?.attendanceId;
+      final sessionActive = store.session?.isActive == true;
+      await store.reload();
       final pendingBefore = store.pendingPoints().length;
+      if (pendingBefore == 0) {
+        _syncFailStreak = 0;
+        return;
+      }
       routeTrackingLog('Pending sync count=$pendingBefore');
       await sync.syncPending(
         activeAttendanceId: attendanceId,
-        allowClosedAttendance: true,
+        allowClosedAttendance: !sessionActive,
       );
+      await store.reload();
       final pendingAfter = store.pendingPoints().length;
       if (pendingAfter < pendingBefore) {
+        _syncFailStreak = 0;
+        _nextSyncAt = pendingAfter > 0
+            ? now.add(const Duration(seconds: 5))
+            : now.add(routeSyncMinInterval);
         routeTrackingLog(
           'Location uploaded; pending sync count=$pendingAfter',
         );
-      } else if (pendingBefore > 0 && pendingAfter == pendingBefore) {
-        routeTrackingLog('Upload failed or deferred; pending=$pendingAfter');
+      } else {
+        _syncFailStreak++;
+        final delaySeconds = (routeSyncFailureBackoffMin.inSeconds *
+                (1 << (_syncFailStreak - 1).clamp(0, 4)))
+            .clamp(
+              routeSyncFailureBackoffMin.inSeconds,
+              routeSyncFailureBackoffMax.inSeconds,
+            );
+        _nextSyncAt = now.add(Duration(seconds: delaySeconds));
+        routeTrackingLog(
+          'Upload failed or deferred; pending=$pendingAfter '
+          'retry in ${delaySeconds}s',
+        );
       }
     } catch (error) {
+      _syncFailStreak++;
+      _nextSyncAt = DateTime.now().add(routeSyncFailureBackoffMin);
       routeTrackingLog('FGS sync failed (will retry): $error');
     }
   }
@@ -241,9 +278,9 @@ class RouteTrackingForeground {
     await init();
     routeTrackingLog('Foreground service start request');
     if (await FlutterForegroundTask.isRunningService) {
-      final result = await FlutterForegroundTask.restartService();
-      routeTrackingLog('FGS restart result=$result');
-      return result is ServiceRequestSuccess;
+      routeTrackingLog('FGS already running — reuse existing session');
+      FlutterForegroundTask.sendDataToTask({'command': 'sync'});
+      return true;
     }
 
     final result = await FlutterForegroundTask.startService(

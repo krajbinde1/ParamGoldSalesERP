@@ -47,6 +47,7 @@ final class PaymentFollowUpPerformanceService
         $openByDealer = PaymentFollowUpCycle::query()
             ->where('status', PaymentFollowUpCycle::STATUS_OPEN)
             ->with('latestFollowUpEntry')
+            ->with('entries.collection:id,amount,status,collection_date,received_at')
             ->get()
             ->keyBy('dealer_id');
 
@@ -79,12 +80,14 @@ final class PaymentFollowUpPerformanceService
             $employeeId = (int) $dealer->assigned_employee_id;
             $open = $openByDealer->get($dealer->id);
             $next = $open?->latestFollowUpEntry?->next_follow_up_date?->toDateString();
+            $received = round((float) ($open?->payment_received_amount ?? 0), 2);
 
             if ($open !== null && $next !== null) {
-                if ($next === $today) {
-                    $dueToday[$employeeId] = ($dueToday[$employeeId] ?? 0) + 1;
-                } elseif ($next < $today) {
+                if ($this->followUps->cycleIsOverdue($open)) {
                     $overdue[$employeeId] = ($overdue[$employeeId] ?? 0) + 1;
+                } elseif ($next === $today && ($open->latestFollowUpEntry?->expected_amount === null
+                    || $received < round((float) $open->latestFollowUpEntry->expected_amount, 2))) {
+                    $dueToday[$employeeId] = ($dueToday[$employeeId] ?? 0) + 1;
                 }
             } elseif (isset($outstandingDealerSet[$dealer->id]) && ! isset($closedWithoutOpenSet[$dealer->id])) {
                 $noFollowUp[$employeeId] = ($noFollowUp[$employeeId] ?? 0) + 1;

@@ -2,8 +2,10 @@
 
 namespace App\Providers;
 
+use App\Models\AttendancePunchOutCorrection;
 use App\Models\Bom;
 use App\Models\Collection;
+use App\Models\CompanyTransportLedgerEntry;
 use App\Models\CreditNote;
 use App\Models\Crop;
 use App\Models\Dealer;
@@ -14,7 +16,6 @@ use App\Models\Order;
 use App\Models\OrderEditPermissionRequest;
 use App\Models\PackagingMaterial;
 use App\Models\PackagingMaterialInward;
-use App\Models\AttendancePunchOutCorrection;
 use App\Models\PaymentRequest;
 use App\Models\Product;
 use App\Models\ProductionBatch;
@@ -25,13 +26,13 @@ use App\Models\SemiFinishedMaterial;
 use App\Models\StockAdjustment;
 use App\Models\StockLedger;
 use App\Models\TaDaClaim;
-use App\Models\CompanyTransportLedgerEntry;
 use App\Models\TransportFreightLedger;
 use App\Models\WhatsAppOutboundMessage;
 use App\Observers\CollectionObserver;
 use App\Observers\CreditNoteObserver;
 use App\Observers\OrderObserver;
 use App\Observers\PaymentRequestObserver;
+use App\Policies\AttendancePunchOutCorrectionPolicy;
 use App\Policies\BomPolicy;
 use App\Policies\CompanyTransportLedgerPolicy;
 use App\Policies\CreditNotePolicy;
@@ -44,10 +45,10 @@ use App\Policies\OrderEditPermissionRequestPolicy;
 use App\Policies\OrderPolicy;
 use App\Policies\PackagingMaterialInwardPolicy;
 use App\Policies\PackagingMaterialPolicy;
-use App\Policies\AttendancePunchOutCorrectionPolicy;
 use App\Policies\PaymentRequestPolicy;
 use App\Policies\ProductionBatchPolicy;
 use App\Policies\ProductPolicy;
+use App\Policies\PurchasePolicy;
 use App\Policies\RawMaterialInwardPolicy;
 use App\Policies\RawMaterialPolicy;
 use App\Policies\SemiFinishedMaterialPolicy;
@@ -79,6 +80,11 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        config([
+            'livewire.temporary_file_upload.rules' => ['required', 'file', 'max:102400'],
+            'livewire.temporary_file_upload.max_upload_time' => 15,
+        ]);
+
         Gate::policy(Employee::class, EmployeeLoginAccessPolicy::class);
         Gate::policy(Dealer::class, DealerPolicy::class);
         Gate::policy(DealerApplication::class, DealerApplicationPolicy::class);
@@ -95,7 +101,7 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(RawMaterialInward::class, RawMaterialInwardPolicy::class);
         Gate::policy(PackagingMaterialInward::class, PackagingMaterialInwardPolicy::class);
         Gate::policy(PackagingMaterial::class, PackagingMaterialPolicy::class);
-        Gate::policy(Purchase::class, \App\Policies\PurchasePolicy::class);
+        Gate::policy(Purchase::class, PurchasePolicy::class);
         Gate::policy(SemiFinishedMaterial::class, SemiFinishedMaterialPolicy::class);
         Gate::policy(Bom::class, BomPolicy::class);
         Gate::policy(ProductionBatch::class, ProductionBatchPolicy::class);
