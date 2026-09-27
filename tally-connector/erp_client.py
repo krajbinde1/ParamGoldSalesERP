@@ -73,6 +73,37 @@ class ErpClient:
         data = self._json(response).get("data", [])
         return data if isinstance(data, list) else []
 
+    def lookup_receipt(
+        self,
+        *,
+        tally_voucher_no: str | None = None,
+        erp_reference: str | None = None,
+        source_id: int | None = None,
+        voucher_id: int | None = None,
+    ) -> dict[str, Any]:
+        params: dict[str, str] = {}
+        if tally_voucher_no:
+            params["tally_voucher_no"] = tally_voucher_no
+        if erp_reference:
+            params["erp_reference"] = erp_reference
+        if source_id is not None:
+            params["source_id"] = str(source_id)
+        if voucher_id is not None:
+            params["id"] = str(voucher_id)
+        try:
+            response = self.session.get(
+                self._url("vouchers/lookup"),
+                params=params,
+                timeout=self.timeout,
+            )
+        except requests.RequestException as exc:
+            raise ErpApiError(f"ERP lookup request failed: {exc}") from exc
+
+        if response.status_code != 200:
+            raise ErpApiError(self._error_message(response), response.status_code)
+
+        return self._json(response)
+
     def claim(self, voucher_id: int) -> dict[str, Any]:
         return self._post(f"vouchers/{voucher_id}/claim", {"connector_id": self.connector_id})
 

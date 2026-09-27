@@ -8,6 +8,7 @@ use App\Models\TallyOutboundVoucher;
 use App\Services\TallySync\TallyConnectorService;
 use App\Services\TallySync\TallyJournalVoucherSyncService;
 use App\Services\TallySync\TallyLiveBalanceService;
+use App\Services\TallySync\TallyOutboundEnqueueService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -32,6 +33,7 @@ final class TallyConnectorController extends Controller
             'success' => true,
             'message' => 'Tally connector authenticated.',
             'connector_id' => $state->connector_id,
+            'receipt_debit_ledger' => app(TallyOutboundEnqueueService::class)->configuredReceiptDebitLedger(),
         ]);
     }
 
@@ -46,12 +48,50 @@ final class TallyConnectorController extends Controller
             $vouchers = $this->connector->pending($limit);
 
             return response()->json([
+                'receipt_debit_ledger' => app(TallyOutboundEnqueueService::class)->configuredReceiptDebitLedger(),
                 'data' => array_map(fn (TallyOutboundVoucher $voucher): array => $this->format($voucher), $vouchers),
             ], 200, [], JSON_INVALID_UTF8_SUBSTITUTE);
         } catch (ValidationException $exception) {
             throw $exception;
         } catch (Throwable $exception) {
             return $this->connectorFailure($exception, 'pending');
+        }
+    }
+
+    public function lookup(Request $request): JsonResponse
+    {
+        try {
+            $validated = $request->validate([
+                'tally_voucher_no' => ['nullable', 'string', 'max:100'],
+                'erp_reference' => ['nullable', 'string', 'max:120'],
+                'source_id' => ['nullable', 'integer', 'min:1'],
+                'id' => ['nullable', 'integer', 'min:1'],
+            ]);
+
+            if (! filled($validated['tally_voucher_no'] ?? null)
+                && ! filled($validated['erp_reference'] ?? null)
+                && ! filled($validated['source_id'] ?? null)
+                && ! filled($validated['id'] ?? null)) {
+                throw ValidationException::withMessages([
+                    'tally_voucher_no' => ['Provide tally_voucher_no, erp_reference, source_id, or id.'],
+                ]);
+            }
+
+            $vouchers = $this->connector->lookupReceipts(
+                filled($validated['tally_voucher_no'] ?? null) ? (string) $validated['tally_voucher_no'] : null,
+                filled($validated['erp_reference'] ?? null) ? (string) $validated['erp_reference'] : null,
+                isset($validated['source_id']) ? (int) $validated['source_id'] : null,
+                isset($validated['id']) ? (int) $validated['id'] : null,
+            );
+
+            return response()->json([
+                'receipt_debit_ledger' => app(TallyOutboundEnqueueService::class)->configuredReceiptDebitLedger(),
+                'data' => array_map(fn (TallyOutboundVoucher $voucher): array => $this->format($voucher), $vouchers),
+            ], 200, [], JSON_INVALID_UTF8_SUBSTITUTE);
+        } catch (ValidationException $exception) {
+            throw $exception;
+        } catch (Throwable $exception) {
+            return $this->connectorFailure($exception, 'lookup');
         }
     }
 

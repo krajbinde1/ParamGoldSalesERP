@@ -556,6 +556,11 @@ final class TallyOutboundEnqueueService
         return $name !== '' ? $name : self::RECEIPT_DEBIT_LEDGER;
     }
 
+    public function configuredReceiptDebitLedger(): string
+    {
+        return $this->receiptDebitLedger();
+    }
+
     private function rewriteUnsyncedReceiptDebitLedger(TallyOutboundVoucher $voucher): TallyOutboundVoucher
     {
         if ($voucher->source_type !== TallyOutboundVoucher::SOURCE_COLLECTION

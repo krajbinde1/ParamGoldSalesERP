@@ -365,6 +365,7 @@ Route::middleware(['auth:sanctum', 'tally.connector'])
     ->group(function (): void {
         Route::get('heartbeat', [TallyConnectorController::class, 'heartbeat']);
         Route::get('pending', [TallyConnectorController::class, 'pending']);
+        Route::get('vouchers/lookup', [TallyConnectorController::class, 'lookup']);
         Route::get('live-balances', [TallyConnectorController::class, 'liveBalancesPoll']);
         Route::post('live-balances', [TallyConnectorController::class, 'liveBalances']);
         Route::post('journal-vouchers', [TallyConnectorController::class, 'journalVouchers']);

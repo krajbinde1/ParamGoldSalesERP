@@ -116,17 +116,20 @@ def _receipt_voucher(payload: dict[str, Any], remote_id: str, party_name: str, s
     voucher_no = str(collection.get("receipt_no") or remote_id).strip()
     narration = _receipt_narration(collection, remote_id)
 
+    # Tally Receipt single-entry "Account" is PARTYLEDGERNAME. That must be the
+    # bank ledger. Using the dealer here leaves the voucher-type default Cash.
     return (
         f"<DATE>{date_xml}</DATE>"
         f"<VOUCHERTYPENAME>{_x(settings.voucher_type_receipt)}</VOUCHERTYPENAME>"
         f"<VOUCHERNUMBER>{_x(voucher_no)}</VOUCHERNUMBER>"
         f"<REFERENCE>{_x(remote_id)}</REFERENCE>"
-        f"<PARTYLEDGERNAME>{_x(party_name)}</PARTYLEDGERNAME>"
-        f"<BASICBASEPARTYNAME>{_x(party_name)}</BASICBASEPARTYNAME>"
+        f"<PARTYLEDGERNAME>{_x(debit_ledger)}</PARTYLEDGERNAME>"
+        f"<BASICBASEPARTYNAME>{_x(debit_ledger)}</BASICBASEPARTYNAME>"
         "<PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>"
         f"<EFFECTIVEDATE>{date_xml}</EFFECTIVEDATE>"
+        "<HASCASHFLOW>Yes</HASCASHFLOW>"
         f"<NARRATION>{_x(narration)}</NARRATION>"
-        f"{_ledger_entry(debit_ledger, debit=amount)}"
+        f"{_ledger_entry(debit_ledger, debit=amount, is_party=True, extra=_bank_allocation(date_xml, amount, party_name, collection))}"
         f"{_ledger_entry(party_name, credit=amount, is_party=True)}"
     )
 
@@ -178,6 +181,7 @@ def _ledger_entry(
     debit: float | None = None,
     credit: float | None = None,
     is_party: bool = False,
+    extra: str = "",
 ) -> str:
     if debit is not None:
         deemed = "Yes"
@@ -196,7 +200,33 @@ def _ledger_entry(
         f"<ISPARTYLEDGER>{party}</ISPARTYLEDGER>"
         "<LEDGERFROMITEM>No</LEDGERFROMITEM>"
         f"<AMOUNT>{_amount(amount)}</AMOUNT>"
+        f"{extra}"
         "</ALLLEDGERENTRIES.LIST>"
+    )
+
+
+def _bank_allocation(
+    date_xml: str,
+    amount: float,
+    party_name: str,
+    collection: dict[str, Any],
+) -> str:
+    mode = str(collection.get("payment_mode") or "").strip().casefold()
+    txn = str(collection.get("transaction_number") or "").strip()
+    if mode in {"cheque", "dd", "demand draft"}:
+        txn_type = "Cheque"
+    else:
+        txn_type = "Inter Bank Transfer"
+
+    return (
+        "<BANKALLOCATIONS.LIST>"
+        f"<DATE>{date_xml}</DATE>"
+        f"<INSTRUMENTDATE>{date_xml}</INSTRUMENTDATE>"
+        f"<TRANSACTIONTYPE>{_x(txn_type)}</TRANSACTIONTYPE>"
+        f"<PAYMENTFAVOURING>{_x(party_name)}</PAYMENTFAVOURING>"
+        f"<INSTRUMENTNUMBER>{_x(txn)}</INSTRUMENTNUMBER>"
+        f"<AMOUNT>{_amount(-abs(amount))}</AMOUNT>"
+        "</BANKALLOCATIONS.LIST>"
     )
 
 

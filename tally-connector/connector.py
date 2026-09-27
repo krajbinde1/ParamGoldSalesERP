@@ -19,6 +19,11 @@ def main() -> int:
         action="store_true",
         help="Poll ERP once, process pending vouchers, then exit",
     )
+    parser.add_argument(
+        "--trace-voucher",
+        metavar="TALLY_VOUCHER_NO",
+        help="Look up a synced ERP receipt by Tally voucher number and print XML without posting",
+    )
     args = parser.parse_args()
 
     try:
@@ -28,7 +33,6 @@ def main() -> int:
         return 1
 
     erp = ErpClient(settings.erp_base_url, settings.erp_token, settings.connector_id)
-    tally = TallyClient(settings.tally_url, settings.tally_company)
 
     try:
         erp.heartbeat(settings.tally_company)
@@ -47,16 +51,21 @@ def main() -> int:
         "Connected",
         f"ERP={settings.erp_base_url}  Connector={settings.connector_id}",
     )
-    try:
-        tally.ping()
-        log(
-            "Connected",
-            f"Tally={settings.tally_url}  Company={settings.tally_company or '(currently open)'}",
-        )
-    except TallyError as exc:
-        log("Failed", str(exc))
 
     try:
+        if args.trace_voucher:
+            return trace_receipt_xml(erp, settings, str(args.trace_voucher))
+
+        tally = TallyClient(settings.tally_url, settings.tally_company)
+        try:
+            tally.ping()
+            log(
+                "Connected",
+                f"Tally={settings.tally_url}  Company={settings.tally_company or '(currently open)'}",
+            )
+        except TallyError as exc:
+            log("Failed", str(exc))
+
         if args.once:
             send_heartbeat(erp, settings)
             process_pending(erp, tally, settings)
@@ -73,6 +82,63 @@ def main() -> int:
     except KeyboardInterrupt:
         print("Connector stopped.", flush=True)
         return 0
+
+
+def trace_receipt_xml(erp: ErpClient, settings: Settings, tally_voucher_no: str) -> int:
+    try:
+        result = erp.lookup_receipt(tally_voucher_no=tally_voucher_no)
+    except ErpApiError as exc:
+        log("Failed", f"ERP lookup: {exc}")
+        return 1
+
+    mapping = str(result.get("receipt_debit_ledger") or settings.receipt_debit_ledger)
+    rows = result.get("data") if isinstance(result.get("data"), list) else []
+    log("Trace", f"production_mapping={mapping}  matches={len(rows)}")
+    if not rows:
+        log("Failed", f"No outbox receipt found for Tally voucher {tally_voucher_no}")
+        return 1
+
+    for voucher in rows:
+        payload = voucher.get("payload") if isinstance(voucher.get("payload"), dict) else {}
+        collection = payload.get("collection") if isinstance(payload.get("collection"), dict) else {}
+        party = payload.get("party") if isinstance(payload.get("party"), dict) else {}
+        log(
+            "Trace",
+            "outbox_id={id} collection_id={cid} status={status} "
+            "erp_ref={ref} stored_debit={debit} credit={credit}".format(
+                id=voucher.get("id"),
+                cid=collection.get("id"),
+                status=voucher.get("status"),
+                ref=voucher.get("erp_reference"),
+                debit=collection.get("debit_ledger"),
+                credit=party.get("tally_ledger_name"),
+            ),
+        )
+        try:
+            xml = build_voucher_xml(voucher, settings)
+        except VoucherBuildError as exc:
+            log("Failed", str(exc))
+            return 1
+        log("TraceXML", xml)
+        log(
+            "Trace",
+            "xml_party={party}  xml_has_sbi={sbi}  xml_has_cash_ledger={cash}".format(
+                party=_xml_tag(xml, "PARTYLEDGERNAME"),
+                sbi="State Bank of India" in xml,
+                cash="<LEDGERNAME>Cash</LEDGERNAME>" in xml,
+            ),
+        )
+
+    log("Trace", "XML printed only. No voucher was posted to Tally.")
+    return 0
+
+
+def _xml_tag(xml: str, tag: str) -> str:
+    start = xml.find(f"<{tag}>")
+    end = xml.find(f"</{tag}>")
+    if start < 0 or end < 0:
+        return ""
+    return xml[start + len(tag) + 2 : end]
 
 
 def send_heartbeat(erp: ErpClient, settings: Settings) -> None:
@@ -254,7 +320,10 @@ def process_voucher(
             party = str(
                 (claimed_payload.get("payload") or {}).get("party", {}).get("tally_ledger_name") or ""
             )
-            log("Syncing", f"{reference}  debit={debit}  credit={party}")
+            log(
+                "Syncing",
+                f"{reference}  account={debit}  debit={debit}  credit={party}",
+            )
         result = tally.import_voucher(xml)
         if not result.succeeded:
             raise TallyError(result.error_message())

@@ -44,11 +44,15 @@ class ReceiptVoucherLedgerTest(unittest.TestCase):
             _settings(),
         )
 
+        self.assertIn("<PARTYLEDGERNAME>State Bank of India</PARTYLEDGERNAME>", xml)
+        self.assertIn("<BASICBASEPARTYNAME>State Bank of India</BASICBASEPARTYNAME>", xml)
+        self.assertNotIn("<PARTYLEDGERNAME>SBI Receipt Party</PARTYLEDGERNAME>", xml)
         self.assertIn("<LEDGERNAME>State Bank of India</LEDGERNAME>", xml)
         self.assertIn("<ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>", xml)
         self.assertIn("<LEDGERNAME>SBI Receipt Party</LEDGERNAME>", xml)
         self.assertIn("<ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>", xml)
         self.assertNotIn("<LEDGERNAME>Cash</LEDGERNAME>", xml)
+        self.assertIn("<TRANSACTIONTYPE>Inter Bank Transfer</TRANSACTIONTYPE>", xml)
         debit_at = xml.index("<LEDGERNAME>State Bank of India</LEDGERNAME>")
         credit_at = xml.index("<LEDGERNAME>SBI Receipt Party</LEDGERNAME>")
         self.assertLess(debit_at, credit_at)
@@ -72,9 +76,11 @@ class ReceiptVoucherLedgerTest(unittest.TestCase):
             _settings(),
         )
 
+        self.assertIn("<PARTYLEDGERNAME>State Bank of India</PARTYLEDGERNAME>", xml)
         self.assertIn("<LEDGERNAME>State Bank of India</LEDGERNAME>", xml)
         self.assertIn("<LEDGERNAME>Legacy Party</LEDGERNAME>", xml)
         self.assertNotIn("<LEDGERNAME>Cash</LEDGERNAME>", xml)
+        self.assertNotIn("<PARTYLEDGERNAME>Cash</PARTYLEDGERNAME>", xml)
 
     def test_legacy_receipt_without_debit_ledger_debits_state_bank_of_india(self) -> None:
         xml = build_voucher_xml(
@@ -94,8 +100,10 @@ class ReceiptVoucherLedgerTest(unittest.TestCase):
             _settings(),
         )
 
+        self.assertIn("<PARTYLEDGERNAME>State Bank of India</PARTYLEDGERNAME>", xml)
         self.assertIn("<LEDGERNAME>State Bank of India</LEDGERNAME>", xml)
         self.assertNotIn("<LEDGERNAME>Cash</LEDGERNAME>", xml)
+        self.assertNotIn("<PARTYLEDGERNAME>Cash</PARTYLEDGERNAME>", xml)
 
 
 if __name__ == "__main__":

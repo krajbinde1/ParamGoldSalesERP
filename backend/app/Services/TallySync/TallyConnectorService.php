@@ -33,6 +33,46 @@ final class TallyConnectorService
             ->all();
     }
 
+    /**
+     * Read-only lookup for tracing. Never rewrites payloads or statuses.
+     *
+     * @return list<TallyOutboundVoucher>
+     */
+    public function lookupReceipts(
+        ?string $tallyVoucherNo,
+        ?string $erpReference,
+        ?int $sourceId,
+        ?int $id,
+    ): array {
+        $query = TallyOutboundVoucher::query()
+            ->where('voucher_type', TallyOutboundVoucher::VOUCHER_RECEIPT);
+
+        if ($id !== null) {
+            $query->whereKey($id);
+        }
+
+        if ($sourceId !== null) {
+            $query->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)
+                ->where('source_id', $sourceId);
+        }
+
+        if (filled($erpReference)) {
+            $query->where('erp_reference', $erpReference);
+        }
+
+        if (filled($tallyVoucherNo)) {
+            $no = trim((string) $tallyVoucherNo);
+            $query->where(function ($inner) use ($no): void {
+                $inner->where('tally_voucher_no', $no)
+                    ->orWhere('erp_reference', $no)
+                    ->orWhere('erp_reference', 'ERP-COL-'.$no)
+                    ->orWhere('payload->collection->receipt_no', $no);
+            });
+        }
+
+        return $query->orderByDesc('id')->limit(20)->get()->all();
+    }
+
     public function claim(TallyOutboundVoucher $voucher, ?string $connectorId): TallyOutboundVoucher
     {
         return DB::transaction(function () use ($voucher, $connectorId): TallyOutboundVoucher {

@@ -270,7 +270,8 @@ it('authenticates the tally connector heartbeat without querying vouchers', func
         ->assertOk()
         ->assertJsonPath('success', true)
         ->assertJsonPath('message', 'Tally connector authenticated.')
-        ->assertJsonPath('connector_id', 'office-pc');
+        ->assertJsonPath('connector_id', 'office-pc')
+        ->assertJsonPath('receipt_debit_ledger', 'State Bank of India');
 
     $state = TallyLiveSyncState::current();
     expect($state->last_heartbeat_at)->not->toBeNull()
@@ -805,6 +806,47 @@ it('retries a failed cash-ledger receipt on the same outbox row after rewriting 
         ->and($voucher->fresh()->last_error)->toBeNull()
         ->and($voucher->fresh()->payload['collection']['debit_ledger'])->toBe('State Bank of India')
         ->and($voucher->fresh()->payload['collection']['amount'])->toEqual(5000.0);
+
+    Carbon::setTestNow();
+});
+
+it('looks up a synced receipt by tally voucher number without rewriting it', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-27 16:40:00', 'Asia/Kolkata'));
+
+    $user = tallySyncConnectorUser();
+    $employee = tallySyncEmployee('9813000304');
+    $dealer = tallySyncDealer($employee, ['firm_name' => 'Test Dealer']);
+    tallySyncMapDealer($dealer, 'Test Dealer');
+    $collection = tallySyncPendingCollection($dealer, $employee, [
+        'payment_mode' => 'Cash',
+        'amount' => 1500,
+    ]);
+    $collection->transitionTo(Collection::STATUS_RECEIVED);
+
+    $voucher = TallyOutboundVoucher::query()->where('erp_reference', 'ERP-COL-'.$collection->id)->firstOrFail();
+    $payload = $voucher->payload;
+    $payload['collection']['debit_ledger'] = 'Cash';
+    $voucher->update([
+        'payload' => $payload,
+        'status' => TallyOutboundVoucher::STATUS_SYNCED,
+        'tally_voucher_no' => '559',
+        'synced_at' => now(),
+    ]);
+
+    $token = tallySyncConnectorToken($user);
+    $this->withToken($token)
+        ->getJson('/api/tally-connector/vouchers/lookup?tally_voucher_no=559')
+        ->assertOk()
+        ->assertJsonPath('receipt_debit_ledger', 'State Bank of India')
+        ->assertJsonPath('data.0.id', $voucher->id)
+        ->assertJsonPath('data.0.source_id', $collection->id)
+        ->assertJsonPath('data.0.tally_voucher_no', '559')
+        ->assertJsonPath('data.0.status', TallyOutboundVoucher::STATUS_SYNCED)
+        ->assertJsonPath('data.0.payload.collection.debit_ledger', 'Cash')
+        ->assertJsonPath('data.0.payload.party.tally_ledger_name', 'Test Dealer');
+
+    expect($voucher->fresh()->payload['collection']['debit_ledger'])->toBe('Cash')
+        ->and($voucher->fresh()->status)->toBe(TallyOutboundVoucher::STATUS_SYNCED);
 
     Carbon::setTestNow();
 });
