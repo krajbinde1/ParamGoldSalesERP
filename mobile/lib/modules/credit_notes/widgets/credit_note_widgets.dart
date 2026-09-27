@@ -13,6 +13,7 @@ PgStatusTone creditNoteStatusTone(String status) {
     'approved' => PgStatusTone.approved,
     'completed' => PgStatusTone.paid,
     'rejected' => PgStatusTone.rejected,
+    'pending_production_approval' => PgStatusTone.pending,
     _ => PgStatusTone.pending,
   };
 }
@@ -39,6 +40,7 @@ class CreditNoteListTile extends StatelessWidget {
     final date = note.creditNoteDate;
     final subtitle = [
       if (note.typeLabel.isNotEmpty) note.typeLabel,
+      if ((note.moveToLabel ?? '').isNotEmpty) note.moveToLabel,
       if (date != null) DateFormat('d MMM yyyy').format(date),
       if (showEmployee && (note.employeeName ?? '').isNotEmpty)
         note.employeeName,
@@ -66,7 +68,11 @@ class CreditNoteListTile extends StatelessWidget {
           ),
           const SizedBox(height: 4),
           Text(
-            note.dealerName,
+            [
+              note.dealerName,
+              if ((note.destinationDealerName ?? '').isNotEmpty)
+                'To ${note.destinationDealerName}',
+            ].join(' • '),
             style: Theme.of(context).textTheme.bodyMedium,
           ),
           const SizedBox(height: AppSpacing.sm),

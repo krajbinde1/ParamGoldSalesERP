@@ -3,11 +3,14 @@
 use App\Actions\CreditNotes\CompleteCreditNote;
 use App\Actions\CreditNotes\RejectCreditNoteWithRemarks;
 use App\Actions\Employees\CreateEmployeeWithUserAccount;
+use App\Enums\StockTransactionType;
 use App\Enums\UserRole;
 use App\Models\CreditNote;
 use App\Models\Dealer;
 use App\Models\Employee;
+use App\Models\Order;
 use App\Models\Product;
+use App\Models\StockLedger;
 use App\Models\User;
 use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -86,6 +89,7 @@ function salesReturnPayload(Dealer $dealer, Product $product, array $overrides =
 {
     return array_merge([
         'type' => CreditNote::TYPE_SALES_RETURN,
+        'move_to' => CreditNote::MOVE_TO_FACTORY,
         'dealer_id' => $dealer->id,
         'bill_reference' => 'INV-1001',
         'credit_note_date' => now('Asia/Kolkata')->toDateString(),
@@ -93,12 +97,21 @@ function salesReturnPayload(Dealer $dealer, Product $product, array $overrides =
         'items' => [
             [
                 'product_id' => $product->id,
-                'quantity' => 2,
-                'rate' => 150,
+                'case_quantity' => 1,
+                'rate_per_no' => 150,
                 'reason' => 'Damaged packing',
             ],
         ],
     ], $overrides);
+}
+
+function salesReturnExpectedAmount(Product $product, int $cases = 1): float
+{
+    $quantity = $cases * (int) $product->nos_per_case;
+    $base = $quantity * (float) $product->dealer_price;
+    $gst = $base * ((float) $product->gst_percentage) / 100;
+
+    return round($base + $gst, 2);
 }
 
 function rateDifferencePayload(Dealer $dealer, Product $product, array $overrides = []): array
@@ -125,18 +138,24 @@ it('lets a sales employee create a sales return credit note with calculated amou
     $dealer = creditNoteDealer($employee);
     $product = creditNoteProduct();
 
+    $expected = salesReturnExpectedAmount($product);
+
     $this->actingAs($employee->user, 'sanctum')
         ->postJson('/api/employee/credit-notes', salesReturnPayload($dealer, $product))
         ->assertCreated()
         ->assertJsonPath('status', CreditNote::STATUS_PENDING_APPROVAL)
-        ->assertJsonPath('amount', 300);
+        ->assertJsonPath('amount', (int) $expected);
 
     $note = CreditNote::query()->first();
     expect($note)->not->toBeNull()
         ->and($note->credit_note_no)->toStartWith('CN')
         ->and($note->type)->toBe(CreditNote::TYPE_SALES_RETURN)
+        ->and($note->move_to)->toBe(CreditNote::MOVE_TO_FACTORY)
+        ->and($note->credit_note_date->toDateString())->toBe(now('Asia/Kolkata')->toDateString())
         ->and($note->items)->toHaveCount(1)
-        ->and((float) $note->items->first()->amount)->toBe(300.0);
+        ->and((float) $note->items->first()->amount)->toBe($expected)
+        ->and((int) $note->items->first()->case_quantity)->toBe(1)
+        ->and((int) $note->items->first()->total_quantity_nos)->toBe(20);
 });
 
 it('blocks a sales employee from creating a rate difference credit note', function () {
@@ -285,19 +304,19 @@ it('lets a manager edit a pending team credit note then approve it', function ()
             'items' => [
                 [
                     'product_id' => $product->id,
-                    'quantity' => 3,
-                    'rate' => 150,
+                    'case_quantity' => 2,
+                    'rate_per_no' => 150,
                     'reason' => 'Damaged packing',
                 ],
             ],
         ]))
         ->assertOk()
-        ->assertJsonPath('amount', 450);
+        ->assertJsonPath('amount', (int) salesReturnExpectedAmount($product, 2));
 
     $this->actingAs($manager->user, 'sanctum')
         ->postJson("/api/manager/credit-notes/{$note->id}/approve")
         ->assertOk()
-        ->assertJsonPath('data.status', CreditNote::STATUS_APPROVED);
+        ->assertJsonPath('data.status', CreditNote::STATUS_PENDING_PRODUCTION_APPROVAL);
 
     expect($note->fresh()->last_edited_by_role)->toBe(CreditNote::EDITED_BY_ROLE_SALES_MANAGER);
 });
@@ -365,6 +384,11 @@ it('lets admin complete an approved credit note and reject another with remarks'
         ->postJson("/api/manager/credit-notes/{$rejectNote->id}/approve")
         ->assertOk();
 
+    $production = creditNoteEmployee(UserRole::ProductionSupervisor, '9300000030');
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/credit-notes/{$completeNote->id}/approve")
+        ->assertOk();
+
     expect(fn () => app(CompleteCreditNote::class)->execute($completeNote->fresh(), $admin))
         ->not->toThrow(Exception::class);
     expect($completeNote->fresh()->status)->toBe(CreditNote::STATUS_COMPLETED);
@@ -411,7 +435,8 @@ it('blocks employee edits after manager approval', function () {
 
     $this->actingAs($manager->user, 'sanctum')
         ->postJson("/api/manager/credit-notes/{$note->id}/approve")
-        ->assertOk();
+        ->assertOk()
+        ->assertJsonPath('data.status', CreditNote::STATUS_PENDING_PRODUCTION_APPROVAL);
 
     $this->actingAs($employee->user, 'sanctum')
         ->putJson("/api/employee/credit-notes/{$note->id}", salesReturnPayload($dealer, $product))
@@ -443,4 +468,170 @@ it('accepts an optional supporting document on create', function () {
     $note = CreditNote::query()->first();
     expect($note->supporting_document_path)->not->toBeNull();
     Storage::disk('public')->assertExists($note->supporting_document_path);
+});
+
+it('requires move to factory or dealer on a sales return', function () {
+    $employee = creditNoteEmployee(UserRole::Employee, '9300000101');
+    $dealer = creditNoteDealer($employee);
+    $product = creditNoteProduct();
+
+    $payload = salesReturnPayload($dealer, $product);
+    unset($payload['move_to']);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/credit-notes', $payload)
+        ->assertUnprocessable()
+        ->assertJsonValidationErrors(['move_to']);
+});
+
+it('sends a factory sales return to production then posts stock only once after production approval', function () {
+    $manager = creditNoteEmployee(UserRole::Manager, '9300000102');
+    $employee = creditNoteEmployee(UserRole::Employee, '9300000103');
+    $production = creditNoteEmployee(UserRole::ProductionSupervisor, '9300000104');
+    $employee->update(['reporting_manager_id' => $manager->id]);
+    $dealer = creditNoteDealer($employee);
+    $product = creditNoteProduct();
+    $product->update([
+        'current_finished_stock' => 5,
+        'weighted_average_cost' => 80,
+    ]);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/credit-notes', salesReturnPayload($dealer, $product))
+        ->assertCreated();
+
+    $note = CreditNote::query()->first();
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson("/api/manager/credit-notes/{$note->id}/approve")
+        ->assertOk()
+        ->assertJsonPath('data.status', CreditNote::STATUS_PENDING_PRODUCTION_APPROVAL);
+
+    expect((float) $product->fresh()->current_finished_stock)->toBe(5.0);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->getJson('/api/production/credit-notes')
+        ->assertOk()
+        ->assertJsonPath('data.0.id', $note->id);
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/credit-notes/{$note->id}/approve")
+        ->assertOk()
+        ->assertJsonPath('data.status', CreditNote::STATUS_APPROVED);
+
+    expect((float) $product->fresh()->current_finished_stock)->toBe(25.0)
+        ->and($note->fresh()->stock_posted_at)->not->toBeNull();
+
+    app(\App\Services\CreditNotes\CreditNoteStockService::class)
+        ->postFactoryReturn($note->fresh(), $production->user);
+
+    expect((float) $product->fresh()->current_finished_stock)->toBe(25.0)
+        ->and(StockLedger::query()
+            ->where('reference_type', CreditNote::class)
+            ->where('reference_id', $note->id)
+            ->where('transaction_type', StockTransactionType::Return)
+            ->count())->toBe(1);
+});
+
+it('does not change factory stock when production rejects a sales return', function () {
+    $manager = creditNoteEmployee(UserRole::Manager, '9300000105');
+    $employee = creditNoteEmployee(UserRole::Employee, '9300000106');
+    $production = creditNoteEmployee(UserRole::ProductionSupervisor, '9300000107');
+    $employee->update(['reporting_manager_id' => $manager->id]);
+    $dealer = creditNoteDealer($employee);
+    $product = creditNoteProduct();
+    $product->update(['current_finished_stock' => 8, 'weighted_average_cost' => 80]);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/credit-notes', salesReturnPayload($dealer, $product))
+        ->assertCreated();
+
+    $note = CreditNote::query()->first();
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson("/api/manager/credit-notes/{$note->id}/approve")
+        ->assertOk();
+
+    $this->actingAs($production->user, 'sanctum')
+        ->postJson("/api/production/credit-notes/{$note->id}/reject", [
+            'remark' => 'Damaged and not usable',
+        ])
+        ->assertOk();
+
+    expect($note->fresh()->status)->toBe(CreditNote::STATUS_REJECTED)
+        ->and($note->fresh()->rejected_by_role)->toBe(CreditNote::REJECTED_BY_ROLE_PRODUCTION_MANAGER)
+        ->and($note->fresh()->stock_posted_at)->toBeNull()
+        ->and((float) $product->fresh()->current_finished_stock)->toBe(8.0)
+        ->and(StockLedger::query()->where('reference_id', $note->id)->count())->toBe(0);
+});
+
+it('creates a linked destination dealer order that skips production and never posts factory stock', function () {
+    $manager = creditNoteEmployee(UserRole::Manager, '9300000108');
+    $employee = creditNoteEmployee(UserRole::Employee, '9300000109');
+    $employee->update(['reporting_manager_id' => $manager->id]);
+    $returning = creditNoteDealer($employee);
+    $destination = Dealer::query()->create([
+        'firm_name' => 'Destination Dealer '.$employee->id,
+        'owner_name' => 'Owner Two',
+        'mobile' => '97'.str_pad((string) $employee->id, 8, '7', STR_PAD_LEFT),
+        'address' => '456 Other Street',
+        'state' => 'Maharashtra',
+        'district' => 'Pune',
+        'taluka' => 'Haveli',
+        'pincode' => '411002',
+        'village' => 'Other Village',
+        'status' => true,
+        'assigned_employee_id' => $employee->id,
+    ]);
+    $product = creditNoteProduct();
+    $product->update(['current_finished_stock' => 12, 'weighted_average_cost' => 80]);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/credit-notes', salesReturnPayload($returning, $product, [
+            'move_to' => CreditNote::MOVE_TO_DEALER,
+            'destination_dealer_id' => $destination->id,
+            'bill_reference' => 'INV-DEALER-1',
+        ]))
+        ->assertCreated()
+        ->assertJsonPath('data.move_to', CreditNote::MOVE_TO_DEALER)
+        ->assertJsonPath('data.destination_dealer.id', $destination->id);
+
+    $note = CreditNote::query()->first();
+    $linked = Order::query()->where('source_credit_note_id', $note->id)->first();
+
+    expect($linked)->not->toBeNull()
+        ->and($linked->dealer_id)->toBe($destination->id)
+        ->and($linked->status)->toBe(Order::STATUS_PENDING_APPROVAL)
+        ->and($note->linked_order_id)->toBe($linked->id)
+        ->and($linked->items)->toHaveCount(1)
+        ->and((int) $linked->items->first()->case_quantity)->toBe(1);
+
+    app(\App\Services\CreditNotes\SalesReturnTransferOrderService::class)
+        ->syncLinkedOrder($note->fresh(['items', 'dealer', 'destinationDealer']));
+
+    expect(Order::query()->where('source_credit_note_id', $note->id)->count())->toBe(1);
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson("/api/manager/credit-notes/{$note->id}/approve")
+        ->assertOk()
+        ->assertJsonPath('data.status', CreditNote::STATUS_APPROVED);
+
+    $linked->refresh();
+    expect($linked->status)->toBe(Order::STATUS_PENDING_FOR_BILLING)
+        ->and($linked->sent_for_bill_at)->not->toBeNull()
+        ->and((float) $product->fresh()->current_finished_stock)->toBe(12.0)
+        ->and($note->fresh()->stock_posted_at)->toBeNull();
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->getJson("/api/manager/credit-notes/{$note->id}")
+        ->assertOk()
+        ->assertJsonPath('data.dealer.firm_name', $returning->firm_name)
+        ->assertJsonPath('data.destination_dealer.firm_name', $destination->firm_name)
+        ->assertJsonPath('data.linked_order.order_no', $linked->order_no)
+        ->assertJsonPath('data.bill_reference', 'INV-DEALER-1');
+
+    expect($note->fresh()->dealer_id)->toBe($returning->id)
+        ->and($linked->dealer_id)->toBe($destination->id)
+        ->and($note->linked_order_id)->toBe($linked->id)
+        ->and($note->dealer_id)->not->toBe($linked->dealer_id);
 });

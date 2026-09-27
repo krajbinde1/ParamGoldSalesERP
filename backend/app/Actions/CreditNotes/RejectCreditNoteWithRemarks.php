@@ -32,6 +32,10 @@ final class RejectCreditNoteWithRemarks
 
         $creditNote->reject($actor->id, $remark, $rejectedByRole);
 
-        return $creditNote->fresh();
+        $fresh = $creditNote->fresh() ?? $creditNote;
+        app(\App\Services\CreditNotes\SalesReturnTransferOrderService::class)
+            ->rejectLinkedOrder($fresh, $actor, $remark);
+
+        return $fresh;
     }
 }

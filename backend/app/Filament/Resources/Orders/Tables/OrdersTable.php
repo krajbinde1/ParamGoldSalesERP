@@ -118,6 +118,25 @@ class OrdersTable
                     ->sortable()
                     ->visible(fn () => ! $isProductionSupervisor),
                 TextColumn::make('dealer.firm_name')->label('Dealer')->searchable()->sortable(),
+                TextColumn::make('source_credit_note_id')
+                    ->label('Origin')
+                    ->state(function (Order $record): string {
+                        if (! $record->isFromCreditNoteTransfer()) {
+                            return 'Order';
+                        }
+
+                        $record->loadMissing([
+                            'sourceCreditNote:id,credit_note_no,dealer_id,bill_reference',
+                            'sourceCreditNote.dealer:id,firm_name',
+                        ]);
+
+                        $cn = $record->sourceCreditNote?->credit_note_no ?: 'Credit Note';
+                        $from = $record->sourceCreditNote?->dealer?->firm_name;
+
+                        return $from ? "Sales return {$cn} from {$from}" : "Sales return {$cn}";
+                    })
+                    ->wrap()
+                    ->toggleable(),
                 TextColumn::make('salesEmployee.full_name')->label('Sales Employee')->placeholder('-')->searchable(),
                 TextColumn::make('payment_type')
                     ->badge()

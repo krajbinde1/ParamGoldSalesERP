@@ -29,6 +29,13 @@ class ProductionSupervisorMainScreen extends StatelessWidget {
           ),
           const SizedBox(height: AppSpacing.md),
           ModuleTile(
+            icon: const Icon(Icons.assignment_return_outlined),
+            label: 'Factory Returns',
+            subtitle: 'Approve sales returns moving to factory stock',
+            onTap: () => _open(context, '/production/credit-notes'),
+          ),
+          const SizedBox(height: AppSpacing.md),
+          ModuleTile(
             icon: const Icon(Icons.inventory_2_outlined),
             label: 'Inventory',
             subtitle: 'Stock overview, production and reports',

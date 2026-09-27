@@ -183,7 +183,7 @@ class Order extends Model
     }
 
     protected $fillable = [
-        'order_no', 'order_date', 'dealer_id', 'sales_employee_id', 'payment_type',
+        'order_no', 'order_date', 'dealer_id', 'sales_employee_id', 'source_credit_note_id', 'payment_type',
         'remarks', 'status', 'subtotal', 'discount_amount', 'gst_amount', 'grand_total',
         'unrounded_grand_total', 'round_off',
         'approved_by', 'approved_at', 'rejected_by', 'rejected_by_role', 'rejected_at', 'rejection_remark',
@@ -240,6 +240,16 @@ class Order extends Model
     public function dealer(): BelongsTo
     {
         return $this->belongsTo(Dealer::class);
+    }
+
+    public function sourceCreditNote(): BelongsTo
+    {
+        return $this->belongsTo(CreditNote::class, 'source_credit_note_id');
+    }
+
+    public function isFromCreditNoteTransfer(): bool
+    {
+        return $this->source_credit_note_id !== null;
     }
 
     public function whatsAppBillMessages(): HasMany
@@ -907,6 +917,16 @@ class Order extends Model
                 'rejection_remark' => null,
                 'remarks' => filled($remark) ? trim($remark) : $locked->remarks,
             ]);
+
+            if ($locked->source_credit_note_id !== null) {
+                $locked->refresh();
+                $now = Carbon::now(self::BUSINESS_TIMEZONE);
+                $locked->update([
+                    'status' => self::STATUS_PENDING_FOR_BILLING,
+                    'sent_for_bill_by' => $userId,
+                    'sent_for_bill_at' => $now,
+                ]);
+            }
 
             $this->refresh();
         });

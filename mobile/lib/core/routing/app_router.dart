@@ -26,6 +26,7 @@ import '../../modules/credit_notes/screens/credit_note_detail_screen.dart';
 import '../../modules/credit_notes/screens/credit_note_form_screen.dart';
 import '../../modules/credit_notes/screens/credit_note_list_screen.dart';
 import '../../modules/credit_notes/screens/manager_credit_note_screens.dart';
+import '../../modules/credit_notes/screens/production_credit_note_screens.dart';
 import '../../modules/ta_da_claims/screens/new_ta_da_claim_screen.dart';
 import '../../modules/ta_da_claims/screens/ta_da_claim_dashboard_screen.dart';
 import '../../modules/ta_da_claims/screens/ta_da_claim_detail_screen.dart';
@@ -674,6 +675,19 @@ GoRouter createRouter(
           builder: (_, state) => ProductionOrderDetailScreen(
             auth: auth,
             orderId: int.parse(state.pathParameters['orderId']!),
+          ),
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/production/credit-notes',
+      builder: (_, _) => ProductionCreditNoteListScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':creditNoteId',
+          builder: (_, state) => ProductionCreditNoteDetailScreen(
+            auth: auth,
+            creditNoteId: int.parse(state.pathParameters['creditNoteId']!),
           ),
         ),
       ],

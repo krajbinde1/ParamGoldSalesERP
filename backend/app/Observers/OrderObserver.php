@@ -77,6 +77,10 @@ class OrderObserver
         match ($fresh->status) {
             Order::STATUS_PENDING_APPROVAL => $this->safe(fn () => $this->notifier->notifyNewOrder($fresh)),
             Order::STATUS_APPROVED => $this->safe(function () use ($fresh, $previous): void {
+                if ($fresh->isFromCreditNoteTransfer()) {
+                    return;
+                }
+
                 if ($previous === Order::STATUS_REVERTED_TO_MANAGER) {
                     $this->notifier->notifyReapproved($fresh);
 

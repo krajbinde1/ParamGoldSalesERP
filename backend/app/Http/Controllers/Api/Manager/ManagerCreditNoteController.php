@@ -31,7 +31,7 @@ class ManagerCreditNoteController extends Controller
         $this->authorize('viewAny', CreditNote::class);
 
         $validated = $request->validate([
-            'status' => ['nullable', 'string', 'in:pending_approval,approved,completed,rejected'],
+            'status' => ['nullable', 'string', 'in:pending_approval,pending_production_approval,approved,completed,rejected'],
             'sales_employee_id' => ['nullable', 'integer'],
             'dealer' => ['nullable', 'string', 'max:100'],
             'type' => ['nullable', 'string', 'in:sales_return,rate_difference'],
@@ -46,6 +46,8 @@ class ManagerCreditNoteController extends Controller
         $notes = (clone $teamQuery)
             ->with([
                 'dealer:id,dealer_code,firm_name,village,taluka,district,state',
+                'destinationDealer:id,firm_name,dealer_code',
+                'linkedOrder:id,order_no,status,dealer_id',
                 'salesEmployee:id,full_name,employee_code',
                 'rejectedByUser:id,name',
             ])
@@ -191,7 +193,11 @@ class ManagerCreditNoteController extends Controller
             'remark' => ['nullable', 'string', 'max:2000'],
         ]);
 
-        $creditNote->approve($request->user()->id, $validated['remark'] ?? null);
+        app(\App\Actions\CreditNotes\ApproveCreditNoteByManager::class)->execute(
+            $creditNote,
+            $request->user(),
+            $validated['remark'] ?? null,
+        );
         $fresh = $creditNote->fresh();
 
         return response()->json([
@@ -233,6 +239,7 @@ class ManagerCreditNoteController extends Controller
 
         return [
             'pending_approval' => (clone $base)->where('status', CreditNote::STATUS_PENDING_APPROVAL)->count(),
+            'pending_production_approval' => (clone $base)->where('status', CreditNote::STATUS_PENDING_PRODUCTION_APPROVAL)->count(),
             'approved' => (clone $base)->where('status', CreditNote::STATUS_APPROVED)->count(),
             'completed' => (clone $base)->where('status', CreditNote::STATUS_COMPLETED)->count(),
             'rejected' => (clone $base)->where('status', CreditNote::STATUS_REJECTED)->count(),

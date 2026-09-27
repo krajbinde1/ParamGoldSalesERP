@@ -14,6 +14,8 @@ final class CreditNotePushNotifier
 {
     public const TYPE_CREATED = 'credit_note_created';
 
+    public const TYPE_PENDING_PRODUCTION = 'credit_note_pending_production';
+
     public const TYPE_APPROVED = 'credit_note_approved';
 
     public const TYPE_REJECTED = 'credit_note_rejected';
@@ -46,13 +48,40 @@ final class CreditNotePushNotifier
         );
     }
 
+    public function notifyPendingProduction(CreditNote $creditNote): void
+    {
+        $creditNote->loadMissing(['dealer:id,firm_name', 'salesEmployee:id,full_name']);
+
+        foreach ($this->productionUsers() as $user) {
+            $this->dispatchToUser(
+                user: $user,
+                creditNote: $creditNote,
+                type: self::TYPE_PENDING_PRODUCTION,
+                title: 'Factory return pending approval',
+                body: $this->statusBody($creditNote, 'sent to Production Manager'),
+                route: '/production/credit-notes/'.$creditNote->id,
+            );
+        }
+
+        $this->notifyEmployee(
+            creditNote: $creditNote,
+            type: self::TYPE_APPROVED,
+            title: 'Credit Note sent to Production',
+            body: $this->statusBody($creditNote, 'approved by Sales Manager and sent to Production Manager'),
+        );
+    }
+
     public function notifyApproved(CreditNote $creditNote): void
     {
+        $action = $creditNote->isMoveToFactory() && filled($creditNote->production_approved_at)
+            ? 'approved by Production Manager'
+            : 'approved by Sales Manager';
+
         $this->notifyEmployee(
             creditNote: $creditNote,
             type: self::TYPE_APPROVED,
             title: 'Credit Note Approved',
-            body: $this->statusBody($creditNote, 'approved by Sales Manager'),
+            body: $this->statusBody($creditNote, $action),
         );
     }
 
@@ -151,6 +180,21 @@ final class CreditNotePushNotifier
             ->where('employee_id', $managerEmployeeId)
             ->where('role', UserRole::Manager->value)
             ->first();
+    }
+
+    /**
+     * @return list<User>
+     */
+    private function productionUsers(): array
+    {
+        return User::query()
+            ->where(function ($query): void {
+                $query->where('role', UserRole::ProductionSupervisor->value)
+                    ->orWhere('job_role', \App\Enums\FilamentJobRole::ProductionManager->value)
+                    ->orWhere('job_role', \App\Enums\FilamentJobRole::ProductionSupervisor->value);
+            })
+            ->get()
+            ->all();
     }
 
     private function dispatchToUser(

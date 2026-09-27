@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\CreditNotes\Pages;
 
+use App\Actions\CreditNotes\ApproveCreditNoteByProduction;
 use App\Actions\CreditNotes\CompleteCreditNote;
 use App\Actions\CreditNotes\RejectCreditNoteWithRemarks;
 use App\Filament\Resources\CreditNotes\CreditNoteResource;
@@ -21,6 +22,28 @@ class ViewCreditNote extends ViewRecord
         $record = $this->getRecord();
 
         return [
+            Action::make('approveProduction')
+                ->label('Approve Factory Return')
+                ->color('success')
+                ->visible(fn (): bool => Gate::forUser(auth()->user())->allows('approveAsProduction', $record))
+                ->authorize(fn (): bool => Gate::forUser(auth()->user())->allows('approveAsProduction', $record))
+                ->requiresConfirmation()
+                ->modalHeading('Approve factory return and add stock')
+                ->form([
+                    Textarea::make('remark')
+                        ->label('Remarks')
+                        ->rows(2),
+                ])
+                ->action(function (array $data) use ($record): void {
+                    app(ApproveCreditNoteByProduction::class)->execute(
+                        $record,
+                        auth()->user(),
+                        $data['remark'] ?? null,
+                    );
+
+                    Notification::make()->title('Factory return approved. Stock updated.')->success()->send();
+                    $this->refreshFormData(['status', 'production_approved_by', 'production_approved_at', 'stock_posted_at']);
+                }),
             Action::make('complete')
                 ->label('Mark Generated / Completed')
                 ->color('success')
@@ -67,7 +90,7 @@ class ViewCreditNote extends ViewRecord
                         creditNote: $record,
                         actor: auth()->user(),
                         remark: $data['rejection_remark'],
-                        rejectedByRole: CreditNote::REJECTED_BY_ROLE_ADMIN,
+                        rejectedByRole: CreditNote::rejectedByRoleFor(auth()->user()),
                     );
 
                     Notification::make()->title('Credit Note rejected.')->danger()->send();

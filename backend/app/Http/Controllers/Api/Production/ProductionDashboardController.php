@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\Production;
 
 use App\Http\Controllers\Controller;
+use App\Models\CreditNote;
 use App\Models\Order;
 use App\Services\Inventory\InventoryDashboardService;
 use Illuminate\Http\JsonResponse;
@@ -47,10 +48,16 @@ class ProductionDashboardController extends Controller
         $billedCount = Order::query()->where('status', Order::STATUS_BILLED)->count();
         $dispatchedCount = Order::query()->where('status', Order::STATUS_DISPATCHED)->count();
         $rejectedCount = Order::query()->where('status', Order::STATUS_REJECTED)->count();
+        $pendingFactoryReturns = CreditNote::query()
+            ->where('type', CreditNote::TYPE_SALES_RETURN)
+            ->where('move_to', CreditNote::MOVE_TO_FACTORY)
+            ->where('status', CreditNote::STATUS_PENDING_PRODUCTION_APPROVAL)
+            ->count();
 
         return response()->json([
             'success' => true,
             'summary' => [
+                'pending_factory_returns' => $pendingFactoryReturns,
                 'approved_orders' => $approvedCount,
                 'on_hold_orders' => $onHoldCount,
                 'reverted_orders' => $revertedCount,

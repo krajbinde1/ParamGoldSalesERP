@@ -34,6 +34,7 @@ class _ManagerCreditNoteListScreenState extends State<ManagerCreditNoteListScree
   late final ManagerCreditNoteApi _api;
   static const _statuses = [
     'pending_approval',
+    'pending_production_approval',
     'approved',
     'completed',
     'rejected',
@@ -44,9 +45,10 @@ class _ManagerCreditNoteListScreenState extends State<ManagerCreditNoteListScree
   void initState() {
     super.initState();
     final initialIndex = switch (widget.initialTab) {
-      'approved' => 1,
-      'completed' => 2,
-      'rejected' => 3,
+      'pending_production' || 'pending_production_approval' => 1,
+      'approved' => 2,
+      'completed' => 3,
+      'rejected' => 4,
       _ => 0,
     };
     _tabs = TabController(
@@ -93,6 +95,7 @@ class _ManagerCreditNoteListScreenState extends State<ManagerCreditNoteListScree
           isScrollable: true,
           tabs: const [
             Tab(text: 'Pending Approval'),
+            Tab(text: 'Pending Production'),
             Tab(text: 'Approved'),
             Tab(text: 'Completed'),
             Tab(text: 'Rejected'),

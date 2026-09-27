@@ -68,6 +68,8 @@ class CreditNoteApi {
     String? remarks,
     String? documentPath,
     int? creditNoteId,
+    String? moveTo,
+    int? destinationDealerId,
   }) async {
     try {
       final formData = FormData.fromMap({
@@ -79,6 +81,9 @@ class CreditNoteApi {
             '${creditNoteDate.month.toString().padLeft(2, '0')}-'
             '${creditNoteDate.day.toString().padLeft(2, '0')}',
         'items': jsonEncode(items),
+        if (moveTo != null && moveTo.isNotEmpty) 'move_to': moveTo,
+        if (destinationDealerId != null)
+          'destination_dealer_id': destinationDealerId,
         if (remarks != null && remarks.trim().isNotEmpty)
           'remarks': remarks.trim(),
         if (documentPath != null && documentPath.isNotEmpty)
@@ -153,6 +158,11 @@ class ManagerCreditNoteApi {
         counts: {
           'pending_approval':
               int.tryParse('${countsRaw['pending_approval'] ?? 0}') ?? 0,
+          'pending_production_approval':
+              int.tryParse(
+                '${countsRaw['pending_production_approval'] ?? 0}',
+              ) ??
+              0,
           'approved': int.tryParse('${countsRaw['approved'] ?? 0}') ?? 0,
           'completed': int.tryParse('${countsRaw['completed'] ?? 0}') ?? 0,
           'rejected': int.tryParse('${countsRaw['rejected'] ?? 0}') ?? 0,
@@ -221,6 +231,8 @@ class ManagerCreditNoteApi {
     required List<Map<String, dynamic>> items,
     String? remarks,
     String? documentPath,
+    String? moveTo,
+    int? destinationDealerId,
   }) async {
     try {
       final formData = FormData.fromMap({
@@ -232,6 +244,9 @@ class ManagerCreditNoteApi {
             '${creditNoteDate.month.toString().padLeft(2, '0')}-'
             '${creditNoteDate.day.toString().padLeft(2, '0')}',
         'items': jsonEncode(items),
+        if (moveTo != null && moveTo.isNotEmpty) 'move_to': moveTo,
+        if (destinationDealerId != null)
+          'destination_dealer_id': destinationDealerId,
         if (remarks != null && remarks.trim().isNotEmpty)
           'remarks': remarks.trim(),
         if (documentPath != null && documentPath.isNotEmpty)
@@ -268,6 +283,61 @@ class ManagerCreditNoteApi {
     try {
       await _dio.post(
         '/manager/credit-notes/$id/reject',
+        data: {'remark': remark},
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+}
+
+class ProductionCreditNoteApi {
+  const ProductionCreditNoteApi(this._dio);
+  final Dio _dio;
+
+  Future<List<CreditNoteListItem>> listPending() async {
+    try {
+      final response = await _dio.get('/production/credit-notes');
+      final body = Map<String, dynamic>.from(response.data as Map);
+      return (body['data'] as List? ?? const [])
+          .whereType<Map>()
+          .map(
+            (item) =>
+                CreditNoteListItem.fromJson(Map<String, dynamic>.from(item)),
+          )
+          .toList();
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<CreditNoteDetail> get(int id) async {
+    try {
+      final response = await _dio.get('/production/credit-notes/$id');
+      final body = Map<String, dynamic>.from(response.data as Map);
+      return CreditNoteDetail.fromJson(
+        Map<String, dynamic>.from(body['data'] as Map),
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<void> approve(int id, {String? remark}) async {
+    try {
+      await _dio.post(
+        '/production/credit-notes/$id/approve',
+        data: remark != null ? {'remark': remark} : null,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<void> reject(int id, {required String remark}) async {
+    try {
+      await _dio.post(
+        '/production/credit-notes/$id/reject',
         data: {'remark': remark},
       );
     } on DioException catch (error) {

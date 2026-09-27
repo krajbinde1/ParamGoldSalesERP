@@ -36,6 +36,8 @@ class EmployeeCreditNoteController extends Controller
                 'credit_notes' => $this->applyFilter($notes, $filter)
                     ->with([
                         'dealer:id,firm_name,dealer_code',
+                        'destinationDealer:id,firm_name,dealer_code',
+                        'linkedOrder:id,order_no,status',
                         'salesEmployee:id,full_name,employee_code',
                     ])
                     ->orderByDesc('created_at')
@@ -48,7 +50,10 @@ class EmployeeCreditNoteController extends Controller
 
         $summary = [
             'total' => (clone $notes)->count(),
-            'pending_approval' => (clone $notes)->where('status', CreditNote::STATUS_PENDING_APPROVAL)->count(),
+            'pending_approval' => (clone $notes)->whereIn('status', [
+                CreditNote::STATUS_PENDING_APPROVAL,
+                CreditNote::STATUS_PENDING_PRODUCTION_APPROVAL,
+            ])->count(),
             'approved' => (clone $notes)->where('status', CreditNote::STATUS_APPROVED)->count(),
             'completed' => (clone $notes)->where('status', CreditNote::STATUS_COMPLETED)->count(),
             'rejected' => (clone $notes)->where('status', CreditNote::STATUS_REJECTED)->count(),
@@ -57,6 +62,8 @@ class EmployeeCreditNoteController extends Controller
         $recent = (clone $notes)
             ->with([
                 'dealer:id,firm_name,dealer_code',
+                'destinationDealer:id,firm_name,dealer_code',
+                'linkedOrder:id,order_no,status',
                 'salesEmployee:id,full_name,employee_code',
             ])
             ->orderByDesc('created_at')
@@ -78,6 +85,8 @@ class EmployeeCreditNoteController extends Controller
 
         $validated = $this->validator->validate($request, [CreditNote::TYPE_SALES_RETURN]);
         $dealer = $this->resolveDealer($request, (int) $validated['dealer_id']);
+
+        $this->assertDestinationDealer($request, $validated);
 
         $creditNote = $this->createCreditNote->execute(
             employeeUser: $request->user(),
@@ -111,6 +120,7 @@ class EmployeeCreditNoteController extends Controller
 
         $validated = $this->validator->validate($request, [$creditNote->type]);
         $dealer = $this->resolveDealer($request, (int) $validated['dealer_id']);
+        $this->assertDestinationDealer($request, $validated);
 
         $creditNote = $this->updatePendingCreditNote->execute(
             creditNote: $creditNote,
@@ -145,13 +155,36 @@ class EmployeeCreditNoteController extends Controller
     }
 
     /**
+     * @param  array<string, mixed>  $validated
+     */
+    private function assertDestinationDealer(Request $request, array $validated): void
+    {
+        if (($validated['move_to'] ?? null) !== CreditNote::MOVE_TO_DEALER) {
+            return;
+        }
+
+        $destination = $this->dealerAccess->resolveAccessibleActiveDealer(
+            $request->user(),
+            (int) ($validated['destination_dealer_id'] ?? 0),
+        );
+        if ($destination === null) {
+            throw ValidationException::withMessages([
+                'destination_dealer_id' => 'Selected destination dealer is not available.',
+            ]);
+        }
+    }
+
+    /**
      * @param  Builder<CreditNote>  $query
      * @return Builder<CreditNote>
      */
     private function applyFilter($query, string $filter)
     {
         return match ($filter) {
-            'pending', 'pending_approval' => $query->where('status', CreditNote::STATUS_PENDING_APPROVAL),
+            'pending', 'pending_approval' => $query->whereIn('status', [
+                CreditNote::STATUS_PENDING_APPROVAL,
+                CreditNote::STATUS_PENDING_PRODUCTION_APPROVAL,
+            ]),
             'approved' => $query->where('status', CreditNote::STATUS_APPROVED),
             'completed' => $query->where('status', CreditNote::STATUS_COMPLETED),
             'rejected' => $query->where('status', CreditNote::STATUS_REJECTED),

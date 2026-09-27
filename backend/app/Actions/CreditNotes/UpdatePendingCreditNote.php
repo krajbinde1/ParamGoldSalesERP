@@ -34,13 +34,18 @@ final class UpdatePendingCreditNote
             ]);
         }
 
-        $creditNoteDate = Carbon::parse($payload['credit_note_date'], CreditNote::businessToday()->timezoneName)
-            ->startOfDay();
+        $creditNoteDate = $creditNote->credit_note_date?->copy()?->timezone(CreditNote::businessToday()->timezoneName)?->startOfDay()
+            ?? CreditNote::businessToday();
 
-        if ($creditNoteDate->greaterThan(CreditNote::businessToday())) {
-            throw ValidationException::withMessages([
-                'credit_note_date' => ['Credit Note date cannot be in the future.'],
-            ]);
+        if (($payload['type'] ?? $creditNote->type) === CreditNote::TYPE_RATE_DIFFERENCE && filled($payload['credit_note_date'] ?? null)) {
+            $creditNoteDate = Carbon::parse($payload['credit_note_date'], CreditNote::businessToday()->timezoneName)
+                ->startOfDay();
+
+            if ($creditNoteDate->greaterThan(CreditNote::businessToday())) {
+                throw ValidationException::withMessages([
+                    'credit_note_date' => ['Credit Note date cannot be in the future.'],
+                ]);
+            }
         }
 
         $calculated = $this->calculator->calculate((string) $payload['type'], $payload['items']);
@@ -53,11 +58,26 @@ final class UpdatePendingCreditNote
             $documentPath = str_replace('\\', '/', $document->store('credit-note-docs', 'public'));
         }
 
+        $destinationDealerId = ($payload['type'] ?? null) === CreditNote::TYPE_SALES_RETURN
+            && ($payload['move_to'] ?? null) === CreditNote::MOVE_TO_DEALER
+            ? (int) ($payload['destination_dealer_id'] ?? 0)
+            : null;
+
+        if ($destinationDealerId !== null && $destinationDealerId === (int) $dealer->id) {
+            throw ValidationException::withMessages([
+                'destination_dealer_id' => ['Destination dealer must be different from the returning dealer.'],
+            ]);
+        }
+
         $creditNote->items()->delete();
 
         $creditNote->update([
             'type' => $payload['type'],
+            'move_to' => ($payload['type'] ?? null) === CreditNote::TYPE_SALES_RETURN
+                ? ($payload['move_to'] ?? null)
+                : null,
             'dealer_id' => $dealer->id,
+            'destination_dealer_id' => $destinationDealerId ?: null,
             'bill_reference' => $payload['bill_reference'],
             'credit_note_date' => $creditNoteDate->toDateString(),
             'amount' => $calculated['amount'],
@@ -72,6 +92,9 @@ final class UpdatePendingCreditNote
             $creditNote->items()->create($item);
         }
 
-        return $creditNote->fresh(['items']);
+        app(\App\Services\CreditNotes\SalesReturnTransferOrderService::class)
+            ->syncLinkedOrder($creditNote->fresh(['items', 'dealer', 'destinationDealer']) ?? $creditNote);
+
+        return $creditNote->fresh(['items', 'destinationDealer', 'linkedOrder']);
     }
 }

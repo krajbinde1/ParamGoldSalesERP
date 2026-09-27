@@ -10,10 +10,22 @@ class CreditNoteItem extends Model
     protected $fillable = [
         'credit_note_id',
         'product_id',
+        'case_quantity',
+        'nos_per_case',
+        'total_quantity_nos',
         'quantity',
         'rate',
+        'rate_per_no',
+        'rate_type',
         'original_rate',
         'revised_rate',
+        'discount_percentage',
+        'discount_amount',
+        'gst_percentage',
+        'base_amount',
+        'taxable_amount',
+        'gst_amount',
+        'final_amount',
         'amount',
         'reason',
     ];
@@ -23,9 +35,20 @@ class CreditNoteItem extends Model
         return [
             'quantity' => 'decimal:3',
             'rate' => 'decimal:2',
+            'rate_per_no' => 'decimal:2',
             'original_rate' => 'decimal:2',
             'revised_rate' => 'decimal:2',
+            'discount_percentage' => 'decimal:2',
+            'discount_amount' => 'decimal:2',
+            'gst_percentage' => 'decimal:2',
+            'base_amount' => 'decimal:2',
+            'taxable_amount' => 'decimal:2',
+            'gst_amount' => 'decimal:2',
+            'final_amount' => 'decimal:2',
             'amount' => 'decimal:2',
+            'case_quantity' => 'integer',
+            'nos_per_case' => 'integer',
+            'total_quantity_nos' => 'integer',
         ];
     }
 

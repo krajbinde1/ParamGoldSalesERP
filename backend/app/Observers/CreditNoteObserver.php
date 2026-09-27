@@ -32,6 +32,7 @@ class CreditNoteObserver
 
         match ($fresh->status) {
             CreditNote::STATUS_APPROVED => $this->safe(fn () => $this->notifier->notifyApproved($fresh)),
+            CreditNote::STATUS_PENDING_PRODUCTION_APPROVAL => $this->safe(fn () => $this->notifier->notifyPendingProduction($fresh)),
             CreditNote::STATUS_REJECTED => $this->safe(fn () => $this->notifier->notifyRejected($fresh)),
             CreditNote::STATUS_COMPLETED => $this->safe(fn () => $this->notifier->notifyCompleted($fresh)),
             default => null,

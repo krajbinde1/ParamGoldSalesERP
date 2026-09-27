@@ -47,6 +47,21 @@ class OrderInfolist
                                 ? $state
                                 : ($record->dealer?->firm_name ?: '—'))
                             ->weight(FontWeight::SemiBold),
+                        TextEntry::make('sourceCreditNote.credit_note_no')
+                            ->label('Linked Credit Note')
+                            ->placeholder('—')
+                            ->visible(fn (Order $record): bool => $record->isFromCreditNoteTransfer())
+                            ->formatStateUsing(function (?string $state, Order $record): string {
+                                $record->loadMissing(['sourceCreditNote.dealer:id,firm_name']);
+                                $cn = $record->sourceCreditNote?->credit_note_no ?: '—';
+                                $from = $record->sourceCreditNote?->dealer?->firm_name;
+                                $bill = $record->sourceCreditNote?->bill_reference;
+
+                                return collect([$cn, $from ? 'from '.$from : null, $bill ? 'Bill '.$bill : null])
+                                    ->filter()
+                                    ->implode(' • ');
+                            })
+                            ->columnSpanFull(),
                         TextEntry::make('dealer.village')
                             ->label('Dealer Place')
                             ->placeholder('—'),

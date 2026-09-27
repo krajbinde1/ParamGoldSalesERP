@@ -31,6 +31,11 @@ class CreditNoteInfolist
                         TextEntry::make('type')
                             ->label('Type')
                             ->formatStateUsing(fn (?string $state, CreditNote $record): string => $record->typeLabel()),
+                        TextEntry::make('move_to')
+                            ->label('Move To')
+                            ->placeholder('—')
+                            ->formatStateUsing(fn (?string $state, CreditNote $record): string => $record->moveToLabel() ?: '—')
+                            ->visible(fn (CreditNote $record): bool => $record->isSalesReturn()),
                         TextEntry::make('status')
                             ->badge()
                             ->formatStateUsing(fn (string $state, CreditNote $record): string => $record->displayStatusLabel())
@@ -40,7 +45,15 @@ class CreditNoteInfolist
                             ->date('d M Y'),
                         TextEntry::make('bill_reference')->label('Invoice / Bill Reference'),
                         TextEntry::make('amount')->money('INR')->weight(FontWeight::SemiBold),
-                        TextEntry::make('dealer.firm_name')->label('Dealer'),
+                        TextEntry::make('dealer.firm_name')->label('Returning Dealer'),
+                        TextEntry::make('destinationDealer.firm_name')
+                            ->label('Destination Dealer')
+                            ->placeholder('—')
+                            ->visible(fn (CreditNote $record): bool => $record->isMoveToDealer()),
+                        TextEntry::make('linkedOrder.order_no')
+                            ->label('Linked Order')
+                            ->placeholder('—')
+                            ->visible(fn (CreditNote $record): bool => $record->isMoveToDealer()),
                         TextEntry::make('salesEmployee.full_name')->label('Sales Employee')->placeholder('-'),
                         TextEntry::make('created_at')->label('Created At')->dateTime('d M Y h:i A')->timezone('Asia/Kolkata'),
                         TextEntry::make('remarks')
@@ -71,12 +84,24 @@ class CreditNoteInfolist
                             ->schema([
                                 TextEntry::make('product.product_name')->label('Product'),
                                 TextEntry::make('product.product_code')->label('Code'),
+                                TextEntry::make('case_quantity')
+                                    ->label('Cases')
+                                    ->placeholder('—')
+                                    ->visible(fn ($record): bool => filled($record?->case_quantity)),
                                 TextEntry::make('quantity')->numeric(3),
                                 TextEntry::make('rate')
                                     ->label('Rate')
                                     ->money('INR')
                                     ->placeholder('—')
                                     ->visible(fn ($record): bool => filled($record?->rate)),
+                                TextEntry::make('discount_percentage')
+                                    ->label('Discount %')
+                                    ->placeholder('—')
+                                    ->visible(fn ($record): bool => filled($record?->discount_percentage)),
+                                TextEntry::make('gst_percentage')
+                                    ->label('GST %')
+                                    ->placeholder('—')
+                                    ->visible(fn ($record): bool => filled($record?->gst_percentage)),
                                 TextEntry::make('original_rate')
                                     ->label('Original Rate')
                                     ->money('INR')

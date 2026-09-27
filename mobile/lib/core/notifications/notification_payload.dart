@@ -89,6 +89,18 @@ class NotificationPayload {
       if (id != null) return '/director/payment-requests/$id';
       return '/director/payment-requests';
     }
+    if (type.startsWith('credit_note')) {
+      final creditNoteId = int.tryParse('${raw['credit_note_id'] ?? ''}');
+      if (creditNoteId != null) {
+        if (type == 'credit_note_pending_production') {
+          return '/production/credit-notes/$creditNoteId';
+        }
+        if (type == 'credit_note_created') {
+          return '/manager/credit-notes/$creditNoteId';
+        }
+        return '/credit-notes/$creditNoteId';
+      }
+    }
     if (orderId != null) return '/orders/$orderId';
     return null;
   }

@@ -21,13 +21,21 @@ class CreditNote extends Model
 
     public const STATUS_PENDING_APPROVAL = 'pending_approval';
 
+    public const STATUS_PENDING_PRODUCTION_APPROVAL = 'pending_production_approval';
+
     public const STATUS_APPROVED = 'approved';
 
     public const STATUS_COMPLETED = 'completed';
 
     public const STATUS_REJECTED = 'rejected';
 
+    public const MOVE_TO_FACTORY = 'factory';
+
+    public const MOVE_TO_DEALER = 'dealer';
+
     public const REJECTED_BY_ROLE_SALES_MANAGER = 'Sales Manager';
+
+    public const REJECTED_BY_ROLE_PRODUCTION_MANAGER = 'Production Manager';
 
     public const REJECTED_BY_ROLE_ADMIN = 'Admin';
 
@@ -42,8 +50,14 @@ class CreditNote extends Model
         self::TYPE_RATE_DIFFERENCE => 'Rate Difference',
     ];
 
+    public const MOVE_TO_LABELS = [
+        self::MOVE_TO_FACTORY => 'Move to Factory',
+        self::MOVE_TO_DEALER => 'Move to Dealer',
+    ];
+
     public const STATUS_LABELS = [
         self::STATUS_PENDING_APPROVAL => 'Pending for Manager Approval',
+        self::STATUS_PENDING_PRODUCTION_APPROVAL => 'Pending Production Manager Approval',
         self::STATUS_APPROVED => 'Approved by Sales Manager',
         self::STATUS_COMPLETED => 'Credit Note Generated',
         self::STATUS_REJECTED => 'Rejected',
@@ -51,6 +65,11 @@ class CreditNote extends Model
 
     private const STATUS_TRANSITIONS = [
         self::STATUS_PENDING_APPROVAL => [
+            self::STATUS_APPROVED,
+            self::STATUS_PENDING_PRODUCTION_APPROVAL,
+            self::STATUS_REJECTED,
+        ],
+        self::STATUS_PENDING_PRODUCTION_APPROVAL => [
             self::STATUS_APPROVED,
             self::STATUS_REJECTED,
         ],
@@ -92,7 +111,10 @@ class CreditNote extends Model
     protected $fillable = [
         'credit_note_no',
         'type',
+        'move_to',
         'dealer_id',
+        'destination_dealer_id',
+        'linked_order_id',
         'sales_employee_id',
         'bill_reference',
         'credit_note_date',
@@ -103,6 +125,10 @@ class CreditNote extends Model
         'approved_by',
         'approved_at',
         'approval_remark',
+        'production_approved_by',
+        'production_approved_at',
+        'production_approval_remark',
+        'stock_posted_at',
         'rejected_by',
         'rejected_by_role',
         'rejected_at',
@@ -121,6 +147,8 @@ class CreditNote extends Model
             'credit_note_date' => 'date',
             'amount' => 'decimal:2',
             'approved_at' => 'datetime',
+            'production_approved_at' => 'datetime',
+            'stock_posted_at' => 'datetime',
             'rejected_at' => 'datetime',
             'completed_at' => 'datetime',
             'last_edited_at' => 'datetime',
@@ -151,7 +179,7 @@ class CreditNote extends Model
     public static function statusColor(string $status): string
     {
         return match ($status) {
-            self::STATUS_PENDING_APPROVAL => 'warning',
+            self::STATUS_PENDING_APPROVAL, self::STATUS_PENDING_PRODUCTION_APPROVAL => 'warning',
             self::STATUS_APPROVED => 'info',
             self::STATUS_COMPLETED => 'success',
             self::STATUS_REJECTED => 'danger',
@@ -162,6 +190,16 @@ class CreditNote extends Model
     public function dealer(): BelongsTo
     {
         return $this->belongsTo(Dealer::class);
+    }
+
+    public function destinationDealer(): BelongsTo
+    {
+        return $this->belongsTo(Dealer::class, 'destination_dealer_id');
+    }
+
+    public function linkedOrder(): BelongsTo
+    {
+        return $this->belongsTo(Order::class, 'linked_order_id');
     }
 
     public function salesEmployee(): BelongsTo
@@ -194,6 +232,11 @@ class CreditNote extends Model
         return $this->belongsTo(User::class, 'last_edited_by');
     }
 
+    public function productionApprovedByUser(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'production_approved_by');
+    }
+
     public function canTransitionTo(string $status): bool
     {
         return in_array($status, self::STATUS_TRANSITIONS[$this->getOriginal('status') ?? $this->status] ?? [], true);
@@ -214,9 +257,17 @@ class CreditNote extends Model
         return $this->status === self::STATUS_PENDING_APPROVAL;
     }
 
+    public function canBeRejectedByProductionManager(): bool
+    {
+        return $this->status === self::STATUS_PENDING_PRODUCTION_APPROVAL;
+    }
+
     public function canBeRejectedByAdmin(): bool
     {
-        return $this->status === self::STATUS_APPROVED;
+        return in_array($this->status, [
+            self::STATUS_APPROVED,
+            self::STATUS_PENDING_PRODUCTION_APPROVAL,
+        ], true);
     }
 
     public function canBeCompleted(): bool
@@ -224,9 +275,49 @@ class CreditNote extends Model
         return $this->status === self::STATUS_APPROVED;
     }
 
+    public function canBeApprovedByProduction(): bool
+    {
+        return $this->status === self::STATUS_PENDING_PRODUCTION_APPROVAL
+            && $this->isMoveToFactory();
+    }
+
+    public static function rejectedByRoleFor(User $actor): string
+    {
+        if ($actor->isAdminUser()) {
+            return self::REJECTED_BY_ROLE_ADMIN;
+        }
+
+        if ($actor->hasRole(\App\Enums\UserRole::ProductionSupervisor)
+            || $actor->hasProductionManagerJobRole()
+            || $actor->hasProductionSupervisorJobRole()) {
+            return self::REJECTED_BY_ROLE_PRODUCTION_MANAGER;
+        }
+
+        return self::REJECTED_BY_ROLE_SALES_MANAGER;
+    }
+
     public function isSalesReturn(): bool
     {
         return $this->type === self::TYPE_SALES_RETURN;
+    }
+
+    public function isMoveToFactory(): bool
+    {
+        return $this->isSalesReturn() && $this->move_to === self::MOVE_TO_FACTORY;
+    }
+
+    public function isMoveToDealer(): bool
+    {
+        return $this->isSalesReturn() && $this->move_to === self::MOVE_TO_DEALER;
+    }
+
+    public function moveToLabel(): ?string
+    {
+        if (! filled($this->move_to)) {
+            return null;
+        }
+
+        return self::MOVE_TO_LABELS[$this->move_to] ?? $this->move_to;
     }
 
     public function typeLabel(): string
@@ -240,6 +331,10 @@ class CreditNote extends Model
             return filled($this->rejected_by_role)
                 ? 'Rejected by '.$this->rejected_by_role
                 : 'Rejected';
+        }
+
+        if ($this->status === self::STATUS_APPROVED && $this->isMoveToFactory() && filled($this->production_approved_at)) {
+            return 'Approved by Production Manager';
         }
 
         return self::STATUS_LABELS[$this->status] ?? $this->status;
@@ -297,6 +392,8 @@ class CreditNote extends Model
             'salesEmployee:id,full_name,designation',
             'approvedByUser:id,name,role,job_role,employee_id',
             'approvedByUser.employee:id,full_name,designation',
+            'productionApprovedByUser:id,name,role,job_role,employee_id',
+            'productionApprovedByUser.employee:id,full_name,designation',
             'rejectedByUser:id,name,role,job_role,employee_id',
             'rejectedByUser.employee:id,full_name,designation',
             'completedByUser:id,name,role,job_role,employee_id',
@@ -361,7 +458,43 @@ class CreditNote extends Model
             'is_rejection' => false,
         ];
 
-        $rejectedByAdmin = $this->status === self::STATUS_REJECTED && filled($this->approved_at);
+        if ($this->isMoveToFactory()) {
+            $rejectedByProduction = $this->status === self::STATUS_REJECTED
+                && $this->rejected_by_role === self::REJECTED_BY_ROLE_PRODUCTION_MANAGER;
+            if ($rejectedByProduction) {
+                $steps[] = [
+                    'key' => 'rejected',
+                    'label' => 'Rejected by Production Manager',
+                    'actor' => $this->rejectedByUser?->name,
+                    'actor_role' => $this->rejected_by_role ?: 'Production Manager',
+                    'at' => $format($this->rejected_at),
+                    'status_text' => $this->displayStatusLabel(),
+                    'remark' => $this->rejection_remark,
+                    'completed' => true,
+                    'is_current' => true,
+                    'is_rejection' => true,
+                ];
+
+                return $steps;
+            }
+
+            $productionApproved = filled($this->production_approved_at);
+            $steps[] = [
+                'key' => 'production_approval',
+                'label' => 'Production Manager Approval',
+                'actor' => $productionApproved ? $this->productionApprovedByUser?->name : null,
+                'actor_role' => 'Production Manager',
+                'at' => $format($this->production_approved_at),
+                'status_text' => $productionApproved ? 'Approved' : 'Pending',
+                'remark' => $this->production_approval_remark,
+                'completed' => $productionApproved,
+                'is_current' => $this->status === self::STATUS_PENDING_PRODUCTION_APPROVAL,
+                'is_rejection' => false,
+            ];
+        }
+
+        $rejectedByAdmin = $this->status === self::STATUS_REJECTED && filled($this->approved_at)
+            && $this->rejected_by_role !== self::REJECTED_BY_ROLE_PRODUCTION_MANAGER;
         if ($rejectedByAdmin) {
             $steps[] = [
                 'key' => 'rejected',
@@ -411,7 +544,9 @@ class CreditNote extends Model
             }
 
             $locked->update([
-                'status' => self::STATUS_APPROVED,
+                'status' => $locked->isMoveToFactory()
+                    ? self::STATUS_PENDING_PRODUCTION_APPROVAL
+                    : self::STATUS_APPROVED,
                 'approved_by' => $userId,
                 'approved_at' => Carbon::now(self::BUSINESS_TIMEZONE),
                 'approval_remark' => filled($remark) ? trim($remark) : null,
@@ -419,6 +554,29 @@ class CreditNote extends Model
                 'rejected_by_role' => null,
                 'rejected_at' => null,
                 'rejection_remark' => null,
+            ]);
+
+            $this->refresh();
+        });
+    }
+
+    public function approveByProduction(?int $userId = null, ?string $remark = null): void
+    {
+        DB::transaction(function () use ($userId, $remark): void {
+            /** @var self $locked */
+            $locked = static::query()->whereKey($this->id)->lockForUpdate()->firstOrFail();
+
+            if (! $locked->canBeApprovedByProduction()) {
+                throw ValidationException::withMessages([
+                    'status' => ['Only factory returns pending Production Manager approval can be approved.'],
+                ]);
+            }
+
+            $locked->update([
+                'status' => self::STATUS_APPROVED,
+                'production_approved_by' => $userId,
+                'production_approved_at' => Carbon::now(self::BUSINESS_TIMEZONE),
+                'production_approval_remark' => filled($remark) ? trim($remark) : null,
             ]);
 
             $this->refresh();
@@ -440,7 +598,10 @@ class CreditNote extends Model
             $locked = static::query()->whereKey($this->id)->lockForUpdate()->firstOrFail();
 
             $allowed = ($rejectedByRole === self::REJECTED_BY_ROLE_ADMIN && $locked->canBeRejectedByAdmin())
-                || ($rejectedByRole !== self::REJECTED_BY_ROLE_ADMIN && $locked->canBeRejectedByManager());
+                || ($rejectedByRole === self::REJECTED_BY_ROLE_PRODUCTION_MANAGER && $locked->canBeRejectedByProductionManager())
+                || ($rejectedByRole !== self::REJECTED_BY_ROLE_ADMIN
+                    && $rejectedByRole !== self::REJECTED_BY_ROLE_PRODUCTION_MANAGER
+                    && $locked->canBeRejectedByManager());
 
             if (! $allowed) {
                 throw ValidationException::withMessages([

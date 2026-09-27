@@ -19,7 +19,8 @@ class CreditNotePolicy
         return $user->hasAnyRole([
             UserRole::Employee,
             UserRole::Manager,
-        ]);
+            UserRole::ProductionSupervisor,
+        ]) || $this->isProductionActor($user);
     }
 
     public function view(User $user, CreditNote $creditNote): bool
@@ -31,7 +32,8 @@ class CreditNotePolicy
         return match ($user->roleEnum()) {
             UserRole::Employee => $creditNote->sales_employee_id === $user->employee_id,
             UserRole::Manager => $this->managerOwns($user, $creditNote),
-            default => false,
+            UserRole::ProductionSupervisor => $creditNote->isMoveToFactory(),
+            default => $this->isProductionActor($user) && $creditNote->isMoveToFactory(),
         };
     }
 
@@ -76,13 +78,30 @@ class CreditNotePolicy
             && $this->managerOwns($user, $creditNote);
     }
 
+    public function approveAsProduction(User $user, CreditNote $creditNote): bool
+    {
+        if (! $creditNote->canBeApprovedByProduction()) {
+            return false;
+        }
+
+        return $this->isProductionActor($user);
+    }
+
     public function reject(User $user, CreditNote $creditNote): bool
     {
         if ($user->isAdminUser()) {
             return $creditNote->canBeRejectedByAdmin();
         }
 
-        if ($user->isDirectorUser() || Filament::auth()->check()) {
+        if ($this->isProductionActor($user) && $creditNote->canBeRejectedByProductionManager()) {
+            return true;
+        }
+
+        if ($user->isDirectorUser() && ! $this->isProductionActor($user)) {
+            return false;
+        }
+
+        if (Filament::auth()->check() && ! $this->isProductionActor($user)) {
             return false;
         }
 
@@ -103,6 +122,13 @@ class CreditNotePolicy
     public function delete(User $user, CreditNote $creditNote): bool
     {
         return false;
+    }
+
+    private function isProductionActor(User $user): bool
+    {
+        return $user->hasRole(UserRole::ProductionSupervisor)
+            || $user->hasProductionManagerJobRole()
+            || $user->hasProductionSupervisorJobRole();
     }
 
     private function managerOwns(User $user, CreditNote $creditNote): bool

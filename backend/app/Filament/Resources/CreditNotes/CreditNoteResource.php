@@ -2,7 +2,6 @@
 
 namespace App\Filament\Resources\CreditNotes;
 
-use App\Filament\Concerns\DeniesOrdersOnlyFilamentUsers;
 use App\Filament\Resources\CreditNotes\Pages\CreateCreditNote;
 use App\Filament\Resources\CreditNotes\Pages\EditCreditNote;
 use App\Filament\Resources\CreditNotes\Pages\ListCreditNotes;
@@ -11,6 +10,7 @@ use App\Filament\Resources\CreditNotes\Schemas\CreditNoteForm;
 use App\Filament\Resources\CreditNotes\Schemas\CreditNoteInfolist;
 use App\Filament\Resources\CreditNotes\Tables\CreditNotesTable;
 use App\Models\CreditNote;
+use App\Models\User;
 use BackedEnum;
 use Filament\Resources\Resource;
 use Filament\Schemas\Schema;
@@ -21,8 +21,6 @@ use Illuminate\Database\Eloquent\SoftDeletingScope;
 
 class CreditNoteResource extends Resource
 {
-    use DeniesOrdersOnlyFilamentUsers;
-
     protected static ?string $model = CreditNote::class;
 
     protected static string|\UnitEnum|null $navigationGroup = 'Sales Operations';
@@ -42,13 +40,43 @@ class CreditNoteResource extends Resource
         return false;
     }
 
+    public static function canAccess(): bool
+    {
+        $user = auth()->user();
+        if ($user instanceof User && ($user->hasProductionManagerJobRole() || $user->hasProductionSupervisorJobRole() || $user->hasRole(\App\Enums\UserRole::ProductionSupervisor))) {
+            return true;
+        }
+
+        if ($user?->hasOrdersOnlyFilamentAccess() ?? false) {
+            return false;
+        }
+
+        return parent::canAccess();
+    }
+
+    public static function shouldRegisterNavigation(): bool
+    {
+        return static::canAccess();
+    }
+
     public static function getEloquentQuery(): Builder
     {
-        return parent::getEloquentQuery()->with([
+        $query = parent::getEloquentQuery()->with([
             'dealer:id,firm_name,dealer_code',
+            'destinationDealer:id,firm_name,dealer_code',
+            'linkedOrder:id,order_no,status,dealer_id',
             'salesEmployee:id,full_name,employee_code',
             'items.product:id,product_name,product_code',
         ]);
+
+        $user = auth()->user();
+        if ($user instanceof User && ! $user->isAdminUser() && ! $user->isDirectorUser()
+            && ($user->hasProductionManagerJobRole() || $user->hasProductionSupervisorJobRole() || $user->hasRole(\App\Enums\UserRole::ProductionSupervisor))) {
+            $query->where('type', CreditNote::TYPE_SALES_RETURN)
+                ->where('move_to', CreditNote::MOVE_TO_FACTORY);
+        }
+
+        return $query;
     }
 
     public static function form(Schema $schema): Schema

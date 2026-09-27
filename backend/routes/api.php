@@ -57,6 +57,7 @@ use App\Http\Controllers\Api\Production\InventoryDashboardApiController;
 use App\Http\Controllers\Api\Production\PackagingMaterialApiController;
 use App\Http\Controllers\Api\Production\PackagingMaterialInwardApiController;
 use App\Http\Controllers\Api\Production\ProductionBatchApiController;
+use App\Http\Controllers\Api\Production\ProductionCreditNoteController;
 use App\Http\Controllers\Api\Production\ProductionDashboardController;
 use App\Http\Controllers\Api\Production\ProductionOrderController;
 use App\Http\Controllers\Api\Production\RawMaterialApiController;
@@ -259,6 +260,10 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::post('orders/{order}/dispatch-calculation', [ProductionOrderController::class, 'calculateDispatch']);
         Route::post('orders/{order}/dispatch', [ProductionOrderController::class, 'dispatch']);
         Route::post('orders/{order}/received-copy', [ProductionOrderController::class, 'uploadReceivedCopy']);
+        Route::get('credit-notes', [ProductionCreditNoteController::class, 'index']);
+        Route::get('credit-notes/{creditNote}', [ProductionCreditNoteController::class, 'show']);
+        Route::post('credit-notes/{creditNote}/approve', [ProductionCreditNoteController::class, 'approve']);
+        Route::post('credit-notes/{creditNote}/reject', [ProductionCreditNoteController::class, 'reject']);
 
         Route::get('vehicles', [VehicleApiController::class, 'index']);
         Route::post('vehicles', [VehicleApiController::class, 'store']);

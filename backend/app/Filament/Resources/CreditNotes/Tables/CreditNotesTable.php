@@ -34,7 +34,21 @@ class CreditNotesTable
                     ->badge()
                     ->sortable(),
                 TextColumn::make('credit_note_date')->label('Date')->date()->sortable(),
-                TextColumn::make('dealer.firm_name')->label('Dealer')->searchable(),
+                TextColumn::make('dealer.firm_name')->label('Returning Dealer')->searchable(),
+                TextColumn::make('move_to')
+                    ->label('Move To')
+                    ->formatStateUsing(fn (?string $state, CreditNote $record): string => $record->moveToLabel() ?: '—')
+                    ->placeholder('—')
+                    ->toggleable(),
+                TextColumn::make('destinationDealer.firm_name')
+                    ->label('Destination Dealer')
+                    ->placeholder('—')
+                    ->searchable()
+                    ->toggleable(),
+                TextColumn::make('linkedOrder.order_no')
+                    ->label('Linked Order')
+                    ->placeholder('—')
+                    ->toggleable(),
                 TextColumn::make('salesEmployee.full_name')->label('Employee')->placeholder('-')->searchable(),
                 TextColumn::make('bill_reference')->label('Bill Ref.')->searchable()->toggleable(),
                 TextColumn::make('amount')->money('INR')->sortable(),
@@ -59,6 +73,7 @@ class CreditNotesTable
                     ->searchable()
                     ->preload(),
                 SelectFilter::make('type')->options(CreditNote::typeLabels()),
+                SelectFilter::make('move_to')->label('Move To')->options(CreditNote::MOVE_TO_LABELS),
                 TodayDateFilter::make('credit_note_date', 'Credit Note Date'),
                 Filter::make('date_range')
                     ->label('Date range')
@@ -114,7 +129,7 @@ class CreditNotesTable
                             creditNote: $record,
                             actor: auth()->user(),
                             remark: $data['rejection_remark'],
-                            rejectedByRole: CreditNote::REJECTED_BY_ROLE_ADMIN,
+                            rejectedByRole: CreditNote::rejectedByRoleFor(auth()->user()),
                         );
 
                         Notification::make()->title('Credit Note rejected.')->danger()->send();

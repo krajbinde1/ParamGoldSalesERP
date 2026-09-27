@@ -147,9 +147,22 @@ class CreditNoteDetailBody extends StatelessWidget {
           child: Column(
             children: [
               PgInvoiceRow(
-                label: 'Dealer',
+                label: detail.type == 'sales_return' ? 'Returning Dealer' : 'Dealer',
                 value: detail.dealer?.name ?? '—',
               ),
+              if ((detail.moveToLabel ?? '').isNotEmpty)
+                PgInvoiceRow(label: 'Move To', value: detail.moveToLabel!),
+              if ((detail.destinationDealer?.name ?? '').isNotEmpty)
+                PgInvoiceRow(
+                  label: 'Destination Dealer',
+                  value: detail.destinationDealer!.name,
+                ),
+              if ((detail.linkedOrder?.orderNo ?? '').isNotEmpty)
+                PgInvoiceRow(
+                  label: 'Linked Order',
+                  value:
+                      '${detail.linkedOrder!.orderNo}${detail.linkedOrder!.dealerName == null ? '' : ' • ${detail.linkedOrder!.dealerName}'}',
+                ),
               if ((detail.employeeName ?? '').isNotEmpty)
                 PgInvoiceRow(label: 'Created by', value: detail.employeeName!),
               PgInvoiceRow(
@@ -194,7 +207,19 @@ class CreditNoteDetailBody extends StatelessWidget {
               ...detail.items.map((item) {
                 final line = detail.type == 'rate_difference'
                     ? 'Qty ${item.quantity} • ${currency.format(item.originalRate ?? 0)} → ${currency.format(item.revisedRate ?? 0)}'
-                    : 'Qty ${item.quantity} × ${currency.format(item.rate ?? 0)}';
+                    : [
+                        if (item.caseQuantity != null)
+                          '${item.caseQuantity} Cases × ${item.nosPerCase ?? 0} Nos = ${item.totalQuantityNos ?? item.quantity.round()} Nos',
+                        if (item.caseQuantity == null)
+                          'Qty ${item.quantity} × ${currency.format(item.rate ?? 0)}',
+                        if (item.ratePerNo != null || item.rate != null)
+                          'Rate ${currency.format(item.ratePerNo ?? item.rate ?? 0)}',
+                        if (item.discountPercentage != null &&
+                            item.discountPercentage! > 0)
+                          'Disc ${item.discountPercentage}%',
+                        if (item.gstPercentage != null)
+                          'GST ${item.gstPercentage}%',
+                      ].join(' • ');
                 return ListTile(
                   contentPadding: EdgeInsets.zero,
                   title: Text(item.productName),
