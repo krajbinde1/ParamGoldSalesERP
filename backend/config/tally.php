@@ -22,4 +22,12 @@ return [
         'offline_after_seconds' => (int) env('TALLY_LIVE_OFFLINE_AFTER', 120),
     ],
 
+    /*
+    | Receipt vouchers debit this existing Tally ledger (exact name).
+    | Applied only when a new eligible collection is queued for Tally.
+    */
+    'receipt' => [
+        'debit_ledger' => env('TALLY_RECEIPT_DEBIT_LEDGER', 'State Bank of India'),
+    ],
+
 ];

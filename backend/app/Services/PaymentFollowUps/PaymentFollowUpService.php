@@ -624,9 +624,6 @@ final class PaymentFollowUpService
             PaymentFollowUpStatus::DUE_TODAY => $query->whereHas(
                 'openPaymentFollowUpCycle.latestFollowUpEntry',
                 fn (Builder $entry) => $entry->whereDate('next_follow_up_date', '=', $today),
-            )->whereDoesntHave(
-                'openPaymentFollowUpCycle',
-                fn (Builder $cycle) => $this->scopeUnpaidPastDueCycle($cycle, $today),
             )->whereHas(
                 'openPaymentFollowUpCycle',
                 fn (Builder $cycle) => $this->scopeUnpaidCommitmentThrough($cycle, $today),
@@ -634,9 +631,6 @@ final class PaymentFollowUpService
             PaymentFollowUpStatus::UPCOMING => $query->whereHas(
                 'openPaymentFollowUpCycle.latestFollowUpEntry',
                 fn (Builder $entry) => $entry->whereDate('next_follow_up_date', '>', $today),
-            )->whereDoesntHave(
-                'openPaymentFollowUpCycle',
-                fn (Builder $cycle) => $this->scopeUnpaidPastDueCycle($cycle, $today),
             ),
             PaymentFollowUpStatus::CLOSED => $query
                 ->whereDoesntHave('openPaymentFollowUpCycle')
@@ -970,7 +964,7 @@ final class PaymentFollowUpService
             return 'closed';
         }
 
-        if ($this->hasUnpaidPastDueCommitment($entries)) {
+        if ($this->latestCommitmentIsOverdue($entries)) {
             return 'overdue';
         }
 
@@ -979,14 +973,27 @@ final class PaymentFollowUpService
             return 'closed';
         }
 
+        $latest = $this->latestDatedFollowUp($entries);
+        $date = $latest?->next_follow_up_date?->toDateString();
+        $today = PaymentFollowUpStatus::todayDate();
+
+        if ($date === $today) {
+            return 'due_today';
+        }
+        if ($date !== null && $date > $today) {
+            return 'upcoming';
+        }
+
         return 'open';
     }
 
     private function cycleStatusLabel(string $displayStatus): string
     {
-        return $displayStatus === 'closed'
-            ? 'PAYMENT RECEIVED / CLOSED'
-            : strtoupper($displayStatus);
+        return match ($displayStatus) {
+            'closed' => 'PAYMENT RECEIVED / CLOSED',
+            'due_today' => 'DUE TODAY',
+            default => strtoupper($displayStatus),
+        };
     }
 
     /**
@@ -1261,6 +1268,7 @@ final class PaymentFollowUpService
         $key = match ($status) {
             PaymentFollowUpStatus::OVERDUE => 'overdue',
             PaymentFollowUpStatus::DUE_TODAY => 'due_today',
+            PaymentFollowUpStatus::UPCOMING => 'upcoming',
             PaymentFollowUpStatus::CLOSED => 'closed',
             default => 'pending',
         };
@@ -1268,6 +1276,7 @@ final class PaymentFollowUpService
         $label = match ($key) {
             'overdue' => 'OVERDUE',
             'due_today' => 'DUE TODAY',
+            'upcoming' => 'UPCOMING',
             'closed' => 'CLOSED',
             default => 'PENDING',
         };
@@ -1327,7 +1336,7 @@ final class PaymentFollowUpService
     {
         $cycle->loadMissing(['entries.collection']);
 
-        return $this->hasUnpaidPastDueCommitment($cycle->entries);
+        return $this->latestCommitmentIsOverdue($cycle->entries);
     }
 
     private function statusForOpenCycle(?PaymentFollowUpCycle $open, bool $lastCycleClosed, float $outstanding): string
@@ -1335,25 +1344,30 @@ final class PaymentFollowUpService
         if ($open !== null) {
             $open->loadMissing(['entries.collection']);
             $entries = $open->entries;
+            $latest = $this->latestDatedFollowUp($entries);
 
-            if ($this->hasUnpaidPastDueCommitment($entries)) {
+            if ($latest === null) {
+                return PaymentFollowUpStatus::CLOSED;
+            }
+
+            $outcomes = $this->commitmentOutcomesById($entries);
+            $outcome = $outcomes[$latest->id] ?? PaymentFollowUpEntry::COMMITMENT_PENDING;
+
+            if ($outcome === PaymentFollowUpEntry::COMMITMENT_KEPT) {
+                return PaymentFollowUpStatus::CLOSED;
+            }
+
+            $date = $latest->next_follow_up_date?->toDateString();
+            $today = PaymentFollowUpStatus::todayDate();
+
+            if ($date !== null && $date < $today) {
                 return PaymentFollowUpStatus::OVERDUE;
             }
-
-            $nextUnpaidDate = $this->nextUnpaidCommitmentDate($entries);
-            if ($nextUnpaidDate !== null) {
-                $today = PaymentFollowUpStatus::todayDate();
-                if ($nextUnpaidDate < $today) {
-                    return PaymentFollowUpStatus::OVERDUE;
-                }
-                if ($nextUnpaidDate === $today) {
-                    return PaymentFollowUpStatus::DUE_TODAY;
-                }
-
-                return PaymentFollowUpStatus::UPCOMING;
+            if ($date === $today) {
+                return PaymentFollowUpStatus::DUE_TODAY;
             }
 
-            return PaymentFollowUpStatus::CLOSED;
+            return PaymentFollowUpStatus::UPCOMING;
         }
 
         if ($lastCycleClosed) {
@@ -1409,6 +1423,32 @@ final class PaymentFollowUpService
     private function hasUnpaidPastDueCommitment($entries): bool
     {
         return in_array(PaymentFollowUpEntry::COMMITMENT_MISSED, $this->commitmentOutcomesById($entries), true);
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, PaymentFollowUpEntry>  $entries
+     */
+    private function latestDatedFollowUp($entries): ?PaymentFollowUpEntry
+    {
+        return $entries
+            ->filter(fn (PaymentFollowUpEntry $entry): bool => $entry->isFollowUp() && $entry->next_follow_up_date !== null)
+            ->sortBy('id')
+            ->last();
+    }
+
+    /**
+     * @param  \Illuminate\Support\Collection<int, PaymentFollowUpEntry>  $entries
+     */
+    private function latestCommitmentIsOverdue($entries): bool
+    {
+        $latest = $this->latestDatedFollowUp($entries);
+        if ($latest === null) {
+            return false;
+        }
+
+        $outcome = $this->commitmentOutcomesById($entries)[$latest->id] ?? null;
+
+        return $outcome === PaymentFollowUpEntry::COMMITMENT_MISSED;
     }
 
     /**
@@ -1520,17 +1560,14 @@ final class PaymentFollowUpService
 
         return $cycle
             ->whereHas(
-                'entries',
-                fn (Builder $entry) => $entry
-                    ->where('entry_type', $followUp)
-                    ->whereDate('next_follow_up_date', '<', $today),
+                'latestFollowUpEntry',
+                fn (Builder $entry) => $entry->whereDate('next_follow_up_date', '<', $today),
             )
             ->whereRaw('(('.$received.') < (
                 SELECT COALESCE(SUM(expected_amount), 0)
                 FROM payment_follow_up_entries
                 WHERE cycle_id = payment_follow_up_cycles.id
                   AND entry_type = ?
-                  AND next_follow_up_date < ?
                   AND expected_amount IS NOT NULL
             ) OR (
                 ('.$received.') <= 0
@@ -1538,11 +1575,10 @@ final class PaymentFollowUpService
                     SELECT 1 FROM payment_follow_up_entries
                     WHERE cycle_id = payment_follow_up_cycles.id
                       AND entry_type = ?
-                      AND next_follow_up_date < ?
                       AND expected_amount IS NOT NULL
                       AND expected_amount > 0
                 )
-            ))', [$followUp, $today, $followUp, $today]);
+            ))', [$followUp, $followUp]);
     }
 
     /**

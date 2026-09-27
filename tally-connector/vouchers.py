@@ -112,7 +112,7 @@ def _receipt_voucher(payload: dict[str, Any], remote_id: str, party_name: str, s
     if amount <= 0:
         raise VoucherBuildError("Receipt voucher amount must be greater than zero.")
 
-    cash_ledger = _cash_or_bank_ledger(str(collection.get("payment_mode") or "Cash"), settings)
+    cash_ledger = _receipt_debit_ledger(collection, settings)
     voucher_no = str(collection.get("receipt_no") or remote_id).strip()
     narration = _receipt_narration(collection, remote_id)
 
@@ -129,6 +129,15 @@ def _receipt_voucher(payload: dict[str, Any], remote_id: str, party_name: str, s
         f"{_ledger_entry(cash_ledger, debit=amount)}"
         f"{_ledger_entry(party_name, credit=amount, is_party=True)}"
     )
+
+
+def _receipt_debit_ledger(collection: dict[str, Any], settings: Settings) -> str:
+    explicit = str(collection.get("debit_ledger") or "").strip()
+    if explicit:
+        return explicit
+
+    # Older outbox rows queued before ERP sent debit_ledger keep Cash/Bank mapping.
+    return _cash_or_bank_ledger(str(collection.get("payment_mode") or "Cash"), settings)
 
 
 def _cash_or_bank_ledger(payment_mode: str, settings: Settings) -> str:

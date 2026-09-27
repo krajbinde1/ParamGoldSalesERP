@@ -25,6 +25,8 @@ final class TallyOutboundEnqueueService
 
     public const RECEIPT_POSTING_TIMEZONE = 'Asia/Kolkata';
 
+    public const RECEIPT_DEBIT_LEDGER = 'State Bank of India';
+
     public function queueBilledOrder(Order $order): ?TallyOutboundVoucher
     {
         if ($order->status === Order::STATUS_REJECTED) {
@@ -506,6 +508,7 @@ final class TallyOutboundEnqueueService
                 'payment_mode' => filled($collection->payment_mode)
                     ? (string) $collection->payment_mode
                     : 'Cash',
+                'debit_ledger' => $this->receiptDebitLedger(),
                 'bank_name' => filled($collection->bank_name) ? (string) $collection->bank_name : null,
                 'transaction_number' => filled($collection->transaction_number)
                     ? (string) $collection->transaction_number
@@ -513,6 +516,13 @@ final class TallyOutboundEnqueueService
                 'remarks' => filled($collection->remarks) ? (string) $collection->remarks : null,
             ],
         ];
+    }
+
+    private function receiptDebitLedger(): string
+    {
+        $name = trim((string) config('tally.receipt.debit_ledger', self::RECEIPT_DEBIT_LEDGER));
+
+        return $name !== '' ? $name : self::RECEIPT_DEBIT_LEDGER;
     }
 
     /**

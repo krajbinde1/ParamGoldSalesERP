@@ -512,6 +512,111 @@ it('keeps overdue when another unpaid past-due commitment remains after a later 
         ->and($detail['cycles'][0]['missed_commitment_count'])->toBe(1);
 });
 
+it('categorizes a dealer by the latest pending commitment instead of older missed follow-ups', function (): void {
+    $employee = paymentFollowUpEmployee('9811300044');
+    $director = paymentFollowUpDirector();
+    $dealer = paymentFollowUpDealer($employee, 'Latest Pending Follow-up Dealer', 180000);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'Follow-up #1',
+            'expected_amount' => 50000,
+            'next_follow_up_date' => '2026-09-10',
+        ])
+        ->assertCreated();
+
+    Carbon::setTestNow(Carbon::parse('2026-09-11 10:00:00', 'Asia/Kolkata'));
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'Follow-up #2',
+            'expected_amount' => 40000,
+            'next_follow_up_date' => '2026-09-12',
+        ])
+        ->assertCreated();
+
+    Carbon::setTestNow(Carbon::parse('2026-09-13 10:00:00', 'Asia/Kolkata'));
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/payment-follow-ups/'.$dealer->id, [
+            'remark' => 'Follow-up #3',
+            'expected_amount' => 30000,
+            'next_follow_up_date' => '2026-09-27',
+        ])
+        ->assertCreated();
+
+    Carbon::setTestNow(Carbon::parse('2026-09-16 10:00:00', 'Asia/Kolkata'));
+
+    $detail = app(PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
+    $list = $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/employee/payment-follow-ups')
+        ->assertOk();
+    $monitor = $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/payment-follow-ups')
+        ->assertOk();
+
+    expect($detail['status'])->toBe('upcoming')
+        ->and($detail['display_status'])->toBe('upcoming')
+        ->and($detail['current_cycle_status'])->toBe('upcoming')
+        ->and($detail['current_cycle_status_label'])->toBe('UPCOMING')
+        ->and($detail['cycles'][0]['display_status'])->toBe('upcoming')
+        ->and($detail['cycles'][0]['status_label'])->toBe('UPCOMING')
+        ->and($detail['cycles'][0]['entries'][0]['commitment_status'])->toBe('missed')
+        ->and($detail['cycles'][0]['entries'][1]['commitment_status'])->toBe('missed')
+        ->and($detail['cycles'][0]['entries'][2]['commitment_status'])->toBe('pending')
+        ->and($detail['cycles'][0]['missed_commitment_count'])->toBe(2)
+        ->and($detail['missed_count'])->toBe(2)
+        ->and($list->json('data.0.status'))->toBe('upcoming')
+        ->and($list->json('counts.overdue'))->toBe(0)
+        ->and($list->json('counts.upcoming'))->toBe(1);
+
+    $overdueNames = app(PaymentFollowUpService::class)
+        ->applyStatusFilter(app(PaymentFollowUpService::class)->adminDealersQuery(), 'overdue')
+        ->pluck('firm_name');
+    $upcomingNames = app(PaymentFollowUpService::class)
+        ->applyStatusFilter(app(PaymentFollowUpService::class)->adminDealersQuery(), 'upcoming')
+        ->pluck('firm_name');
+
+    $row = collect($monitor->json('data'))->firstWhere('dealer_name', 'Latest Pending Follow-up Dealer');
+    expect($row)->not->toBeNull()
+        ->and($row['status'])->toBe('upcoming')
+        ->and($row['display_status'])->toBe('upcoming')
+        ->and($row['missed_count'])->toBe(2)
+        ->and($monitor->json('summary.overdue_dealers'))->toBe(0)
+        ->and(collect($monitor->json('today_actions.overdue'))->pluck('dealer_name'))
+        ->not->toContain('Latest Pending Follow-up Dealer')
+        ->and(collect($monitor->json('today_actions.upcoming'))->pluck('dealer_name'))
+        ->toContain('Latest Pending Follow-up Dealer')
+        ->and($overdueNames)->not->toContain('Latest Pending Follow-up Dealer')
+        ->and($upcomingNames)->toContain('Latest Pending Follow-up Dealer');
+
+    Carbon::setTestNow(Carbon::parse('2026-09-27 10:00:00', 'Asia/Kolkata'));
+
+    $dueToday = app(PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
+    expect($dueToday['status'])->toBe('due_today')
+        ->and($dueToday['cycles'][0]['display_status'])->toBe('due_today')
+        ->and($dueToday['cycles'][0]['entries'][2]['commitment_status'])->toBe('pending')
+        ->and($dueToday['cycles'][0]['missed_commitment_count'])->toBe(2);
+
+    Carbon::setTestNow(Carbon::parse('2026-09-28 10:00:00', 'Asia/Kolkata'));
+
+    $expired = app(PaymentFollowUpService::class)->dealerDetail($dealer->fresh());
+    $expiredList = $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/employee/payment-follow-ups')
+        ->assertOk();
+    $expiredMonitor = $this->actingAs($director, 'sanctum')
+        ->getJson('/api/director/payment-follow-ups')
+        ->assertOk();
+
+    expect($expired['status'])->toBe('overdue')
+        ->and($expired['cycles'][0]['display_status'])->toBe('overdue')
+        ->and($expired['cycles'][0]['entries'][2]['commitment_status'])->toBe('missed')
+        ->and($expired['cycles'][0]['missed_commitment_count'])->toBe(3)
+        ->and($expiredList->json('data.0.status'))->toBe('overdue')
+        ->and($expiredList->json('counts.overdue'))->toBe(1)
+        ->and($expiredMonitor->json('summary.overdue_dealers'))->toBe(1)
+        ->and(collect($expiredMonitor->json('today_actions.overdue'))->pluck('dealer_name'))
+        ->toContain('Latest Pending Follow-up Dealer');
+});
+
 it('marks a missed commitment without closing the cycle and continues follow-ups in the same cycle', function (): void {
     $employee = paymentFollowUpEmployee('9811300011');
     $dealer = paymentFollowUpDealer($employee, 'Missed Commitment Dealer');
@@ -545,10 +650,13 @@ it('marks a missed commitment without closing the cycle and continues follow-ups
         ->assertJsonCount(1, 'cycles')
         ->assertJsonPath('cycles.0.cycle_number', 1)
         ->assertJsonPath('cycles.0.status', 'open')
-        ->assertJsonPath('cycles.0.display_status', 'overdue')
+        ->assertJsonPath('status', 'upcoming')
+        ->assertJsonPath('cycles.0.display_status', 'upcoming')
+        ->assertJsonPath('cycles.0.status_label', 'UPCOMING')
         ->assertJsonPath('cycles.0.entries.0.commitment_status', 'missed')
         ->assertJsonPath('cycles.0.entries.1.commitment_status', 'pending')
-        ->assertJsonPath('cycles.0.follow_up_count', 2);
+        ->assertJsonPath('cycles.0.follow_up_count', 2)
+        ->assertJsonPath('cycles.0.missed_commitment_count', 1);
 });
 
 it('classifies overdue dealers with multiple missed commitments as high risk for director monitoring', function (): void {
@@ -915,8 +1023,8 @@ it('lets the director list assigned dealers after selecting an employee and view
     expect($names)->toContain('Director Follow Dealer')
         ->and($names)->not->toContain('Other Employee Dealer')
         ->and($list->json('data.0.status'))->toBe('upcoming')
-        ->and($list->json('data.0.display_status'))->toBe('pending')
-        ->and($list->json('data.0.display_status_label'))->toBe('PENDING')
+        ->and($list->json('data.0.display_status'))->toBe('upcoming')
+        ->and($list->json('data.0.display_status_label'))->toBe('UPCOMING')
         ->and($list->json('data.0.next_follow_up_date'))->toBe('2026-09-16')
         ->and($list->json('data.0.follow_up_count'))->toBe(1)
         ->and($list->json('data.0.risk'))->toBe('low')
@@ -927,7 +1035,7 @@ it('lets the director list assigned dealers after selecting an employee and view
         ->assertOk();
 
     expect($history->json('can_add_follow_up'))->toBeFalse()
-        ->and($history->json('display_status_label'))->toBe('PENDING')
+        ->and($history->json('display_status_label'))->toBe('UPCOMING')
         ->and($history->json('follow_up_count'))->toBe(1)
         ->and($history->json('cycles.0.entries.0.remark'))->toBe('Promised next week')
         ->and((float) $history->json('cycles.0.entries.0.expected_amount'))->toBe(40000.0)
