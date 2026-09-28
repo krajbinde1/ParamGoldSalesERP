@@ -17,6 +17,8 @@ class AppVersionController extends Controller
             'latest_version' => $current['latest_version'],
             'latest_build' => $current['latest_build'],
             'apk_url' => $current['apk_url'],
+            'apk_file_size' => $current['apk_file_size'],
+            'apk_sha256' => $current['apk_sha256'],
             'force_update' => $current['force_update'],
             'message' => $current['message'],
         ]);

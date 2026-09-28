@@ -4,7 +4,9 @@ use App\Enums\UserRole;
 use App\Filament\Pages\AppUpdateSettings;
 use App\Models\MobileAppSetting;
 use App\Models\User;
+use App\Services\MobileApp\MobileApkPublisher;
 use App\Services\MobileApp\MobileAppVersionService;
+use Illuminate\Support\Facades\File;
 use Livewire\Livewire;
 
 it('returns the public mobile app version payload from config when no settings row exists', function () {
@@ -154,4 +156,29 @@ it('allows only admin users to open app update settings', function () {
     Livewire::actingAs($manager)
         ->test(AppUpdateSettings::class)
         ->assertForbidden();
+});
+
+it('returns the uploaded apk url when a saved url still points at an older host', function () {
+    $publisher = app(MobileApkPublisher::class);
+    $path = $publisher->publicPath();
+    File::ensureDirectoryExists(dirname($path));
+    File::put($path, "PK\x03\x04uploaded-apk");
+
+    try {
+        MobileAppSetting::query()->create([
+            'latest_version' => '1.0.23',
+            'latest_build' => 25,
+            'force_update' => true,
+            'apk_url' => 'https://paramgold.in/apk/paramgold-latest.apk',
+            'update_message' => 'A new version of ParamGold is available. Please update to continue.',
+        ]);
+
+        $this->getJson('/api/app-version')
+            ->assertOk()
+            ->assertJsonPath('latest_version', '1.0.23')
+            ->assertJsonPath('latest_build', 25)
+            ->assertJsonPath('apk_url', $publisher->canonicalDownloadUrl());
+    } finally {
+        File::delete($path);
+    }
 });

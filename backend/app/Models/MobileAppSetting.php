@@ -12,6 +12,8 @@ class MobileAppSetting extends Model
         'latest_build',
         'force_update',
         'apk_url',
+        'apk_file_size',
+        'apk_sha256',
         'update_message',
         'updated_by',
     ];
@@ -21,6 +23,7 @@ class MobileAppSetting extends Model
         return [
             'latest_build' => 'integer',
             'force_update' => 'boolean',
+            'apk_file_size' => 'integer',
         ];
     }
 

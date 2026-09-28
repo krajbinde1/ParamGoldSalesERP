@@ -1,12 +1,14 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:dio/dio.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/scheduler.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
+import 'apk_download_check.dart';
 import 'apk_installer.dart';
 import 'app_update_api.dart';
 import 'app_update_store.dart';
@@ -55,7 +57,7 @@ class AppUpdateController extends ChangeNotifier {
   String get message =>
       latest?.message ??
       'A new version of ParamGold is available. Please update to continue.';
-  String get apkUrl => latest?.apkUrl ?? AppVersionInfo.permanentApkUrl;
+  String get apkUrl => latest?.apkUrl.trim() ?? '';
 
   void _notify() {
     if (!hasListeners) return;
@@ -205,19 +207,7 @@ class AppUpdateController extends ChangeNotifier {
       return;
     }
 
-    final existing = _downloadedPath;
-    if (existing != null && File(existing).existsSync()) {
-      try {
-        await _installer.installApk(existing);
-        downloadState = AppUpdateDownloadState.ready;
-        _notify();
-      } on ApkInstallException catch (error) {
-        downloadState = AppUpdateDownloadState.failed;
-        downloadError = error.message;
-        _notify();
-      }
-      return;
-    }
+    _downloadedPath = null;
 
     try {
       downloadState = AppUpdateDownloadState.downloading;
@@ -229,6 +219,7 @@ class AppUpdateController extends ChangeNotifier {
       downloadProgress = 1;
       downloadState = AppUpdateDownloadState.ready;
       _notify();
+      debugPrint('APK installer path=$path');
       await _installer.installApk(path);
     } on ApkInstallException catch (error) {
       downloadState = AppUpdateDownloadState.failed;
@@ -249,9 +240,26 @@ class AppUpdateController extends ChangeNotifier {
     }
     final existing = _downloadedPath;
     if (existing == null || !File(existing).existsSync()) return;
+    final existingFile = File(existing);
+    final failure = ApkDownloadCheck.rejection(
+      statusCode: 200,
+      contentType: 'application/vnd.android.package-archive',
+      contentLength: await existingFile.length(),
+      exists: true,
+      length: await existingFile.length(),
+      header: await _readHeader(existingFile),
+    );
+    if (failure != null) {
+      _downloadedPath = null;
+      downloadState = AppUpdateDownloadState.failed;
+      downloadError = failure;
+      _notify();
+      return;
+    }
     if (!await _installer.canInstallPackages()) return;
     permissionHint = null;
     try {
+      debugPrint('APK installer path=$existing');
       await _installer.installApk(existing);
     } on ApkInstallException catch (error) {
       downloadError = error.message;
@@ -261,34 +269,151 @@ class AppUpdateController extends ChangeNotifier {
   }
 
   Future<String> _downloadApk() async {
+    final downloadUrl = apkUrl;
+    if (downloadUrl.isEmpty) {
+      throw const ApkInstallException(
+        'The update download address is not available. Please try again.',
+      );
+    }
+
+    final build = latest?.latestBuild ?? installedBuild;
     final dir = await getTemporaryDirectory();
     final folder = Directory('${dir.path}/updates');
     if (!await folder.exists()) {
       await folder.create(recursive: true);
     }
-    final file = File('${folder.path}/paramgold-latest.apk');
+    await _deleteStaleUpdaterFiles(folder);
+
+    final apkFile = File('${folder.path}/paramgold-update-$build.apk');
+    final partFile = File('${apkFile.path}.part');
+    if (await partFile.exists()) {
+      await partFile.delete();
+    }
+
+    final Response<dynamic> response;
+    try {
+      response = await _downloadDio.download(
+        downloadUrl,
+        partFile.path,
+        options: Options(
+          followRedirects: true,
+          receiveTimeout: const Duration(minutes: 5),
+          headers: {HttpHeaders.acceptEncodingHeader: 'identity'},
+          validateStatus: (status) => status == 200,
+        ),
+        onReceiveProgress: (received, total) {
+          if (total > 0) {
+            downloadProgress = (received / total).clamp(0.0, 1.0);
+          } else {
+            downloadProgress = 0;
+          }
+          _notify();
+        },
+      );
+    } on DioException catch (error) {
+      await _deleteIfExists(partFile);
+      final status = error.response?.statusCode;
+      final type = error.response?.headers.value(Headers.contentTypeHeader);
+      debugPrint(
+        'APK download failed url=$downloadUrl status=$status contentType=$type',
+      );
+      throw const ApkInstallException(ApkDownloadCheck.incompleteMessage);
+    }
+
+    await _flushClosed(partFile);
+
+    final exists = await partFile.exists();
+    final length = exists ? await partFile.length() : 0;
+    final header = exists ? await _readHeader(partFile) : const <int>[];
+    final contentType = response.headers.value(Headers.contentTypeHeader);
+    final contentLength = int.tryParse(
+      response.headers.value(Headers.contentLengthHeader) ?? '',
+    );
+    final failure = ApkDownloadCheck.rejection(
+      statusCode: response.statusCode,
+      contentType: contentType,
+      contentLength: contentLength,
+      exists: exists,
+      length: length,
+      header: header,
+    );
+    if (failure != null) {
+      await _deleteIfExists(partFile);
+      debugPrint(
+        'APK download rejected url=$downloadUrl status=${response.statusCode} '
+        'contentType=$contentType contentLength=$contentLength '
+        'path=${partFile.path} size=$length',
+      );
+      throw ApkInstallException(failure);
+    }
+
+    final expectedSha = latest?.apkSha256;
+    final actualSha = (expectedSha != null && expectedSha.trim().isNotEmpty)
+        ? (await sha256.bind(partFile.openRead()).first).toString()
+        : null;
+    final integrity = ApkDownloadCheck.integrityRejection(
+      length: length,
+      expectedSize: latest?.apkFileSize,
+      actualSha256: actualSha,
+      expectedSha256: expectedSha,
+    );
+    if (integrity != null) {
+      await _deleteIfExists(partFile);
+      debugPrint(
+        'APK verification failed url=$downloadUrl path=${partFile.path} '
+        'size=$length expectedSize=${latest?.apkFileSize}',
+      );
+      throw ApkInstallException(integrity);
+    }
+
+    if (await apkFile.exists()) {
+      await apkFile.delete();
+    }
+    await partFile.rename(apkFile.path);
+    final savedSize = await apkFile.length();
+    debugPrint(
+      'APK download complete url=$downloadUrl status=${response.statusCode} '
+      'contentType=$contentType contentLength=$contentLength '
+      'path=${apkFile.path} size=$savedSize',
+    );
+    return apkFile.path;
+  }
+
+  Future<void> _deleteStaleUpdaterFiles(Directory folder) async {
+    await for (final entity in folder.list()) {
+      if (entity is! File) continue;
+      final name = entity.uri.pathSegments.last;
+      final isUpdaterApk = name.startsWith('paramgold-update-') ||
+          name.startsWith('paramgold-latest');
+      final isApkFile = name.endsWith('.apk') || name.endsWith('.apk.part');
+      if (isUpdaterApk && isApkFile) {
+        await _deleteIfExists(entity);
+      }
+    }
+  }
+
+  Future<void> _flushClosed(File file) async {
+    if (!await file.exists()) return;
+    final handle = await file.open(mode: FileMode.append);
+    try {
+      await handle.flush();
+    } finally {
+      await handle.close();
+    }
+  }
+
+  Future<List<int>> _readHeader(File file) async {
+    final handle = await file.open();
+    try {
+      return await handle.read(4);
+    } finally {
+      await handle.close();
+    }
+  }
+
+  Future<void> _deleteIfExists(File file) async {
     if (await file.exists()) {
       await file.delete();
     }
-
-    await _downloadDio.download(
-      apkUrl,
-      file.path,
-      onReceiveProgress: (received, total) {
-        if (total > 0) {
-          downloadProgress = (received / total).clamp(0.0, 1.0);
-        } else {
-          downloadProgress = 0;
-        }
-        _notify();
-      },
-    );
-
-    if (!await file.exists() || await file.length() < 1024) {
-      throw const ApkInstallException(
-        'Update download failed. Please check your internet connection and try again.',
-      );
-    }
-    return file.path;
   }
 }

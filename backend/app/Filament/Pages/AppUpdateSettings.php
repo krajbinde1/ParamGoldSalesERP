@@ -125,7 +125,7 @@ class AppUpdateSettings extends Page implements HasForms
                             ->url()
                             ->rules(['regex:/^https:\\/\\//i'])
                             ->maxLength(2048)
-                            ->placeholder(MobileAppVersionService::DEFAULT_APK_URL),
+                            ->helperText('Once a release APK is published, Update Now downloads this server\'s /apk/paramgold-latest.apk. A URL on another host is not used.'),
                         Textarea::make('update_message')
                             ->label('Update Message')
                             ->rows(3)
@@ -170,17 +170,45 @@ class AppUpdateSettings extends Page implements HasForms
             $state = $this->form->getState();
             $uploaded = $this->uploadedApkFromState($state);
 
+            $publisher = app(MobileApkPublisher::class);
+
             if ($uploaded !== null) {
-                app(MobileApkPublisher::class)->replaceLatest($uploaded);
+                $realPath = $uploaded->getRealPath();
+                if ($realPath === false) {
+                    throw ValidationException::withMessages([
+                        'apk' => 'Unable to read the uploaded APK. Please try again. The current APK and version settings were not changed.',
+                    ]);
+                }
+
+                $meta = $publisher->assertMatchesVersion(
+                    $realPath,
+                    trim((string) $state['latest_version']),
+                    (int) $state['latest_build'],
+                );
+                $publisher->replaceLatest($uploaded);
+                $state['apk_url'] = $publisher->canonicalDownloadUrl();
+                $state['apk_file_size'] = $meta['size'];
+                $state['apk_sha256'] = $meta['sha256'];
                 $apkReplaced = true;
+            } elseif (is_file($publisher->publicPath())) {
+                $meta = $publisher->assertMatchesVersion(
+                    $publisher->publicPath(),
+                    trim((string) $state['latest_version']),
+                    (int) $state['latest_build'],
+                );
+                $state['apk_url'] = $publisher->canonicalDownloadUrl();
+                $state['apk_file_size'] = $meta['size'];
+                $state['apk_sha256'] = $meta['sha256'];
             }
 
             unset($state['apk']);
             app(MobileAppVersionService::class)->save($state, auth()->user());
         } catch (ValidationException $exception) {
             $errors = $exception->errors();
-            if (array_key_exists('apk', $errors) && ! array_key_exists('data.apk', $errors)) {
-                $errors['data.apk'] = $errors['apk'];
+            foreach (['apk', 'latest_version', 'latest_build'] as $field) {
+                if (array_key_exists($field, $errors) && ! array_key_exists('data.'.$field, $errors)) {
+                    $errors['data.'.$field] = $errors[$field];
+                }
             }
 
             $first = collect($errors)->flatten()->first();

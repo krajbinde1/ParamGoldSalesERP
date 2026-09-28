@@ -18,7 +18,10 @@ return [
     | 1. Bump Flutter pubspec.yaml version AND +build number
     | 2. Build app-release.apk
     | 3. Admin Web → App Update Settings → upload the APK and save version + build
-    |    (this replaces /apk/paramgold-latest.apk; no manual server copy needed)
+    |    (this replaces /apk/paramgold-latest.apk and points apk_url at that file)
+    |
+    | Once that file exists, GET /api/app-version returns its URL on this
+    | server. MOBILE_APP_APK_URL is only a fallback before the first upload.
     |
     | latest_build must match (or stay below) the uploaded APK's build, or
     | installed apps will loop on the update screen.
@@ -28,6 +31,8 @@ return [
     'latest_version' => env('MOBILE_APP_LATEST_VERSION', '1.0.0'),
 
     'latest_build' => (int) env('MOBILE_APP_LATEST_BUILD', 2),
+
+    'package_name' => 'com.example.mobile',
 
     'apk_url' => env(
         'MOBILE_APP_APK_URL',

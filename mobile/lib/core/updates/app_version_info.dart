@@ -5,6 +5,8 @@ class AppVersionInfo {
     required this.apkUrl,
     required this.forceUpdate,
     required this.message,
+    this.apkFileSize,
+    this.apkSha256,
   });
 
   final String latestVersion;
@@ -12,19 +14,22 @@ class AppVersionInfo {
   final String apkUrl;
   final bool forceUpdate;
   final String message;
-
-  static const permanentApkUrl = 'https://paramgold.in/apk/paramgold-latest.apk';
+  final int? apkFileSize;
+  final String? apkSha256;
 
   factory AppVersionInfo.fromJson(Map<String, dynamic> json) {
     final nested = json['data'];
     final root = nested is Map
         ? Map<String, dynamic>.from(nested)
         : json;
-    final url = root['apk_url']?.toString().trim();
+    final url = root['apk_url']?.toString().trim() ?? '';
+    final sha = root['apk_sha256']?.toString().trim();
     return AppVersionInfo(
       latestVersion: root['latest_version']?.toString() ?? '',
       latestBuild: int.tryParse('${root['latest_build'] ?? 0}') ?? 0,
-      apkUrl: (url == null || url.isEmpty) ? permanentApkUrl : url,
+      apkUrl: url,
+      apkFileSize: int.tryParse('${root['apk_file_size'] ?? ''}'),
+      apkSha256: (sha == null || sha.isEmpty) ? null : sha,
       forceUpdate: root['force_update'] != false,
       message: root['message']?.toString() ??
           'A new version of ParamGold is available. Please update to continue.',
@@ -35,6 +40,8 @@ class AppVersionInfo {
         'latest_version': latestVersion,
         'latest_build': latestBuild,
         'apk_url': apkUrl,
+        'apk_file_size': apkFileSize,
+        'apk_sha256': apkSha256,
         'force_update': forceUpdate,
         'message': message,
       };

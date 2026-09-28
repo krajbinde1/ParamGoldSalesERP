@@ -28,12 +28,9 @@ class MobileAppVersionService
     public function current(): array
     {
         $row = $this->activeRecord();
+        $payload = $row !== null ? $this->fromModel($row) : $this->fromConfig();
 
-        if ($row !== null) {
-            return $this->fromModel($row);
-        }
-
-        return $this->fromConfig();
+        return $this->withPublishedApk($payload, $row);
     }
 
     public function currentBuild(): int
@@ -47,6 +44,8 @@ class MobileAppVersionService
      *     latest_build: int|string,
      *     force_update: bool,
      *     apk_url: string,
+     *     apk_file_size?: int|null,
+     *     apk_sha256?: string|null,
      *     update_message?: ?string
      * }  $data
      */
@@ -55,12 +54,14 @@ class MobileAppVersionService
         $latestVersion = trim((string) ($data['latest_version'] ?? ''));
         $latestBuild = (int) ($data['latest_build'] ?? 0);
         $apkUrl = trim((string) ($data['apk_url'] ?? ''));
+        $apkFileSize = isset($data['apk_file_size']) ? (int) $data['apk_file_size'] : null;
+        $apkSha256 = isset($data['apk_sha256']) ? strtolower(trim((string) $data['apk_sha256'])) : null;
         $forceUpdate = (bool) ($data['force_update'] ?? false);
         $updateMessage = trim((string) ($data['update_message'] ?? ''));
 
         $this->assertValidPayload($latestVersion, $latestBuild, $apkUrl);
 
-        return DB::transaction(function () use ($latestVersion, $latestBuild, $apkUrl, $forceUpdate, $updateMessage, $actor): MobileAppSetting {
+        return DB::transaction(function () use ($latestVersion, $latestBuild, $apkUrl, $apkFileSize, $apkSha256, $forceUpdate, $updateMessage, $actor): MobileAppSetting {
             $row = MobileAppSetting::query()->lockForUpdate()->orderBy('id')->first();
             $currentBuild = $row?->latest_build ?? $this->fromConfig()['latest_build'];
 
@@ -78,6 +79,12 @@ class MobileAppVersionService
             $row->latest_build = $latestBuild;
             $row->force_update = $forceUpdate;
             $row->apk_url = $apkUrl;
+            if ($apkFileSize !== null && $apkFileSize > 0) {
+                $row->apk_file_size = $apkFileSize;
+            }
+            if ($apkSha256 !== null && $apkSha256 !== '') {
+                $row->apk_sha256 = $apkSha256;
+            }
             $row->update_message = $updateMessage !== '' ? $updateMessage : null;
             $row->updated_by = $actor->id;
             $row->save();
@@ -122,6 +129,8 @@ class MobileAppVersionService
             'latest_version' => (string) $row->latest_version,
             'latest_build' => (int) $row->latest_build,
             'apk_url' => $apkUrl,
+            'apk_file_size' => $row->apk_file_size !== null ? (int) $row->apk_file_size : null,
+            'apk_sha256' => $row->apk_sha256 !== null ? (string) $row->apk_sha256 : null,
             'force_update' => (bool) $row->force_update,
             'message' => $message,
             'source' => 'database',
@@ -158,6 +167,8 @@ class MobileAppVersionService
             'latest_version' => (string) config('mobile_app.latest_version', '1.0.0'),
             'latest_build' => (int) config('mobile_app.latest_build', 2),
             'apk_url' => $apkUrl,
+            'apk_file_size' => null,
+            'apk_sha256' => null,
             'force_update' => (bool) config('mobile_app.force_update', true),
             'message' => $message,
             'source' => 'config',
@@ -185,5 +196,48 @@ class MobileAppVersionService
         if ($errors !== []) {
             throw ValidationException::withMessages($errors);
         }
+    }
+
+    /**
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    private function withPublishedApk(array $payload, ?MobileAppSetting $row): array
+    {
+        $publisher = app(MobileApkPublisher::class);
+        $path = $publisher->publicPath();
+        if (! is_file($path)) {
+            return $payload;
+        }
+
+        $size = (int) filesize($path);
+        $url = $publisher->canonicalDownloadUrl();
+        $storedSha = is_string($row?->apk_sha256) ? $row->apk_sha256 : '';
+        $sha = strlen($storedSha) === 64 && (int) $row?->apk_file_size === $size
+            ? $storedSha
+            : (string) hash_file('sha256', $path);
+
+        if ($row !== null) {
+            $urlNeedsWrite = str_starts_with(strtolower($url), 'https://')
+                && trim((string) $row->apk_url) !== $url;
+            $hashNeedsWrite = (int) $row->apk_file_size !== $size || $row->apk_sha256 !== $sha;
+
+            if ($urlNeedsWrite || $hashNeedsWrite) {
+                $fill = [
+                    'apk_file_size' => $size,
+                    'apk_sha256' => $sha,
+                ];
+                if ($urlNeedsWrite) {
+                    $fill['apk_url'] = $url;
+                }
+                $row->forceFill($fill)->save();
+            }
+        }
+
+        $payload['apk_url'] = $url;
+        $payload['apk_file_size'] = $size;
+        $payload['apk_sha256'] = $sha;
+
+        return $payload;
     }
 }

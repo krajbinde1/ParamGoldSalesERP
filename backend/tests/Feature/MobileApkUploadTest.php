@@ -4,9 +4,12 @@ use App\Enums\UserRole;
 use App\Filament\Pages\AppUpdateSettings;
 use App\Models\MobileAppSetting;
 use App\Models\User;
+use App\Services\MobileApp\AndroidApkMetadata;
 use App\Services\MobileApp\MobileApkPublisher;
 use App\Services\MobileApp\MobileAppVersionService;
 use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\URL;
+use Tests\Support\MinimalAndroidApk;
 use Illuminate\Support\Facades\File;
 use Illuminate\Validation\ValidationException;
 use Livewire\Livewire;
@@ -40,11 +43,15 @@ function apkAdmin(): User
     ]);
 }
 
-function fakeReleaseApk(string $name = 'app-release.apk', string $marker = 'PARAMGOLD-APK'): UploadedFile
-{
+function fakeReleaseApk(
+    string $name = 'app-release.apk',
+    string $marker = 'PARAMGOLD-APK',
+    string $version = '1.0.4',
+    int $build = 6,
+): UploadedFile {
     return UploadedFile::fake()->createWithContent(
         $name,
-        "PK\x03\x04".$marker.str_repeat('x', 2048),
+        MinimalAndroidApk::bytes('com.example.mobile', $version, $build, $marker),
     );
 }
 
@@ -83,6 +90,8 @@ it('lets admin save version settings without uploading an apk', function (): voi
 it('replaces the public apk and verifies the download url when admin saves a release apk', function (): void {
     $admin = apkAdmin();
     $apk = fakeReleaseApk();
+    \Illuminate\Support\Facades\URL::forceRootUrl('https://erp.paramgold.in');
+    \Illuminate\Support\Facades\URL::forceScheme('https');
 
     Livewire::actingAs($admin)
         ->test(AppUpdateSettings::class)
@@ -92,10 +101,16 @@ it('replaces the public apk and verifies the download url when admin saves a rel
         ->call('save')
         ->assertHasNoFormErrors();
 
-    $path = app(MobileApkPublisher::class)->publicPath();
+    $publisher = app(MobileApkPublisher::class);
+    $path = $publisher->publicPath();
     expect(is_file($path))->toBeTrue()
         ->and(file_get_contents($path))->toContain('PARAMGOLD-APK')
-        ->and(MobileAppSetting::query()->first()?->latest_build)->toBe(6);
+        ->and(MobileAppSetting::query()->first()?->latest_build)->toBe(6)
+        ->and(MobileAppSetting::query()->first()?->apk_url)->toBe($publisher->canonicalDownloadUrl());
+
+    $this->getJson('/api/app-version')
+        ->assertOk()
+        ->assertJsonPath('apk_url', $publisher->canonicalDownloadUrl());
 
     $download = $this->get('/apk/paramgold-latest.apk');
     $download->assertOk()
@@ -178,4 +193,73 @@ it('serves the apk download without authentication', function (): void {
     $download->assertOk();
 
     expect($download->baseResponse->getFile()->getContent())->toContain('PUBLIC');
+});
+
+it('reads package and version 1.0.23 build 25 from the release apk', function (): void {
+    $path = dirname(base_path()).DIRECTORY_SEPARATOR.'mobile'.DIRECTORY_SEPARATOR.'release'.DIRECTORY_SEPARATOR.'paramgold-latest.apk';
+    if (! is_file($path)) {
+        test()->skip('The verified 1.0.23 release APK is not in this workspace.');
+    }
+
+    $meta = app(AndroidApkMetadata::class)->read($path);
+
+    expect($meta['package'])->toBe('com.example.mobile')
+        ->and($meta['version_name'])->toBe('1.0.23')
+        ->and($meta['version_code'])->toBe(25)
+        ->and(filesize($path))->toBe(96224256);
+});
+
+it('publishes a matching 1.0.23 apk and the api download hash matches the upload', function (): void {
+    URL::forceRootUrl('https://erp.paramgold.in');
+    URL::forceScheme('https');
+
+    $bytes = MinimalAndroidApk::bytes('com.example.mobile', '1.0.23', 25, 'RELEASE-1023');
+    $admin = apkAdmin();
+
+    Livewire::actingAs($admin)
+        ->test(AppUpdateSettings::class)
+        ->fillForm(publishedApkSettingsPayload([
+            'latest_version' => '1.0.23',
+            'latest_build' => 25,
+            'apk' => UploadedFile::fake()->createWithContent('paramgold-1.0.23.apk', $bytes),
+        ]))
+        ->call('save')
+        ->assertHasNoFormErrors();
+
+    $publisher = app(MobileApkPublisher::class);
+    $sha = hash('sha256', $bytes);
+
+    $this->getJson('/api/app-version')
+        ->assertOk()
+        ->assertJsonPath('latest_version', '1.0.23')
+        ->assertJsonPath('latest_build', 25)
+        ->assertJsonPath('apk_url', 'https://erp.paramgold.in/apk/paramgold-latest.apk')
+        ->assertJsonPath('apk_file_size', strlen($bytes))
+        ->assertJsonPath('apk_sha256', $sha);
+
+    $download = $this->get('/apk/paramgold-latest.apk');
+    $download->assertOk();
+
+    expect(hash('sha256', $download->baseResponse->getFile()->getContent()))->toBe($sha)
+        ->and(MobileAppSetting::query()->first()?->apk_url)->toBe($publisher->canonicalDownloadUrl());
+});
+
+it('blocks publishing when the entered version does not match the apk', function (): void {
+    URL::forceRootUrl('https://erp.paramgold.in');
+    URL::forceScheme('https');
+
+    $admin = apkAdmin();
+
+    Livewire::actingAs($admin)
+        ->test(AppUpdateSettings::class)
+        ->fillForm(publishedApkSettingsPayload([
+            'latest_version' => '1.0.22',
+            'latest_build' => 24,
+            'apk' => fakeReleaseApk(version: '1.0.23', build: 25, marker: 'MISMATCH'),
+        ]))
+        ->call('save')
+        ->assertHasFormErrors(['latest_version', 'latest_build']);
+
+    expect(is_file(app(MobileApkPublisher::class)->publicPath()))->toBeFalse()
+        ->and(MobileAppSetting::query()->count())->toBe(0);
 });

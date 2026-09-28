@@ -1,6 +1,7 @@
 package com.example.mobile
 
 import android.app.NotificationManager
+import android.content.ClipData
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -182,8 +183,13 @@ class MainActivity : FlutterFragmentActivity() {
             "$packageName.update.fileprovider",
             file,
         )
+        Log.i(
+            "ParamGoldUpdate",
+            "install uri=$uri path=${file.absolutePath} size=${file.length()}",
+        )
         val intent = Intent(Intent.ACTION_VIEW).apply {
             setDataAndType(uri, "application/vnd.android.package-archive")
+            clipData = ClipData.newRawUri("ParamGold update", uri)
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
         }

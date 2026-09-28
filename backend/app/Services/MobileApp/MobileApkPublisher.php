@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\File;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Throwable;
 
@@ -30,6 +31,11 @@ class MobileApkPublisher
         return '/'.self::RELATIVE_PATH;
     }
 
+    public function canonicalDownloadUrl(): string
+    {
+        return url($this->downloadUrlPath());
+    }
+
     /**
      * @return array{exists: bool, size_bytes: ?int, updated_at: ?string, url_path: string}
      */
@@ -45,6 +51,53 @@ class MobileApkPublisher
                 ? date('d M Y, h:i A', (int) filemtime($path))
                 : null,
             'url_path' => $this->downloadUrlPath(),
+        ];
+    }
+
+    /**
+     * @return array{package: string, version_name: string, version_code: int, size: int, sha256: string}
+     */
+    public function assertMatchesVersion(string $path, string $version, int $build): array
+    {
+        try {
+            $meta = app(AndroidApkMetadata::class)->read($path);
+        } catch (RuntimeException $exception) {
+            throw ValidationException::withMessages([
+                'apk' => $exception->getMessage().' The current APK and version settings were not changed.',
+            ]);
+        }
+
+        $expectedPackage = (string) config('mobile_app.package_name', 'com.example.mobile');
+        $errors = [];
+
+        if ($meta['package'] !== $expectedPackage) {
+            $errors['apk'] = "The APK package is {$meta['package']}. ParamGold requires {$expectedPackage}. Publishing was blocked and the current APK was not changed.";
+        }
+
+        if ($meta['version_name'] !== $version) {
+            $errors['latest_version'] = "Latest Version must match the APK version name ({$meta['version_name']}). Publishing was blocked and the current APK was not changed.";
+        }
+
+        if ($meta['version_code'] !== $build) {
+            $errors['latest_build'] = "Latest Build must match the APK version code ({$meta['version_code']}). Publishing was blocked and the current APK was not changed.";
+        }
+
+        if ($errors !== []) {
+            if (! array_key_exists('apk', $errors)) {
+                $errors['apk'] = 'The APK version does not match the version and build entered here. Publishing was blocked and the current APK was not changed.';
+            }
+
+            throw ValidationException::withMessages($errors);
+        }
+
+        $size = filesize($path);
+
+        return [
+            'package' => $meta['package'],
+            'version_name' => $meta['version_name'],
+            'version_code' => $meta['version_code'],
+            'size' => $size === false ? 0 : (int) $size,
+            'sha256' => (string) hash_file('sha256', $path),
         ];
     }
 
