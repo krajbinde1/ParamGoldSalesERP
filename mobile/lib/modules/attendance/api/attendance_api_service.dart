@@ -39,15 +39,7 @@ class AttendanceApiService {
   Future<Attendance?> today() async {
     final d = await _get('/attendance/today');
     if (d is! Map) return null;
-    final payload = Map<String, dynamic>.from(d);
-    final raw = payload['attendance'];
-    if (raw is Map) {
-      return Attendance.fromJson({
-        ...Map<String, dynamic>.from(raw),
-        ...payload,
-      });
-    }
-    return null;
+    return Attendance.parseTodayPayload(Map<String, dynamic>.from(d));
   }
 
   Future<List<Attendance>> history(DateTime m) async {
@@ -79,7 +71,7 @@ class AttendanceApiService {
     return AttendanceMonthlySummary.fromJson(payload);
   }
 
-  Future<Attendance> punch(
+  Future<Attendance?> punch(
     String action,
     PunchCapture c, {
     String? latePunchOutReason,
@@ -102,15 +94,22 @@ class AttendanceApiService {
         ),
       });
       final r = await _dio.post('/attendance/$action', data: f);
-      return Attendance.fromJson(
-        Map<String, dynamic>.from(r.data['data'] as Map),
-      );
+      final data = r.data['data'];
+      if (data is Map &&
+          (data.containsKey('punch_in_allowed') ||
+              data.containsKey('attendance'))) {
+        return Attendance.parseTodayPayload(Map<String, dynamic>.from(data));
+      }
+      if (data is Map) {
+        return Attendance.fromJson(Map<String, dynamic>.from(data));
+      }
+      return null;
     } on DioException catch (e) {
       throw _error(e);
     }
   }
 
-  Future<Attendance> submitPunchOutCorrection({
+  Future<Attendance?> submitPunchOutCorrection({
     required DateTime actualPunchOut,
     required String reason,
     String? reasonNote,
@@ -131,12 +130,11 @@ class AttendanceApiService {
       final data = body['data'] is Map
           ? Map<String, dynamic>.from(body['data'] as Map)
           : <String, dynamic>{};
-      final raw = data['attendance'];
-      if (raw is Map) {
-        return Attendance.fromJson({...Map<String, dynamic>.from(raw), ...data});
-      }
+      final parsed = Attendance.parseTodayPayload(data);
+      if (parsed != null) return parsed;
       final today = await this.today();
       if (today != null) return today;
+      if (data['punch_in_allowed'] == true) return null;
       throw const AttendanceApiException(
         'Punch out correction submitted, but attendance could not be refreshed.',
       );

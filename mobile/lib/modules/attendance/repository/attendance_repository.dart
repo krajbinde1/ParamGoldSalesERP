@@ -40,16 +40,20 @@ class AttendanceRepository {
 
   Future<Attendance?> fetchTodayFresh() async {
     try {
-      final value = await api.today();
-      if (value != null) {
-        await _persistToday(value, queue: _readQueue());
-      } else {
-        await prefs.remove(_todayKey);
-      }
-      return value;
+      return await fetchTodayFromServer();
     } catch (_) {
       return _localToday();
     }
+  }
+
+  Future<Attendance?> fetchTodayFromServer() async {
+    final value = await api.today();
+    if (value != null) {
+      await _persistToday(value, queue: _readQueue());
+    } else {
+      await prefs.remove(_todayKey);
+    }
+    return value;
   }
 
   Future<void> clearLocalTodayCache() async {
@@ -68,7 +72,7 @@ class AttendanceRepository {
     return api.monthlySummary(month);
   }
 
-  Future<Attendance> punch(
+  Future<Attendance?> punch(
     String action,
     PunchCapture c, {
     String? latePunchOutReason,
@@ -81,7 +85,11 @@ class AttendanceRepository {
         latePunchOutReason: latePunchOutReason,
         latePunchOutReasonNote: latePunchOutReasonNote,
       );
-      await _persistToday(value, queue: _readQueue());
+      if (value != null) {
+        await _persistToday(value, queue: _readQueue());
+      } else {
+        await prefs.remove(_todayKey);
+      }
       return value;
     } on AttendanceApiException catch (e) {
       if (e.message != 'No internet connection.') rethrow;
@@ -91,7 +99,7 @@ class AttendanceRepository {
     }
   }
 
-  Future<Attendance> submitPunchOutCorrection({
+  Future<Attendance?> submitPunchOutCorrection({
     required DateTime actualPunchOut,
     required String reason,
     String? reasonNote,
@@ -101,7 +109,11 @@ class AttendanceRepository {
       reason: reason,
       reasonNote: reasonNote,
     );
-    await _persistToday(value, queue: _readQueue());
+    if (value != null) {
+      await _persistToday(value, queue: _readQueue());
+    } else {
+      await prefs.remove(_todayKey);
+    }
     return value;
   }
 
@@ -193,7 +205,12 @@ class AttendanceRepository {
         );
         done++;
         final remaining = queue.skip(done).toList();
-        await _persistToday(value, queue: remaining);
+        if (value != null) {
+          await _persistToday(value, queue: remaining);
+        } else {
+          await prefs.setString(_queueKey, jsonEncode(remaining));
+          await prefs.remove(_todayKey);
+        }
       } on AttendanceApiException catch (error) {
         final duplicate =
             (item['action'] == 'punch-in' &&
@@ -277,6 +294,10 @@ class AttendanceRepository {
       punchOutCorrectionStatus: value.punchOutCorrectionStatus,
       pendingCorrection: value.pendingCorrection,
       latePunchOutReasons: value.latePunchOutReasons,
+      isCurrentSession: value.isCurrentSession,
+      openAttendanceId: value.openAttendanceId,
+      openAttendanceDate: value.openAttendanceDate,
+      openPunchIn: value.openPunchIn,
     );
     await prefs.setString(_todayKey, jsonEncode(toSave.toJson()));
   }

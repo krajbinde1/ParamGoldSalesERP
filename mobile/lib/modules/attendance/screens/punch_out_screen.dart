@@ -52,23 +52,22 @@ class _PunchOutScreenState extends ConsumerState<PunchOutScreen> {
       );
       if (mounted) {
         refreshRouteTrackingStatus(ref);
-        final punchInTime = attendance.punchIn == null
+        final punchInTime = attendance?.punchIn == null
             ? '—'
-            : AttendanceFormat.time(attendance.punchIn);
-        final punchOutTime = attendance.punchOut == null
+            : AttendanceFormat.time(attendance!.punchIn);
+        final punchOutTime = attendance?.punchOut == null
             ? '—'
-            : AttendanceFormat.time(attendance.punchOut);
-        final working = attendance.workingHours ?? '—';
+            : AttendanceFormat.time(attendance!.punchOut);
+        final working = attendance?.workingHours ?? '—';
+        final summary = attendance == null
+            ? 'Punch out recorded. You can punch in for today.'
+            : 'Punch Out Successful\n'
+                'Punch In: $punchInTime\n'
+                'Punch Out: $punchOutTime\n'
+                'Working Hours: $working\n'
+                'Status: ${attendance.status}';
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              'Punch Out Successful\n'
-              'Punch In: $punchInTime\n'
-              'Punch Out: $punchOutTime\n'
-              'Working Hours: $working\n'
-              'Status: ${attendance.status}',
-            ),
-          ),
+          SnackBar(content: Text(summary)),
         );
         context.pop();
       }

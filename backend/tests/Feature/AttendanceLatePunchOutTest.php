@@ -295,3 +295,327 @@ it('marks half day from the approved punch out datetime', function (): void {
     expect($attendance->fresh()->total_working_minutes)->toBe(300)
         ->and($attendance->fresh()->attendance_status)->toBe(AttendanceStatusCalculator::STATUS_HALF_DAY);
 });
+
+it('allows punch in when there is no open attendance', function (): void {
+    $employee = latePunchEmployee('No Attendance', '9600000201');
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/attendance/today')
+        ->assertOk()
+        ->assertJsonPath('data.attendance', null)
+        ->assertJsonPath('data.punch_in_allowed', true)
+        ->assertJsonPath('data.punch_out_allowed', false)
+        ->assertJsonPath('data.punch_out_correction_required', false);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->post('/api/attendance/punch-in', punchPayload())
+        ->assertCreated();
+
+    expect(Attendance::query()->where('employee_id', $employee->id)->count())->toBe(1);
+});
+
+it('allows a normal punch out two hours after punch in', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-28 10:00:00', AttendanceCalendar::TIMEZONE));
+    $employee = latePunchEmployee('Two Hour Punch', '9600000202');
+
+    Attendance::query()->create([
+        'employee_id' => $employee->id,
+        'attendance_date' => '2026-09-28',
+        'punch_in_time' => '08:00:00',
+        'attendance_status' => AttendanceStatusCalculator::STATUS_PUNCHED_IN,
+        'approval_status' => 'Pending',
+    ]);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/attendance/today')
+        ->assertOk()
+        ->assertJsonPath('data.punch_in_allowed', false)
+        ->assertJsonPath('data.punch_out_allowed', true)
+        ->assertJsonPath('data.punch_out_correction_required', false)
+        ->assertJsonPath('data.late_punch_out_reason_required', false)
+        ->assertJsonPath('data.is_current_session', true)
+        ->assertJsonPath('data.open_elapsed_minutes', 120);
+});
+
+it('allows a normal punch out when midnight passed but elapsed time is 22 hours', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-29 08:00:00', AttendanceCalendar::TIMEZONE));
+    $employee = latePunchEmployee('Twenty Two Hours', '9600000203');
+
+    Attendance::query()->create([
+        'employee_id' => $employee->id,
+        'attendance_date' => '2026-09-28',
+        'punch_in_time' => '10:00:00',
+        'attendance_status' => AttendanceStatusCalculator::STATUS_PUNCHED_IN,
+        'approval_status' => 'Pending',
+    ]);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/attendance/today')
+        ->assertOk()
+        ->assertJsonPath('data.punch_out_allowed', true)
+        ->assertJsonPath('data.punch_out_correction_required', false)
+        ->assertJsonPath('data.late_punch_out_reason_required', true)
+        ->assertJsonPath('data.is_current_session', true)
+        ->assertJsonPath('data.open_elapsed_minutes', 22 * 60)
+        ->assertJsonPath('data.punch_in_allowed', false);
+});
+
+it('blocks normal punch out after 25 hours and requires a previous punch out correction', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-29 11:00:00', AttendanceCalendar::TIMEZONE));
+    $employee = latePunchEmployee('Twenty Five Hours', '9600000204');
+
+    $attendance = Attendance::query()->create([
+        'employee_id' => $employee->id,
+        'attendance_date' => '2026-09-28',
+        'punch_in_time' => '10:00:00',
+        'attendance_status' => AttendanceStatusCalculator::STATUS_PUNCHED_IN,
+        'approval_status' => 'Pending',
+    ]);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/attendance/today')
+        ->assertOk()
+        ->assertJsonPath('data.attendance', null)
+        ->assertJsonPath('data.punch_out_allowed', false)
+        ->assertJsonPath('data.punch_in_allowed', false)
+        ->assertJsonPath('data.punch_out_correction_required', true)
+        ->assertJsonPath('data.is_current_session', false)
+        ->assertJsonPath('data.previous_open_attendance.id', $attendance->id)
+        ->assertJsonPath('data.previous_open_attendance.attendance_date', '2026-09-28');
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->post('/api/attendance/punch-out', punchPayload())
+        ->assertStatus(422)
+        ->assertJsonPath('message', 'Request Punch Out Correction');
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/attendance/punch-out-correction', [
+            'actual_punch_out_date' => '2026-09-28',
+            'actual_punch_out_time' => '18:00',
+        ])
+        ->assertStatus(422);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/attendance/punch-out-correction', [
+            'actual_punch_out_date' => '2026-09-28',
+            'actual_punch_out_time' => '18:00',
+            'reason' => AttendancePunchOutCorrection::REASON_FORGOT,
+        ])
+        ->assertCreated();
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/attendance/today')
+        ->assertOk()
+        ->assertJsonPath('data.punch_out_correction_pending', true)
+        ->assertJsonPath('data.punch_out_correction_required', false)
+        ->assertJsonPath('data.punch_in_allowed', false)
+        ->assertJsonPath('data.punch_out_allowed', false)
+        ->assertJsonPath('data.pending_correction.reason', AttendancePunchOutCorrection::REASON_FORGOT);
+
+    expect($attendance->fresh()->punch_out_time)->toBeNull();
+});
+
+it('allows today punch in after the expired attendance correction is approved', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-29 11:00:00', AttendanceCalendar::TIMEZONE));
+    $manager = latePunchEmployee('Resolve Manager', '9600000205', UserRole::Manager);
+    $employee = latePunchEmployee('Resolve Employee', '9600000206');
+    $employee->update(['reporting_manager_id' => $manager->id]);
+
+    $expired = Attendance::query()->create([
+        'employee_id' => $employee->id,
+        'attendance_date' => '2026-09-28',
+        'punch_in_time' => '10:00:00',
+        'attendance_status' => AttendanceStatusCalculator::STATUS_PUNCHED_IN,
+        'approval_status' => 'Pending',
+    ]);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/attendance/punch-out-correction', [
+            'actual_punch_out_date' => '2026-09-28',
+            'actual_punch_out_time' => '19:00',
+            'reason' => AttendancePunchOutCorrection::REASON_TRAVELLING,
+        ])
+        ->assertCreated();
+
+    $correction = AttendancePunchOutCorrection::query()->first();
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->post('/api/attendance/punch-in', punchPayload())
+        ->assertStatus(422);
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson("/api/manager/team-attendance/{$expired->id}/punch-out-corrections/{$correction->id}/approve")
+        ->assertOk();
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/attendance/today')
+        ->assertOk()
+        ->assertJsonPath('data.punch_in_allowed', true)
+        ->assertJsonPath('data.punch_out_allowed', false)
+        ->assertJsonPath('data.punch_out_correction_required', false)
+        ->assertJsonPath('data.punch_out_correction_pending', false)
+        ->assertJsonPath('data.attendance', null);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->post('/api/attendance/punch-in', punchPayload())
+        ->assertCreated();
+
+    $today = Attendance::query()
+        ->where('employee_id', $employee->id)
+        ->whereDate('attendance_date', '2026-09-29')
+        ->first();
+
+    expect($today)->not->toBeNull()
+        ->and($today->id)->not->toBe($expired->id)
+        ->and($today->punch_in_time)->not->toBeNull()
+        ->and($today->punch_out_time)->toBeNull()
+        ->and($expired->fresh()->punch_out_time)->toBe('19:00:00');
+});
+
+it('allows today punch in when the previous attendance is already completed', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-28 10:28:00', AttendanceCalendar::TIMEZONE));
+    $employee = latePunchEmployee('Completed Yesterday', '9600000207');
+
+    Attendance::query()->create([
+        'employee_id' => $employee->id,
+        'attendance_date' => '2026-09-27',
+        'punch_in_time' => '10:00:00',
+        'punch_out_time' => '18:00:00',
+        'attendance_status' => AttendanceStatusCalculator::STATUS_PRESENT,
+        'approval_status' => 'Pending',
+    ]);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/attendance/today')
+        ->assertOk()
+        ->assertJsonPath('data.punch_in_allowed', true)
+        ->assertJsonPath('data.attendance', null);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->post('/api/attendance/punch-in', punchPayload())
+        ->assertCreated();
+});
+
+it('keeps a pending correction blocking punch in without a dead-end resubmit', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-29 11:00:00', AttendanceCalendar::TIMEZONE));
+    $employee = latePunchEmployee('Pending Lock', '9600000208');
+
+    Attendance::query()->create([
+        'employee_id' => $employee->id,
+        'attendance_date' => '2026-09-28',
+        'punch_in_time' => '10:00:00',
+        'attendance_status' => AttendanceStatusCalculator::STATUS_PUNCHED_IN,
+        'approval_status' => 'Pending',
+    ]);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/attendance/punch-out-correction', [
+            'actual_punch_out_date' => '2026-09-28',
+            'actual_punch_out_time' => '18:30',
+            'reason' => AttendancePunchOutCorrection::REASON_FORGOT,
+        ])
+        ->assertCreated();
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->post('/api/attendance/punch-in', punchPayload())
+        ->assertStatus(422);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->post('/api/attendance/punch-out', punchPayload())
+        ->assertStatus(422)
+        ->assertJsonPath('message', 'A punch-out correction is already pending approval.');
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/attendance/punch-out-correction', [
+            'actual_punch_out_date' => '2026-09-28',
+            'actual_punch_out_time' => '18:45',
+            'reason' => AttendancePunchOutCorrection::REASON_FORGOT,
+        ])
+        ->assertStatus(422);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/attendance/today')
+        ->assertOk()
+        ->assertJsonPath('data.punch_out_correction_pending', true)
+        ->assertJsonPath('data.punch_in_allowed', false)
+        ->assertJsonPath('data.pending_correction.status', 'pending');
+});
+
+it('reports about two minutes of working time for a punch in at 10:26', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-28 10:28:00', AttendanceCalendar::TIMEZONE));
+    $employee = latePunchEmployee('Two Minute Timer', '9600000209');
+
+    Attendance::query()->create([
+        'employee_id' => $employee->id,
+        'attendance_date' => '2026-09-28',
+        'punch_in_time' => '10:26:00',
+        'attendance_status' => AttendanceStatusCalculator::STATUS_PUNCHED_IN,
+        'approval_status' => 'Pending',
+    ]);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/attendance/today')
+        ->assertOk()
+        ->assertJsonPath('data.is_current_session', true)
+        ->assertJsonPath('data.open_elapsed_minutes', 2)
+        ->assertJsonPath('data.punch_out_correction_required', false)
+        ->assertJsonPath('data.attendance.attendance_date', '2026-09-28');
+});
+
+it('saves punch out time and working minutes for a normal punch out inside 24 hours', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-28 12:00:00', AttendanceCalendar::TIMEZONE));
+    $employee = latePunchEmployee('Normal Close', '9600000210');
+
+    $attendance = Attendance::query()->create([
+        'employee_id' => $employee->id,
+        'attendance_date' => '2026-09-28',
+        'punch_in_time' => '10:00:00',
+        'attendance_status' => AttendanceStatusCalculator::STATUS_PUNCHED_IN,
+        'approval_status' => 'Pending',
+    ]);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->post('/api/attendance/punch-out', punchPayload())
+        ->assertOk()
+        ->assertJsonPath('message', 'Punch out recorded.');
+
+    $fresh = $attendance->fresh();
+    expect($fresh->punch_out_time)->toBe('12:00:00')
+        ->and($fresh->total_working_minutes)->toBe(120)
+        ->and($fresh->punch_out_time)->not->toBeNull();
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/attendance/today')
+        ->assertOk()
+        ->assertJsonPath('data.punch_in_allowed', false)
+        ->assertJsonPath('data.punch_out_allowed', false)
+        ->assertJsonPath('data.is_current_session', false);
+});
+
+it('treats exactly 24 elapsed hours as expired and 23 hours 59 minutes as a normal punch out', function (): void {
+    $employee = latePunchEmployee('Boundary Hours', '9600000211');
+
+    Carbon::setTestNow(Carbon::parse('2026-09-29 09:59:00', AttendanceCalendar::TIMEZONE));
+    Attendance::query()->create([
+        'employee_id' => $employee->id,
+        'attendance_date' => '2026-09-28',
+        'punch_in_time' => '10:00:00',
+        'attendance_status' => AttendanceStatusCalculator::STATUS_PUNCHED_IN,
+        'approval_status' => 'Pending',
+    ]);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/attendance/today')
+        ->assertOk()
+        ->assertJsonPath('data.punch_out_allowed', true)
+        ->assertJsonPath('data.punch_out_correction_required', false);
+
+    Carbon::setTestNow(Carbon::parse('2026-09-29 10:00:00', AttendanceCalendar::TIMEZONE));
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->getJson('/api/attendance/today')
+        ->assertOk()
+        ->assertJsonPath('data.punch_out_allowed', false)
+        ->assertJsonPath('data.punch_out_correction_required', true)
+        ->assertJsonPath('data.is_current_session', false);
+});

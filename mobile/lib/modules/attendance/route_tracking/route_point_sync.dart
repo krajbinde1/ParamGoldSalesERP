@@ -61,29 +61,6 @@ class RoutePointSync {
       'allowClosed=$allowClosedAttendance',
     );
 
-    if (activeAttendanceId != null &&
-        activeAttendanceId > 0 &&
-        !allowClosedAttendance) {
-      final stale = pending
-          .where((point) => point.attendanceId != activeAttendanceId)
-          .map((point) => point.attendanceId)
-          .toSet();
-      if (stale.isNotEmpty) {
-        routeTrackingLog(
-          'Removing pending points for stale attendance_id(s): $stale '
-          '(active=$activeAttendanceId)',
-        );
-        await _store.retainOnlyAttendance(activeAttendanceId);
-        await _store.reload();
-        pending = _store.pendingPoints();
-      }
-    }
-
-    if (pending.isEmpty) {
-      routeTrackingLog('Sync skipped: no points for active attendance');
-      return;
-    }
-
     pending.sort((a, b) => a.recordedAt.compareTo(b.recordedAt));
 
     final grouped = <int, List<RoutePoint>>{};
@@ -103,9 +80,9 @@ class RoutePointSync {
           activeAttendanceId > 0 &&
           uploadAttendanceId != activeAttendanceId) {
         routeTrackingLog(
-          'Skipping upload for mismatched attendance_id=$uploadAttendanceId',
+          'Keeping unsynced points for attendance_id=$uploadAttendanceId '
+          'until the matching session syncs',
         );
-        await _store.clearPointsForAttendance(uploadAttendanceId);
         continue;
       }
 

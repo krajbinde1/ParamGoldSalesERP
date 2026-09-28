@@ -8,6 +8,21 @@ class AttendanceFormat {
   static String time(DateTime? value) =>
       value == null ? '—' : DateFormat('hh:mm a').format(value);
 
+  static String dateTime(DateTime? value) => value == null
+      ? '—'
+      : DateFormat('dd MMM yyyy, hh:mm a').format(value);
+
+  /// Clock for an active session: now - that session's punch in.
+  static String workingClock(DateTime punchIn, DateTime now) {
+    final elapsed = now.difference(punchIn);
+    final totalSeconds = elapsed.isNegative ? 0 : elapsed.inSeconds;
+    final hours = totalSeconds ~/ 3600;
+    final minutes = (totalSeconds % 3600) ~/ 60;
+    final seconds = totalSeconds % 60;
+    String two(int n) => n.toString().padLeft(2, '0');
+    return '${two(hours)}:${two(minutes)}:${two(seconds)}';
+  }
+
   static DateTime istNow() => toIstWallClock(DateTime.now().toUtc());
 
   static DateTime toIstWallClock(DateTime value) {

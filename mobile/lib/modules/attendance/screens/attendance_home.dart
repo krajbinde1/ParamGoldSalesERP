@@ -24,14 +24,37 @@ class AttendanceHome extends ConsumerStatefulWidget {
 }
 
 class _AttendanceHomeState extends ConsumerState<AttendanceHome> {
-  bool _didRecoverFromAttendance = false;
+  String? _routeSyncSignature;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       refreshRouteTrackingStatus(ref);
+      final asyncToday = ref.read(todayAttendanceProvider);
+      if (asyncToday.isLoading && !asyncToday.hasValue) return;
+      _syncRoute(asyncToday.asData?.value);
     });
+  }
+
+  void _syncRoute(Attendance? attendance) {
+    final signature =
+        '${attendance?.id}|${attendance?.runsLiveWorkingTimer}|${attendance?.punchOutCorrectionRequired}|${attendance?.punchOutCorrectionPending}|${attendance?.punchOut}|${attendance?.openAttendanceId}';
+    if (_routeSyncSignature == signature) return;
+    _routeSyncSignature = signature;
+    if (attendance?.runsLiveWorkingTimer == true) {
+      unawaited(() async {
+        await RouteTrackingService.instance.recoverFromAttendance(attendance);
+        if (mounted) await refreshRouteTrackingStatus(ref);
+      }());
+      return;
+    }
+    unawaited(() async {
+      await RouteTrackingService.instance.closeStaleSession(
+        attendanceId: attendance?.openAttendanceId ?? attendance?.id,
+      );
+      if (mounted) await refreshRouteTrackingStatus(ref);
+    }());
   }
 
   @override
@@ -39,16 +62,7 @@ class _AttendanceHomeState extends ConsumerState<AttendanceHome> {
     final state = ref.watch(todayAttendanceProvider);
     final routeStatus = ref.watch(routeTrackingStatusProvider);
     ref.listen(todayAttendanceProvider, (previous, next) {
-      next.whenData((a) {
-        if (_didRecoverFromAttendance || a?.canPunchOut != true) return;
-        _didRecoverFromAttendance = true;
-        unawaited(() async {
-          await RouteTrackingService.instance.recoverFromAttendance(a);
-          if (mounted) {
-            await refreshRouteTrackingStatus(ref);
-          }
-        }());
-      });
+      next.whenData(_syncRoute);
     });
     return PgPageScaffold(
       title: 'Attendance',
@@ -59,13 +73,20 @@ class _AttendanceHomeState extends ConsumerState<AttendanceHome> {
           icon: const Icon(Icons.calendar_month_rounded),
         ),
       ],
-      body: RefreshIndicator(
+      body: SafeArea(
+        top: false,
+        child: RefreshIndicator(
         onRefresh: () async {
           await ref.read(todayAttendanceProvider.notifier).refresh();
           await refreshRouteTrackingStatus(ref);
         },
         child: ListView(
-          padding: const EdgeInsets.all(AppSpacing.screenPadding),
+          padding: EdgeInsets.fromLTRB(
+            AppSpacing.screenPadding,
+            AppSpacing.screenPadding,
+            AppSpacing.screenPadding,
+            AppSpacing.screenPadding + MediaQuery.paddingOf(context).bottom,
+          ),
           children: [
             Text(
               AttendanceFormat.date(AttendanceFormat.istNow()),
@@ -87,20 +108,22 @@ class _AttendanceHomeState extends ConsumerState<AttendanceHome> {
                     const SizedBox(height: AppSpacing.md),
                   ],
                   StatusCard(attendance: a, routeTrackingStatus: routeStatus),
-                  if (a?.canPunchOut == true && a?.id != null) ...[
+                  if (a?.pendingCorrection != null) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    _PendingBanner(
+                      title: 'Correction submitted',
+                      message:
+                          'Requested punch out: ${a!.pendingCorrection!['requested_punch_out_time_label'] ?? '—'}\n'
+                          'Reason: ${a.pendingCorrection!['reason_label'] ?? a.pendingCorrection!['reason'] ?? '—'}\n'
+                          'Punch In stays blocked until a manager or admin approves this request.',
+                    ),
+                  ],
+                  if (a?.canPunchOut == true && a?.id != null && a?.runsLiveWorkingTimer == true) ...[
                     const SizedBox(height: AppSpacing.md),
                     RouteSimulatorPanel(attendanceId: a!.id!),
                   ],
                   const SizedBox(height: AppSpacing.lg),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 64,
-                    child: FilledButton.icon(
-                      onPressed: _homeAction(context, a),
-                      icon: Icon(_homeIcon(a)),
-                      label: Text(_homeLabel(a)),
-                    ),
-                  ),
+                  ..._actionButtons(context, a),
                   const SizedBox(height: AppSpacing.sm),
                   TextButton.icon(
                     onPressed: () => context.push('/attendance/history'),
@@ -142,44 +165,68 @@ class _AttendanceHomeState extends ConsumerState<AttendanceHome> {
             ),
           ],
         ),
+        ),
       ),
     );
   }
 
-  VoidCallback? _homeAction(BuildContext context, Attendance? a) {
-    if (a?.punchOutCorrectionPending == true) return null;
-    if (a?.punchOutCorrectionRequired == true) {
-      return () => context.push('/attendance/punch-out-correction');
+  List<Widget> _actionButtons(BuildContext context, Attendance? a) {
+    final buttons = <Widget>[];
+
+    void addButton(String label, IconData icon, VoidCallback? onPressed) {
+      buttons.add(
+        SizedBox(
+          width: double.infinity,
+          height: 56,
+          child: FilledButton.icon(
+            onPressed: onPressed,
+            icon: Icon(icon),
+            label: Text(label, textAlign: TextAlign.center),
+          ),
+        ),
+      );
     }
+
     if (a?.canPunchOut == true) {
-      return () => context.push('/attendance/punch-out');
+      addButton('PUNCH OUT', Icons.logout_rounded, () {
+        context.push('/attendance/punch-out');
+      });
     }
-    if (a?.canPunchIn == true) {
-      return () => context.push('/attendance/punch-in');
-    }
-    return null;
-  }
 
-  IconData _homeIcon(Attendance? a) {
-    if (a?.punchOutCorrectionRequired == true ||
-        a?.punchOutCorrectionPending == true) {
-      return Icons.rule_folder_outlined;
-    }
-    if (a?.canPunchOut == true) return Icons.logout_rounded;
-    if (a?.canPunchIn == true) return Icons.fingerprint_rounded;
-    return Icons.verified_rounded;
-  }
-
-  String _homeLabel(Attendance? a) {
     if (a?.punchOutCorrectionPending == true) {
-      return 'CORRECTION PENDING APPROVAL';
+      addButton(
+        'CORRECTION PENDING APPROVAL',
+        Icons.hourglass_top_rounded,
+        null,
+      );
+    } else if (a?.punchOutCorrectionRequired == true) {
+      addButton(
+        'COMPLETE PREVIOUS PUNCH OUT',
+        Icons.rule_folder_outlined,
+        () => context.push('/attendance/punch-out-correction'),
+      );
     }
-    if (a?.punchOutCorrectionRequired == true) {
-      return 'REQUEST PUNCH OUT CORRECTION';
+
+    final blocked =
+        a?.canPunchOut == true ||
+        a?.punchOutCorrectionRequired == true ||
+        a?.punchOutCorrectionPending == true;
+    if (!blocked && (a == null || a.canPunchIn)) {
+      addButton('PUNCH IN', Icons.fingerprint_rounded, () {
+        context.push('/attendance/punch-in');
+      });
     }
-    if (a?.canPunchOut == true) return 'PUNCH OUT';
-    if (a?.canPunchIn == true) return 'PUNCH IN';
-    return 'ATTENDANCE COMPLETED';
+
+    if (buttons.isEmpty) {
+      addButton('ATTENDANCE COMPLETED', Icons.verified_rounded, null);
+    }
+
+    return [
+      for (var i = 0; i < buttons.length; i++) ...[
+        if (i > 0) const SizedBox(height: AppSpacing.sm),
+        buttons[i],
+      ],
+    ];
   }
 }
 

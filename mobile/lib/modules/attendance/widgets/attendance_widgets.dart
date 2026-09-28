@@ -41,7 +41,10 @@ class _StatusCardState extends State<StatusCard> {
     super.didUpdateWidget(oldWidget);
     if (oldWidget.attendance?.punchIn != widget.attendance?.punchIn ||
         oldWidget.attendance?.punchOut != widget.attendance?.punchOut ||
-        oldWidget.attendance?.workingHours != widget.attendance?.workingHours) {
+        oldWidget.attendance?.workingHours != widget.attendance?.workingHours ||
+        oldWidget.attendance?.runsLiveWorkingTimer !=
+            widget.attendance?.runsLiveWorkingTimer ||
+        oldWidget.attendance?.openPunchIn != widget.attendance?.openPunchIn) {
       _syncWorkingTimer();
     }
   }
@@ -55,29 +58,28 @@ class _StatusCardState extends State<StatusCard> {
   void _syncWorkingTimer() {
     _workingTimer?.cancel();
     final a = widget.attendance;
-    if (a?.punchIn != null && a?.punchOut == null) {
-      _workingLabel = _formatLiveWorking(a!.punchIn!);
+    if (a?.runsLiveWorkingTimer == true && a?.punchIn != null) {
+      _workingLabel = AttendanceFormat.workingClock(
+        a!.punchIn!,
+        AttendanceFormat.istNow(),
+      );
       _workingTimer = Timer.periodic(const Duration(seconds: 1), (_) {
         if (!mounted) return;
         setState(() {
-          _workingLabel = _formatLiveWorking(a.punchIn!);
+          _workingLabel = AttendanceFormat.workingClock(
+            a.punchIn!,
+            AttendanceFormat.istNow(),
+          );
         });
       });
+    } else if (a?.punchIn != null && a?.punchOut != null) {
+      _workingLabel = a?.workingHours ??
+          AttendanceFormat.workingClock(a!.punchIn!, a.punchOut!);
+      if (mounted) setState(() {});
     } else {
-      _workingLabel = a?.workingHours ?? '—';
+      _workingLabel = '—';
       if (mounted) setState(() {});
     }
-  }
-
-  String _formatLiveWorking(DateTime punchIn) {
-    final now = AttendanceFormat.istNow();
-    final elapsed = now.difference(punchIn);
-    final totalSeconds = elapsed.isNegative ? 0 : elapsed.inSeconds;
-    final hours = totalSeconds ~/ 3600;
-    final minutes = (totalSeconds % 3600) ~/ 60;
-    final seconds = totalSeconds % 60;
-    String two(int n) => n.toString().padLeft(2, '0');
-    return '${two(hours)}:${two(minutes)}:${two(seconds)}';
   }
 
   @override
@@ -170,15 +172,23 @@ class _StatusCardState extends State<StatusCard> {
             children: [
               Expanded(
                 child: _Metric(
-                  'Punch In',
-                  timeText(a?.punchIn),
+                  a?.openPunchIn != null && a?.runsLiveWorkingTimer != true
+                      ? 'Prev. Punch In'
+                      : 'Punch In',
+                  a?.openPunchIn != null && a?.runsLiveWorkingTimer != true
+                      ? AttendanceFormat.dateTime(a?.openPunchIn)
+                      : timeText(a?.punchIn),
                   const Icon(Icons.login_rounded),
                 ),
               ),
               Expanded(
                 child: _Metric(
                   'Punch Out',
-                  timeText(a?.punchOut),
+                  a?.punchOutCorrectionPending == true
+                      ? 'Pending'
+                      : a?.punchOutCorrectionRequired == true
+                      ? 'Required'
+                      : timeText(a?.punchOut),
                   const Icon(Icons.logout_rounded),
                 ),
               ),
@@ -232,7 +242,13 @@ class _Metric extends StatelessWidget {
         child: icon,
       ),
       const SizedBox(height: 6),
-      Text(value, style: Theme.of(context).textTheme.titleMedium),
+      Text(
+        value,
+        textAlign: TextAlign.center,
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: Theme.of(context).textTheme.titleSmall,
+      ),
       Text(label, style: Theme.of(context).textTheme.bodySmall),
     ],
   );

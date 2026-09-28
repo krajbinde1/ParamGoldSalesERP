@@ -25,7 +25,7 @@ class TodayAttendanceNotifier extends AsyncNotifier<Attendance?> {
     return (await ref.watch(repositoryProvider.future)).today();
   }
 
-  Future<Attendance> punch(
+  Future<Attendance?> punch(
     String action, {
     String? latePunchOutReason,
     String? latePunchOutReasonNote,
@@ -40,7 +40,9 @@ class TodayAttendanceNotifier extends AsyncNotifier<Attendance?> {
     if (action == 'punch-in' && current?.canPunchIn == false) {
       throw const AttendanceApiException('You have already punched in today.');
     }
-    if (action == 'punch-out' && current?.punchIn == null) {
+    if (action == 'punch-out' &&
+        current?.punchIn == null &&
+        current?.canPunchOut != true) {
       throw const AttendanceApiException(
         'Punch in is required before punch out.',
       );
@@ -57,28 +59,38 @@ class TodayAttendanceNotifier extends AsyncNotifier<Attendance?> {
       }
     }
 
+    final previousState = state;
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      return (await ref.read(
-        repositoryProvider.future,
-      )).punch(
+      final repo = await ref.read(repositoryProvider.future);
+      final punched = await repo.punch(
         action,
         await CaptureService().capture(),
         latePunchOutReason: latePunchOutReason,
         latePunchOutReasonNote: latePunchOutReasonNote,
       );
+      try {
+        return await repo.fetchTodayFromServer();
+      } catch (error) {
+        routeTrackingLog('Today refresh after $action failed: $error');
+        return punched;
+      }
     });
-    if (state.hasError) throw state.error!;
+    if (state.hasError) {
+      final error = state.error!;
+      state = previousState;
+      throw error;
+    }
 
-    final attendance = state.requireValue!;
+    final attendance = state.asData?.value;
 
     if (action == 'punch-in') {
       try {
-        final attendanceId = attendance.id;
-        if (attendanceId != null) {
+        final attendanceId = attendance?.id;
+        if (attendanceId != null && attendance?.runsLiveWorkingTimer == true) {
           await RouteTrackingService.instance.start(
             attendanceId,
-            employeeId: attendance.employeeId,
+            employeeId: attendance?.employeeId,
           );
         }
       } catch (error, stackTrace) {
@@ -104,7 +116,7 @@ class TodayAttendanceNotifier extends AsyncNotifier<Attendance?> {
     return attendance;
   }
 
-  Future<Attendance> submitPunchOutCorrection({
+  Future<Attendance?> submitPunchOutCorrection({
     required DateTime actualPunchOut,
     required String reason,
     String? reasonNote,
@@ -112,16 +124,38 @@ class TodayAttendanceNotifier extends AsyncNotifier<Attendance?> {
     if (state.isLoading) {
       throw StateError('Attendance request already in progress.');
     }
+    final previousState = state;
     state = const AsyncLoading();
     state = await AsyncValue.guard(() async {
-      return (await ref.read(repositoryProvider.future)).submitPunchOutCorrection(
+      final repo = await ref.read(repositoryProvider.future);
+      final submitted = await repo.submitPunchOutCorrection(
         actualPunchOut: actualPunchOut,
         reason: reason,
         reasonNote: reasonNote,
       );
+      try {
+        return await repo.fetchTodayFromServer();
+      } catch (error) {
+        routeTrackingLog('Today refresh after correction failed: $error');
+        return submitted;
+      }
     });
-    if (state.hasError) throw state.error!;
-    return state.requireValue!;
+    if (state.hasError) {
+      final error = state.error!;
+      state = previousState;
+      throw error;
+    }
+    final attendance = state.asData?.value;
+    try {
+      await RouteTrackingService.instance.closeStaleSession(
+        attendanceId: attendance?.openAttendanceId ?? attendance?.id,
+      );
+    } catch (error, stackTrace) {
+      routeTrackingLog(
+        'Stale route close after correction failed: $error\n$stackTrace',
+      );
+    }
+    return attendance;
   }
 
   Future<void> refresh() =>

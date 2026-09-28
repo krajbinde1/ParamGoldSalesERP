@@ -34,9 +34,9 @@ class _PunchInScreenState extends ConsumerState<PunchInScreen> {
           RouteTrackingService.instance.uiStatus.permissionStatus == 'OK'
           ? ''
           : ' ${RouteTrackingPermissions.setupGuidance}';
-      final punchInTime = attendance.punchIn == null
+      final punchInTime = attendance?.punchIn == null
           ? '—'
-          : AttendanceFormat.time(attendance.punchIn);
+          : AttendanceFormat.time(attendance!.punchIn);
       final trackingNote = trackingActive
           ? ' Route Tracking Active.$guidance'
           : trackingStatus.isEmpty
@@ -46,7 +46,7 @@ class _PunchInScreenState extends ConsumerState<PunchInScreen> {
         SnackBar(
           content: Text(
             'Punch In Successful\n'
-            'Status: ${attendance.status}\n'
+            'Status: ${attendance?.status ?? 'Punched In'}\n'
             'Punch In Time: $punchInTime'
             '$trackingNote',
           ),
@@ -98,26 +98,34 @@ class PunchScreen extends StatelessWidget {
         padding: const EdgeInsets.all(AppSpacing.screenPadding),
         child: Column(
           children: [
-            const Spacer(),
-            IconTheme(
-              data: IconThemeData(
-                size: 100,
-                color: Theme.of(context).colorScheme.primary,
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  children: [
+                    const SizedBox(height: AppSpacing.lg),
+                    IconTheme(
+                      data: IconThemeData(
+                        size: 100,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      child: icon,
+                    ),
+                    const SizedBox(height: AppSpacing.lg),
+                    Text(title, style: Theme.of(context).textTheme.headlineMedium),
+                    const SizedBox(height: AppSpacing.sm),
+                    Text(message, textAlign: TextAlign.center),
+                    if (extra != null) ...[
+                      const SizedBox(height: AppSpacing.lg),
+                      extra!,
+                    ],
+                    const SizedBox(height: AppSpacing.lg),
+                  ],
+                ),
               ),
-              child: icon,
             ),
-            const SizedBox(height: AppSpacing.lg),
-            Text(title, style: Theme.of(context).textTheme.headlineMedium),
-            const SizedBox(height: AppSpacing.sm),
-            Text(message, textAlign: TextAlign.center),
-            if (extra != null) ...[
-              const SizedBox(height: AppSpacing.lg),
-              Flexible(child: SingleChildScrollView(child: extra)),
-            ],
-            const Spacer(),
             SizedBox(
               width: double.infinity,
-              height: 72,
+              height: 56,
               child: FilledButton.icon(
                 onPressed: busy ? null : onPressed,
                 icon: busy

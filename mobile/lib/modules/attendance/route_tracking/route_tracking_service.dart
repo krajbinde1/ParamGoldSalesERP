@@ -137,13 +137,8 @@ class RouteTrackingService {
   }
 
   Future<Attendance?> _fetchServerToday() async {
-    try {
-      _attendanceApi ??= await AttendanceApiService.create();
-      return await _attendanceApi!.today();
-    } catch (error) {
-      routeTrackingLog('Failed to fetch server today attendance: $error');
-      return null;
-    }
+    _attendanceApi ??= await AttendanceApiService.create();
+    return await _attendanceApi!.today();
   }
 
   void _logAttendanceContext({
@@ -163,8 +158,43 @@ class RouteTrackingService {
   bool _isActiveServerAttendance(Attendance? attendance) {
     return attendance != null &&
         attendance.id != null &&
-        attendance.punchIn != null &&
-        attendance.punchOut == null;
+        attendance.runsLiveWorkingTimer &&
+        !attendance.punchOutCorrectionRequired &&
+        !attendance.punchOutCorrectionPending;
+  }
+
+  /// Stop a stale route session after 24 hours without deleting unsynced points.
+  Future<void> closeStaleSession({int? attendanceId}) async {
+    if (!routeTrackingRuntimeEnabled) {
+      await disableRuntimeCleanup();
+      return;
+    }
+    try {
+      await _ensureReady();
+      final store = _store;
+      if (store == null) return;
+      final id = attendanceId ?? activeAttendanceId;
+      if (id != null && id > 0 && _sync != null) {
+        try {
+          await _sync!.syncPending(
+            activeAttendanceId: id,
+            allowClosedAttendance: true,
+          );
+        } catch (error) {
+          routeTrackingLog(
+            'Stale session sync kept local points: attendanceId=$id error=$error',
+          );
+        }
+      }
+      await _cancelLocalStream();
+      await RouteTrackingForeground.stop();
+      await store.clearSession();
+      statusMessage = 'No active attendance found';
+      await _refreshUiStatus();
+      routeTrackingLog('Closed stale route session attendanceId=$id');
+    } catch (error, stackTrace) {
+      routeTrackingLog('closeStaleSession failed: $error\n$stackTrace');
+    }
   }
 
   Future<void> _cancelLocalStream() async {
@@ -253,15 +283,37 @@ class RouteTrackingService {
 
   Future<void> _syncValidated({Attendance? serverAttendance}) async {
     await _ensureReady();
-    final attendance = serverAttendance ?? await _fetchServerToday();
+    Attendance? attendance = serverAttendance;
+    if (attendance == null) {
+      try {
+        attendance = await _fetchServerToday();
+      } catch (error) {
+        routeTrackingLog(
+          'Sync validation kept local session; today fetch failed: $error',
+        );
+        final staleId = activeAttendanceId;
+        if (staleId != null && _sync != null) {
+          await _sync!.syncPending(
+            activeAttendanceId: staleId,
+            allowClosedAttendance: true,
+          );
+        }
+        return;
+      }
+    }
     _logAttendanceContext(stage: 'Sync validation', attendance: attendance);
 
     if (!_isActiveServerAttendance(attendance)) {
-      final staleId = activeAttendanceId ?? attendance?.id;
-      await _sync!.syncPending(
-        activeAttendanceId: staleId,
-        allowClosedAttendance: true,
-      );
+      final staleId = activeAttendanceId ??
+          attendance?.openAttendanceId ??
+          attendance?.id;
+      if (_sync != null) {
+        await _sync!.syncPending(
+          activeAttendanceId: staleId,
+          allowClosedAttendance: true,
+        );
+      }
+      await closeStaleSession(attendanceId: staleId);
       return;
     }
 
@@ -272,11 +324,31 @@ class RouteTrackingService {
         'Replacing stale active attendance_id=${session.attendanceId} '
         'with backendAttendanceId=$backendId',
       );
-      await _store!.clearPointsForAttendance(session.attendanceId);
-      await _store!.saveSession(session.copyWith(attendanceId: backendId));
+      try {
+        await _sync!.syncPending(
+          activeAttendanceId: session.attendanceId,
+          allowClosedAttendance: true,
+        );
+      } catch (error) {
+        routeTrackingLog(
+          'Kept unsynced points while switching attendance: $error',
+        );
+      }
+      await _store!.saveSession(
+        RouteTrackingSession(
+          attendanceId: backendId,
+          employeeId: session.employeeId,
+          punchInAt: attendance.punchIn?.toIso8601String() ??
+              DateTime.now().toIso8601String(),
+          isActive: true,
+          apiBaseUrl: session.apiBaseUrl,
+          statusMessage: session.statusMessage,
+          gpsStatus: session.gpsStatus,
+          permissionStatus: session.permissionStatus,
+        ),
+      );
     }
 
-    await _store!.retainOnlyAttendance(backendId);
     await _sync!.syncPending(activeAttendanceId: backendId);
 
     final current = _store!.session;
@@ -383,7 +455,16 @@ class RouteTrackingService {
 
       if (session?.attendanceId != null &&
           session!.attendanceId != attendanceId) {
-        await store.clearPointsForAttendance(session.attendanceId);
+        try {
+          await _sync?.syncPending(
+            activeAttendanceId: session.attendanceId,
+            allowClosedAttendance: true,
+          );
+        } catch (error) {
+          routeTrackingLog(
+            'Kept unsynced points for attendance_id=${session.attendanceId}: $error',
+          );
+        }
       }
 
       await store.saveSession(
@@ -452,13 +533,20 @@ class RouteTrackingService {
           'Route tracking already active for attendance=$attendanceId',
         );
         await _startTrackingEngines();
-        await store.retainOnlyAttendance(attendanceId);
         await store.compactBloatedQueue();
         await _refreshUiStatus();
         return statusMessage;
       }
       if (current?.isActive == true) {
         await stop(captureFinalPoint: false);
+      }
+
+      try {
+        await _sync?.syncPending(allowClosedAttendance: true);
+      } catch (error) {
+        routeTrackingLog(
+          'Previous route points remain queued for a new punch in: $error',
+        );
       }
 
       final permission = await RouteTrackingPermissions.ensureForTracking();
@@ -483,15 +571,6 @@ class RouteTrackingService {
         return permission.message;
       }
 
-      for (final staleId
-          in store
-              .allPoints()
-              .map((point) => point.attendanceId)
-              .where((id) => id != attendanceId)
-              .toSet()) {
-        await store.clearPointsForAttendance(staleId);
-      }
-
       await store.saveSession(
         RouteTrackingSession(
           attendanceId: attendanceId,
@@ -504,7 +583,6 @@ class RouteTrackingService {
           permissionStatus: permission.permissionStatus,
         ),
       );
-      await store.retainOnlyAttendance(attendanceId);
       await store.compactBloatedQueue();
 
       // Persist API base for native/FGS isolate visibility (release = production).
@@ -745,23 +823,24 @@ class RouteTrackingService {
       final attendance = await _fetchServerToday().timeout(
         const Duration(seconds: 8),
       );
-      if (attendance == null) return;
-      if (attendance.punchOut != null) {
-        routeTrackingLog('Server shows punched out — stopping tracking');
-        await stop(captureFinalPoint: false);
+      if (attendance == null || !_isActiveServerAttendance(attendance)) {
+        routeTrackingLog('Server attendance is not an active session — closing stale route');
+        await closeStaleSession(
+          attendanceId: activeAttendanceId ??
+              attendance?.openAttendanceId ??
+              attendance?.id,
+        );
         return;
       }
-      if (_isActiveServerAttendance(attendance)) {
-        final localId = activeAttendanceId;
-        if (localId != null && localId != attendance.id) {
-          await resumeActiveSession(
-            attendance.id!,
-            employeeId: attendance.employeeId,
-            punchInAt: attendance.punchIn,
-          );
-        } else {
-          await _syncValidated(serverAttendance: attendance);
-        }
+      final localId = activeAttendanceId;
+      if (localId != null && localId != attendance.id) {
+        await resumeActiveSession(
+          attendance.id!,
+          employeeId: attendance.employeeId,
+          punchInAt: attendance.punchIn,
+        );
+      } else {
+        await _syncValidated(serverAttendance: attendance);
       }
     } catch (error) {
       routeTrackingLog('Quiet server reconcile failed: $error');
@@ -818,7 +897,16 @@ class RouteTrackingService {
             'Recover replacing attendance_id=${session.attendanceId} '
             'with backendAttendanceId=${attendance.id}',
           );
-          await _store!.clearPointsForAttendance(session.attendanceId);
+          try {
+            await _sync?.syncPending(
+              activeAttendanceId: session.attendanceId,
+              allowClosedAttendance: true,
+            );
+          } catch (error) {
+            routeTrackingLog(
+              'Kept unsynced points during recover: $error',
+            );
+          }
         }
         await resumeActiveSession(
           attendance.id!,
