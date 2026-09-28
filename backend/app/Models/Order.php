@@ -35,6 +35,12 @@ class Order extends Model
 
     public const STATUS_REJECTED = 'rejected';
 
+    public const STATUS_CREDIT_NOTE_RECORD = 'credit_note_record';
+
+    public const CREDIT_NOTE_LINK_DESTINATION = 'destination';
+
+    public const CREDIT_NOTE_LINK_SOURCE = 'source';
+
     public const REJECTED_BY_ROLE_SALES_MANAGER = 'Sales Manager';
 
     public const REJECTED_BY_ROLE_ADMIN = 'Admin';
@@ -53,6 +59,7 @@ class Order extends Model
         'delivered' => 'Delivered',
         'rejected' => 'Rejected',
         'cancelled' => 'Cancelled',
+        self::STATUS_CREDIT_NOTE_RECORD => 'Credit Note',
     ];
 
     /**
@@ -112,7 +119,19 @@ class Order extends Model
 
     public function isBilledReceivable(): bool
     {
+        if ($this->isCreditNoteSourceRecord()) {
+            return false;
+        }
+
         return in_array(strtolower(trim((string) $this->status)), self::billedReceivableStatuses(), true);
+    }
+
+    public function scopeExcludingCreditNoteSourceRecords(Builder $query): Builder
+    {
+        return $query->where(function (Builder $inner): void {
+            $inner->whereNull('credit_note_link_role')
+                ->orWhere('credit_note_link_role', '!=', self::CREDIT_NOTE_LINK_SOURCE);
+        });
     }
 
     /**
@@ -183,7 +202,8 @@ class Order extends Model
     }
 
     protected $fillable = [
-        'order_no', 'order_date', 'dealer_id', 'sales_employee_id', 'source_credit_note_id', 'payment_type',
+        'order_no', 'order_date', 'dealer_id', 'sales_employee_id', 'source_credit_note_id',
+        'credit_note_link_role', 'paired_order_id', 'payment_type',
         'remarks', 'status', 'subtotal', 'discount_amount', 'gst_amount', 'grand_total',
         'unrounded_grand_total', 'round_off',
         'approved_by', 'approved_at', 'rejected_by', 'rejected_by_role', 'rejected_at', 'rejection_remark',
@@ -250,6 +270,22 @@ class Order extends Model
     public function isFromCreditNoteTransfer(): bool
     {
         return $this->source_credit_note_id !== null;
+    }
+
+    public function isCreditNoteSourceRecord(): bool
+    {
+        return $this->credit_note_link_role === self::CREDIT_NOTE_LINK_SOURCE;
+    }
+
+    public function isCreditNoteDestinationOrder(): bool
+    {
+        return $this->source_credit_note_id !== null
+            && ! $this->isCreditNoteSourceRecord();
+    }
+
+    public function pairedOrder(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'paired_order_id');
     }
 
     public function whatsAppBillMessages(): HasMany
@@ -404,6 +440,7 @@ class Order extends Model
             'dispatched' => 'info',
             'delivered' => 'primary',
             'rejected', 'cancelled' => 'danger',
+            self::STATUS_CREDIT_NOTE_RECORD => 'info',
             default => 'gray',
         };
     }
@@ -567,7 +604,8 @@ class Order extends Model
 
     public function canBeBilled(): bool
     {
-        return $this->status === self::STATUS_PENDING_FOR_BILLING;
+        return ! $this->isCreditNoteSourceRecord()
+            && $this->status === self::STATUS_PENDING_FOR_BILLING;
     }
 
     public function isAwaitingSendForBill(): bool
@@ -581,7 +619,8 @@ class Order extends Model
         // and Admin completed billing. Extra timestamp checks hid the mobile
         // dispatch action when billed_at/approved_at were missing on otherwise
         // billed orders.
-        return $this->status === self::STATUS_BILLED;
+        return ! $this->isCreditNoteSourceRecord()
+            && $this->status === self::STATUS_BILLED;
     }
 
     public function canUploadReceivedCopy(): bool
@@ -894,6 +933,12 @@ class Order extends Model
             /** @var self $locked */
             $locked = static::query()->whereKey($this->id)->lockForUpdate()->firstOrFail();
 
+            if ($locked->isCreditNoteSourceRecord()) {
+                throw ValidationException::withMessages([
+                    'status' => ['Credit note source records are not approved or billed as a second sale.'],
+                ]);
+            }
+
             if ($locked->status === self::STATUS_REVERTED_TO_MANAGER) {
                 $locked->reapproveLocked($userId, $remark);
                 $this->refresh();
@@ -918,7 +963,7 @@ class Order extends Model
                 'remarks' => filled($remark) ? trim($remark) : $locked->remarks,
             ]);
 
-            if ($locked->source_credit_note_id !== null) {
+            if ($locked->isCreditNoteDestinationOrder()) {
                 $locked->refresh();
                 $now = Carbon::now(self::BUSINESS_TIMEZONE);
                 $locked->update([

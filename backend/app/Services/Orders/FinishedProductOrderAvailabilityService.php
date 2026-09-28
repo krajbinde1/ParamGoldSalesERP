@@ -201,6 +201,7 @@ final class FinishedProductOrderAvailabilityService
             : array_values(array_unique(array_filter(array_map('intval', $productIds))));
 
         $openOrders = Order::query()
+            ->excludingCreditNoteSourceRecords()
             ->whereIn('status', self::openStatuses())
             ->whereNotIn('status', self::releasedStatuses())
             ->whereNull('dispatched_at')

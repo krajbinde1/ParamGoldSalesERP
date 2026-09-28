@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\CreditNotes\Schemas;
 
+use App\Filament\Resources\Orders\OrderResource;
 use App\Models\CreditNote;
 use Filament\Infolists\Components\ImageEntry;
 use Filament\Infolists\Components\RepeatableEntry;
@@ -51,9 +52,21 @@ class CreditNoteInfolist
                             ->placeholder('—')
                             ->visible(fn (CreditNote $record): bool => $record->isMoveToDealer()),
                         TextEntry::make('linkedOrder.order_no')
-                            ->label('Linked Order')
+                            ->label('Billing Order')
                             ->placeholder('—')
-                            ->visible(fn (CreditNote $record): bool => $record->isMoveToDealer()),
+                            ->visible(fn (CreditNote $record): bool => $record->isMoveToDealer())
+                            ->formatStateUsing(fn (?string $state, CreditNote $record): string => $record->linkedOrder?->shortOrderNo() ?: '—')
+                            ->url(fn (CreditNote $record): ?string => $record->linkedOrder
+                                ? OrderResource::getUrl('view', ['record' => $record->linkedOrder])
+                                : null),
+                        TextEntry::make('linkedSourceOrder.order_no')
+                            ->label('Credit Note Order')
+                            ->placeholder('—')
+                            ->visible(fn (CreditNote $record): bool => $record->isMoveToDealer())
+                            ->formatStateUsing(fn (?string $state, CreditNote $record): string => $record->linkedSourceOrder?->shortOrderNo() ?: '—')
+                            ->url(fn (CreditNote $record): ?string => $record->linkedSourceOrder
+                                ? OrderResource::getUrl('view', ['record' => $record->linkedSourceOrder])
+                                : null),
                         TextEntry::make('salesEmployee.full_name')->label('Sales Employee')->placeholder('-'),
                         TextEntry::make('created_at')->label('Created At')->dateTime('d M Y h:i A')->timezone('Asia/Kolkata'),
                         TextEntry::make('remarks')

@@ -65,6 +65,7 @@ class CreditNoteResource extends Resource
             'dealer:id,firm_name,dealer_code',
             'destinationDealer:id,firm_name,dealer_code',
             'linkedOrder:id,order_no,status,dealer_id',
+            'linkedSourceOrder:id,order_no,status,dealer_id',
             'salesEmployee:id,full_name,employee_code',
             'items.product:id,product_name,product_code',
         ]);

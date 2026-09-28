@@ -67,8 +67,10 @@ class OrderResource extends Resource
 
         return $query->with([
             'dealer:id,firm_name,village,dealer_code',
-            'sourceCreditNote:id,credit_note_no,dealer_id,bill_reference,status',
+            'sourceCreditNote:id,credit_note_no,dealer_id,destination_dealer_id,bill_reference,status,move_to',
             'sourceCreditNote.dealer:id,firm_name,dealer_code',
+            'sourceCreditNote.destinationDealer:id,firm_name',
+            'pairedOrder:id,order_no,credit_note_link_role',
             'editPermissionRequests' => fn ($requests) => $requests->orderByDesc('id'),
             'latestBillWhatsAppMessage',
         ]);

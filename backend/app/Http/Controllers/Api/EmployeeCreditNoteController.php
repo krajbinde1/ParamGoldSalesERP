@@ -38,6 +38,7 @@ class EmployeeCreditNoteController extends Controller
                         'dealer:id,firm_name,dealer_code',
                         'destinationDealer:id,firm_name,dealer_code',
                         'linkedOrder:id,order_no,status',
+                        'linkedSourceOrder:id,order_no,status',
                         'salesEmployee:id,full_name,employee_code',
                     ])
                     ->orderByDesc('created_at')
@@ -64,6 +65,7 @@ class EmployeeCreditNoteController extends Controller
                 'dealer:id,firm_name,dealer_code',
                 'destinationDealer:id,firm_name,dealer_code',
                 'linkedOrder:id,order_no,status',
+                'linkedSourceOrder:id,order_no,status',
                 'salesEmployee:id,full_name,employee_code',
             ])
             ->orderByDesc('created_at')

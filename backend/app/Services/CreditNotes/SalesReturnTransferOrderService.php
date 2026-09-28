@@ -8,6 +8,7 @@ use App\Models\Order;
 use App\Models\User;
 use App\Services\Orders\OrderBillingTransportCalculator;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 final class SalesReturnTransferOrderService
@@ -20,38 +21,54 @@ final class SalesReturnTransferOrderService
             return null;
         }
 
-        $destination = $creditNote->destinationDealer ?? Dealer::query()->find($creditNote->destination_dealer_id);
-        if ($destination === null) {
+        $destinationDealer = $creditNote->destinationDealer ?? Dealer::query()->find($creditNote->destination_dealer_id);
+        if ($destinationDealer === null) {
             throw ValidationException::withMessages([
                 'destination_dealer_id' => ['Select the destination dealer for this return.'],
             ]);
         }
 
-        if ((int) $destination->id === (int) $creditNote->dealer_id) {
+        if ((int) $destinationDealer->id === (int) $creditNote->dealer_id) {
             throw ValidationException::withMessages([
                 'destination_dealer_id' => ['Destination dealer must be different from the returning dealer.'],
             ]);
         }
 
-        $creditNote->loadMissing('items', 'dealer');
-        $calculatedItems = $this->orderItemsFromCreditNote($creditNote);
-        $totals = $this->summarize($calculatedItems);
-        $remarks = $this->transferRemarks($creditNote);
+        return DB::transaction(function () use ($creditNote, $destinationDealer): ?Order {
+            /** @var CreditNote $locked */
+            $locked = CreditNote::query()->whereKey($creditNote->id)->lockForUpdate()->firstOrFail();
+            $locked->setRelation('destinationDealer', $destinationDealer);
+            $locked->loadMissing('items', 'dealer');
 
-        $existing = $this->existingLinkedOrder($creditNote);
-        if ($existing !== null) {
-            if (! in_array($existing->status, [
+            $calculatedItems = $this->orderItemsFromCreditNote($locked);
+            $totals = $this->summarize($calculatedItems);
+            $remarks = $this->transferRemarks($locked);
+
+            $existing = $this->existingLinkedOrder($locked);
+            if ($existing !== null && ! in_array($existing->status, [
                 Order::STATUS_PENDING_APPROVAL,
                 Order::STATUS_REJECTED,
             ], true)) {
                 return $existing;
             }
 
-            $existing->items()->delete();
-            $existing->update([
-                'dealer_id' => $destination->id,
+            $order = $existing ?? new Order([
+                'order_no' => $this->generateOrderNumber(),
+                'order_date' => Order::businessToday(),
+            ]);
+
+            if ($existing !== null) {
+                $existing->items()->delete();
+            }
+
+            $order->fill([
+                'dealer_id' => $destinationDealer->id,
+                'sales_employee_id' => $locked->sales_employee_id,
+                'source_credit_note_id' => $locked->id,
+                'credit_note_link_role' => Order::CREDIT_NOTE_LINK_DESTINATION,
                 'remarks' => $remarks,
                 'status' => Order::STATUS_PENDING_APPROVAL,
+                'payment_type' => 'Credit',
                 'subtotal' => $totals['subtotal'],
                 'discount_amount' => $totals['discount_amount'],
                 'gst_amount' => $totals['gst_amount'],
@@ -63,33 +80,12 @@ final class SalesReturnTransferOrderService
                 'rejected_at' => null,
                 'rejection_remark' => null,
             ]);
-            $this->persistItems($existing, $calculatedItems);
-            $creditNote->update(['linked_order_id' => $existing->id]);
+            $order->save();
+            $this->persistItems($order, $calculatedItems);
+            $this->syncSourceRecord($locked, $order, $calculatedItems, $totals, $remarks);
 
-            return $existing->fresh(['items']);
-        }
-
-        $order = Order::query()->create([
-            'order_no' => $this->generateOrderNumber(),
-            'order_date' => Order::businessToday(),
-            'dealer_id' => $destination->id,
-            'sales_employee_id' => $creditNote->sales_employee_id,
-            'source_credit_note_id' => $creditNote->id,
-            'remarks' => $remarks,
-            'status' => Order::STATUS_PENDING_APPROVAL,
-            'payment_type' => 'Credit',
-            'subtotal' => $totals['subtotal'],
-            'discount_amount' => $totals['discount_amount'],
-            'gst_amount' => $totals['gst_amount'],
-            'grand_total' => $totals['grand_total'],
-            'unrounded_grand_total' => $totals['unrounded_grand_total'],
-            'round_off' => $totals['round_off'],
-        ]);
-
-        $this->persistItems($order, $calculatedItems);
-        $creditNote->update(['linked_order_id' => $order->id]);
-
-        return $order->fresh(['items']);
+            return $order->fresh(['items']);
+        });
     }
 
     public function sendApprovedTransferToBilling(CreditNote $creditNote, ?int $userId): void
@@ -149,28 +145,110 @@ final class SalesReturnTransferOrderService
 
     private function withdrawUnsyncedLinkedOrder(CreditNote $creditNote): void
     {
-        $order = $this->existingLinkedOrder($creditNote);
-        if ($order === null) {
-            $creditNote->update(['linked_order_id' => null]);
+        DB::transaction(function () use ($creditNote): void {
+            $order = $this->existingLinkedOrder($creditNote);
+            $source = $this->existingSourceOrder($creditNote);
 
-            return;
-        }
+            if ($order !== null && $order->status === Order::STATUS_PENDING_APPROVAL) {
+                $order->update(['paired_order_id' => null]);
+                if ($source !== null && $source->isCreditNoteSourceRecord()) {
+                    $source->update(['paired_order_id' => null]);
+                    $source->items()->delete();
+                    $source->delete();
+                }
 
-        if ($order->status === Order::STATUS_PENDING_APPROVAL) {
-            $order->items()->delete();
-            $order->delete();
-        }
+                $order->items()->delete();
+                $order->delete();
+            }
 
-        $creditNote->update(['linked_order_id' => null]);
+            $creditNote->update([
+                'linked_order_id' => null,
+                'linked_source_order_id' => null,
+            ]);
+        });
     }
 
     private function existingLinkedOrder(CreditNote $creditNote): ?Order
     {
         if ($creditNote->linked_order_id) {
-            return Order::query()->find($creditNote->linked_order_id);
+            $linked = Order::query()->find($creditNote->linked_order_id);
+            if ($linked !== null && ! $linked->isCreditNoteSourceRecord()) {
+                return $linked;
+            }
         }
 
-        return Order::query()->where('source_credit_note_id', $creditNote->id)->first();
+        return Order::query()
+            ->where('source_credit_note_id', $creditNote->id)
+            ->where(function ($query): void {
+                $query->where('credit_note_link_role', Order::CREDIT_NOTE_LINK_DESTINATION)
+                    ->orWhereNull('credit_note_link_role');
+            })
+            ->first();
+    }
+
+    private function existingSourceOrder(CreditNote $creditNote): ?Order
+    {
+        if ($creditNote->linked_source_order_id) {
+            $linked = Order::query()->find($creditNote->linked_source_order_id);
+            if ($linked !== null && $linked->isCreditNoteSourceRecord()) {
+                return $linked;
+            }
+        }
+
+        return Order::query()
+            ->where('source_credit_note_id', $creditNote->id)
+            ->where('credit_note_link_role', Order::CREDIT_NOTE_LINK_SOURCE)
+            ->first();
+    }
+
+    /**
+     * @param  list<array<string, mixed>>  $items
+     * @param  array{subtotal: float, discount_amount: float, gst_amount: float, grand_total: float, unrounded_grand_total: float, round_off: float}  $totals
+     */
+    private function syncSourceRecord(
+        CreditNote $creditNote,
+        Order $destination,
+        array $items,
+        array $totals,
+        string $remarks,
+    ): Order {
+        $attributes = [
+            'dealer_id' => $creditNote->dealer_id,
+            'sales_employee_id' => $creditNote->sales_employee_id,
+            'source_credit_note_id' => $creditNote->id,
+            'credit_note_link_role' => Order::CREDIT_NOTE_LINK_SOURCE,
+            'paired_order_id' => $destination->id,
+            'remarks' => $remarks,
+            'status' => Order::STATUS_CREDIT_NOTE_RECORD,
+            'payment_type' => 'Credit',
+            'subtotal' => $totals['subtotal'],
+            'discount_amount' => $totals['discount_amount'],
+            'gst_amount' => $totals['gst_amount'],
+            'grand_total' => $totals['grand_total'],
+            'unrounded_grand_total' => $totals['unrounded_grand_total'],
+            'round_off' => $totals['round_off'],
+        ];
+
+        $source = $this->existingSourceOrder($creditNote);
+        if ($source === null) {
+            $source = Order::query()->create([
+                'order_no' => $this->generateOrderNumber(),
+                'order_date' => $destination->order_date,
+                ...$attributes,
+            ]);
+        } else {
+            $source->items()->delete();
+            $source->update($attributes);
+        }
+
+        $this->persistItems($source, $items);
+        $destination->update(['paired_order_id' => $source->id]);
+        $creditNote->update([
+            'linked_order_id' => $destination->id,
+            'linked_source_order_id' => $source->id,
+        ]);
+
+        return $source;
     }
 
     /**

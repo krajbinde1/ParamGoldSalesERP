@@ -44,6 +44,7 @@ final class DealerLedgerService
     {
         return $this->money(
             $dealer->orders()
+                ->excludingCreditNoteSourceRecords()
                 ->whereIn('status', Order::billedReceivableStatuses())
                 ->sum('grand_total')
         );
@@ -67,6 +68,7 @@ final class DealerLedgerService
     {
         return $this->money(
             $dealer->orders()
+                ->excludingCreditNoteSourceRecords()
                 ->whereIn('status', Order::unbilledExposureStatuses())
                 ->sum('grand_total')
         );

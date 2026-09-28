@@ -182,6 +182,7 @@ class DirectorDashboardDataService
     public function dashboardSalesQuery(Carbon $start, Carbon $end): Builder
     {
         return Order::query()
+            ->excludingCreditNoteSourceRecords()
             ->whereDate('order_date', '>=', $start->toDateString())
             ->whereDate('order_date', '<=', $end->toDateString())
             ->where('status', '!=', Order::STATUS_REJECTED);
@@ -360,6 +361,7 @@ class DirectorDashboardDataService
             ->pluck('sales_target', 'employee_id');
 
         $sales = Order::query()
+            ->excludingCreditNoteSourceRecords()
             ->whereIn('sales_employee_id', $activeEmployeeIds)
             ->where('status', Order::STATUS_DISPATCHED)
             ->where(function ($query) use ($monthStart, $monthEnd): void {

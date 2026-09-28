@@ -37,7 +37,10 @@ class ManagerOrderController extends Controller
             'search' => ['nullable', 'string', 'max:100'],
         ]);
 
-        $teamQuery = $this->access->scopeToManagerTeam(Order::query(), $request->user());
+        $teamQuery = $this->access->scopeToManagerTeam(
+            Order::query()->excludingCreditNoteSourceRecords(),
+            $request->user(),
+        );
         $status = $validated['status'] ?? null;
 
         $orders = (clone $teamQuery)
@@ -289,7 +292,10 @@ class ManagerOrderController extends Controller
      */
     private function teamCounts(Request $request): array
     {
-        $base = $this->access->scopeToManagerTeam(Order::query(), $request->user());
+        $base = $this->access->scopeToManagerTeam(
+            Order::query()->excludingCreditNoteSourceRecords(),
+            $request->user(),
+        );
 
         return [
             'pending_approval' => (clone $base)->where('status', Order::STATUS_PENDING_APPROVAL)->count(),

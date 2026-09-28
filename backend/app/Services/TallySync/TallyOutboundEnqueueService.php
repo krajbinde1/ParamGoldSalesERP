@@ -29,6 +29,10 @@ final class TallyOutboundEnqueueService
 
     public function queueBilledOrder(Order $order): ?TallyOutboundVoucher
     {
+        if ($order->isCreditNoteSourceRecord()) {
+            return null;
+        }
+
         if ($order->status === Order::STATUS_REJECTED) {
             $this->withdrawUnsynced(
                 TallyOutboundVoucher::SOURCE_SALES_ORDER,

@@ -315,6 +315,7 @@ class DashboardMetricsService
     public function salesOrdersQueryForPeriod(int $employeeId, Carbon $start, Carbon $end): Builder
     {
         return Order::query()
+            ->excludingCreditNoteSourceRecords()
             ->where('sales_employee_id', $employeeId)
             ->where('status', Order::STATUS_DISPATCHED)
             ->whereDate('order_date', '>=', $start->toDateString())
@@ -668,7 +669,9 @@ class DashboardMetricsService
         $start ??= Carbon::now(self::BUSINESS_TIMEZONE)->startOfMonth();
         $end ??= Carbon::now(self::BUSINESS_TIMEZONE)->endOfMonth();
 
-        $orderScope = Order::query()->where('sales_employee_id', $employee->id);
+        $orderScope = Order::query()
+            ->excludingCreditNoteSourceRecords()
+            ->where('sales_employee_id', $employee->id);
         $targets = $this->targetSummaryForPeriod($employee->id, $start, $end, $period);
         $orders = $this->orderSummary($orderScope, $start, $end);
         $totalOrderAmount = round((float) (clone $orderScope)

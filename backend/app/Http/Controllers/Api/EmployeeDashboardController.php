@@ -134,6 +134,7 @@ class EmployeeDashboardController extends Controller
             ],
             'summary' => [
                 'today_orders' => $employee === null ? 0 : Order::query()
+                    ->excludingCreditNoteSourceRecords()
                     ->where('sales_employee_id', $employee->id)
                     ->whereDate('order_date', today())
                     ->count(),

@@ -115,6 +115,7 @@ class CreditNote extends Model
         'dealer_id',
         'destination_dealer_id',
         'linked_order_id',
+        'linked_source_order_id',
         'sales_employee_id',
         'bill_reference',
         'credit_note_date',
@@ -200,6 +201,11 @@ class CreditNote extends Model
     public function linkedOrder(): BelongsTo
     {
         return $this->belongsTo(Order::class, 'linked_order_id');
+    }
+
+    public function linkedSourceOrder(): BelongsTo
+    {
+        return $this->belongsTo(Order::class, 'linked_source_order_id');
     }
 
     public function salesEmployee(): BelongsTo

@@ -3,6 +3,8 @@
 namespace App\Filament\Resources\Orders\Schemas;
 
 use App\Enums\TransportChargeType;
+use App\Filament\Resources\CreditNotes\CreditNoteResource;
+use App\Filament\Resources\Orders\OrderResource;
 use App\Models\Order;
 use App\Services\Orders\FinishedProductOrderAvailabilityService;
 use App\Services\Orders\OrderBillingTransportCalculator;
@@ -20,6 +22,38 @@ class OrderInfolist
         return $schema
             ->columns(1)
             ->components([
+                Section::make('Credit Note / Sales Return Details')
+                    ->visible(fn (Order $record): bool => $record->isFromCreditNoteTransfer())
+                    ->columns([
+                        'default' => 1,
+                        'md' => 2,
+                        'xl' => 3,
+                    ])
+                    ->schema([
+                        TextEntry::make('sourceCreditNote.credit_note_no')
+                            ->label('Credit Note')
+                            ->placeholder('—')
+                            ->weight(FontWeight::SemiBold)
+                            ->url(fn (Order $record): ?string => $record->sourceCreditNote
+                                ? CreditNoteResource::getUrl('view', ['record' => $record->sourceCreditNote])
+                                : null),
+                        TextEntry::make('sourceCreditNote.dealer.firm_name')
+                            ->label('Source Dealer')
+                            ->placeholder('—'),
+                        TextEntry::make('sourceCreditNote.destinationDealer.firm_name')
+                            ->label('Moved To')
+                            ->placeholder('—'),
+                        TextEntry::make('credit_note_transaction_type')
+                            ->label('Transaction Type')
+                            ->state('Move to Dealer'),
+                        TextEntry::make('pairedOrder.order_no')
+                            ->label('Linked Order')
+                            ->placeholder('—')
+                            ->formatStateUsing(fn (?string $state, Order $record): string => $record->pairedOrder?->shortOrderNo() ?: '—')
+                            ->url(fn (Order $record): ?string => $record->pairedOrder
+                                ? OrderResource::getUrl('view', ['record' => $record->pairedOrder])
+                                : null),
+                    ]),
                 Section::make('Order Overview')
                     ->columns([
                         'default' => 1,
@@ -47,21 +81,6 @@ class OrderInfolist
                                 ? $state
                                 : ($record->dealer?->firm_name ?: '—'))
                             ->weight(FontWeight::SemiBold),
-                        TextEntry::make('sourceCreditNote.credit_note_no')
-                            ->label('Linked Credit Note')
-                            ->placeholder('—')
-                            ->visible(fn (Order $record): bool => $record->isFromCreditNoteTransfer())
-                            ->formatStateUsing(function (?string $state, Order $record): string {
-                                $record->loadMissing(['sourceCreditNote.dealer:id,firm_name']);
-                                $cn = $record->sourceCreditNote?->credit_note_no ?: '—';
-                                $from = $record->sourceCreditNote?->dealer?->firm_name;
-                                $bill = $record->sourceCreditNote?->bill_reference;
-
-                                return collect([$cn, $from ? 'from '.$from : null, $bill ? 'Bill '.$bill : null])
-                                    ->filter()
-                                    ->implode(' • ');
-                            })
-                            ->columnSpanFull(),
                         TextEntry::make('dealer.village')
                             ->label('Dealer Place')
                             ->placeholder('—'),

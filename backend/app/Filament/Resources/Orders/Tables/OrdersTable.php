@@ -15,6 +15,7 @@ use App\Models\Order;
 use App\Services\Orders\OrderBillingTransportCalculator;
 use App\Support\AttendanceCalendar;
 use Filament\Actions\Action;
+use Filament\Actions\ActionGroup;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\DeleteBulkAction;
 use Filament\Actions\EditAction;
@@ -45,6 +46,45 @@ class OrdersTable
 
         $filters = [
             SelectFilter::make('payment_type')->options(['Cash' => 'Cash', 'Credit' => 'Credit']),
+            SelectFilter::make('origin')
+                ->label('Origin')
+                ->options([
+                    'normal' => 'Normal Order',
+                    'credit_note' => 'Credit Note',
+                    'move_to_dealer' => 'Sales Return / Move to Dealer',
+                ])
+                ->query(function (Builder $query, array $data): Builder {
+                    return match ($data['value'] ?? null) {
+                        'normal' => $query->whereNull('source_credit_note_id'),
+                        'credit_note' => $query->where('credit_note_link_role', Order::CREDIT_NOTE_LINK_SOURCE),
+                        'move_to_dealer' => $query->where('credit_note_link_role', Order::CREDIT_NOTE_LINK_DESTINATION),
+                        default => $query,
+                    };
+                }),
+            Filter::make('credit_note_no')
+                ->label('Credit Note No')
+                ->schema([
+                    TextInput::make('credit_note_no')
+                        ->label('Credit Note No'),
+                ])
+                ->query(function (Builder $query, array $data): Builder {
+                    $number = trim((string) ($data['credit_note_no'] ?? ''));
+                    if ($number === '') {
+                        return $query;
+                    }
+
+                    return $query->whereHas('sourceCreditNote', function (Builder $creditNote) use ($number): void {
+                        $creditNote->where('credit_note_no', 'like', '%'.$number.'%');
+                    });
+                }),
+            SelectFilter::make('dealer_id')
+                ->label('Dealer')
+                ->relationship('dealer', 'firm_name')
+                ->searchable(),
+            SelectFilter::make('sales_employee_id')
+                ->label('Sales Employee')
+                ->relationship('salesEmployee', 'full_name')
+                ->searchable(),
             TodayDateFilter::make('order_date', 'Order Date'),
             Filter::make('action_required')
                 ->label('Action required')
@@ -101,43 +141,40 @@ class OrdersTable
                     ->orderByDesc('created_at'),
                 'desc',
             )
-            ->recordActionsColumnLabel('Action')
+            ->recordActionsColumnLabel('Actions')
             ->columns([
                 TextColumn::make('order_no')
                     ->label('Order No')
                     ->searchable()
                     ->sortable()
-                    ->formatStateUsing(fn (string $state, Order $record): string => $record->shortOrderNo()),
+                    ->formatStateUsing(fn (string $state, Order $record): string => $record->shortOrderNo())
+                    ->extraCellAttributes(['style' => 'min-width: 6.5rem; white-space: nowrap;']),
                 TextColumn::make('order_date')
                     ->date()
                     ->sortable()
                     ->visible(fn () => $isProductionSupervisor),
                 TextColumn::make('created_at')
                     ->label('Created')
-                    ->dateTime()
+                    ->dateTime('d M Y H:i')
                     ->sortable()
-                    ->visible(fn () => ! $isProductionSupervisor),
-                TextColumn::make('dealer.firm_name')->label('Dealer')->searchable()->sortable(),
+                    ->visible(fn () => ! $isProductionSupervisor)
+                    ->extraCellAttributes(['style' => 'min-width: 8.5rem; white-space: nowrap;']),
+                TextColumn::make('dealer.firm_name')
+                    ->label('Dealer')
+                    ->searchable()
+                    ->sortable()
+                    ->extraCellAttributes(['style' => 'min-width: 9rem; white-space: nowrap;']),
                 TextColumn::make('source_credit_note_id')
                     ->label('Origin')
-                    ->state(function (Order $record): string {
-                        if (! $record->isFromCreditNoteTransfer()) {
-                            return 'Order';
-                        }
-
-                        $record->loadMissing([
-                            'sourceCreditNote:id,credit_note_no,dealer_id,bill_reference',
-                            'sourceCreditNote.dealer:id,firm_name',
-                        ]);
-
-                        $cn = $record->sourceCreditNote?->credit_note_no ?: 'Credit Note';
-                        $from = $record->sourceCreditNote?->dealer?->firm_name;
-
-                        return $from ? "Sales return {$cn} from {$from}" : "Sales return {$cn}";
-                    })
-                    ->wrap()
+                    ->html()
+                    ->state(fn (Order $record): HtmlString => self::originCell($record))
+                    ->extraCellAttributes(['style' => 'min-width: 14rem; max-width: 18rem; white-space: normal;'])
                     ->toggleable(),
-                TextColumn::make('salesEmployee.full_name')->label('Sales Employee')->placeholder('-')->searchable(),
+                TextColumn::make('salesEmployee.full_name')
+                    ->label('Sales Employee')
+                    ->placeholder('-')
+                    ->searchable()
+                    ->extraCellAttributes(['style' => 'min-width: 8rem; white-space: nowrap;']),
                 TextColumn::make('payment_type')
                     ->badge()
                     ->visible(fn () => $isProductionSupervisor),
@@ -145,7 +182,8 @@ class OrdersTable
                     ->badge()
                     ->formatStateUsing(fn (string $state, Order $record): string => $record->displayStatusLabel())
                     ->color(fn (string $state): string => Order::statusColor($state))
-                    ->sortable(),
+                    ->sortable()
+                    ->extraCellAttributes(['style' => 'white-space: nowrap;']),
                 TextColumn::make('bill_number')
                     ->label('Bill No')
                     ->placeholder('-')
@@ -161,12 +199,16 @@ class OrdersTable
                     ->label('Grand Total')
                     ->state(fn (Order $record): float => OrderBillingTransportCalculator::finalGrandTotal($record))
                     ->money('INR')
+                    ->alignEnd()
+                    ->description(fn (Order $record): ?string => $record->isCreditNoteSourceRecord() ? 'Credit note value' : null)
                     ->sortable()
-                    ->visible(fn () => ! $isProductionSupervisor),
+                    ->visible(fn () => ! $isProductionSupervisor)
+                    ->extraCellAttributes(['style' => 'min-width: 8rem; white-space: nowrap;']),
             ])
             ->filters($filters)
             ->recordActions([
                 ViewAction::make(),
+                ActionGroup::make([
                 EditAction::make()
                     ->visible(fn (Order $record): bool => ! $ordersOnlyUser() && $record->canBeEdited()),
                 Action::make('submitForApproval')
@@ -330,6 +372,11 @@ class OrdersTable
                         && $record->canTransitionTo('cancelled'))
                     ->action(fn (Order $record) => $record->transitionTo('cancelled')),
             ])
+                ->label('Actions')
+                ->icon('heroicon-m-chevron-down')
+                ->button()
+                ->color('gray'),
+            ])
             ->toolbarActions([
                 BulkActionGroup::make([
                     DeleteBulkAction::make()->visible(fn (): bool => ! $ordersOnlyUser()
@@ -341,5 +388,34 @@ class OrdersTable
                     RestoreBulkAction::make()->visible(fn (): bool => ! $ordersOnlyUser()),
                 ]),
             ]);
+    }
+
+    private static function originCell(Order $record): HtmlString
+    {
+        if (! $record->isFromCreditNoteTransfer()) {
+            return new HtmlString(
+                '<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:#f3f4f6;font-size:12px;font-weight:600;white-space:nowrap;">Normal Order</span>'
+            );
+        }
+
+        $record->loadMissing([
+            'sourceCreditNote:id,credit_note_no,dealer_id,destination_dealer_id',
+            'sourceCreditNote.dealer:id,firm_name',
+            'sourceCreditNote.destinationDealer:id,firm_name',
+        ]);
+
+        $badge = $record->isCreditNoteSourceRecord() ? 'Credit Note' : 'Moved to Dealer';
+        $badgeColor = $record->isCreditNoteSourceRecord() ? '#e0e7ff' : '#dbeafe';
+        $number = e($record->sourceCreditNote?->credit_note_no ?: 'Credit Note');
+        $from = e($record->sourceCreditNote?->dealer?->firm_name ?: '—');
+        $to = e($record->sourceCreditNote?->destinationDealer?->firm_name ?: ($record->isCreditNoteDestinationOrder() ? ($record->dealer?->firm_name ?: '—') : '—'));
+
+        return new HtmlString(
+            '<div style="min-width:13rem;line-height:1.35;">'
+            .'<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:'.$badgeColor.';font-size:12px;font-weight:600;white-space:nowrap;">'.$badge.'</span>'
+            .'<div style="white-space:nowrap;margin-top:2px;">'.$number.'</div>'
+            .'<div style="white-space:nowrap;">'.$from.' → '.$to.'</div>'
+            .'</div>'
+        );
     }
 }

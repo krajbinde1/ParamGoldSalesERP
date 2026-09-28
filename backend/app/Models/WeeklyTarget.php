@@ -88,6 +88,7 @@ class WeeklyTarget extends Model
         $weekEnd = $this->week_end_date->toDateString();
 
         return (float) Order::query()
+            ->excludingCreditNoteSourceRecords()
             ->where('sales_employee_id', $employeeId)
             ->where('status', Order::STATUS_DISPATCHED)
             ->where(function ($query) use ($weekStart, $weekEnd) {

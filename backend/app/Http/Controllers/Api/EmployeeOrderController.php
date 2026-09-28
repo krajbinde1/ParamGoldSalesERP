@@ -38,7 +38,9 @@ class EmployeeOrderController extends Controller
     {
         $employee = $request->user()->employee;
 
-        $orders = Order::query()->where('sales_employee_id', $employee->id);
+        $orders = Order::query()
+            ->excludingCreditNoteSourceRecords()
+            ->where('sales_employee_id', $employee->id);
 
         if ($request->filled('filter')) {
             $filter = $request->query('filter');

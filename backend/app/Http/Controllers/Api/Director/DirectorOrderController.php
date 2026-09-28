@@ -41,6 +41,7 @@ class DirectorOrderController extends Controller
         $perPage = (int) ($validated['per_page'] ?? 20);
 
         $orders = Order::query()
+            ->excludingCreditNoteSourceRecords()
             ->with([
                 'dealer:id,dealer_code,firm_name,village,taluka,district,state',
                 'salesEmployee:id,full_name,employee_code',

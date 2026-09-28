@@ -421,6 +421,10 @@ final class OrderDispatchStockService
 
     private function shouldPost(Order $order): bool
     {
+        if ($order->isCreditNoteSourceRecord()) {
+            return false;
+        }
+
         $status = strtolower(trim((string) $order->status));
 
         if (in_array($status, [Order::STATUS_REJECTED, 'cancelled', 'draft'], true)) {

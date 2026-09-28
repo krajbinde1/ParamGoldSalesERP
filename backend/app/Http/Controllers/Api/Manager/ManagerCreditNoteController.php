@@ -48,6 +48,7 @@ class ManagerCreditNoteController extends Controller
                 'dealer:id,dealer_code,firm_name,village,taluka,district,state',
                 'destinationDealer:id,firm_name,dealer_code',
                 'linkedOrder:id,order_no,status,dealer_id',
+                'linkedSourceOrder:id,order_no,status,dealer_id',
                 'salesEmployee:id,full_name,employee_code',
                 'rejectedByUser:id,name',
             ])
