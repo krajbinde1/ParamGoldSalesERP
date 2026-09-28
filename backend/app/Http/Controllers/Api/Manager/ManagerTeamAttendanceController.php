@@ -11,6 +11,7 @@ use App\Models\Employee;
 use App\Services\EmployeeRouteAnalysisService;
 use App\Services\Orders\ManagerOrderAccessService;
 use App\Support\AttendanceCalendar;
+use App\Support\PunchOutEnforcementCutoff;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -64,6 +65,7 @@ class ManagerTeamAttendanceController extends Controller
             ->whereDate('attendance_date', '<', $date)
             ->whereNotNull('punch_in_time')
             ->whereNull('punch_out_time')
+            ->tap(fn ($query) => PunchOutEnforcementCutoff::constrainEnforced($query))
             ->orderByDesc('attendance_date')
             ->orderByDesc('id')
             ->get()
@@ -322,6 +324,11 @@ class ManagerTeamAttendanceController extends Controller
         if ($attendance->punchOutAt() === null) {
             if ($attendance->hasActionablePendingPunchOutCorrection()) {
                 return 'Punch Out Correction Pending';
+            }
+
+            if (PunchOutEnforcementCutoff::isHistoricalOpen($attendance)
+                && $attendance->attendance_date->toDateString() < AttendanceCalendar::today()->toDateString()) {
+                return 'Historical Open';
             }
 
             if ($previousPending || $attendance->attendance_date->toDateString() < AttendanceCalendar::today()->toDateString()) {

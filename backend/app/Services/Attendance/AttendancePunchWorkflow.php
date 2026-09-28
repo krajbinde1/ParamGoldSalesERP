@@ -5,6 +5,7 @@ namespace App\Services\Attendance;
 use App\Models\Attendance;
 use App\Models\AttendancePunchOutCorrection;
 use App\Support\PunchOutCorrectionCutoff;
+use App\Support\PunchOutEnforcementCutoff;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -26,7 +27,28 @@ final class AttendancePunchWorkflow
             ->whereNull('punch_out_time')
             ->orderByDesc('attendance_date')
             ->orderByDesc('id')
-            ->get();
+            ->get()
+            ->filter(fn (Attendance $attendance): bool => $this->governsCurrentSession($attendance))
+            ->values();
+    }
+
+    /**
+     * Pre-cutoff open attendance stays in history. It can still be punched out
+     * on its own attendance date, and it never blocks a later day.
+     */
+    public function governsCurrentSession(Attendance $attendance, ?Carbon $today = null): bool
+    {
+        if (blank($attendance->punch_in_time) || filled($attendance->punch_out_time)) {
+            return false;
+        }
+
+        if (PunchOutEnforcementCutoff::includes($attendance)) {
+            return true;
+        }
+
+        $today = ($today ?? Attendance::businessToday())->toDateString();
+
+        return $attendance->attendance_date->toDateString() === $today;
     }
 
     public function openAttendance(int $employeeId): ?Attendance
@@ -97,7 +119,8 @@ final class AttendancePunchWorkflow
 
         $opens = $this->openAttendances($employeeId);
         $expired = $opens->first(
-            fn (Attendance $attendance): bool => $this->isMoreThan24Hours($attendance, $now),
+            fn (Attendance $attendance): bool => PunchOutEnforcementCutoff::includes($attendance)
+                && $this->isMoreThan24Hours($attendance, $now),
         );
         $active = $opens->first(
             fn (Attendance $attendance): bool => ! $this->isMoreThan24Hours($attendance, $now),

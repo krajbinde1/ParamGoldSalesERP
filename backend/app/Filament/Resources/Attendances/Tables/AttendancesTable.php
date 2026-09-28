@@ -6,6 +6,7 @@ use App\Models\Attendance;
 use App\Filament\Support\EmployeeSelect;
 use App\Services\Attendance\AttendanceStatusCalculator;
 use App\Support\AttendanceCalendar;
+use App\Support\PunchOutEnforcementCutoff;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\ViewAction;
 use Filament\Tables\Columns\TextColumn;
@@ -62,6 +63,10 @@ class AttendancesTable
                         if ($record->hasActionablePendingPunchOutCorrection()) {
                             return 'Correction Pending';
                         }
+                        if (PunchOutEnforcementCutoff::isHistoricalOpen($record)
+                            && $record->attendance_date->toDateString() < AttendanceCalendar::today()->toDateString()) {
+                            return 'Historical Open';
+                        }
                         if (blank($record->punch_out_time) && $record->attendance_date->toDateString() < AttendanceCalendar::today()->toDateString()) {
                             return 'Previous Punch Out Pending';
                         }
@@ -74,6 +79,10 @@ class AttendancesTable
                     ->color(function (Attendance $record): string {
                         if ($record->hasActionablePendingPunchOutCorrection()) {
                             return 'warning';
+                        }
+                        if (PunchOutEnforcementCutoff::isHistoricalOpen($record)
+                            && $record->attendance_date->toDateString() < AttendanceCalendar::today()->toDateString()) {
+                            return 'gray';
                         }
                         if (blank($record->punch_out_time) && $record->attendance_date->toDateString() < AttendanceCalendar::today()->toDateString()) {
                             return 'danger';
@@ -127,9 +136,11 @@ class AttendancesTable
                                 'punchOutCorrections',
                                 fn (Builder $corrections): Builder => \App\Support\PunchOutCorrectionCutoff::constrainPending($corrections),
                             ),
-                            'previous_pending' => $query
-                                ->whereNull('punch_out_time')
-                                ->whereDate('attendance_date', '<', AttendanceCalendar::today()->toDateString()),
+                            'previous_pending' => PunchOutEnforcementCutoff::constrainEnforced(
+                                $query
+                                    ->whereNull('punch_out_time')
+                                    ->whereDate('attendance_date', '<', AttendanceCalendar::today()->toDateString()),
+                            ),
                             default => $query,
                         };
                     }),
