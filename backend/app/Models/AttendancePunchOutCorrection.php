@@ -3,6 +3,8 @@
 namespace App\Models;
 
 use App\Support\AttendanceCalendar;
+use App\Support\PunchOutCorrectionCutoff;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
@@ -67,6 +69,20 @@ class AttendancePunchOutCorrection extends Model
         return $this->status === self::STATUS_PENDING;
     }
 
+    public function isActionablePending(): bool
+    {
+        return $this->isPending() && PunchOutCorrectionCutoff::includes($this);
+    }
+
+    /**
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeActionablePending(Builder $query): Builder
+    {
+        return PunchOutCorrectionCutoff::constrainPending($query);
+    }
+
     public function reasonLabel(): string
     {
         return self::REASON_LABELS[$this->reason] ?? (string) $this->reason;
@@ -110,6 +126,7 @@ class AttendancePunchOutCorrection extends Model
             'reason_label' => $this->reasonLabel(),
             'reason_note' => $this->reason_note,
             'status' => $this->status,
+            'actionable' => $this->isActionablePending(),
             'requested_by' => $this->requested_by,
             'requested_by_name' => $this->requestedByUser?->name,
             'reviewed_by' => $this->reviewed_by,

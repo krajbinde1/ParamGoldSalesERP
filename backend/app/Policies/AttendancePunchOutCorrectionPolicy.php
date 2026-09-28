@@ -10,7 +10,7 @@ class AttendancePunchOutCorrectionPolicy
 {
     public function review(User $user, AttendancePunchOutCorrection $correction): bool
     {
-        if (! $correction->isPending()) {
+        if (! $correction->isActionablePending()) {
             return false;
         }
 

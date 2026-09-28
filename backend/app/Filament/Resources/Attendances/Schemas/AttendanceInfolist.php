@@ -2,6 +2,7 @@
 
 namespace App\Filament\Resources\Attendances\Schemas;
 
+use App\Models\Attendance;
 use App\Models\AttendancePunchOutCorrection;
 use App\Support\AttendanceCalendar;
 use Filament\Infolists\Components\RepeatableEntry;
@@ -45,17 +46,27 @@ class AttendanceInfolist
                     TextEntry::make('punch_out_correction_status')
                         ->label('Punch Out Correction')
                         ->badge()
-                        ->formatStateUsing(fn (?string $state): string => match ($state) {
-                            'pending' => 'Pending Approval',
-                            'approved' => 'Approved',
-                            'rejected' => 'Rejected',
-                            default => '-',
+                        ->formatStateUsing(function (?string $state, $record): string {
+                            if ($record instanceof Attendance && $record->hasActionablePendingPunchOutCorrection()) {
+                                return 'Pending Approval';
+                            }
+
+                            return match ($state) {
+                                'approved' => 'Approved',
+                                'rejected' => 'Rejected',
+                                default => '-',
+                            };
                         })
-                        ->color(fn (?string $state): string => match ($state) {
-                            'pending' => 'warning',
-                            'approved' => 'success',
-                            'rejected' => 'danger',
-                            default => 'gray',
+                        ->color(function (?string $state, $record): string {
+                            if ($record instanceof Attendance && $record->hasActionablePendingPunchOutCorrection()) {
+                                return 'warning';
+                            }
+
+                            return match ($state) {
+                                'approved' => 'success',
+                                'rejected' => 'danger',
+                                default => 'gray',
+                            };
                         })
                         ->placeholder('-'),
                     TextEntry::make('approver.full_name')->label('Approved By')->placeholder('-'),
@@ -77,12 +88,24 @@ class AttendanceInfolist
                             ->schema([
                                 TextEntry::make('status')
                                     ->badge()
-                                    ->formatStateUsing(fn (?string $state): string => ucfirst((string) $state))
-                                    ->color(fn (?string $state): string => match ($state) {
-                                        AttendancePunchOutCorrection::STATUS_PENDING => 'warning',
-                                        AttendancePunchOutCorrection::STATUS_APPROVED => 'success',
-                                        AttendancePunchOutCorrection::STATUS_REJECTED => 'danger',
-                                        default => 'gray',
+                                    ->formatStateUsing(function (?string $state, $record): string {
+                                        if ($record instanceof AttendancePunchOutCorrection && $record->isPending() && ! $record->isActionablePending()) {
+                                            return 'Historical';
+                                        }
+
+                                        return ucfirst((string) $state);
+                                    })
+                                    ->color(function (?string $state, $record): string {
+                                        if ($record instanceof AttendancePunchOutCorrection && $record->isPending() && ! $record->isActionablePending()) {
+                                            return 'gray';
+                                        }
+
+                                        return match ($state) {
+                                            AttendancePunchOutCorrection::STATUS_PENDING => 'warning',
+                                            AttendancePunchOutCorrection::STATUS_APPROVED => 'success',
+                                            AttendancePunchOutCorrection::STATUS_REJECTED => 'danger',
+                                            default => 'gray',
+                                        };
                                     }),
                                 TextEntry::make('requested_punch_out_at')
                                     ->label('Requested Punch Out')

@@ -4,6 +4,7 @@ namespace App\Models;
 
 use App\Services\Attendance\AttendanceStatusCalculator;
 use App\Support\AttendanceCalendar;
+use App\Support\PunchOutCorrectionCutoff;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -243,6 +244,17 @@ class Attendance extends Model
     public function punchOutCorrections(): HasMany
     {
         return $this->hasMany(AttendancePunchOutCorrection::class)->latest('id');
+    }
+
+    public function hasActionablePendingPunchOutCorrection(): bool
+    {
+        if ($this->relationLoaded('punchOutCorrections')) {
+            return $this->punchOutCorrections->contains(
+                fn (AttendancePunchOutCorrection $row): bool => $row->isActionablePending(),
+            );
+        }
+
+        return PunchOutCorrectionCutoff::constrainPending($this->punchOutCorrections()->getQuery())->exists();
     }
 
     public function approver(): BelongsTo

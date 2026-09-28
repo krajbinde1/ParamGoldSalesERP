@@ -23,7 +23,7 @@ class ViewAttendance extends ViewRecord
         /** @var Attendance $record */
         $record = $this->getRecord();
         $pending = $record->punchOutCorrections
-            ->first(fn (AttendancePunchOutCorrection $row): bool => $row->isPending());
+            ->first(fn (AttendancePunchOutCorrection $row): bool => $row->isActionablePending());
 
         if ($pending === null) {
             return [];

@@ -59,7 +59,7 @@ class ManagerTeamAttendanceController extends Controller
             ->keyBy('employee_id');
 
         $openPrevious = Attendance::query()
-            ->with(['punchOutCorrections' => fn ($q) => $q->where('status', AttendancePunchOutCorrection::STATUS_PENDING)])
+            ->with(['punchOutCorrections' => fn ($q) => $q->actionablePending()])
             ->whereIn('employee_id', $employees->pluck('id')->all())
             ->whereDate('attendance_date', '<', $date)
             ->whereNotNull('punch_in_time')
@@ -177,7 +177,7 @@ class ManagerTeamAttendanceController extends Controller
         $hasRoute = count($routePoints) > 0
             || ($attendance->punch_in_latitude !== null && $attendance->punch_in_longitude !== null);
         $pendingCorrection = $attendance->punchOutCorrections
-            ->first(fn (AttendancePunchOutCorrection $row): bool => $row->isPending());
+            ->first(fn (AttendancePunchOutCorrection $row): bool => $row->isActionablePending());
 
         return response()->json([
             'data' => [
@@ -203,7 +203,7 @@ class ManagerTeamAttendanceController extends Controller
                     'is_late_punch_out' => (bool) $attendance->is_late_punch_out,
                     'late_punch_out_reason' => $attendance->late_punch_out_reason,
                     'late_punch_out_reason_label' => $attendance->latePunchOutReasonLabel(),
-                    'punch_out_correction_status' => $attendance->punch_out_correction_status,
+                    'punch_out_correction_status' => $this->workflowCorrectionStatus($attendance),
                     'punch_in' => [
                         'time' => $this->formatIstDateTime($attendance->punchInAt()),
                         'location' => $attendance->punch_in_location,
@@ -308,7 +308,7 @@ class ManagerTeamAttendanceController extends Controller
                 || ($attendance->punch_in_latitude !== null && $attendance->punch_in_longitude !== null),
             'is_late_punch_out' => (bool) $attendance->is_late_punch_out,
             'late_punch_out_reason_label' => $attendance->latePunchOutReasonLabel(),
-            'punch_out_correction_status' => $attendance->punch_out_correction_status,
+            'punch_out_correction_status' => $this->workflowCorrectionStatus($attendance),
             'previous_punch_out_pending' => $previousPending,
         ];
     }
@@ -320,7 +320,7 @@ class ManagerTeamAttendanceController extends Controller
         }
 
         if ($attendance->punchOutAt() === null) {
-            if ($attendance->punch_out_correction_status === AttendancePunchOutCorrection::STATUS_PENDING) {
+            if ($attendance->hasActionablePendingPunchOutCorrection()) {
                 return 'Punch Out Correction Pending';
             }
 
@@ -336,6 +336,17 @@ class ManagerTeamAttendanceController extends Controller
         }
 
         return 'Completed';
+    }
+
+    private function workflowCorrectionStatus(Attendance $attendance): ?string
+    {
+        if ($attendance->punch_out_correction_status !== AttendancePunchOutCorrection::STATUS_PENDING) {
+            return $attendance->punch_out_correction_status;
+        }
+
+        return $attendance->hasActionablePendingPunchOutCorrection()
+            ? AttendancePunchOutCorrection::STATUS_PENDING
+            : null;
     }
 
     private function ensureCorrectionMatches(Attendance $attendance, AttendancePunchOutCorrection $correction): void

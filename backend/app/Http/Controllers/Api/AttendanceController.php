@@ -365,7 +365,10 @@ class AttendanceController extends Controller
             'is_late_punch_out' => (bool) $attendance->is_late_punch_out,
             'late_punch_out_reason' => $attendance->late_punch_out_reason,
             'late_punch_out_reason_label' => $attendance->latePunchOutReasonLabel(),
-            'punch_out_correction_status' => $attendance->punch_out_correction_status,
+            'punch_out_correction_status' => $attendance->punch_out_correction_status === AttendancePunchOutCorrection::STATUS_PENDING
+                && ! $attendance->hasActionablePendingPunchOutCorrection()
+                ? null
+                : $attendance->punch_out_correction_status,
         ];
     }
 

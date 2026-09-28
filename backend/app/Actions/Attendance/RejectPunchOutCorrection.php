@@ -5,6 +5,7 @@ namespace App\Actions\Attendance;
 use App\Models\AttendancePunchOutCorrection;
 use App\Models\User;
 use App\Support\AttendanceCalendar;
+use App\Support\PunchOutCorrectionCutoff;
 use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 
@@ -19,6 +20,12 @@ final class RejectPunchOutCorrection
         if (! $correction->isPending()) {
             throw ValidationException::withMessages([
                 'correction' => 'This punch-out correction is no longer pending.',
+            ]);
+        }
+
+        if (! PunchOutCorrectionCutoff::includes($correction)) {
+            throw ValidationException::withMessages([
+                'correction' => 'This punch-out correction is outside the approval workflow.',
             ]);
         }
 

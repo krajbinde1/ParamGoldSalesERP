@@ -4,6 +4,7 @@ namespace App\Services\Attendance;
 
 use App\Models\Attendance;
 use App\Models\AttendancePunchOutCorrection;
+use App\Support\PunchOutCorrectionCutoff;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 
@@ -73,11 +74,10 @@ final class AttendancePunchWorkflow
     {
         if ($attendance->relationLoaded('punchOutCorrections')) {
             return $attendance->punchOutCorrections
-                ->first(fn (AttendancePunchOutCorrection $row): bool => $row->isPending());
+                ->first(fn (AttendancePunchOutCorrection $row): bool => $row->isActionablePending());
         }
 
-        return $attendance->punchOutCorrections()
-            ->where('status', AttendancePunchOutCorrection::STATUS_PENDING)
+        return PunchOutCorrectionCutoff::constrainPending($attendance->punchOutCorrections()->getQuery())
             ->latest('id')
             ->first();
     }

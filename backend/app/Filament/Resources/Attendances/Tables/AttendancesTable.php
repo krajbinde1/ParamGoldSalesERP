@@ -59,7 +59,7 @@ class AttendancesTable
                     ->label('Punch Out')
                     ->badge()
                     ->formatStateUsing(function (Attendance $record): string {
-                        if ($record->punch_out_correction_status === 'pending') {
+                        if ($record->hasActionablePendingPunchOutCorrection()) {
                             return 'Correction Pending';
                         }
                         if (blank($record->punch_out_time) && $record->attendance_date->toDateString() < AttendanceCalendar::today()->toDateString()) {
@@ -72,7 +72,7 @@ class AttendancesTable
                         return filled($record->punch_out_time) ? 'On time' : 'Open';
                     })
                     ->color(function (Attendance $record): string {
-                        if ($record->punch_out_correction_status === 'pending') {
+                        if ($record->hasActionablePendingPunchOutCorrection()) {
                             return 'warning';
                         }
                         if (blank($record->punch_out_time) && $record->attendance_date->toDateString() < AttendanceCalendar::today()->toDateString()) {
@@ -123,7 +123,10 @@ class AttendancesTable
                     ->query(function (Builder $query, array $data): Builder {
                         return match ($data['value'] ?? null) {
                             'late' => $query->where('is_late_punch_out', true),
-                            'correction_pending' => $query->where('punch_out_correction_status', 'pending'),
+                            'correction_pending' => $query->whereHas(
+                                'punchOutCorrections',
+                                fn (Builder $corrections): Builder => \App\Support\PunchOutCorrectionCutoff::constrainPending($corrections),
+                            ),
                             'previous_pending' => $query
                                 ->whereNull('punch_out_time')
                                 ->whereDate('attendance_date', '<', AttendanceCalendar::today()->toDateString()),
