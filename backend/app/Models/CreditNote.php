@@ -110,6 +110,7 @@ class CreditNote extends Model
 
     protected $fillable = [
         'credit_note_no',
+        'client_request_id',
         'type',
         'move_to',
         'dealer_id',

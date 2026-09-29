@@ -4,7 +4,9 @@ import 'package:dio/dio.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
+import 'package:uuid/uuid.dart';
 import '../../../core/api/api_client.dart';
+import '../../../core/api/api_errors.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/navigation/navigation_guard.dart';
 import '../../../core/storage/session_store.dart';
@@ -79,6 +81,8 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
   DateTime _date = DateTime.now();
   String? _photoPath;
   bool _submitting = false;
+  double? _uploadProgress;
+  String? _clientRequestId;
   final List<_CreditNoteLineDraft> _rateLines = [];
   final List<OrderLineItem> _returnItems = [];
 
@@ -598,7 +602,12 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
       ),
     );
     if (source == null) return;
-    final file = await ImagePicker().pickImage(source: source, imageQuality: 85);
+    final file = await ImagePicker().pickImage(
+      source: source,
+      maxWidth: 1440,
+      maxHeight: 1440,
+      imageQuality: 85,
+    );
     if (file != null) setState(() => _photoPath = file.path);
   }
 
@@ -668,7 +677,14 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
       return;
     }
 
-    setState(() => _submitting = true);
+    // Keep one ID for this submission attempt, including timeout retries.
+    _clientRequestId ??= const Uuid().v4();
+    final clientRequestId = _clientRequestId!;
+
+    setState(() {
+      _submitting = true;
+      _uploadProgress = null;
+    });
     try {
       final dio = ApiClient(
         SessionStore(),
@@ -676,65 +692,120 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
       ).dio;
       final items = _payloadItems();
 
-      if (widget.managerMode) {
-        if (widget.initial != null) {
-          await ManagerCreditNoteApi(dio).update(
-            id: widget.initial!.id,
+      Future<CreditNoteDetail> send() {
+        if (widget.managerMode) {
+          if (widget.initial != null) {
+            return ManagerCreditNoteApi(dio).update(
+              id: widget.initial!.id,
+              type: _type!,
+              dealerId: _dealer!.id,
+              billReference: _billRefController.text.trim(),
+              creditNoteDate: _date,
+              items: items,
+              remarks: _remarksController.text,
+              documentPath: _photoPath,
+              moveTo: _isSalesReturn ? _moveTo : null,
+              destinationDealerId: _moveToDealer ? _destinationDealer?.id : null,
+            );
+          }
+          return ManagerCreditNoteApi(dio).submit(
             type: _type!,
             dealerId: _dealer!.id,
             billReference: _billRefController.text.trim(),
             creditNoteDate: _date,
             items: items,
+            clientRequestId: clientRequestId,
             remarks: _remarksController.text,
             documentPath: _photoPath,
-            moveTo: _isSalesReturn ? _moveTo : null,
-            destinationDealerId: _moveToDealer ? _destinationDealer?.id : null,
-          );
-        } else {
-          await ManagerCreditNoteApi(dio).submit(
-            type: _type!,
-            dealerId: _dealer!.id,
-            billReference: _billRefController.text.trim(),
-            creditNoteDate: _date,
-            items: items,
-            remarks: _remarksController.text,
-            documentPath: _photoPath,
+            onSendProgress: (progress) {
+              if (!mounted) return;
+              setState(() => _uploadProgress = progress);
+            },
           );
         }
-      } else {
-        await CreditNoteApi(dio).submit(
+        return CreditNoteApi(dio).submit(
           type: _type!,
           dealerId: _dealer!.id,
           billReference: _billRefController.text.trim(),
           creditNoteDate: DateTime.now(),
           items: items,
+          clientRequestId: clientRequestId,
           remarks: _remarksController.text,
           documentPath: _photoPath,
           creditNoteId: widget.initial?.id,
           moveTo: _moveTo,
           destinationDealerId: _moveToDealer ? _destinationDealer?.id : null,
+          onSendProgress: (progress) {
+            if (!mounted) return;
+            setState(() => _uploadProgress = progress);
+          },
         );
       }
 
+      CreditNoteDetail saved;
+      try {
+        saved = await send();
+      } on DioException catch (error) {
+        if (!_shouldReconcileSubmission(error) || widget.initial != null) {
+          rethrow;
+        }
+        debugPrint('Credit Note submit timed out; reconciling $clientRequestId');
+        saved = await send();
+      }
+
       if (!mounted) return;
+      _clientRequestId = null;
+      final number = saved.creditNoteNo.trim();
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
             _isEdit
                 ? 'Credit Note updated successfully.'
-                : 'Credit Note submitted successfully.',
+                : number.isEmpty
+                    ? 'Credit Note submitted successfully.'
+                    : 'Credit Note $number submitted successfully.',
           ),
         ),
       );
       safePop(context, true);
     } catch (error) {
       if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text('$error')));
+      debugPrint('Credit Note submit error: $error');
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(_submitErrorMessage(error))),
+      );
     } finally {
-      if (mounted) setState(() => _submitting = false);
+      if (mounted) {
+        setState(() {
+          _submitting = false;
+          _uploadProgress = null;
+        });
+      }
     }
+  }
+
+  bool _shouldReconcileSubmission(DioException error) {
+    return error.type == DioExceptionType.sendTimeout ||
+        error.type == DioExceptionType.receiveTimeout ||
+        error.type == DioExceptionType.connectionTimeout ||
+        error.type == DioExceptionType.connectionError ||
+        error.type == DioExceptionType.unknown;
+  }
+
+  String _submitErrorMessage(Object error) {
+    if (error is DioException && isConnectionFailure(error)) {
+      if (error.type == DioExceptionType.sendTimeout ||
+          error.type == DioExceptionType.receiveTimeout) {
+        return 'Credit Note submission is taking longer than expected. '
+            'Please wait while we verify the submission.';
+      }
+      return 'Unable to submit Credit Note. Please check your network and try again.';
+    }
+    final mapped = errorMessage(error);
+    if (mapped.contains('DioException') || mapped.contains('receive timeout')) {
+      return 'Unable to submit Credit Note. Please check your network and try again.';
+    }
+    return mapped;
   }
 
   @override
@@ -1071,9 +1142,22 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
+            if (_submitting && _uploadProgress != null) ...[
+              LinearProgressIndicator(value: _uploadProgress),
+              const SizedBox(height: AppSpacing.sm),
+              Text(
+                'Uploading ${((_uploadProgress ?? 0) * 100).round()}%',
+                textAlign: TextAlign.center,
+              ),
+              const SizedBox(height: AppSpacing.md),
+            ],
             FilledButton(
               onPressed: _submitting ? null : _submit,
-              child: Text(_submitting ? 'Saving...' : 'Submit Credit Note'),
+              child: Text(
+                _submitting
+                    ? 'Creating Credit Note...'
+                    : 'Submit Credit Note',
+              ),
             ),
             const SizedBox(height: 24),
           ],

@@ -82,6 +82,7 @@ final class CreditNotePayloadValidator
             'dealer_id' => ['required', 'integer', 'exists:dealers,id'],
             'bill_reference' => ['required', 'string', 'max:100'],
             'credit_note_date' => ['nullable', 'date'],
+            'client_request_id' => ['nullable', 'string', 'max:64'],
             'remarks' => ['nullable', 'string', 'max:2000'],
             'supporting_document' => array_merge($documentRule, [
                 'file',

@@ -963,3 +963,124 @@ function creditNoteForeignKeyExists(): bool
 
     return false;
 }
+
+it('returns the same credit note for a repeated client_request_id', function () {
+    $employee = creditNoteEmployee(UserRole::Employee, '9300000120');
+    $dealer = creditNoteDealer($employee);
+    $product = creditNoteProduct();
+    $payload = salesReturnPayload($dealer, $product, [
+        'client_request_id' => 'cn-req-duplicate-1',
+    ]);
+
+    $first = $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/credit-notes', $payload)
+        ->assertCreated()
+        ->json('credit_note_id');
+
+    $second = $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/credit-notes', $payload)
+        ->assertCreated()
+        ->json('credit_note_id');
+
+    expect($second)->toBe($first)
+        ->and(CreditNote::query()->count())->toBe(1)
+        ->and(CreditNote::query()->first()->client_request_id)->toBe('cn-req-duplicate-1');
+});
+
+it('creates credit notes quickly without an attachment and keeps gst totals', function () {
+    $employee = creditNoteEmployee(UserRole::Employee, '9300000121');
+    $dealer = creditNoteDealer($employee);
+    $product = creditNoteProduct();
+    $expected = salesReturnExpectedAmount($product, 3);
+
+    $started = microtime(true);
+    $response = $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/credit-notes', salesReturnPayload($dealer, $product, [
+            'client_request_id' => 'cn-req-timing-no-file',
+            'items' => [[
+                'product_id' => $product->id,
+                'case_quantity' => 3,
+                'rate_per_no' => (float) $product->dealer_price,
+                'gst_percentage' => (float) $product->gst_percentage,
+                'reason' => 'Return',
+            ]],
+        ]))
+        ->assertCreated();
+    $elapsedMs = (microtime(true) - $started) * 1000;
+
+    expect($elapsedMs)->toBeLessThan(5000)
+        ->and((float) $response->json('amount'))->toBe($expected)
+        ->and(CreditNote::query()->count())->toBe(1);
+});
+
+it('creates a credit note with a supporting image without duplicating on retry', function () {
+    Storage::fake('public');
+    $employee = creditNoteEmployee(UserRole::Employee, '9300000122');
+    $dealer = creditNoteDealer($employee);
+    $product = creditNoteProduct();
+    $file = UploadedFile::fake()->image('return-photo.jpg', 1200, 1600)->size(900);
+
+    $payload = salesReturnPayload($dealer, $product, [
+        'client_request_id' => 'cn-req-with-photo',
+    ]);
+
+    $started = microtime(true);
+    $first = $this->actingAs($employee->user, 'sanctum')
+        ->post('/api/employee/credit-notes', array_merge($payload, [
+            'supporting_document' => $file,
+        ]))
+        ->assertCreated();
+    $elapsedMs = (microtime(true) - $started) * 1000;
+
+    $creditNoteId = (int) $first->json('credit_note_id');
+    expect($elapsedMs)->toBeLessThan(8000)
+        ->and($creditNoteId)->toBeGreaterThan(0)
+        ->and(CreditNote::query()->find($creditNoteId)?->supporting_document_path)->not->toBeNull();
+
+    $retry = $this->actingAs($employee->user, 'sanctum')
+        ->post('/api/employee/credit-notes', array_merge($payload, [
+            'supporting_document' => UploadedFile::fake()->image('again.jpg', 800, 800),
+        ]))
+        ->assertCreated();
+
+    expect((int) $retry->json('credit_note_id'))->toBe($creditNoteId)
+        ->and(CreditNote::query()->count())->toBe(1);
+});
+
+it('rolls back when credit note creation fails after validation', function () {
+    $employee = creditNoteEmployee(UserRole::Employee, '9300000123');
+    $dealer = creditNoteDealer($employee);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/credit-notes', [
+            'type' => CreditNote::TYPE_SALES_RETURN,
+            'move_to' => CreditNote::MOVE_TO_FACTORY,
+            'dealer_id' => $dealer->id,
+            'bill_reference' => 'INV-FAIL',
+            'client_request_id' => 'cn-req-fail',
+            'items' => [],
+        ])
+        ->assertUnprocessable();
+
+    expect(CreditNote::query()->count())->toBe(0)
+        ->and(Order::query()->count())->toBe(0);
+});
+
+it('keeps create response fast when a reporting manager exists for push notifications', function () {
+    $employee = creditNoteEmployee(UserRole::Employee, '9300000124');
+    $manager = creditNoteEmployee(UserRole::Manager, '9300000125');
+    $employee->update(['reporting_manager_id' => $manager->id]);
+    $dealer = creditNoteDealer($employee);
+    $product = creditNoteProduct();
+
+    $started = microtime(true);
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/credit-notes', salesReturnPayload($dealer, $product, [
+            'client_request_id' => 'cn-req-after-response',
+        ]))
+        ->assertCreated();
+    $elapsedMs = (microtime(true) - $started) * 1000;
+
+    expect($elapsedMs)->toBeLessThan(2000)
+        ->and(CreditNote::query()->count())->toBe(1);
+});

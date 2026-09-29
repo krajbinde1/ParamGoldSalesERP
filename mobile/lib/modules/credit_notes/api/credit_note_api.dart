@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:dio/dio.dart';
@@ -8,6 +9,11 @@ import '../models/credit_note.dart';
 class CreditNoteApi {
   const CreditNoteApi(this._dio);
   final Dio _dio;
+
+  /// Multipart create can include a photo over slow field networks.
+  static const Duration connectTimeout = Duration(seconds: 20);
+  static const Duration sendTimeout = Duration(seconds: 90);
+  static const Duration receiveTimeout = Duration(seconds: 90);
 
   Future<({Map<String, int> summary, List<CreditNoteListItem> recent})>
   loadDashboard() async {
@@ -65,17 +71,20 @@ class CreditNoteApi {
     required String billReference,
     required DateTime creditNoteDate,
     required List<Map<String, dynamic>> items,
+    required String clientRequestId,
     String? remarks,
     String? documentPath,
     int? creditNoteId,
     String? moveTo,
     int? destinationDealerId,
+    void Function(double progress)? onSendProgress,
   }) async {
     try {
       final formData = FormData.fromMap({
         'type': type,
         'dealer_id': dealerId,
         'bill_reference': billReference,
+        'client_request_id': clientRequestId,
         'credit_note_date':
             '${creditNoteDate.year.toString().padLeft(4, '0')}-'
             '${creditNoteDate.month.toString().padLeft(2, '0')}-'
@@ -95,11 +104,36 @@ class CreditNoteApi {
 
       final Response response;
       if (creditNoteId == null) {
-        response = await _dio.post('/employee/credit-notes', data: formData);
+        response = await _dio.post(
+          '/employee/credit-notes',
+          data: formData,
+          options: Options(
+            connectTimeout: connectTimeout,
+            sendTimeout: sendTimeout,
+            receiveTimeout: receiveTimeout,
+          ),
+          onSendProgress: onSendProgress == null
+              ? null
+              : (sent, total) {
+                  if (total <= 0) return;
+                  onSendProgress((sent / total).clamp(0.0, 1.0));
+                },
+        );
       } else {
         response = await _dio.post(
           '/employee/credit-notes/$creditNoteId',
           data: formData,
+          options: Options(
+            connectTimeout: connectTimeout,
+            sendTimeout: sendTimeout,
+            receiveTimeout: receiveTimeout,
+          ),
+          onSendProgress: onSendProgress == null
+              ? null
+              : (sent, total) {
+                  if (total <= 0) return;
+                  onSendProgress((sent / total).clamp(0.0, 1.0));
+                },
         );
       }
 
@@ -114,6 +148,10 @@ class CreditNoteApi {
         message: body['message']?.toString() ?? 'Credit Note saved.',
       );
     } on DioException catch (error) {
+      developer.log(
+        'credit_note.submit failed: ${error.type} ${error.message}',
+        name: 'CreditNoteApi',
+      );
       throw mapApiError(error);
     }
   }
@@ -191,14 +229,17 @@ class ManagerCreditNoteApi {
     required String billReference,
     required DateTime creditNoteDate,
     required List<Map<String, dynamic>> items,
+    required String clientRequestId,
     String? remarks,
     String? documentPath,
+    void Function(double progress)? onSendProgress,
   }) async {
     try {
       final formData = FormData.fromMap({
         'type': type,
         'dealer_id': dealerId,
         'bill_reference': billReference,
+        'client_request_id': clientRequestId,
         'credit_note_date':
             '${creditNoteDate.year.toString().padLeft(4, '0')}-'
             '${creditNoteDate.month.toString().padLeft(2, '0')}-'
@@ -212,7 +253,21 @@ class ManagerCreditNoteApi {
             filename: File(documentPath).uri.pathSegments.last,
           ),
       });
-      final response = await _dio.post('/manager/credit-notes', data: formData);
+      final response = await _dio.post(
+        '/manager/credit-notes',
+        data: formData,
+        options: Options(
+          connectTimeout: CreditNoteApi.connectTimeout,
+          sendTimeout: CreditNoteApi.sendTimeout,
+          receiveTimeout: CreditNoteApi.receiveTimeout,
+        ),
+        onSendProgress: onSendProgress == null
+            ? null
+            : (sent, total) {
+                if (total <= 0) return;
+                onSendProgress((sent / total).clamp(0.0, 1.0));
+              },
+      );
       final body = Map<String, dynamic>.from(response.data as Map);
       return CreditNoteDetail.fromJson(
         Map<String, dynamic>.from(body['data'] as Map),
@@ -258,6 +313,11 @@ class ManagerCreditNoteApi {
       final response = await _dio.post(
         '/manager/credit-notes/$id',
         data: formData,
+        options: Options(
+          connectTimeout: CreditNoteApi.connectTimeout,
+          sendTimeout: CreditNoteApi.sendTimeout,
+          receiveTimeout: CreditNoteApi.receiveTimeout,
+        ),
       );
       final body = Map<String, dynamic>.from(response.data as Map);
       return CreditNoteDetail.fromJson(

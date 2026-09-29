@@ -33,6 +33,7 @@ final class CreditNoteDetailPresenter
         return [
             'id' => $creditNote->id,
             'credit_note_no' => $creditNote->credit_note_no,
+            'client_request_id' => $creditNote->client_request_id,
             'type' => $creditNote->type,
             'type_label' => $creditNote->typeLabel(),
             'move_to' => $creditNote->move_to,
