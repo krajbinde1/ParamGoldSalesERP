@@ -23,6 +23,7 @@ use Illuminate\Auth\Access\AuthorizationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 
 uses(RefreshDatabase::class);
@@ -837,3 +838,128 @@ it('does not create an order for a factory sales return', function () {
         ->and(CreditNote::query()->firstOrFail()->linked_order_id)->toBeNull()
         ->and(CreditNote::query()->firstOrFail()->linked_source_order_id)->toBeNull();
 });
+
+it('replaces the unique credit note index without dropping the foreign key or existing rows', function () {
+    $migration = include database_path('migrations/2026_09_28_214500_add_credit_note_order_links.php');
+
+    $migration->up();
+
+    $migration->down();
+
+    $employee = creditNoteEmployee(UserRole::Employee, '9300000114');
+    $dealer = creditNoteDealer($employee);
+    $note = CreditNote::query()->create([
+        'type' => CreditNote::TYPE_SALES_RETURN,
+        'move_to' => CreditNote::MOVE_TO_DEALER,
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'bill_reference' => 'INV-SCHEMA-1',
+        'credit_note_date' => now('Asia/Kolkata')->toDateString(),
+        'amount' => 10,
+        'status' => CreditNote::STATUS_PENDING_APPROVAL,
+    ]);
+    $order = Order::query()->create([
+        'order_no' => 'PG-SCHEMA-0001',
+        'order_date' => now('Asia/Kolkata')->toDateString(),
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'source_credit_note_id' => $note->id,
+        'status' => Order::STATUS_PENDING_APPROVAL,
+        'payment_type' => 'Credit',
+        'subtotal' => 10,
+        'discount_amount' => 0,
+        'gst_amount' => 0,
+        'grand_total' => 10,
+    ]);
+
+    expect(Schema::hasIndex('orders', 'orders_source_credit_note_id_unique'))->toBeTrue()
+        ->and(creditNoteForeignKeyExists())->toBeTrue();
+
+    $migration->up();
+
+    $kept = Order::query()->findOrFail($order->id);
+    expect(Schema::hasIndex('orders', 'orders_source_credit_note_id_unique'))->toBeFalse()
+        ->and(Schema::hasIndex('orders', 'orders_source_credit_note_id_index'))->toBeTrue()
+        ->and(Schema::hasIndex('orders', 'orders_credit_note_link_unique'))->toBeTrue()
+        ->and(creditNoteForeignKeyExists())->toBeTrue()
+        ->and($kept->order_no)->toBe('PG-SCHEMA-0001')
+        ->and($kept->credit_note_link_role)->toBe(Order::CREDIT_NOTE_LINK_DESTINATION)
+        ->and((float) $kept->grand_total)->toBe(10.0)
+        ->and(CreditNote::query()->whereKey($note->id)->exists())->toBeTrue();
+
+    if (DB::getDriverName() !== 'sqlite') {
+        expect($kept->source_credit_note_id)->toBe($note->id);
+    }
+
+    Order::query()->create([
+        'order_no' => 'PG-SCHEMA-0002',
+        'order_date' => now('Asia/Kolkata')->toDateString(),
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'source_credit_note_id' => $note->id,
+        'credit_note_link_role' => Order::CREDIT_NOTE_LINK_SOURCE,
+        'status' => Order::STATUS_CREDIT_NOTE_RECORD,
+        'payment_type' => 'Credit',
+        'subtotal' => 10,
+        'discount_amount' => 0,
+        'gst_amount' => 0,
+        'grand_total' => 10,
+    ]);
+
+    $sourceOrder = Order::query()->where('order_no', 'PG-SCHEMA-0002')->firstOrFail();
+
+    expect(Order::query()->count())->toBe(2)
+        ->and($sourceOrder->source_credit_note_id)->toBe($note->id)
+        ->and($sourceOrder->credit_note_link_role)->toBe(Order::CREDIT_NOTE_LINK_SOURCE)
+        ->and(CreditNote::query()->whereKey($note->id)->exists())->toBeTrue();
+
+    $migration->up();
+
+    expect(Order::query()->count())->toBe(2);
+});
+
+it('does not delete orders when rollback cannot restore the old unique index', function () {
+    $employee = creditNoteEmployee(UserRole::Employee, '9300000115');
+    $returning = creditNoteDealer($employee);
+    $destination = Dealer::query()->create([
+        'firm_name' => 'Schema Destination '.$employee->id,
+        'owner_name' => 'Owner Two',
+        'mobile' => '94'.str_pad((string) $employee->id, 8, '4', STR_PAD_LEFT),
+        'address' => '456 Other Street',
+        'state' => 'Maharashtra',
+        'district' => 'Pune',
+        'taluka' => 'Haveli',
+        'pincode' => '411002',
+        'village' => 'Other Village',
+        'status' => true,
+        'assigned_employee_id' => $employee->id,
+    ]);
+    $product = creditNoteProduct();
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/credit-notes', salesReturnPayload($returning, $product, [
+            'move_to' => CreditNote::MOVE_TO_DEALER,
+            'destination_dealer_id' => $destination->id,
+        ]))
+        ->assertCreated();
+
+    $before = Order::query()->count();
+    $migration = include database_path('migrations/2026_09_28_214500_add_credit_note_order_links.php');
+
+    expect(fn () => $migration->down())->toThrow(RuntimeException::class);
+    expect(Order::query()->count())->toBe($before)
+        ->and(CreditNote::query()->count())->toBe(1)
+        ->and(Schema::hasColumn('orders', 'credit_note_link_role'))->toBeTrue();
+});
+
+function creditNoteForeignKeyExists(): bool
+{
+    foreach (Schema::getForeignKeys('orders') as $foreignKey) {
+        $columns = $foreignKey['columns'] ?? [];
+        if ($columns === ['source_credit_note_id'] && ($foreignKey['foreign_table'] ?? null) === 'credit_notes') {
+            return true;
+        }
+    }
+
+    return false;
+}
