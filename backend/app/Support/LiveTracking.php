@@ -32,4 +32,6 @@ final class LiveTracking
     public const STATUS_DELAYED = 'delayed';
 
     public const STATUS_OFFLINE = 'offline';
+
+    public const STATUS_NO_GPS = 'no_gps';
 }

@@ -16,6 +16,7 @@ use App\Http\Controllers\Admin\TotalOutstandingPdfController;
 use App\Http\Controllers\Api\DealerApplicationDocumentController;
 use App\Http\Controllers\Api\Director\PaymentRequestPaymentProofController;
 use App\Http\Controllers\Api\Director\PaymentRequestSupportingDocumentController;
+use App\Http\Controllers\Api\LiveTrackingController;
 use App\Http\Middleware\RestrictOrdersOnlyFilamentAccess;
 use Filament\Auth\Http\Responses\Contracts\LoginResponse as LoginResponseContract;
 use Filament\Http\Middleware\Authenticate;
@@ -95,6 +96,11 @@ class AdminPanelProvider extends PanelProvider
 
                 Route::get('/total-outstanding/pdf', TotalOutstandingPdfController::class)
                     ->name('total-outstanding.pdf');
+
+                Route::get('/live-tracking/snapshot', [LiveTrackingController::class, 'index'])
+                    ->name('live-tracking.snapshot');
+                Route::get('/live-tracking/{employee}/route', [LiveTrackingController::class, 'route'])
+                    ->name('live-tracking.route');
 
                 Route::get('/company-transport-ledger/print', [CompanyTransportLedgerExportController::class, 'print'])
                     ->name('company-transport-ledger.print');

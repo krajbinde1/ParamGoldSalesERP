@@ -97,7 +97,10 @@ it('shows a punched-in employee after the first route point and moves the marker
 
     expect(app(LiveTrackingService::class)->snapshot($director)['employees'])->toHaveCount(1)
         ->and(app(LiveTrackingService::class)->snapshot($director)['employees'][0]['latitude'])->toBeNull()
-        ->and(app(LiveTrackingService::class)->snapshot($director)['employees'][0]['status'])->toBe(LiveTracking::STATUS_OFFLINE);
+        ->and(app(LiveTrackingService::class)->snapshot($director)['employees'][0]['status'])->toBe(LiveTracking::STATUS_NO_GPS)
+        ->and(app(LiveTrackingService::class)->snapshot($director)['employees'][0]['gps_status'])->toBe('no_gps')
+        ->and(app(LiveTrackingService::class)->snapshot($director)['summary']['active_employees'])->toBe(1)
+        ->and(app(LiveTrackingService::class)->snapshot($director)['summary']['punch_in_today'])->toBe(1);
 
     livePoint($attendance, 18.5204, 73.8567, $now->copy()->subMinutes(2));
 
@@ -195,4 +198,46 @@ it('returns only route points newer than after_point_id', function (): void {
 
     expect($full['points'])->toHaveCount(2)
         ->and($full)->not->toHaveKey('route_points');
+});
+
+it('includes employees with and without GPS in the same snapshot', function (): void {
+    $director = liveDirector();
+    $withGps = liveAttendance(liveEmployee('9710000018'));
+    $withoutGps = liveAttendance(liveEmployee('9710000019'));
+    livePoint($withGps, 18.5204, 73.8567, AttendanceCalendar::now()->subMinute());
+
+    $rows = collect(app(LiveTrackingService::class)->snapshot($director)['employees'])->keyBy('employee_id');
+
+    expect($rows)->toHaveCount(2)
+        ->and($rows[$withGps->employee_id]['latitude'])->toEqual(18.5204)
+        ->and($rows[$withoutGps->employee_id]['status'])->toBe(LiveTracking::STATUS_NO_GPS)
+        ->and($rows[$withoutGps->employee_id]['latitude'])->toBeNull();
+});
+
+it('keeps four punched-in employees with no GPS and ignores yesterday', function (): void {
+    $director = liveDirector();
+    foreach (['9710000011', '9710000012', '9710000013', '9710000014'] as $mobile) {
+        liveAttendance(liveEmployee($mobile));
+    }
+    $yesterday = liveAttendance(liveEmployee('9710000015'), ['attendance_date' => '2026-09-28']);
+    livePoint($yesterday, 18.52, 73.85, Carbon::parse('2026-09-28 18:00:00', AttendanceCalendar::TIMEZONE));
+
+    $snapshot = app(LiveTrackingService::class)->snapshot($director);
+
+    expect($snapshot['summary']['active_employees'])->toBe(4)
+        ->and($snapshot['summary']['punch_in_today'])->toBe(4)
+        ->and($snapshot['summary']['no_gps'])->toBe(4)
+        ->and(collect($snapshot['employees'])->every(fn (array $row): bool => $row['gps_status'] === 'no_gps'))->toBeTrue()
+        ->and(collect($snapshot['employees'])->pluck('employee_id'))->not->toContain($yesterday->employee_id);
+});
+
+it('uses the Asia/Kolkata date so late evening still counts as today', function (): void {
+    Carbon::setTestNow(Carbon::parse('2026-09-29 23:40:00', AttendanceCalendar::TIMEZONE));
+    $director = liveDirector();
+    $today = liveAttendance(liveEmployee('9710000016'));
+    liveAttendance(liveEmployee('9710000017'), ['attendance_date' => '2026-09-30']);
+
+    $ids = collect(app(LiveTrackingService::class)->snapshot($director)['employees'])->pluck('employee_id');
+
+    expect($ids->all())->toBe([$today->employee_id]);
 });

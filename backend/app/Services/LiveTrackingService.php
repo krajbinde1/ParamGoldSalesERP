@@ -49,6 +49,7 @@ final class LiveTrackingService
             LiveTracking::STATUS_STOPPED => 0,
             LiveTracking::STATUS_DELAYED => 0,
             LiveTracking::STATUS_OFFLINE => 0,
+            LiveTracking::STATUS_NO_GPS => 0,
         ];
         $lastUpdated = null;
 
@@ -81,6 +82,9 @@ final class LiveTrackingService
                 'recorded_at' => $recordedAt?->toIso8601String(),
                 'seconds_ago' => $recordedAt !== null ? max(0, $recordedAt->diffInSeconds($now)) : null,
                 'status' => $status,
+                'gps_status' => $status === LiveTracking::STATUS_NO_GPS ? 'no_gps' : $status,
+                'punched_in' => true,
+                'route_status' => 'open',
                 'today_distance_km' => round((float) ($attendance->total_route_distance_km ?? 0), 2),
                 'punch_in_at' => $punchInAt?->timezone(AttendanceCalendar::TIMEZONE)->toIso8601String(),
                 'punch_in_label' => $punchInAt?->timezone(AttendanceCalendar::TIMEZONE)->format('h:i A'),
@@ -102,6 +106,7 @@ final class LiveTrackingService
                 'stopped' => $counts[LiveTracking::STATUS_STOPPED],
                 'delayed' => $counts[LiveTracking::STATUS_DELAYED],
                 'offline' => $counts[LiveTracking::STATUS_OFFLINE],
+                'no_gps' => $counts[LiveTracking::STATUS_NO_GPS],
                 'last_updated_at' => $lastUpdated?->toIso8601String(),
             ],
             'employees' => $employees,
@@ -186,7 +191,7 @@ final class LiveTrackingService
     public function statusFor(?EmployeeRoutePoint $latest, Collection $window, Carbon $now): string
     {
         if ($latest === null || $latest->recorded_at === null) {
-            return LiveTracking::STATUS_OFFLINE;
+            return LiveTracking::STATUS_NO_GPS;
         }
 
         $recordedAt = Carbon::parse($latest->recorded_at)->timezone(AttendanceCalendar::TIMEZONE);
@@ -229,7 +234,7 @@ final class LiveTrackingService
     private function openAttendances(User $user, Carbon $now): Collection
     {
         return $this->scopedAttendances($user)
-            ->whereDate('attendance_date', $now->toDateString())
+            ->whereDate('attendance_date', $now->timezone(AttendanceCalendar::TIMEZONE)->toDateString())
             ->whereNotNull('punch_in_time')
             ->whereNull('punch_out_time')
             ->with(['employee:id,full_name,mobile,designation,employee_code'])
@@ -240,7 +245,7 @@ final class LiveTrackingService
     private function punchInTodayCount(User $user, Carbon $now): int
     {
         return $this->scopedAttendances($user)
-            ->whereDate('attendance_date', $now->toDateString())
+            ->whereDate('attendance_date', $now->timezone(AttendanceCalendar::TIMEZONE)->toDateString())
             ->whereNotNull('punch_in_time')
             ->count();
     }
@@ -275,10 +280,11 @@ final class LiveTrackingService
         }
 
         $latestIds = EmployeeRoutePoint::query()
-            ->selectRaw('MAX(id) as id')
             ->whereIn('attendance_id', $attendanceIds)
+            ->select('attendance_id')
+            ->selectRaw('MAX(id) as latest_id')
             ->groupBy('attendance_id')
-            ->pluck('id');
+            ->pluck('latest_id');
 
         return EmployeeRoutePoint::query()
             ->whereIn('id', $latestIds)

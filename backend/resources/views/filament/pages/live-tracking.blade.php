@@ -1,7 +1,12 @@
 <x-filament-panels::page>
     <div
         wire:ignore
-        x-data="liveTracking(@js($this->pollSeconds()))"
+        x-data="liveTracking(@js([
+            'pollSeconds' => $this->pollSeconds(),
+            'snapshotUrl' => route('filament.admin.live-tracking.snapshot'),
+            'routeBase' => url('/admin/live-tracking'),
+            'employeeUrl' => \App\Filament\Resources\Employees\EmployeeResource::getUrl('index'),
+        ]))"
         x-init="start()"
         x-on:destroy="stop()"
         class="live-tracking"
@@ -55,7 +60,8 @@
                         <button type="button" class="live-row" :class="selectedId === employee.employee_id ? 'is-selected' : ''" x-on:click="focusEmployee(employee)">
                             <span class="live-row-name" x-text="employee.employee_name"></span>
                             <span class="live-badge" :data-status="employee.status" x-text="statusLabel(employee.status)"></span>
-                            <span class="live-row-meta" x-text="'Last updated: ' + relative(employee.recorded_at)"></span>
+                            <span class="live-row-meta" x-text="employee.status === 'no_gps' ? 'Punch in: ' + (employee.punch_in_label || '—') : 'Last location: ' + (employee.punch_in_location || 'Waiting for GPS')"></span>
+                            <span class="live-row-meta" x-text="employee.status === 'no_gps' ? 'Last location: Waiting for GPS' : ('Last updated: ' + relative(employee.recorded_at))"></span>
                             <span class="live-row-meta" x-text="'Today: ' + kmLabel(employee.today_distance_km)"></span>
                         </button>
                     </template>
@@ -98,6 +104,7 @@
         .live-badge[data-status="stopped"] { background: #ffedd5; color: #9a3412; }
         .live-badge[data-status="delayed"] { background: #fef3c7; color: #92400e; }
         .live-badge[data-status="offline"] { background: #f3f4f6; color: #374151; }
+        .live-badge[data-status="no_gps"] { background: #e0e7ff; color: #3730a3; }
         .live-empty { color: #6b7280; font-size: 13px; padding: 12px; }
         .live-marker { background: #111827; color: white; border-radius: 999px; padding: 2px 8px; font-size: 12px; font-weight: 700; white-space: nowrap; border: 2px solid white; }
         .live-marker[data-status="moving"] { background: #15803d; }
@@ -115,9 +122,12 @@
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script>
-        function liveTracking(pollSeconds) {
+        function liveTracking(config) {
             return {
-                pollSeconds,
+                pollSeconds: config.pollSeconds,
+                snapshotUrl: config.snapshotUrl,
+                routeBase: config.routeBase,
+                employeeUrl: config.employeeUrl,
                 summary: {},
                 employees: [],
                 search: '',
@@ -166,9 +176,17 @@
                     if (this.busy) return;
                     this.busy = true;
                     try {
-                        const data = await $wire.liveSnapshot();
+                        const response = await fetch(this.snapshotUrl, {
+                            headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                            credentials: 'same-origin',
+                        });
+                        if (!response.ok) throw new Error('Live tracking refresh failed');
+                        const data = await response.json();
                         this.summary = data.summary || {};
-                        this.employees = data.employees || [];
+                        this.employees = (data.employees || []).map((employee) => ({
+                            ...employee,
+                            employee_url: `${this.employeeUrl}/${employee.employee_id}`,
+                        }));
                         this.drawMarkers();
                         this.updateDelayed = false;
                         if (this.selectedId) await this.refreshRoute();
@@ -267,7 +285,14 @@
                 },
                 async refreshRoute() {
                     if (!this.selectedId) return;
-                    const data = await $wire.liveRoute(this.selectedId, this.latestPointId);
+                    let url = `${this.routeBase}/${this.selectedId}/route`;
+                    if (this.latestPointId) url += `?after_point_id=${this.latestPointId}`;
+                    const response = await fetch(url, {
+                        headers: { 'Accept': 'application/json', 'X-Requested-With': 'XMLHttpRequest' },
+                        credentials: 'same-origin',
+                    });
+                    if (!response.ok) throw new Error('Live route refresh failed');
+                    const data = await response.json();
                     const employee = this.employees.find((item) => item.employee_id === this.selectedId) || this.routeEmployee;
                     this.routeMeta = {
                         punch_in_label: data.punch_in?.label,
@@ -327,7 +352,13 @@
                     this.map.fitBounds(window.L.latLngBounds(positions), { padding: [32, 32], maxZoom: 15 });
                 },
                 statusLabel(status) {
-                    return { moving: 'Moving', stopped: 'Stopped', delayed: 'Location delayed', offline: 'Offline / No recent GPS' }[status] || status;
+                    return {
+                        moving: 'Moving',
+                        stopped: 'Stopped',
+                        delayed: 'Location delayed',
+                        offline: 'Offline / No recent GPS',
+                        no_gps: 'No GPS Yet',
+                    }[status] || status;
                 },
                 durationLabel(minutes) {
                     const value = Number(minutes || 0);
@@ -346,6 +377,7 @@
                     return `${minutes} min ago`;
                 },
                 lastUpdatedLabel() {
+                    if (!this.summary.last_updated_at) return 'Waiting for GPS';
                     return this.relative(this.summary.last_updated_at);
                 },
                 escape(value) {
