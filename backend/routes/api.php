@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\Api\AdminEmployeeRouteController;
+use App\Http\Controllers\Api\LiveTrackingController;
 use App\Http\Controllers\Api\AppNotificationController;
 use App\Http\Controllers\Api\AppVersionController;
 use App\Http\Controllers\Api\AttendanceController;
@@ -363,6 +364,8 @@ Route::middleware(['auth:sanctum', 'role:employee,manager'])->prefix('attendance
 
 Route::middleware('auth:sanctum')->prefix('admin')->group(function () {
     Route::get('employee-routes/{attendance}', [AdminEmployeeRouteController::class, 'show']);
+    Route::get('live-tracking', [LiveTrackingController::class, 'index']);
+    Route::get('live-tracking/{employee}/route', [LiveTrackingController::class, 'route']);
 });
 
 Route::middleware(['auth:sanctum', 'tally.connector'])
