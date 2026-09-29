@@ -695,7 +695,7 @@ it('creates linked source and destination orders for one move to dealer without 
         ->and($source->paired_order_id)->toBe($billing->id)
         ->and($billing->sales_employee_id)->toBe($employee->id)
         ->and($source->sales_employee_id)->toBe($employee->id)
-        ->and($source->status)->toBe(Order::STATUS_CREDIT_NOTE_RECORD)
+        ->and($source->status)->toBe(Order::STATUS_CREDIT_PENDING)
         ->and($billing->status)->toBe(Order::STATUS_PENDING_APPROVAL)
         ->and($billing->items)->toHaveCount(1)
         ->and($source->items)->toHaveCount(1)
@@ -787,6 +787,131 @@ it('creates linked source and destination orders for one move to dealer without 
         ->getJson('/api/employee/orders')
         ->assertOk()
         ->assertJsonPath('summary.total_orders', 2);
+});
+
+it('creates one source credit order and one destination billing order for an 8452.50 move to dealer', function () {
+    $manager = creditNoteEmployee(UserRole::Manager, '9300000184');
+    $employee = creditNoteEmployee(UserRole::Employee, '9300000185');
+    $employee->update(['reporting_manager_id' => $manager->id]);
+    $sourceDealer = creditNoteDealer($employee);
+    $sourceDealer->update(['firm_name' => 'Dealer A']);
+    $destinationDealer = Dealer::query()->create([
+        'firm_name' => 'Dealer B',
+        'owner_name' => 'Owner Two',
+        'mobile' => '94'.str_pad((string) $employee->id, 8, '4', STR_PAD_LEFT),
+        'address' => '456 Other Street',
+        'state' => 'Maharashtra',
+        'district' => 'Pune',
+        'taluka' => 'Haveli',
+        'pincode' => '411002',
+        'village' => 'Other Village',
+        'status' => true,
+        'assigned_employee_id' => $employee->id,
+    ]);
+    $product = creditNoteProduct();
+    $product->update([
+        'nos_per_case' => 1,
+        'gst_percentage' => 5,
+        'dealer_price' => 8050,
+        'current_finished_stock' => 20,
+        'weighted_average_cost' => 100,
+    ]);
+
+    $payload = salesReturnPayload($sourceDealer, $product, [
+        'move_to' => CreditNote::MOVE_TO_DEALER,
+        'destination_dealer_id' => $destinationDealer->id,
+        'bill_reference' => 'INV-8452',
+        'client_request_id' => 'cn-move-8452-50',
+        'items' => [[
+            'product_id' => $product->id,
+            'case_quantity' => 1,
+            'rate_per_no' => 8050,
+            'gst_percentage' => 5,
+            'reason' => 'Moved to dealer',
+        ]],
+    ]);
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/credit-notes', $payload)
+        ->assertCreated();
+
+    $this->actingAs($employee->user, 'sanctum')
+        ->postJson('/api/employee/credit-notes', $payload)
+        ->assertCreated();
+
+    $note = CreditNote::query()->firstOrFail();
+    expect(CreditNote::query()->count())->toBe(1)
+        ->and((float) $note->amount)->toBe(8452.50)
+        ->and(Order::query()->where('source_credit_note_id', $note->id)->count())->toBe(2);
+
+    $credit = Order::query()->where('credit_note_link_role', Order::CREDIT_NOTE_LINK_SOURCE)->firstOrFail();
+    $billing = Order::query()->where('credit_note_link_role', Order::CREDIT_NOTE_LINK_DESTINATION)->firstOrFail();
+
+    expect($credit->dealer_id)->toBe($sourceDealer->id)
+        ->and($billing->dealer_id)->toBe($destinationDealer->id)
+        ->and($credit->status)->toBe(Order::STATUS_CREDIT_PENDING)
+        ->and($billing->status)->toBe(Order::STATUS_PENDING_APPROVAL)
+        ->and($credit->canBeBilled())->toBeFalse()
+        ->and((float) $credit->unrounded_grand_total)->toBe(8452.50)
+        ->and((float) $billing->unrounded_grand_total)->toBe(8452.50)
+        ->and((float) $credit->gst_amount)->toBe(402.50)
+        ->and((float) $billing->gst_amount)->toBe(402.50)
+        ->and((float) $credit->grand_total)->toBe((float) $billing->grand_total)
+        ->and($credit->paired_order_id)->toBe($billing->id)
+        ->and($billing->paired_order_id)->toBe($credit->id)
+        ->and($note->linked_source_order_id)->toBe($credit->id)
+        ->and($note->linked_order_id)->toBe($billing->id)
+        ->and((float) $product->fresh()->current_finished_stock)->toBe(20.0)
+        ->and(DealerTallyEntry::query()->count())->toBe(0);
+
+    app(\App\Services\CreditNotes\SalesReturnTransferOrderService::class)
+        ->syncLinkedOrder($note->fresh(['items', 'dealer', 'destinationDealer']));
+    expect(Order::query()->where('source_credit_note_id', $note->id)->count())->toBe(2);
+
+    $this->actingAs($manager->user, 'sanctum')
+        ->postJson("/api/manager/credit-notes/{$note->id}/approve")
+        ->assertOk();
+
+    $credit->refresh();
+    $billing->refresh();
+
+    expect($credit->status)->toBe(Order::STATUS_CREDIT_PROCESSED)
+        ->and($billing->status)->toBe(Order::STATUS_PENDING_FOR_BILLING)
+        ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_CREDIT_NOTE_ORDER)->count())->toBe(1)
+        ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)->count())->toBe(0)
+        ->and((float) DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_CREDIT_NOTE_ORDER)->value('credit'))->toBe(8452.50)
+        ->and((float) DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_CREDIT_NOTE_ORDER)->value('debit'))->toBe(0.0)
+        ->and((int) DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_CREDIT_NOTE_ORDER)->value('dealer_id'))->toBe($sourceDealer->id);
+
+    app(\App\Services\CreditNotes\SalesReturnTransferOrderService::class)
+        ->sendApprovedTransferToBilling($note->fresh(), $manager->user->id);
+
+    expect(Order::query()->where('source_credit_note_id', $note->id)->count())->toBe(2)
+        ->and(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_CREDIT_NOTE_ORDER)->count())->toBe(1)
+        ->and(app(\App\Services\TallyLedger\TallyDealerLedgerService::class)->signedCurrentOutstanding($sourceDealer->fresh()))->toBe(-8452.50)
+        ->and(app(DirectorDashboardDataService::class)->dashboardSalesTotal(
+            now('Asia/Kolkata')->startOfDay(),
+            now('Asia/Kolkata')->endOfDay(),
+        ))->toBe((float) $billing->grand_total);
+
+    DB::table('orders')->where('id', $billing->id)->update(['status' => Order::STATUS_BILLED]);
+    app(DealerLedgerPostingService::class)->syncDispatchedOrder($billing->fresh());
+    app(DealerLedgerPostingService::class)->syncDispatchedOrder($credit->fresh());
+    expect(DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)->count())->toBe(1)
+        ->and((int) DealerTallyEntry::query()->where('source', DealerTallyEntry::SOURCE_SALES_ORDER)->value('dealer_id'))->toBe($destinationDealer->id)
+        ->and(app(TallyOutboundEnqueueService::class)->queueBilledOrder($credit->fresh()))->toBeNull()
+        ->and(app(TallyOutboundEnqueueService::class)->queueBilledOrder($billing->fresh()))->not->toBeNull()
+        ->and(TallyOutboundVoucher::query()->count())->toBe(1);
+
+    DB::table('orders')->where('id', $billing->id)->update([
+        'status' => Order::STATUS_DISPATCHED,
+        'dispatched_at' => now(),
+    ]);
+    app(OrderDispatchStockService::class)->postForDispatchedOrder($billing->fresh());
+    app(OrderDispatchStockService::class)->postForDispatchedOrder($credit->fresh());
+    expect(StockLedger::query()->where('reference_type', Order::class)->where('reference_id', $billing->id)->count())->toBeGreaterThan(0)
+        ->and(StockLedger::query()->where('reference_type', Order::class)->where('reference_id', $credit->id)->count())->toBe(0)
+        ->and((float) $product->fresh()->current_finished_stock)->toBeLessThan(20.0);
 });
 
 it('rolls back the credit note and both orders when the source record fails', function () {

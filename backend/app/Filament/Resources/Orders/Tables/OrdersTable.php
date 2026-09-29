@@ -200,7 +200,7 @@ class OrdersTable
                     ->state(fn (Order $record): float => OrderBillingTransportCalculator::finalGrandTotal($record))
                     ->money('INR')
                     ->alignEnd()
-                    ->description(fn (Order $record): ?string => $record->isCreditNoteSourceRecord() ? 'Credit note value' : null)
+                    ->description(fn (Order $record): ?string => $record->isCreditNoteSourceRecord() ? 'Credit' : null)
                     ->sortable()
                     ->visible(fn () => ! $isProductionSupervisor)
                     ->extraCellAttributes(['style' => 'min-width: 8rem; white-space: nowrap;']),
@@ -294,7 +294,8 @@ class OrdersTable
                 Action::make('bill')
                     ->label('Mark as Billed')
                     ->color('warning')
-                    ->visible(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('bill', $record))
+                    ->visible(fn (Order $record): bool => ! $record->isCreditNoteSourceRecord()
+                        && Gate::forUser(auth()->user())->allows('bill', $record))
                     ->authorize(fn (Order $record): bool => Gate::forUser(auth()->user())->allows('bill', $record))
                     ->form(fn (Order $record): array => [
                         Placeholder::make('billing_transport_summary')
@@ -405,16 +406,19 @@ class OrdersTable
         ]);
 
         $badge = $record->isCreditNoteSourceRecord() ? 'Credit Note' : 'Moved to Dealer';
-        $badgeColor = $record->isCreditNoteSourceRecord() ? '#e0e7ff' : '#dbeafe';
+        $badgeColor = $record->isCreditNoteSourceRecord() ? '#fef3c7' : '#dbeafe';
         $number = e($record->sourceCreditNote?->credit_note_no ?: 'Credit Note');
         $from = e($record->sourceCreditNote?->dealer?->firm_name ?: '—');
         $to = e($record->sourceCreditNote?->destinationDealer?->firm_name ?: ($record->isCreditNoteDestinationOrder() ? ($record->dealer?->firm_name ?: '—') : '—'));
+        $detail = $record->isCreditNoteSourceRecord()
+            ? 'Credit to Source Dealer'
+            : $from.' → '.$to;
 
         return new HtmlString(
             '<div style="min-width:13rem;line-height:1.35;">'
             .'<span style="display:inline-block;padding:2px 8px;border-radius:999px;background:'.$badgeColor.';font-size:12px;font-weight:600;white-space:nowrap;">'.$badge.'</span>'
             .'<div style="white-space:nowrap;margin-top:2px;">'.$number.'</div>'
-            .'<div style="white-space:nowrap;">'.$from.' → '.$to.'</div>'
+            .'<div style="white-space:nowrap;">'.$detail.'</div>'
             .'</div>'
         );
     }

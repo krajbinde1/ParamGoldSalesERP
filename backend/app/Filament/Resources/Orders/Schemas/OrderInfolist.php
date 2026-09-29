@@ -46,8 +46,11 @@ class OrderInfolist
                         TextEntry::make('credit_note_transaction_type')
                             ->label('Transaction Type')
                             ->state('Move to Dealer'),
+                        TextEntry::make('credit_note_financial_nature')
+                            ->label('Nature')
+                            ->state(fn (Order $record): string => $record->isCreditNoteSourceRecord() ? 'Credit' : 'Billing'),
                         TextEntry::make('pairedOrder.order_no')
-                            ->label('Linked Order')
+                            ->label('Linked Credit/Billing Order')
                             ->placeholder('—')
                             ->formatStateUsing(fn (?string $state, Order $record): string => $record->pairedOrder?->shortOrderNo() ?: '—')
                             ->url(fn (Order $record): ?string => $record->pairedOrder

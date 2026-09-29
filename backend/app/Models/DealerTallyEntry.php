@@ -20,6 +20,8 @@ class DealerTallyEntry extends Model
 
     public const SOURCE_COLLECTION = 'collection';
 
+    public const SOURCE_CREDIT_NOTE_ORDER = 'credit_note_order';
+
     public const SOURCE_LABEL_TALLY_JOURNAL = 'Tally - Journal/Adjustment';
 
     public const SALES_ENTRY_KEY = 'sales';

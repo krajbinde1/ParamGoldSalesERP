@@ -45,6 +45,63 @@ final class DealerLedgerPostingService
     }
 
     /**
+     * One credit for the returning dealer. Not a sales debit and not a Tally sales voucher.
+     */
+    public function syncSourceCreditOrder(Order $order): ?DealerTallyEntry
+    {
+        if (! $order->isCreditNoteSourceRecord()
+            || $order->dealer_id === null
+            || $order->status !== Order::STATUS_CREDIT_PROCESSED) {
+            $this->removeSourceCreditOrder($order);
+
+            return null;
+        }
+
+        $order->loadMissing('sourceCreditNote:id,credit_note_no');
+        $amount = round((float) ($order->unrounded_grand_total ?? $order->grand_total), 2);
+        if ($amount <= 0.0) {
+            $this->removeSourceCreditOrder($order);
+
+            return null;
+        }
+
+        $creditNoteNo = $order->sourceCreditNote?->credit_note_no ?: $order->order_no;
+
+        return $this->syncErpEntry(
+            dealerId: (int) $order->dealer_id,
+            source: DealerTallyEntry::SOURCE_CREDIT_NOTE_ORDER,
+            sourceId: (int) $order->id,
+            date: $order->dealerLedgerEntryDate(),
+            debit: 0.0,
+            credit: $amount,
+            particulars: 'Credit Note '.$creditNoteNo,
+            voucherType: 'Credit Note',
+            voucherNo: (string) $creditNoteNo,
+        );
+    }
+
+    public function removeSourceCreditOrder(Order $order): void
+    {
+        DealerTallyEntry::query()
+            ->where('source', DealerTallyEntry::SOURCE_CREDIT_NOTE_ORDER)
+            ->where(function ($query) use ($order): void {
+                $query->where('source_id', $order->id)
+                    ->orWhere('fingerprint', DealerTallyEntry::makeSourceFingerprint(
+                        DealerTallyEntry::SOURCE_CREDIT_NOTE_ORDER,
+                        (int) $order->id,
+                    ));
+            })
+            ->get()
+            ->each(function (DealerTallyEntry $entry): void {
+                if ($this->salesReconciler->isReconciled($entry)) {
+                    return;
+                }
+
+                $entry->delete();
+            });
+    }
+
+    /**
      * Update the existing ERP Sales Debit to the current grand total.
      * Never creates a second sales-order ledger row.
      */

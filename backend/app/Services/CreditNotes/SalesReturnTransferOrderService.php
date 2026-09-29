@@ -90,32 +90,36 @@ final class SalesReturnTransferOrderService
 
     public function sendApprovedTransferToBilling(CreditNote $creditNote, ?int $userId): void
     {
-        $order = $this->existingLinkedOrder($creditNote);
-        if ($order === null || $creditNote->isMoveToFactory()) {
-            return;
-        }
+        DB::transaction(function () use ($creditNote, $userId): void {
+            $this->markSourceCreditProcessed($creditNote);
 
-        if ($order->status === Order::STATUS_PENDING_FOR_BILLING
-            || $order->status === Order::STATUS_BILLED
-            || $order->status === Order::STATUS_DISPATCHED) {
-            return;
-        }
+            $order = $this->existingLinkedOrder($creditNote);
+            if ($order === null || $creditNote->isMoveToFactory()) {
+                return;
+            }
 
-        if ($order->status === Order::STATUS_PENDING_APPROVAL) {
-            $order->approve($userId);
-            $order->refresh();
-        }
+            if ($order->status === Order::STATUS_PENDING_FOR_BILLING
+                || $order->status === Order::STATUS_BILLED
+                || $order->status === Order::STATUS_DISPATCHED) {
+                return;
+            }
 
-        if ($order->status !== Order::STATUS_APPROVED) {
-            return;
-        }
+            if ($order->status === Order::STATUS_PENDING_APPROVAL) {
+                $order->approve($userId);
+                $order->refresh();
+            }
 
-        $now = Carbon::now('Asia/Kolkata');
-        $order->update([
-            'status' => Order::STATUS_PENDING_FOR_BILLING,
-            'sent_for_bill_by' => $userId,
-            'sent_for_bill_at' => $now,
-        ]);
+            if ($order->status !== Order::STATUS_APPROVED) {
+                return;
+            }
+
+            $now = Carbon::now('Asia/Kolkata');
+            $order->update([
+                'status' => Order::STATUS_PENDING_FOR_BILLING,
+                'sent_for_bill_by' => $userId,
+                'sent_for_bill_at' => $now,
+            ]);
+        });
     }
 
     public function rejectLinkedOrder(CreditNote $creditNote, User $actor, string $remark): void
@@ -141,6 +145,7 @@ final class SalesReturnTransferOrderService
             $remark,
             Order::REJECTED_BY_ROLE_SALES_MANAGER,
         );
+        $this->rejectSourceCreditOrder($creditNote, $actor, $remark);
     }
 
     private function withdrawUnsyncedLinkedOrder(CreditNote $creditNote): void
@@ -219,7 +224,7 @@ final class SalesReturnTransferOrderService
             'credit_note_link_role' => Order::CREDIT_NOTE_LINK_SOURCE,
             'paired_order_id' => $destination->id,
             'remarks' => $remarks,
-            'status' => Order::STATUS_CREDIT_NOTE_RECORD,
+            'status' => Order::STATUS_CREDIT_PENDING,
             'payment_type' => 'Credit',
             'subtotal' => $totals['subtotal'],
             'discount_amount' => $totals['discount_amount'],
@@ -237,6 +242,13 @@ final class SalesReturnTransferOrderService
                 ...$attributes,
             ]);
         } else {
+            if (in_array($source->status, [
+                Order::STATUS_CREDIT_PROCESSED,
+                Order::STATUS_REJECTED,
+            ], true)) {
+                unset($attributes['status']);
+            }
+
             $source->items()->delete();
             $source->update($attributes);
         }
@@ -249,6 +261,51 @@ final class SalesReturnTransferOrderService
         ]);
 
         return $source;
+    }
+
+    private function markSourceCreditProcessed(CreditNote $creditNote): void
+    {
+        $source = $this->existingSourceOrder($creditNote);
+        if ($source === null) {
+            return;
+        }
+
+        if (in_array($source->status, [
+            Order::STATUS_CREDIT_PENDING,
+            Order::STATUS_CREDIT_NOTE_RECORD,
+        ], true)) {
+            $source->update(['status' => Order::STATUS_CREDIT_PROCESSED]);
+            $source->refresh();
+        }
+
+        if ($source->status === Order::STATUS_CREDIT_PROCESSED) {
+            app(\App\Services\Dealers\DealerLedgerPostingService::class)->syncSourceCreditOrder($source);
+        }
+    }
+
+    private function rejectSourceCreditOrder(CreditNote $creditNote, User $actor, string $remark): void
+    {
+        $source = $this->existingSourceOrder($creditNote);
+        if ($source === null || $source->status === Order::STATUS_REJECTED) {
+            return;
+        }
+
+        if (! in_array($source->status, [
+            Order::STATUS_CREDIT_PENDING,
+            Order::STATUS_CREDIT_PROCESSED,
+            Order::STATUS_CREDIT_NOTE_RECORD,
+        ], true)) {
+            return;
+        }
+
+        $source->update([
+            'status' => Order::STATUS_REJECTED,
+            'rejected_by' => $actor->id,
+            'rejected_by_role' => Order::REJECTED_BY_ROLE_SALES_MANAGER,
+            'rejected_at' => Carbon::now('Asia/Kolkata'),
+            'rejection_remark' => trim($remark),
+        ]);
+        app(\App\Services\Dealers\DealerLedgerPostingService::class)->removeSourceCreditOrder($source);
     }
 
     /**

@@ -37,6 +37,10 @@ class Order extends Model
 
     public const STATUS_CREDIT_NOTE_RECORD = 'credit_note_record';
 
+    public const STATUS_CREDIT_PENDING = 'credit_pending';
+
+    public const STATUS_CREDIT_PROCESSED = 'credit_processed';
+
     public const CREDIT_NOTE_LINK_DESTINATION = 'destination';
 
     public const CREDIT_NOTE_LINK_SOURCE = 'source';
@@ -60,6 +64,8 @@ class Order extends Model
         'rejected' => 'Rejected',
         'cancelled' => 'Cancelled',
         self::STATUS_CREDIT_NOTE_RECORD => 'Credit Note',
+        self::STATUS_CREDIT_PENDING => 'Credit Pending',
+        self::STATUS_CREDIT_PROCESSED => 'Credit Processed',
     ];
 
     /**
@@ -177,6 +183,9 @@ class Order extends Model
         'rejected' => [],
         'delivered' => [],
         'cancelled' => [],
+        self::STATUS_CREDIT_PENDING => [self::STATUS_CREDIT_PROCESSED, 'rejected'],
+        self::STATUS_CREDIT_PROCESSED => ['rejected'],
+        self::STATUS_CREDIT_NOTE_RECORD => [self::STATUS_CREDIT_PENDING, self::STATUS_CREDIT_PROCESSED, 'rejected'],
     ];
 
     protected static function booted(): void
@@ -441,6 +450,8 @@ class Order extends Model
             'delivered' => 'primary',
             'rejected', 'cancelled' => 'danger',
             self::STATUS_CREDIT_NOTE_RECORD => 'info',
+            self::STATUS_CREDIT_PENDING => 'warning',
+            self::STATUS_CREDIT_PROCESSED => 'success',
             default => 'gray',
         };
     }

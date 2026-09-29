@@ -110,6 +110,9 @@ class ListOrders extends ListRecords
 
         return [
             'all' => Tab::make('All'),
+            'credit' => Tab::make('Credit')
+                ->modifyQueryUsing(fn (Builder $query) => $query->where('credit_note_link_role', Order::CREDIT_NOTE_LINK_SOURCE))
+                ->badge(fn (): int => Order::query()->where('credit_note_link_role', Order::CREDIT_NOTE_LINK_SOURCE)->count()),
             'pending_approval' => Tab::make('Pending Approval')
                 ->modifyQueryUsing(fn (Builder $query) => $query->where('status', Order::STATUS_PENDING_APPROVAL))
                 ->badge(fn (): int => Order::query()->where('status', Order::STATUS_PENDING_APPROVAL)->count()),
