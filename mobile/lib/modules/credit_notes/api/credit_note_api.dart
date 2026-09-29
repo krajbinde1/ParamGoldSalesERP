@@ -3,6 +3,7 @@ import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import '../../../core/api/api_errors.dart';
 import '../models/credit_note.dart';
 
@@ -14,6 +15,82 @@ class CreditNoteApi {
   static const Duration connectTimeout = Duration(seconds: 20);
   static const Duration sendTimeout = Duration(seconds: 90);
   static const Duration receiveTimeout = Duration(seconds: 90);
+
+  /// Builds the POST options and refuses to send if the global 15s timeout wins.
+  static RequestOptions buildSubmitOptions({
+    required BaseOptions base,
+    required String path,
+    required Object? data,
+    ProgressCallback? onSendProgress,
+  }) {
+    final options = Options(
+      method: 'POST',
+      connectTimeout: connectTimeout,
+      sendTimeout: sendTimeout,
+      receiveTimeout: receiveTimeout,
+    ).compose(
+      base,
+      path,
+      data: data,
+      onSendProgress: onSendProgress,
+    );
+    enforceSubmitTimeouts(options);
+    return options;
+  }
+
+  static void enforceSubmitTimeouts(RequestOptions options) {
+    if (options.connectTimeout != connectTimeout ||
+        options.sendTimeout != sendTimeout ||
+        options.receiveTimeout != receiveTimeout) {
+      throw StateError(
+        'Credit Note timeouts were not applied. '
+        'connect=${options.connectTimeout?.inSeconds}s '
+        'send=${options.sendTimeout?.inSeconds}s '
+        'receive=${options.receiveTimeout?.inSeconds}s',
+      );
+    }
+  }
+
+  static Future<Response<dynamic>> postForm(
+    Dio dio, {
+    required String path,
+    required FormData formData,
+    ProgressCallback? onSendProgress,
+  }) async {
+    final options = buildSubmitOptions(
+      base: dio.options,
+      path: path,
+      data: formData,
+      onSendProgress: (sent, total) {
+        if (kDebugMode && total > 0) {
+          developer.log(
+            'credit_note.upload progress bytes=$sent/$total '
+            'sendTimeout=${sendTimeout.inSeconds}s',
+            name: 'CreditNoteApi',
+          );
+        }
+        onSendProgress?.call(sent, total);
+      },
+    );
+    if (kDebugMode) {
+      developer.log(
+        'credit_note.upload start path=$path '
+        'connectTimeout=${options.connectTimeout?.inSeconds}s '
+        'sendTimeout=${options.sendTimeout?.inSeconds}s '
+        'receiveTimeout=${options.receiveTimeout?.inSeconds}s '
+        'multipartBytes=${formData.length}',
+        name: 'CreditNoteApi',
+      );
+    }
+    final response = await dio.fetch<dynamic>(options);
+    if (kDebugMode) {
+      developer.log(
+        'credit_note.upload complete status=${response.statusCode} path=$path',
+        name: 'CreditNoteApi',
+      );
+    }
+    return response;
+  }
 
   Future<({Map<String, int> summary, List<CreditNoteListItem> recent})>
   loadDashboard() async {
@@ -102,40 +179,19 @@ class CreditNoteApi {
           ),
       });
 
-      final Response response;
-      if (creditNoteId == null) {
-        response = await _dio.post(
-          '/employee/credit-notes',
-          data: formData,
-          options: Options(
-            connectTimeout: connectTimeout,
-            sendTimeout: sendTimeout,
-            receiveTimeout: receiveTimeout,
-          ),
-          onSendProgress: onSendProgress == null
-              ? null
-              : (sent, total) {
-                  if (total <= 0) return;
-                  onSendProgress((sent / total).clamp(0.0, 1.0));
-                },
-        );
-      } else {
-        response = await _dio.post(
-          '/employee/credit-notes/$creditNoteId',
-          data: formData,
-          options: Options(
-            connectTimeout: connectTimeout,
-            sendTimeout: sendTimeout,
-            receiveTimeout: receiveTimeout,
-          ),
-          onSendProgress: onSendProgress == null
-              ? null
-              : (sent, total) {
-                  if (total <= 0) return;
-                  onSendProgress((sent / total).clamp(0.0, 1.0));
-                },
-        );
-      }
+      final response = await CreditNoteApi.postForm(
+        _dio,
+        path: creditNoteId == null
+            ? '/employee/credit-notes'
+            : '/employee/credit-notes/$creditNoteId',
+        formData: formData,
+        onSendProgress: onSendProgress == null
+            ? null
+            : (sent, total) {
+                if (total <= 0) return;
+                onSendProgress((sent / total).clamp(0.0, 1.0));
+              },
+      );
 
       final body = Map<String, dynamic>.from(response.data as Map);
       if (body['data'] is Map) {
@@ -253,14 +309,10 @@ class ManagerCreditNoteApi {
             filename: File(documentPath).uri.pathSegments.last,
           ),
       });
-      final response = await _dio.post(
-        '/manager/credit-notes',
-        data: formData,
-        options: Options(
-          connectTimeout: CreditNoteApi.connectTimeout,
-          sendTimeout: CreditNoteApi.sendTimeout,
-          receiveTimeout: CreditNoteApi.receiveTimeout,
-        ),
+      final response = await CreditNoteApi.postForm(
+        _dio,
+        path: '/manager/credit-notes',
+        formData: formData,
         onSendProgress: onSendProgress == null
             ? null
             : (sent, total) {
@@ -310,14 +362,10 @@ class ManagerCreditNoteApi {
             filename: File(documentPath).uri.pathSegments.last,
           ),
       });
-      final response = await _dio.post(
-        '/manager/credit-notes/$id',
-        data: formData,
-        options: Options(
-          connectTimeout: CreditNoteApi.connectTimeout,
-          sendTimeout: CreditNoteApi.sendTimeout,
-          receiveTimeout: CreditNoteApi.receiveTimeout,
-        ),
+      final response = await CreditNoteApi.postForm(
+        _dio,
+        path: '/manager/credit-notes/$id',
+        formData: formData,
       );
       final body = Map<String, dynamic>.from(response.data as Map);
       return CreditNoteDetail.fromJson(

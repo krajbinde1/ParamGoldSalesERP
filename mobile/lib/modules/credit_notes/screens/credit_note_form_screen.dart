@@ -1,12 +1,13 @@
+import 'dart:developer' as developer;
 import 'dart:io';
 
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:intl/intl.dart';
 import 'package:uuid/uuid.dart';
 import '../../../core/api/api_client.dart';
-import '../../../core/api/api_errors.dart';
 import '../../../core/design/app_spacing.dart';
 import '../../../core/navigation/navigation_guard.dart';
 import '../../../core/storage/session_store.dart';
@@ -20,6 +21,8 @@ import '../../orders/models/order_line_item.dart';
 import '../../orders/models/product.dart';
 import '../../orders/widgets/order_line_item_card.dart';
 import '../api/credit_note_api.dart';
+import '../api/credit_note_photo.dart';
+import '../api/credit_note_submit_policy.dart';
 import '../models/credit_note.dart';
 
 class CreditNoteFormScreen extends StatefulWidget {
@@ -602,13 +605,40 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
       ),
     );
     if (source == null) return;
-    final file = await ImagePicker().pickImage(
-      source: source,
-      maxWidth: 1440,
-      maxHeight: 1440,
-      imageQuality: 85,
+    final file = await ImagePicker().pickImage(source: source);
+    if (file == null) return;
+    final original = await File(file.path).readAsBytes();
+    if (kDebugMode) {
+      developer.log(
+        'credit_note.photo original_bytes=${original.length}',
+        name: 'CreditNoteApi',
+      );
+    }
+    final Uint8List compressed;
+    try {
+      compressed = await compute(compressCreditNotePhotoBytes, original);
+    } on FormatException {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('This photo could not be prepared. Try another image.'),
+        ),
+      );
+      return;
+    }
+    final out = File(
+      '${Directory.systemTemp.path}${Platform.pathSeparator}credit-note-${DateTime.now().millisecondsSinceEpoch}.jpg',
     );
-    if (file != null) setState(() => _photoPath = file.path);
+    await out.writeAsBytes(compressed, flush: true);
+    if (kDebugMode) {
+      developer.log(
+        'credit_note.photo compressed_bytes=${compressed.length} '
+        'max=$creditNotePhotoMaxDimension quality=$creditNotePhotoQuality',
+        name: 'CreditNoteApi',
+      );
+    }
+    if (!mounted) return;
+    setState(() => _photoPath = out.path);
   }
 
   List<Map<String, dynamic>> _payloadItems() {
@@ -746,10 +776,13 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
       try {
         saved = await send();
       } on DioException catch (error) {
-        if (!_shouldReconcileSubmission(error) || widget.initial != null) {
+        if (!shouldReconcileCreditNoteSubmission(error) ||
+            widget.initial != null) {
           rethrow;
         }
-        debugPrint('Credit Note submit timed out; reconciling $clientRequestId');
+        debugPrint(
+          'Credit Note submit timed out; reconciling $clientRequestId',
+        );
         saved = await send();
       }
 
@@ -772,7 +805,7 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
       if (!mounted) return;
       debugPrint('Credit Note submit error: $error');
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(_submitErrorMessage(error))),
+        SnackBar(content: Text(creditNoteFailureText(error))),
       );
     } finally {
       if (mounted) {
@@ -782,30 +815,6 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
         });
       }
     }
-  }
-
-  bool _shouldReconcileSubmission(DioException error) {
-    return error.type == DioExceptionType.sendTimeout ||
-        error.type == DioExceptionType.receiveTimeout ||
-        error.type == DioExceptionType.connectionTimeout ||
-        error.type == DioExceptionType.connectionError ||
-        error.type == DioExceptionType.unknown;
-  }
-
-  String _submitErrorMessage(Object error) {
-    if (error is DioException && isConnectionFailure(error)) {
-      if (error.type == DioExceptionType.sendTimeout ||
-          error.type == DioExceptionType.receiveTimeout) {
-        return 'Credit Note submission is taking longer than expected. '
-            'Please wait while we verify the submission.';
-      }
-      return 'Unable to submit Credit Note. Please check your network and try again.';
-    }
-    final mapped = errorMessage(error);
-    if (mapped.contains('DioException') || mapped.contains('receive timeout')) {
-      return 'Unable to submit Credit Note. Please check your network and try again.';
-    }
-    return mapped;
   }
 
   @override
@@ -1142,11 +1151,11 @@ class _CreditNoteFormScreenState extends State<CreditNoteFormScreen> {
               ),
             ),
             const SizedBox(height: AppSpacing.lg),
-            if (_submitting && _uploadProgress != null) ...[
+            if (_submitting && _photoPath != null && _uploadProgress != null) ...[
               LinearProgressIndicator(value: _uploadProgress),
               const SizedBox(height: AppSpacing.sm),
               Text(
-                'Uploading ${((_uploadProgress ?? 0) * 100).round()}%',
+                'Uploading photo... ${((_uploadProgress ?? 0) * 100).round()}%',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: AppSpacing.md),

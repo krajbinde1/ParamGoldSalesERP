@@ -18,7 +18,7 @@ publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 # of the product and file versions while build-number is used as the build suffix.
 # Every APK release MUST increase the +build number (never reuse or lower it).
 # Example: 1.0.0+2 → 1.0.1+3 → 1.0.2+4
-version: 1.0.23+25
+version: 1.0.24+26
 environment:
   sdk: ^3.12.2
 
@@ -39,6 +39,7 @@ dependencies:
   dio: ^5.9.0
   flutter_riverpod: ^3.0.3
   go_router: ^17.0.1
+  image: ^4.9.2
   image_picker: ^1.2.1
   file_picker: ^12.0.0
   geolocator: ^14.0.2
