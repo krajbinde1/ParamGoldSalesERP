@@ -104,6 +104,7 @@ final class DealerLedgerService
         $statement = app(TallyDealerLedgerService::class)->statement($dealer);
         $outstanding = (float) $statement['summary']['current_outstanding_signed'];
         $unbilled = $this->getUnbilledOrders($dealer);
+        $credit = app(DealerCreditExposureService::class)->assess($dealer, 0)->toArray();
 
         return [
             'dealer_id' => (int) $dealer->id,
@@ -117,6 +118,19 @@ final class DealerLedgerService
             'current_outstanding' => $outstanding,
             'unbilled_orders' => $unbilled,
             'total_exposure' => $this->money($outstanding + $unbilled),
+            'credit_limit' => [
+                'limit_set' => $credit['limit_set'],
+                'status' => $credit['status'],
+                'status_label' => $credit['status_label'],
+                'base_limit' => $credit['base_limit'],
+                'extension_amount' => $credit['extension_amount'],
+                'extension_active' => $credit['extension_active'],
+                'extension_valid_until' => $credit['extension_valid_until'],
+                'effective_limit' => $credit['effective_limit'],
+                'available_limit' => $credit['available_limit'],
+                'utilization_percent' => $credit['utilization_percent'],
+                'message' => $credit['message'],
+            ],
         ];
     }
 
@@ -129,6 +143,7 @@ final class DealerLedgerService
     public function getLedger(Dealer $dealer): array
     {
         $statement = app(TallyDealerLedgerService::class)->statement($dealer);
+        $statement['ledger'] = app(DealerLedgerDocumentLinkService::class)->enrich($dealer, $statement['ledger']);
         $summary = $this->getAccountSummary($dealer);
         $entries = [];
 
@@ -152,6 +167,7 @@ final class DealerLedgerService
                 statusRemark: $type === self::TYPE_OPENING_BALANCE ? 'Opening Balance' : null,
                 sourceId: (int) ($row['source_id'] ?? 0),
                 sequence: $index,
+                link: $row,
             );
         }
 
@@ -224,6 +240,7 @@ final class DealerLedgerService
         ?string $statusRemark,
         int $sourceId,
         int $sequence,
+        array $link = [],
     ): array {
         return [
             'date' => $date,
@@ -236,6 +253,14 @@ final class DealerLedgerService
             'status_remark' => $statusRemark,
             'source_id' => $sourceId,
             'sequence' => $sequence,
+            'transaction_type' => $link['transaction_type'] ?? $type,
+            'reference_no' => $link['reference_no'] ?? $reference,
+            'source_type' => $link['source_type'] ?? null,
+            'document_id' => $link['document_id'] ?? null,
+            'document_url' => $link['document_url'] ?? null,
+            'web_url' => $link['web_url'] ?? null,
+            'is_clickable' => (bool) ($link['is_clickable'] ?? false),
+            'unavailable_reason' => $link['unavailable_reason'] ?? null,
         ];
     }
 

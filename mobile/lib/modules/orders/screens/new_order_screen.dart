@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
@@ -6,12 +8,15 @@ import '../../../core/design/app_spacing.dart';
 import '../../../core/storage/session_store.dart';
 import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_scaffold.dart';
+import '../../credit_limits/models/dealer_credit_status.dart';
 import '../api/dealer_api.dart';
+import '../api/dealer_credit_api.dart';
 import '../api/product_api.dart';
 import '../models/order_draft.dart';
 import '../models/order_dealer.dart';
 import '../models/order_line_item.dart';
 import '../models/product.dart';
+import '../widgets/credit_limit_panel.dart';
 import '../widgets/order_line_item_card.dart';
 
 class NewOrderScreen extends StatefulWidget {
@@ -38,6 +43,9 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
   int? _editingOrderId;
   late Future<List<Product>> _productsFuture;
   late Future<List<OrderDealer>> _dealersFuture;
+  DealerCreditStatus? _credit;
+  bool _checkingCredit = false;
+  Timer? _creditTimer;
 
   bool get _isEditing => _editingOrderId != null;
 
@@ -65,13 +73,41 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
         _itemKeys[item.productId] = GlobalKey();
       }
     }
+    if (_selectedDealer != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scheduleCreditCheck());
+    }
   }
 
   @override
   void dispose() {
+    _creditTimer?.cancel();
     _remarksController.dispose();
     _scrollController.dispose();
     super.dispose();
+  }
+
+  void _scheduleCreditCheck() {
+    _creditTimer?.cancel();
+    if (_selectedDealer == null) {
+      setState(() => _credit = null);
+      return;
+    }
+    _creditTimer = Timer(const Duration(milliseconds: 350), () {
+      _loadCredit();
+    });
+  }
+
+  Future<DealerCreditStatus?> _loadCredit() async {
+    final dealer = _selectedDealer;
+    if (dealer == null) return null;
+    final credit = await DealerCreditApi(ApiClient(SessionStore()).dio).check(
+      dealerId: dealer.id,
+      orderAmount: _summary.grandTotal,
+      excludeOrderId: _editingOrderId,
+    );
+    if (!mounted || _selectedDealer?.id != dealer.id) return credit;
+    setState(() => _credit = credit);
+    return credit;
   }
 
   OrderSummaryTotals get _summary => OrderSummaryTotals.fromItems(_items);
@@ -164,6 +200,7 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
     searchController.dispose();
     if (!mounted || selected == null) return;
     setState(() => _selectedDealer = selected);
+    _scheduleCreditCheck();
   }
 
   Future<void> _openProductSelector() async {
@@ -262,6 +299,7 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
         _itemKeys[product.id] = GlobalKey();
       }
     });
+    _scheduleCreditCheck();
   }
 
   void _removeItem(int productId) {
@@ -269,12 +307,27 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
       _items.removeWhere((item) => item.productId == productId);
       _itemKeys.remove(productId);
     });
+    _scheduleCreditCheck();
   }
 
-  void _refreshItems() => setState(() {});
+  void _refreshItems() {
+    setState(() {});
+    _scheduleCreditCheck();
+  }
 
-  void _openReview() {
-    if (!_canSubmit || _selectedDealer == null) return;
+  Future<void> _openReview() async {
+    if (!_canSubmit || _selectedDealer == null || _checkingCredit) return;
+    setState(() => _checkingCredit = true);
+    try {
+      final credit = await _loadCredit();
+      if (!mounted) return;
+      if (credit != null && credit.blocksOrder) return;
+    } catch (_) {
+      // The server checks the limit again when the order is submitted.
+    } finally {
+      if (mounted) setState(() => _checkingCredit = false);
+    }
+    if (!mounted || !_canSubmit || _selectedDealer == null) return;
     final draft = OrderDraft(
       orderId: _editingOrderId,
       dealer: _selectedDealer!,
@@ -327,6 +380,10 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
                       ),
                     ),
                   ),
+                  if (_selectedDealer != null && _credit != null) ...[
+                    const SizedBox(height: 12),
+                    CreditLimitPanel(credit: _credit!),
+                  ],
                 ],
               ),
             ),
@@ -453,7 +510,7 @@ class _NewOrderScreenState extends State<NewOrderScreen> {
             width: double.infinity,
             height: 52,
             child: FilledButton(
-              onPressed: _canSubmit ? _openReview : null,
+              onPressed: _canSubmit && !_checkingCredit ? _openReview : null,
               child: Text(_isEditing ? 'Save Changes' : 'Submit Order'),
             ),
           ),

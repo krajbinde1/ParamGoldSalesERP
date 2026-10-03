@@ -3,14 +3,17 @@
 use App\Actions\Employees\CreateEmployeeWithUserAccount;
 use App\Enums\UserRole;
 use App\Models\Collection;
+use App\Models\CreditNote;
 use App\Models\Dealer;
 use App\Models\DealerTallyEntry;
 use App\Models\DealerTallyLedger;
 use App\Models\Employee;
 use App\Models\Order;
 use App\Models\User;
+use App\Services\Dealers\DealerLedgerDocumentLinkService;
 use App\Services\Dealers\DealerLedgerService;
 use App\Support\IndianCurrency;
+use Illuminate\Support\Facades\Storage;
 
 function ledgerEmployee(UserRole $role, string $mobile, ?int $managerId = null): Employee
 {
@@ -268,4 +271,186 @@ it('treats a tally credit opening balance as a credit in outstanding and ledger'
         ->and($ledger['ledger'][0]['credit'])->toBe(40000.0)
         ->and($ledger['ledger'][0]['balance'])->toBe(-40000.0)
         ->and($ledger['ledger'][array_key_last($ledger['ledger'])]['balance'])->toBe(10000.0);
+});
+
+it('links ledger rows to the original invoice, receipt, and credit note without changing amounts', function (): void {
+    Storage::fake('public');
+
+    $employee = ledgerEmployee(UserRole::Employee, '9811100011');
+    $other = ledgerEmployee(UserRole::Employee, '9811100012');
+    $dealer = ledgerDealer($employee);
+    $otherDealer = ledgerDealer($other);
+    $service = app(DealerLedgerService::class);
+
+    $invoice = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_DISPATCHED,
+        'order_no' => 'ORD-LINK-1',
+        'grand_total' => 50000,
+        'dispatch_date' => '2026-04-15',
+        'dispatched_at' => '2026-04-15 11:00:00',
+        'bill_path' => 'order-bills/link-1.pdf',
+    ]);
+    Storage::disk('public')->put('order-bills/link-1.pdf', '%PDF-1.4');
+
+    $receipt = ledgerCollection($dealer, $employee, [
+        'status' => Collection::STATUS_RECEIVED,
+        'amount' => 20000,
+        'receipt_no' => 'RCP-LINK-1',
+        'received_at' => '2026-04-18 10:00:00',
+    ]);
+
+    $creditNote = CreditNote::query()->create([
+        'type' => CreditNote::TYPE_SALES_RETURN,
+        'move_to' => CreditNote::MOVE_TO_FACTORY,
+        'dealer_id' => $dealer->id,
+        'sales_employee_id' => $employee->id,
+        'bill_reference' => 'INV-LINK-1',
+        'credit_note_date' => '2026-04-21',
+        'amount' => 1500,
+        'status' => CreditNote::STATUS_PENDING_APPROVAL,
+    ]);
+    $sourceOrder = ledgerOrder($dealer, $employee, [
+        'status' => Order::STATUS_CREDIT_PROCESSED,
+        'order_no' => 'CN-SRC-1',
+        'grand_total' => 1500,
+        'source_credit_note_id' => $creditNote->id,
+        'credit_note_link_role' => Order::CREDIT_NOTE_LINK_SOURCE,
+    ]);
+    DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'entry_date' => '2026-04-21',
+        'voucher_type' => 'Credit Note',
+        'voucher_no' => 'CN-SRC-1',
+        'particulars' => 'Credit Note CN-SRC-1',
+        'debit' => 0,
+        'credit' => 1500,
+        'source' => DealerTallyEntry::SOURCE_CREDIT_NOTE_ORDER,
+        'source_id' => $sourceOrder->id,
+        'erp_reference' => 'ERP-CN-'.$sourceOrder->id,
+        'fingerprint' => 'test-cn-'.$sourceOrder->id,
+    ]);
+
+    DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'entry_date' => '2026-04-22',
+        'voucher_type' => 'Journal',
+        'voucher_no' => 'TALLY-OLD-1',
+        'particulars' => 'Imported Tally journal',
+        'debit' => 10,
+        'credit' => 0,
+        'source' => DealerTallyEntry::SOURCE_TALLY_IMPORT,
+        'fingerprint' => 'test-tally-'.$dealer->id,
+    ]);
+
+    DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'entry_date' => '2026-04-23',
+        'voucher_type' => 'Debit Note',
+        'voucher_no' => 'DN-TALLY-1',
+        'particulars' => 'Tally debit note',
+        'debit' => 25,
+        'credit' => 0,
+        'source' => DealerTallyEntry::SOURCE_TALLY_IMPORT,
+        'fingerprint' => 'test-dn-'.$dealer->id,
+    ]);
+
+    DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'entry_date' => '2026-04-24',
+        'voucher_type' => 'Sales',
+        'voucher_no' => 'GONE-1',
+        'particulars' => 'Deleted invoice',
+        'debit' => 5,
+        'credit' => 0,
+        'source' => DealerTallyEntry::SOURCE_SALES_ORDER,
+        'source_id' => 9_999_999,
+        'fingerprint' => 'test-gone-'.$dealer->id,
+    ]);
+
+    $foreign = ledgerOrder($otherDealer, $other, [
+        'status' => Order::STATUS_DISPATCHED,
+        'order_no' => 'ORD-FOREIGN',
+        'grand_total' => 8000,
+        'dispatch_date' => '2026-04-15',
+        'dispatched_at' => '2026-04-15 11:00:00',
+        'bill_path' => 'order-bills/foreign.pdf',
+    ]);
+    Storage::disk('public')->put('order-bills/foreign.pdf', '%PDF-1.4');
+    DealerTallyEntry::query()->create([
+        'dealer_id' => $dealer->id,
+        'entry_date' => '2026-04-25',
+        'voucher_type' => 'Sales',
+        'voucher_no' => 'FOREIGN-1',
+        'particulars' => 'Wrong dealer invoice',
+        'debit' => 8,
+        'credit' => 0,
+        'source' => DealerTallyEntry::SOURCE_SALES_ORDER,
+        'source_id' => $foreign->id,
+        'fingerprint' => 'test-foreign-'.$dealer->id,
+    ]);
+
+    $this->actingAs($employee->user);
+
+    $outstandingBefore = $service->getOutstanding($dealer->fresh());
+    $ledger = $service->getLedger($dealer->fresh());
+    $rows = collect($ledger['ledger']);
+
+    $invoiceRow = $rows->first(fn (array $row): bool => ($row['source_id'] ?? null) === $invoice->id
+        && ($row['transaction_type'] ?? null) === DealerLedgerDocumentLinkService::TRANSACTION_SALES_INVOICE);
+    $receiptRow = $rows->first(fn (array $row): bool => ($row['source_id'] ?? null) === $receipt->id
+        && ($row['transaction_type'] ?? null) === DealerLedgerDocumentLinkService::TRANSACTION_PAYMENT);
+    $creditRow = $rows->first(fn (array $row): bool => ($row['source_id'] ?? null) === $sourceOrder->id
+        && ($row['source_type'] ?? null) === DealerLedgerDocumentLinkService::SOURCE_CREDIT_NOTE);
+    $tallyRow = $rows->firstWhere('reference', 'TALLY-OLD-1');
+    $debitNoteRow = $rows->firstWhere('reference', 'DN-TALLY-1');
+    $missingRow = $rows->firstWhere('reference', 'GONE-1');
+    $foreignRow = $rows->firstWhere('reference', 'FOREIGN-1');
+
+    expect($invoiceRow['debit'])->toBe(50000.0)
+        ->and($invoiceRow['credit'])->toBe(0.0)
+        ->and($invoiceRow['transaction_type'])->toBe(DealerLedgerDocumentLinkService::TRANSACTION_SALES_INVOICE)
+        ->and($invoiceRow['source_type'])->toBe(DealerLedgerDocumentLinkService::SOURCE_ORDER)
+        ->and($invoiceRow['document_id'])->toBe($invoice->id)
+        ->and($invoiceRow['is_clickable'])->toBeTrue()
+        ->and($invoiceRow['document_url'])->toContain('order-bills/link-1.pdf')
+        ->and($receiptRow['credit'])->toBe(20000.0)
+        ->and($receiptRow['debit'])->toBe(0.0)
+        ->and($receiptRow['transaction_type'])->toBe(DealerLedgerDocumentLinkService::TRANSACTION_PAYMENT)
+        ->and($receiptRow['source_type'])->toBe(DealerLedgerDocumentLinkService::SOURCE_COLLECTION)
+        ->and($receiptRow['document_id'])->toBe($receipt->id)
+        ->and($receiptRow['is_clickable'])->toBeTrue()
+        ->and($receiptRow['web_url'])->toContain('/collections/'.$receipt->id)
+        ->and($creditRow['credit'])->toBe(1500.0)
+        ->and($creditRow['source_id'])->toBe($sourceOrder->id)
+        ->and($creditRow['transaction_type'])->toBe(DealerLedgerDocumentLinkService::TRANSACTION_SALES_RETURN)
+        ->and($creditRow['source_type'])->toBe(DealerLedgerDocumentLinkService::SOURCE_CREDIT_NOTE)
+        ->and($creditRow['document_id'])->toBe($creditNote->id)
+        ->and($creditRow['is_clickable'])->toBeTrue()
+        ->and($creditRow['web_url'])->toContain('/credit-notes/'.$creditNote->id)
+        ->and($tallyRow['is_clickable'])->toBeFalse()
+        ->and($tallyRow['document_url'])->toBeNull()
+        ->and($debitNoteRow['is_clickable'])->toBeFalse()
+        ->and($missingRow['is_clickable'])->toBeTrue()
+        ->and($missingRow['document_url'])->toBeNull()
+        ->and($missingRow['unavailable_reason'])->toContain('no longer available')
+        ->and($foreignRow['document_url'])->toBeNull()
+        ->and($foreignRow['web_url'])->toBeNull()
+        ->and($foreignRow['unavailable_reason'])->toContain('does not belong')
+        ->and($service->getOutstanding($dealer->fresh()))->toBe($outstandingBefore);
+
+    $creditNote->delete();
+    $afterDelete = collect($service->getLedger($dealer->fresh())['ledger'])->first(
+        fn (array $row): bool => ($row['source_id'] ?? null) === $sourceOrder->id
+            && ($row['source_type'] ?? null) === DealerLedgerDocumentLinkService::SOURCE_CREDIT_NOTE,
+    );
+    expect($afterDelete['credit'])->toBe(1500.0)
+        ->and($afterDelete['is_clickable'])->toBeTrue()
+        ->and($afterDelete['document_url'])->toBeNull()
+        ->and($afterDelete['web_url'])->toBeNull()
+        ->and($afterDelete['unavailable_reason'])->toContain('no longer available')
+        ->and($service->getOutstanding($dealer->fresh()))->toBe($outstandingBefore);
+
+    $this->actingAs($other->user, 'sanctum')
+        ->getJson('/api/dealers/'.$dealer->id.'/ledger')
+        ->assertForbidden();
 });

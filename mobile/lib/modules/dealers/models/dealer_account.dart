@@ -10,6 +10,12 @@ class DealerAccountSummary {
     required this.currentOutstanding,
     required this.unbilledOrders,
     required this.totalExposure,
+    this.creditLimitSet = false,
+    this.creditBaseLimit,
+    this.creditExtensionAmount = 0,
+    this.creditEffectiveLimit,
+    this.creditAvailableLimit,
+    this.creditStatusLabel,
   });
 
   final int dealerId;
@@ -22,23 +28,46 @@ class DealerAccountSummary {
   final double currentOutstanding;
   final double unbilledOrders;
   final double totalExposure;
+  final bool creditLimitSet;
+  final double? creditBaseLimit;
+  final double creditExtensionAmount;
+  final double? creditEffectiveLimit;
+  final double? creditAvailableLimit;
+  final String? creditStatusLabel;
 
-  factory DealerAccountSummary.fromJson(Map<String, dynamic> json) =>
-      DealerAccountSummary(
-        dealerId: int.tryParse('${json['dealer_id'] ?? json['id'] ?? 0}') ?? 0,
-        dealerCode: json['dealer_code']?.toString() ?? '',
-        dealerName:
-            json['dealer_name']?.toString() ??
-            json['firm_name']?.toString() ??
-            '',
-        openingBalance: _asDouble(json['opening_balance']),
-        openingBalanceDate: json['opening_balance_date']?.toString(),
-        billedSales: _asDouble(json['billed_sales']),
-        collectionsReceived: _asDouble(json['collections_received']),
-        currentOutstanding: _asDouble(json['current_outstanding']),
-        unbilledOrders: _asDouble(json['unbilled_orders']),
-        totalExposure: _asDouble(json['total_exposure']),
-      );
+  factory DealerAccountSummary.fromJson(Map<String, dynamic> json) {
+    final credit = json['credit_limit'] is Map
+        ? Map<String, dynamic>.from(json['credit_limit'] as Map)
+        : const <String, dynamic>{};
+
+    return DealerAccountSummary(
+      dealerId: int.tryParse('${json['dealer_id'] ?? json['id'] ?? 0}') ?? 0,
+      dealerCode: json['dealer_code']?.toString() ?? '',
+      dealerName:
+          json['dealer_name']?.toString() ??
+          json['firm_name']?.toString() ??
+          '',
+      openingBalance: _asDouble(json['opening_balance']),
+      openingBalanceDate: json['opening_balance_date']?.toString(),
+      billedSales: _asDouble(json['billed_sales']),
+      collectionsReceived: _asDouble(json['collections_received']),
+      currentOutstanding: _asDouble(json['current_outstanding']),
+      unbilledOrders: _asDouble(json['unbilled_orders']),
+      totalExposure: _asDouble(json['total_exposure']),
+      creditLimitSet: credit['limit_set'] == true,
+      creditBaseLimit: credit['base_limit'] == null
+          ? null
+          : _asDouble(credit['base_limit']),
+      creditExtensionAmount: _asDouble(credit['extension_amount']),
+      creditEffectiveLimit: credit['effective_limit'] == null
+          ? null
+          : _asDouble(credit['effective_limit']),
+      creditAvailableLimit: credit['available_limit'] == null
+          ? null
+          : _asDouble(credit['available_limit']),
+      creditStatusLabel: credit['status_label']?.toString(),
+    );
+  }
 }
 
 class DealerLedgerEntry {
@@ -51,6 +80,13 @@ class DealerLedgerEntry {
     required this.credit,
     required this.balance,
     this.statusRemark,
+    this.transactionType,
+    this.referenceNo,
+    this.sourceType,
+    this.documentId,
+    this.documentUrl,
+    this.isClickable = false,
+    this.unavailableReason,
   });
 
   final String date;
@@ -61,6 +97,13 @@ class DealerLedgerEntry {
   final double credit;
   final double balance;
   final String? statusRemark;
+  final String? transactionType;
+  final String? referenceNo;
+  final String? sourceType;
+  final int? documentId;
+  final String? documentUrl;
+  final bool isClickable;
+  final String? unavailableReason;
 
   factory DealerLedgerEntry.fromJson(Map<String, dynamic> json) =>
       DealerLedgerEntry(
@@ -72,6 +115,18 @@ class DealerLedgerEntry {
         credit: _asDouble(json['credit']),
         balance: _asDouble(json['balance']),
         statusRemark: json['status_remark']?.toString(),
+        transactionType: json['transaction_type']?.toString(),
+        referenceNo: json['reference_no']?.toString(),
+        sourceType: json['source_type']?.toString(),
+        documentId: json['document_id'] == null
+            ? null
+            : int.tryParse('${json['document_id']}'),
+        documentUrl: json['document_url']?.toString(),
+        isClickable:
+            json['is_clickable'] == true ||
+            json['is_clickable'] == 1 ||
+            json['is_clickable'] == '1',
+        unavailableReason: json['unavailable_reason']?.toString(),
       );
 }
 

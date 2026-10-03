@@ -53,23 +53,15 @@ final class DealerLedgerDocumentLinkService
     {
         $user = auth()->user();
         $resolvedIds = $this->resolvedSourceIds($entries);
-        $orders = Order::query()
-            ->whereIn('id', $resolvedIds['orders'])
-            ->get(['id', 'dealer_id', 'order_no', 'bill_path', 'sales_employee_id', 'status', 'source_credit_note_id', 'credit_note_link_role'])
-            ->keyBy('id');
-        $collections = Collection::withTrashed()
-            ->whereIn('id', $resolvedIds['collections'])
-            ->get(['id', 'dealer_id', 'receipt_no', 'sales_employee_id', 'deleted_at', 'photo_path'])
-            ->keyBy('id');
+        $orders = Order::query()->whereIn('id', $resolvedIds['orders'])->get()->keyBy('id');
+        $collections = Collection::withTrashed()->whereIn('id', $resolvedIds['collections'])->get()->keyBy('id');
         $creditNotes = CreditNote::withTrashed()
             ->whereIn('id', $orders->pluck('source_credit_note_id')->filter()->map(fn ($id): int => (int) $id)->all())
-            ->get(['id', 'dealer_id', 'credit_note_no', 'type', 'sales_employee_id', 'supporting_document_path', 'deleted_at', 'move_to'])
+            ->get()
             ->keyBy('id');
 
-        return array_map(function (array $entry) use ($dealer, $user, $orders, $collections, $creditNotes, $resolvedIds): array {
-            $link = $this->linkFor($dealer, $user, $entry, $orders, $collections, $creditNotes, $resolvedIds['by_row']);
-
-            return $entry + $link;
+        return array_map(function (array $entry) use ($dealer, $user, $orders, $collections, $creditNotes): array {
+            return $entry + $this->linkFor($dealer, $user, $entry, $orders, $collections, $creditNotes);
         }, $entries);
     }
 
@@ -112,7 +104,6 @@ final class DealerLedgerDocumentLinkService
      * @param  \Illuminate\Support\Collection<int, Order>  $orders
      * @param  \Illuminate\Support\Collection<int, Collection>  $collections
      * @param  \Illuminate\Support\Collection<int, CreditNote>  $creditNotes
-     * @param  array<int, int>  $resolvedIds
      * @return array<string, mixed>
      */
     private function linkFor(
@@ -122,7 +113,6 @@ final class DealerLedgerDocumentLinkService
         $orders,
         $collections,
         $creditNotes,
-        array $resolvedIds,
     ): array {
         $blank = $this->blankLink(
             transactionType: $this->transactionType($entry),
@@ -132,27 +122,22 @@ final class DealerLedgerDocumentLinkService
             return $blank;
         }
 
-        $source = (string) ($entry['source'] ?? '');
-        $rowIndex = array_search($entry, [$entry], true);
-        unset($rowIndex);
-
-        return match ($source) {
-            DealerTallyEntry::SOURCE_SALES_ORDER => $this->salesLink($dealer, $user, $entry, $orders, $resolvedIds),
-            DealerTallyEntry::SOURCE_COLLECTION => $this->collectionLink($dealer, $user, $entry, $collections, $resolvedIds),
-            DealerTallyEntry::SOURCE_CREDIT_NOTE_ORDER => $this->creditNoteLink($dealer, $user, $entry, $orders, $creditNotes, $resolvedIds),
+        return match ((string) ($entry['source'] ?? '')) {
+            DealerTallyEntry::SOURCE_SALES_ORDER => $this->salesLink($dealer, $user, $entry, $orders),
+            DealerTallyEntry::SOURCE_COLLECTION => $this->collectionLink($dealer, $user, $entry, $collections),
+            DealerTallyEntry::SOURCE_CREDIT_NOTE_ORDER => $this->creditNoteLink($dealer, $user, $entry, $orders, $creditNotes),
             default => $blank,
         };
     }
 
     /**
      * @param  \Illuminate\Support\Collection<int, Order>  $orders
-     * @param  array<int, int>  $resolvedIds
      * @return array<string, mixed>
      */
-    private function salesLink(Dealer $dealer, ?User $user, array $entry, $orders, array $resolvedIds): array
+    private function salesLink(Dealer $dealer, ?User $user, array $entry, $orders): array
     {
         $reference = $this->referenceNo($entry);
-        $sourceId = $this->sourceIdFor($entry, $resolvedIds);
+        $sourceId = $this->sourceIdFor($entry);
         $base = $this->blankLink(self::TRANSACTION_SALES_INVOICE, $reference, self::SOURCE_ORDER, $sourceId);
         if ($sourceId === null) {
             return $base;
@@ -165,7 +150,7 @@ final class DealerLedgerDocumentLinkService
         if ((int) $order->dealer_id !== (int) $dealer->id) {
             return $this->unavailable($base, 'This sales invoice does not belong to this dealer.');
         }
-        if ($user === null || ! Gate::forUser($user)->allows('view', $order)) {
+        if (! $this->canOpenOrder($user, $order)) {
             return $base;
         }
 
@@ -181,13 +166,12 @@ final class DealerLedgerDocumentLinkService
 
     /**
      * @param  \Illuminate\Support\Collection<int, Collection>  $collections
-     * @param  array<int, int>  $resolvedIds
      * @return array<string, mixed>
      */
-    private function collectionLink(Dealer $dealer, ?User $user, array $entry, $collections, array $resolvedIds): array
+    private function collectionLink(Dealer $dealer, ?User $user, array $entry, $collections): array
     {
         $reference = $this->referenceNo($entry);
-        $sourceId = $this->sourceIdFor($entry, $resolvedIds);
+        $sourceId = $this->sourceIdFor($entry);
         $base = $this->blankLink(self::TRANSACTION_PAYMENT, $reference, self::SOURCE_COLLECTION, $sourceId);
         if ($sourceId === null) {
             return $base;
@@ -212,13 +196,12 @@ final class DealerLedgerDocumentLinkService
     /**
      * @param  \Illuminate\Support\Collection<int, Order>  $orders
      * @param  \Illuminate\Support\Collection<int, CreditNote>  $creditNotes
-     * @param  array<int, int>  $resolvedIds
      * @return array<string, mixed>
      */
-    private function creditNoteLink(Dealer $dealer, ?User $user, array $entry, $orders, $creditNotes, array $resolvedIds): array
+    private function creditNoteLink(Dealer $dealer, ?User $user, array $entry, $orders, $creditNotes): array
     {
         $reference = $this->referenceNo($entry);
-        $orderId = $this->sourceIdFor($entry, $resolvedIds);
+        $orderId = $this->sourceIdFor($entry);
         $base = $this->blankLink(self::TRANSACTION_CREDIT_NOTE, $reference, self::SOURCE_CREDIT_NOTE, null);
         if ($orderId === null) {
             return $base;
@@ -241,7 +224,7 @@ final class DealerLedgerDocumentLinkService
         if ((int) $creditNote->dealer_id !== (int) $dealer->id) {
             return $this->unavailable($base, 'This credit note does not belong to this dealer.');
         }
-        if ($user === null || ! Gate::forUser($user)->allows('view', $creditNote)) {
+        if (! $this->canOpenCreditNote($user, $creditNote)) {
             return $base;
         }
 
@@ -257,6 +240,32 @@ final class DealerLedgerDocumentLinkService
         return $this->openable($base, $creditNote->id, $documentUrl, $this->panelUrl(
             fn (): string => CreditNoteResource::getUrl('view', ['record' => $creditNote]),
         ));
+    }
+
+    private function canOpenOrder(?User $user, Order $order): bool
+    {
+        if ($user === null) {
+            return false;
+        }
+
+        if ($user->isAdminUser() || $user->isDirectorUser() || $user->usesAdminDirectorDashboard()) {
+            return true;
+        }
+
+        return Gate::forUser($user)->allows('view', $order);
+    }
+
+    private function canOpenCreditNote(?User $user, CreditNote $creditNote): bool
+    {
+        if ($user === null) {
+            return false;
+        }
+
+        if ($user->isAdminUser() || $user->isDirectorUser() || $user->usesAdminDirectorDashboard()) {
+            return true;
+        }
+
+        return Gate::forUser($user)->allows('view', $creditNote);
     }
 
     private function canOpenCollection(User $user, Collection $collection): bool
@@ -276,10 +285,7 @@ final class DealerLedgerDocumentLinkService
         return false;
     }
 
-    /**
-     * @param  array<int, int>  $resolvedIds
-     */
-    private function sourceIdFor(array $entry, array $resolvedIds): ?int
+    private function sourceIdFor(array $entry): ?int
     {
         $sourceId = (int) ($entry['source_id'] ?? 0);
         if ($sourceId <= 0 && (string) ($entry['source'] ?? '') === DealerTallyEntry::SOURCE_SALES_ORDER) {

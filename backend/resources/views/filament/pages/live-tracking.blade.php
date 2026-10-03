@@ -139,7 +139,7 @@
     <script src="{{ asset('js/live-tracking-motion.js') }}?v=1"></script>
     <script>
         function liveTracking(config) {
-            const Motion = window.LiveTrackingMotion;
+            const motionLib = () => window.LiveTrackingMotion || null;
             return {
                 pollSeconds: config.pollSeconds,
                 snapshotUrl: config.snapshotUrl,
@@ -180,23 +180,31 @@
                 followPaused: false,
                 initialFitDone: false,
                 raf: null,
+                mapWait: null,
                 start() {
                     if (this.booted) return;
                     this.booted = true;
-                    if (!Motion || !window.L) {
-                        this.updateDelayed = true;
-                        return;
-                    }
-                    this.bootMap();
-                    this.refresh();
                     this.timer = setInterval(() => this.refresh(), this.pollSeconds * 1000);
                     this.clock = setInterval(() => { this.now = Date.now(); }, 1000);
+                    this.bootWhenReady();
+                    this.refresh();
                 },
                 stop() {
                     clearInterval(this.timer);
                     clearInterval(this.clock);
+                    clearTimeout(this.mapWait);
+                    this.mapWait = null;
                     if (this.raf) cancelAnimationFrame(this.raf);
                     this.raf = null;
+                },
+                bootWhenReady() {
+                    if (!this.map && window.L) this.bootMap();
+                    if (this.map && motionLib()) {
+                        this.syncEmployees();
+                        this.mapWait = null;
+                        return;
+                    }
+                    this.mapWait = setTimeout(() => this.bootWhenReady(), 200);
                 },
                 bootMap() {
                     if (this.map || !window.L) return;
@@ -209,6 +217,9 @@
                     }).addTo(this.map);
                     this.cluster = window.L.layerGroup().addTo(this.map);
                     this.map.on('dragstart', () => { this.followPaused = true; });
+                    const fixSize = () => { if (this.map) this.map.invalidateSize(); };
+                    requestAnimationFrame(fixSize);
+                    setTimeout(fixSize, 300);
                 },
                 async refresh() {
                     if (this.busy) return;
@@ -227,7 +238,9 @@
                             employee_url: `${this.employeeUrl}/${employee.employee_id}`,
                         }));
                         this.routeHandledMotion = false;
-                        this.syncEmployees();
+                        try {
+                            this.syncEmployees();
+                        } catch (error) {}
                         if (this.selectedId) {
                             const selected = this.employees.find((item) => item.employee_id === this.selectedId);
                             if (selected) {
@@ -241,8 +254,10 @@
                                 this.clearRoute();
                             }
                         }
-                        this.syncMotionsFromSnapshot();
-                        this.maybeInitialFit();
+                        try {
+                            this.syncMotionsFromSnapshot();
+                            this.maybeInitialFit();
+                        } catch (error) {}
                         this.updateDelayed = delayed;
                     } catch (error) {
                         this.updateDelayed = true;
@@ -291,15 +306,24 @@
                     marker.setZIndexOffset(this.selectedId === id ? 800 : 0);
                 },
                 iconFor(employee) {
+                    const lib = motionLib();
                     const bearing = this.markers[employee.employee_id]?.__bearing ?? null;
+                    const html = lib
+                        ? lib.markerHtml({ ...employee, bearing }, this.selectedId === employee.employee_id)
+                        : `<div class="emp-pin" data-status="offline"><span class="emp-pin-initials">${this.escape(employee.initials || 'E')}</span><div class="emp-pin-name">${this.escape(employee.employee_name || 'Employee')}</div></div>`;
                     return window.L.divIcon({
                         className: 'leaflet-div-icon emp-pin-icon',
-                        html: Motion.markerHtml({ ...employee, bearing }, this.selectedId === employee.employee_id),
+                        html,
                         iconSize: [156, 86],
                         iconAnchor: [78, 26],
                     });
                 },
                 updateMarkerFace(marker, employee) {
+                    const lib = motionLib();
+                    if (!lib) {
+                        marker.setIcon(this.iconFor(employee));
+                        return;
+                    }
                     const root = marker.getElement()?.querySelector('.emp-pin');
                     if (!root) {
                         marker.setIcon(this.iconFor(employee));
@@ -311,11 +335,11 @@
                         return;
                     }
                     root.classList.toggle('is-current', this.selectedId === employee.employee_id);
-                    root.dataset.status = Motion.markerTone(employee.status);
+                    root.dataset.status = lib.markerTone(employee.status);
                     const name = root.querySelector('.emp-pin-name');
                     if (name) name.textContent = employee.employee_name || 'Employee';
                     const letters = root.querySelector('.emp-pin-initials');
-                    if (letters) letters.textContent = employee.initials || Motion.initials(employee.employee_name);
+                    if (letters) letters.textContent = employee.initials || lib.initials(employee.employee_name);
                     const image = root.querySelector('.emp-pin-photo');
                     if (image && employee.profile_photo_url && image.getAttribute('src') !== employee.profile_photo_url) {
                         image.setAttribute('src', employee.profile_photo_url);
@@ -336,9 +360,11 @@
                     if (marker) this.openPopup(employee, marker);
                 },
                 openPopup(employee, marker) {
+                    const lib = motionLib();
+                    if (!lib) return;
                     marker.unbindPopup();
-                    marker.bindPopup(Motion.popupHtml(employee, {
-                        status: Motion.popupStatus(employee.status),
+                    marker.bindPopup(lib.popupHtml(employee, {
+                        status: lib.popupStatus(employee.status),
                         updated: this.updatedLabel(employee.recorded_at),
                         location: this.locationLabel(employee),
                         km: this.kmLabel(employee.today_distance_km),
@@ -347,7 +373,8 @@
                 focusEmployee(employee) {
                     if (!employee) return;
                     const previousId = this.selectedId;
-                    const switching = Motion.shouldReloadRoute(previousId, employee.employee_id);
+                    const lib = motionLib();
+                    const switching = lib ? lib.shouldReloadRoute(previousId, employee.employee_id) : previousId !== employee.employee_id;
                     if (switching && this.motions[previousId]) this.motions[previousId].extendRoute = false;
                     this.selectedId = employee.employee_id;
                     this.followId = employee.employee_id;
@@ -393,6 +420,7 @@
                         recorded_at: employee?.recorded_at,
                     };
                     if (!this.routeBootstrapped) {
+                        if ((data.points || []).length && !motionLib()) return;
                         this.installFullRoute(data, employeeId);
                         this.routeBootstrapped = true;
                         if ((data.points || []).length) this.routeHandledMotion = true;
@@ -401,7 +429,9 @@
                     const previous = this.routeTrack?.coords?.length
                         ? { lat: this.routeTrack.coords[this.routeTrack.coords.length - 1][0], lng: this.routeTrack.coords[this.routeTrack.coords.length - 1][1] }
                         : this.samplePosition(employeeId);
-                    const accepted = Motion.acceptPoints(this.routeTrack?.knownIds || [], previous, data.points || []);
+                    const lib = motionLib();
+                    if (!lib) return;
+                    const accepted = lib.acceptPoints(this.routeTrack?.knownIds || [], previous, data.points || []);
                     if (!this.routeTrack) this.routeTrack = { employeeId, coords: [], knownIds: [] };
                     this.routeTrack.knownIds = accepted.ids;
                     this.routeTrack.employeeId = employeeId;
@@ -429,7 +459,8 @@
                             radius: 5, color: '#9a3412', fillColor: '#fdba74', fillOpacity: .9,
                         }).addTo(this.map).bindTooltip('Stop'));
                     });
-                    const accepted = Motion.acceptPoints([], null, data.points || []);
+                    const lib = motionLib();
+                    const accepted = lib ? lib.acceptPoints([], null, data.points || []) : { ids: [], fresh: [] };
                     this.routeTrack = {
                         employeeId,
                         coords: accepted.fresh.map((point) => [point.lat, point.lng]),
@@ -460,22 +491,28 @@
                     });
                 },
                 enqueueMotion(id, points, options = {}) {
+                    const lib = motionLib();
+                    if (!lib) {
+                        const last = points[points.length - 1];
+                        if (last) this.snapMarker(id, last);
+                        return;
+                    }
                     const now = performance.now();
                     this.commitFinished(id, now);
                     const existing = this.motions[id];
                     const pending = existing
                         ? existing.segments.slice(existing.committedCount).map((segment) => segment.to)
                         : [];
-                    const merged = Motion.dedupePath([...pending, ...points]);
+                    const merged = lib.dedupePath([...pending, ...points]);
                     if (!merged.length) return;
-                    if (existing && Motion.samePath(pending, merged)) return;
+                    if (existing && lib.samePath(pending, merged)) return;
                     const from = this.samplePosition(id);
                     const animate = !(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
                     if (!from) {
                         this.finishPath(id, merged, options);
                         return;
                     }
-                    const plan = Motion.planMotion(from, merged, now, this.pollSeconds * 1000, animate);
+                    const plan = lib.planMotion(from, merged, now, this.pollSeconds * 1000, animate);
                     if (plan.mode !== 'animate') {
                         if (plan.reason === 'teleport' && this.markers[id]) this.markers[id].__bearing = null;
                         this.finishPath(id, merged, options);
@@ -502,9 +539,10 @@
                     if (options.follow) this.maybeFollow(id, last);
                 },
                 commitFinished(id, now) {
+                    const lib = motionLib();
                     const motion = this.motions[id];
-                    if (!motion) return;
-                    const sample = Motion.positionAt(motion, now);
+                    if (!lib || !motion) return;
+                    const sample = lib.positionAt(motion, now);
                     if (!sample) return;
                     while (motion.committedCount < sample.completedCount) {
                         const segment = motion.segments[motion.committedCount];
@@ -522,9 +560,10 @@
                     marker.setLatLng([point.lat, point.lng]);
                 },
                 samplePosition(id) {
+                    const lib = motionLib();
                     const motion = this.motions[id];
-                    if (motion) {
-                        const sample = Motion.positionAt(motion, performance.now());
+                    if (lib && motion) {
+                        const sample = lib.positionAt(motion, performance.now());
                         if (sample) return { lat: sample.lat, lng: sample.lng };
                     }
                     const marker = this.markers[id];
@@ -540,8 +579,9 @@
                     this.syncRouteLine(null);
                 },
                 syncRouteLine(current) {
-                    if (!this.map || !this.routeTrack || this.routeTrack.employeeId !== this.selectedId) return;
-                    const latlngs = Motion.liveTail(this.routeTrack.coords, current);
+                    const lib = motionLib();
+                    if (!lib || !this.map || !this.routeTrack || this.routeTrack.employeeId !== this.selectedId) return;
+                    const latlngs = lib.liveTail(this.routeTrack.coords, current);
                     if (!latlngs.length) return;
                     if (!this.routeLine) {
                         this.routeLine = window.L.polyline(latlngs, { color: '#d97706', weight: 4 }).addTo(this.map);
@@ -554,13 +594,18 @@
                     this.raf = requestAnimationFrame(() => this.tick());
                 },
                 tick() {
+                    const lib = motionLib();
                     const now = performance.now();
                     let active = false;
+                    if (!lib) {
+                        this.raf = null;
+                        return;
+                    }
                     Object.keys(this.motions).forEach((id) => {
                         const motion = this.motions[id];
                         const marker = this.markers[id];
                         if (!motion || !marker) return;
-                        const sample = Motion.positionAt(motion, now);
+                        const sample = lib.positionAt(motion, now);
                         if (!sample) return;
                         while (motion.committedCount < sample.completedCount) {
                             const segment = motion.segments[motion.committedCount];

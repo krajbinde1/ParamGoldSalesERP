@@ -7,8 +7,11 @@ import '../../../core/widgets/design/pg_card.dart';
 import '../../../core/widgets/design/pg_detail_widgets.dart';
 import '../../../core/widgets/design/pg_scaffold.dart';
 import '../../auth/providers/auth_controller.dart';
+import '../../credit_limits/models/dealer_credit_status.dart';
+import '../api/dealer_credit_api.dart';
 import '../api/order_api.dart';
 import '../models/order_draft.dart';
+import '../widgets/credit_limit_panel.dart';
 import '../widgets/order_invoice_products_table.dart';
 
 class ReviewOrderScreen extends StatefulWidget {
@@ -23,6 +26,29 @@ class ReviewOrderScreen extends StatefulWidget {
 class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
   bool _submitting = false;
   String? _error;
+  DealerCreditStatus? _credit;
+
+  @override
+  void initState() {
+    super.initState();
+    _refreshCredit().catchError((_) => null);
+  }
+
+  Future<DealerCreditStatus?> _refreshCredit() async {
+    final credit = await DealerCreditApi(
+      ApiClient(
+        SessionStore(),
+        onUnauthorized: widget.auth.sessionExpired,
+      ).dio,
+    ).check(
+      dealerId: widget.draft.dealer.id,
+      orderAmount: widget.draft.summary.grandTotal,
+      excludeOrderId: widget.draft.orderId,
+    );
+    if (!mounted) return credit;
+    setState(() => _credit = credit);
+    return credit;
+  }
 
   Future<void> _submit() async {
     if (_submitting || !widget.draft.canSubmit) return;
@@ -33,6 +59,16 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
     });
 
     try {
+      try {
+        final credit = await _refreshCredit();
+        if (!mounted) return;
+        if (credit != null && credit.blocksOrder) {
+          return;
+        }
+      } catch (_) {
+        // Submit still goes to the server, which enforces the limit.
+      }
+
       final api = OrderApi(
         ApiClient(
           SessionStore(),
@@ -98,6 +134,10 @@ class _ReviewOrderScreenState extends State<ReviewOrderScreen> {
               ],
             ),
           ),
+          if (_credit != null) ...[
+            const SizedBox(height: AppSpacing.md),
+            PgCard(child: CreditLimitPanel(credit: _credit!)),
+          ],
           const SizedBox(height: AppSpacing.md),
           OrderInvoiceProductsCard.sharedReview(
             lines: draft.items

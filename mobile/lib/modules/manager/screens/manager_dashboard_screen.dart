@@ -222,6 +222,12 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                           onTap: () => _open('/dealers'),
                         ),
                         _ModuleItem(
+                          title: 'Dealer Credit Limits',
+                          subtitle: 'Outstanding, limits, and extensions',
+                          icon: Icons.account_balance_outlined,
+                          onTap: () => _open('/manager/dealer-credit-limits'),
+                        ),
+                        _ModuleItem(
                           title: 'Team Activity',
                           subtitle: "Dealer visits & field activities",
                           icon: Icons.travel_explore_rounded,

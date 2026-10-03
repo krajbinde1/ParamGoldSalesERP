@@ -72,6 +72,8 @@ import '../../modules/manager/screens/manager_collections_screen.dart';
 import '../../modules/manager/screens/manager_field_activities_screen.dart';
 import '../../modules/manager/screens/manager_dealer_application_detail_screen.dart';
 import '../../modules/manager/screens/manager_dealer_approvals_screen.dart';
+import '../../modules/manager/screens/manager_dealer_credit_detail_screen.dart';
+import '../../modules/manager/screens/manager_dealer_credit_limits_screen.dart';
 import '../../modules/manager/screens/manager_edit_order_screen.dart';
 import '../../modules/manager/screens/manager_employee_performance_screen.dart';
 import '../../modules/manager/screens/manager_orders_screen.dart';
@@ -624,6 +626,19 @@ GoRouter createRouter(
               employeeCode: extra?['code']?.toString(),
             );
           },
+        ),
+      ],
+    ),
+    GoRoute(
+      path: '/manager/dealer-credit-limits',
+      builder: (_, _) => ManagerDealerCreditLimitsScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':dealerId',
+          builder: (_, state) => ManagerDealerCreditDetailScreen(
+            auth: auth,
+            dealerId: int.parse(state.pathParameters['dealerId']!),
+          ),
         ),
       ],
     ),

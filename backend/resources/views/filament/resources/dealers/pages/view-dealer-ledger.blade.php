@@ -191,6 +191,16 @@
             white-space: nowrap;
             text-align: right;
         }
+        a.pg-dealer-ledger-link, button.pg-dealer-ledger-link {
+            color: #9A3412;
+            font-weight: 700;
+            text-decoration: underline;
+            background: none;
+            border: 0;
+            padding: 0;
+            cursor: pointer;
+            font: inherit;
+        }
         .pg-dealer-ledger-audit {
             margin-top: 1.25rem;
         }
@@ -259,6 +269,36 @@
         </div>
     </div>
 
+    @php
+        $credit = $this->creditLimitSummary();
+        $creditMoney = function ($amount) {
+            return $amount === null ? 'Not Set' : IndianCurrency::formatExact($amount);
+        };
+    @endphp
+    <div class="pg-dealer-ledger-summary">
+        <div class="pg-dealer-ledger-card">
+            <span>Base Limit</span>
+            <strong>{{ $credit['limit_set'] ? $creditMoney($credit['base_limit']) : 'Not Set' }}</strong>
+        </div>
+        <div class="pg-dealer-ledger-card">
+            <span>Temporary Extension</span>
+            <strong>{{ IndianCurrency::formatExact($credit['extension_amount']) }}</strong>
+            @if ($credit['extension_active'] && filled($credit['extension_valid_until']))
+                <small style="color:#94A3B8;">Until {{ \Illuminate\Support\Carbon::parse($credit['extension_valid_until'])->format('d M Y') }}</small>
+            @elseif ($credit['extension_expired'] ?? false)
+                <small style="color:#94A3B8;">Expired</small>
+            @endif
+        </div>
+        <div class="pg-dealer-ledger-card">
+            <span>Effective Limit</span>
+            <strong>{{ $credit['limit_set'] ? $creditMoney($credit['effective_limit']) : 'Not Set' }}</strong>
+        </div>
+        <div class="pg-dealer-ledger-card">
+            <span>Available Limit</span>
+            <strong>{{ $credit['limit_set'] ? $creditMoney($credit['available_limit']) : 'Not Set' }}</strong>
+        </div>
+    </div>
+
     <div class="pg-dealer-ledger-table-wrap">
         <table class="pg-dealer-ledger-table">
             <thead>
@@ -289,7 +329,23 @@
                         <td>{{ $entry['date'] ? \Illuminate\Support\Carbon::parse($entry['date'])->format('d M Y') : '—' }}</td>
                         <td>{{ $entry['particulars'] }}</td>
                         <td>{{ $entry['voucher_type'] ?: '—' }}</td>
-                        <td>{{ $entry['voucher_no'] ?: '—' }}</td>
+                        <td>
+                            @php
+                                $voucherLabel = filled($entry['voucher_no'] ?? null) ? $entry['voucher_no'] : ($entry['particulars'] ?: 'View');
+                                $openUrl = filled($entry['document_url'] ?? null) && ($entry['transaction_type'] ?? '') === 'sales_invoice'
+                                    ? $entry['document_url']
+                                    : ($entry['web_url'] ?? $entry['document_url'] ?? null);
+                            @endphp
+                            @if ($entry['is_clickable'] ?? false)
+                                @if (filled($openUrl))
+                                    <a class="pg-dealer-ledger-link" href="{{ $openUrl }}" target="_blank" rel="noopener noreferrer">{{ $voucherLabel }}</a>
+                                @else
+                                    <button type="button" class="pg-dealer-ledger-link" onclick="alert(@js($entry['unavailable_reason'] ?? 'This document is no longer available.'))">{{ $voucherLabel }}</button>
+                                @endif
+                            @else
+                                {{ filled($entry['voucher_no'] ?? null) ? $entry['voucher_no'] : '—' }}
+                            @endif
+                        </td>
                         <td>{{ $entry['source_label'] ?? '—' }}</td>
                         <td class="num">{{ (float) $entry['debit'] > 0 ? IndianCurrency::formatExact($entry['debit']) : '—' }}</td>
                         <td class="num">{{ (float) $entry['credit'] > 0 ? IndianCurrency::formatExact($entry['credit']) : '—' }}</td>

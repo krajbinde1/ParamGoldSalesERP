@@ -9,6 +9,7 @@ use App\Filament\Resources\Dealers\DealerResource;
 use App\Models\Dealer;
 use App\Models\DealerTallyEntry;
 use App\Models\TallyConnectorLedger;
+use App\Services\Dealers\DealerCreditExposureService;
 use App\Services\Dealers\DealerLedgerDocumentLinkService;
 use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Services\TallyLedger\TallyLedgerImportService;
@@ -197,6 +198,19 @@ class ViewDealerLedger extends ViewRecord
     /**
      * @return array{summary: array<string, mixed>, ledger: list<array<string, mixed>>, verification: array<string, mixed>}
      */
+    /**
+     * Credit-limit display beside the ledger. Does not change ledger totals.
+     *
+     * @return array<string, mixed>
+     */
+    public function creditLimitSummary(): array
+    {
+        /** @var Dealer $record */
+        $record = $this->getRecord();
+
+        return app(DealerCreditExposureService::class)->assess($record, 0)->toArray();
+    }
+
     public function ledgerPayload(): array
     {
         /** @var Dealer $record */

@@ -147,6 +147,16 @@ class Dealer extends Model
         return $this->hasMany(Order::class);
     }
 
+    public function creditLimit(): HasOne
+    {
+        return $this->hasOne(DealerCreditLimit::class);
+    }
+
+    public function creditLimitAudits(): HasMany
+    {
+        return $this->hasMany(DealerCreditLimitAudit::class);
+    }
+
     public function collections(): HasMany
     {
         return $this->hasMany(Collection::class);

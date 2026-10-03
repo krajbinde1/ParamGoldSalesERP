@@ -28,6 +28,7 @@ use App\Http\Controllers\Api\EmployeeCreditNoteController;
 use App\Http\Controllers\Api\EmployeeDashboardController;
 use App\Http\Controllers\Api\EmployeeDealerApplicationController;
 use App\Http\Controllers\Api\EmployeeDealerController;
+use App\Http\Controllers\Api\EmployeeDealerCreditController;
 use App\Http\Controllers\Api\EmployeeDealerVisitController;
 use App\Http\Controllers\Api\EmployeeFarmerLookupController;
 use App\Http\Controllers\Api\EmployeeFieldActivityController;
@@ -43,6 +44,7 @@ use App\Http\Controllers\Api\Manager\ManagerCollectionController;
 use App\Http\Controllers\Api\Manager\ManagerCreditNoteController;
 use App\Http\Controllers\Api\Manager\ManagerDashboardController;
 use App\Http\Controllers\Api\Manager\ManagerDealerApplicationController;
+use App\Http\Controllers\Api\Manager\ManagerDealerCreditLimitController;
 use App\Http\Controllers\Api\Manager\ManagerEmployeePerformanceController;
 use App\Http\Controllers\Api\Manager\ManagerFieldActivityController;
 use App\Http\Controllers\Api\Manager\ManagerOrderController;
@@ -110,6 +112,7 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::get('employee/dashboard', EmployeeDashboardController::class);
         Route::get('employee/targets', [EmployeeDashboardController::class, 'targets']);
         Route::get('employee/dealers', [EmployeeDealerController::class, 'index']);
+        Route::get('employee/dealers/{dealer}/credit-check', [EmployeeDealerCreditController::class, 'show']);
         Route::get('employee/dealers/{dealer}', [EmployeeDealerController::class, 'show']);
         Route::put('employee/dealers/{dealer}', [EmployeeDealerController::class, 'update']);
         Route::get('employee/payment-follow-ups', [EmployeePaymentFollowUpController::class, 'index']);
@@ -169,6 +172,12 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
 
     Route::middleware('role:manager')->prefix('manager')->group(function () {
         Route::get('dashboard', ManagerDashboardController::class);
+        Route::get('dealer-credit-limits', [ManagerDealerCreditLimitController::class, 'index']);
+        Route::get('dealer-credit-limits/{dealer}', [ManagerDealerCreditLimitController::class, 'show']);
+        Route::get('dealer-credit-limits/{dealer}/history', [ManagerDealerCreditLimitController::class, 'history']);
+        Route::post('dealer-credit-limits/{dealer}', [ManagerDealerCreditLimitController::class, 'store']);
+        Route::post('dealer-credit-limits/{dealer}/extend', [ManagerDealerCreditLimitController::class, 'extend']);
+        Route::post('dealer-credit-limits/{dealer}/expire-extension', [ManagerDealerCreditLimitController::class, 'expire']);
         Route::get('targets', [ManagerEmployeePerformanceController::class, 'targets']);
         Route::get('employees', [ManagerEmployeePerformanceController::class, 'index']);
         Route::get('employees/{employee}', [ManagerEmployeePerformanceController::class, 'show']);

@@ -7,11 +7,11 @@ use App\Models\Dealer;
 use App\Models\Order;
 use App\Models\Product;
 use App\Services\Dealers\DealerAccessService;
+use App\Services\Dealers\DealerCreditOrderGuard;
 use App\Services\Orders\OrderBillingTransportCalculator;
 use App\Services\Orders\OrderLineCalculationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class EmployeeOrderController extends Controller
@@ -104,11 +104,13 @@ class EmployeeOrderController extends Controller
         $employee = $request->user()->employee;
 
         $dealer = $this->resolveActiveDealer($validated['dealer_id'], $request);
+        $calculatedItems = $this->calculateItems($validated['items']);
+        $totals = $this->summarizeItems($calculatedItems);
 
-        $order = DB::transaction(function () use ($validated, $employee, $dealer): Order {
-            $calculatedItems = $this->calculateItems($validated['items']);
-            $totals = $this->summarizeItems($calculatedItems);
-
+        $order = app(DealerCreditOrderGuard::class)->place(
+            $dealer,
+            (float) $totals['grand_total'],
+            function () use ($validated, $employee, $dealer, $calculatedItems, $totals): Order {
             $order = Order::query()->create([
                 'order_no' => $this->generateOrderNumber(),
                 'order_date' => Order::businessToday(),
@@ -151,11 +153,13 @@ class EmployeeOrderController extends Controller
 
         $validated = $this->validateOrderPayload($request);
         $dealer = $this->resolveActiveDealer($validated['dealer_id'], $request);
+        $calculatedItems = $this->calculateItems($validated['items']);
+        $totals = $this->summarizeItems($calculatedItems);
 
-        $order = DB::transaction(function () use ($validated, $order, $dealer): Order {
-            $calculatedItems = $this->calculateItems($validated['items']);
-            $totals = $this->summarizeItems($calculatedItems);
-
+        $order = app(DealerCreditOrderGuard::class)->place(
+            $dealer,
+            (float) $totals['grand_total'],
+            function () use ($validated, $order, $dealer, $calculatedItems, $totals): Order {
             $order->items()->delete();
 
             $order->update([
@@ -176,7 +180,7 @@ class EmployeeOrderController extends Controller
                 'salesEmployee:id,full_name',
                 'items.product:id,product_name,product_code,dealer_price',
             ]);
-        });
+        }, $order->id);
 
         return response()->json([
             'message' => 'Order updated successfully.',
