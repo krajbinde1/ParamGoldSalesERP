@@ -2,8 +2,8 @@
 
 namespace App\Filament\Resources\TaDaClaims\Tables;
 
-use App\Models\TaDaClaim;
 use App\Filament\Support\EmployeeSelect;
+use App\Models\TaDaClaim;
 use Filament\Actions\Action;
 use Filament\Actions\ViewAction;
 use Filament\Forms\Components\Textarea;
@@ -20,10 +20,13 @@ class TaDaClaimsTable
             ->defaultSort('claim_date', 'desc')
             ->columns([
                 TextColumn::make('employee.full_name')
-                    ->label('Employee')
+                    ->label('Submitted By')
                     ->formatStateUsing(fn (TaDaClaim $record): string => $record->employee?->displayLabel() ?? '-')
                     ->searchable()
                     ->sortable(),
+                TextColumn::make('submitter_role')
+                    ->label('Role')
+                    ->formatStateUsing(fn (TaDaClaim $record): string => $record->submitterRoleLabel()),
                 TextColumn::make('claim_date')
                     ->label('Claim Date')
                     ->date('d M Y')
@@ -54,7 +57,7 @@ class TaDaClaimsTable
                 TextColumn::make('status')
                     ->label('Status')
                     ->badge()
-                    ->formatStateUsing(fn (string $state): string => TaDaClaim::statusLabel($state))
+                    ->formatStateUsing(fn (TaDaClaim $record): string => $record->displayStatusLabel())
                     ->color(fn (string $state): string => match ($state) {
                         TaDaClaim::STATUS_APPROVED => 'success',
                         TaDaClaim::STATUS_PAID => 'info',
@@ -79,7 +82,7 @@ class TaDaClaimsTable
                     ->color('success')
                     ->requiresConfirmation()
                     ->visible(fn (TaDaClaim $record): bool => $record->canApprove())
-                    ->action(fn (TaDaClaim $record) => $record->approve(auth()->id())),
+                    ->action(fn (TaDaClaim $record) => $record->approve(auth()->id(), auth()->user()?->role)),
                 Action::make('reject')
                     ->label('Reject')
                     ->color('danger')
@@ -93,6 +96,7 @@ class TaDaClaimsTable
                     ->action(fn (TaDaClaim $record, array $data) => $record->reject(
                         $data['admin_remark'],
                         auth()->id(),
+                        auth()->user()?->role,
                     )),
                 Action::make('markPaid')
                     ->label('Mark as Paid')

@@ -19,6 +19,7 @@ class TaDaClaimDetail {
     this.adminRemark,
     required this.status,
     required this.statusLabel,
+    this.claimNo,
   });
 
   final int id;
@@ -38,6 +39,7 @@ class TaDaClaimDetail {
   final String? adminRemark;
   final String status;
   final String statusLabel;
+  final String? claimNo;
 
   factory TaDaClaimDetail.fromJson(Map<String, dynamic> json) =>
       TaDaClaimDetail(
@@ -60,5 +62,6 @@ class TaDaClaimDetail {
         adminRemark: json['admin_remark']?.toString(),
         status: json['status']?.toString() ?? 'pending',
         statusLabel: json['status_label']?.toString() ?? 'Pending',
+        claimNo: json['claim_no']?.toString(),
       );
 }

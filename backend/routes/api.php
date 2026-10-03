@@ -221,6 +221,12 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::post('dealer-applications/{dealerApplication}/approve', [ManagerDealerApplicationController::class, 'approve']);
         Route::post('dealer-applications/{dealerApplication}/reject', [ManagerDealerApplicationController::class, 'reject']);
         Route::post('dealer-applications/{dealerApplication}/send-back', [ManagerDealerApplicationController::class, 'sendBack']);
+        Route::get('my-ta-da-rate', [ManagerTaDaClaimController::class, 'myRate']);
+        Route::get('my-ta-da-claims/travel-summary', [ManagerTaDaClaimController::class, 'myTravelSummary']);
+        Route::get('my-ta-da-claims/calendar', [ManagerTaDaClaimController::class, 'myCalendar']);
+        Route::get('my-ta-da-claims', [ManagerTaDaClaimController::class, 'myIndex']);
+        Route::post('my-ta-da-claims', [ManagerTaDaClaimController::class, 'myStore']);
+        Route::get('my-ta-da-claims/{taDaClaim}', [ManagerTaDaClaimController::class, 'myShow']);
         Route::get('ta-da-claims', [ManagerTaDaClaimController::class, 'index']);
         Route::get('ta-da-claims/{taDaClaim}', [ManagerTaDaClaimController::class, 'show']);
         Route::post('ta-da-claims/{taDaClaim}/approve', [ManagerTaDaClaimController::class, 'approve']);
@@ -326,6 +332,8 @@ Route::middleware(['auth:sanctum', 'mobile.session'])->group(function () {
         Route::get('collections/{collection}', [DirectorCollectionController::class, 'show']);
         Route::get('ta-da-claims', [DirectorTaDaClaimController::class, 'index']);
         Route::get('ta-da-claims/{taDaClaim}', [DirectorTaDaClaimController::class, 'show']);
+        Route::post('ta-da-claims/{taDaClaim}/approve', [DirectorTaDaClaimController::class, 'approve']);
+        Route::post('ta-da-claims/{taDaClaim}/reject', [DirectorTaDaClaimController::class, 'reject']);
         Route::get('route-tracking', [DirectorRouteTrackingController::class, 'index']);
         Route::get('route-tracking/{attendance}', [DirectorRouteTrackingController::class, 'show']);
         Route::get('dealer-visits', [DirectorDealerVisitController::class, 'index']);

@@ -18,10 +18,14 @@ class TaDaClaimDetailScreen extends StatefulWidget {
     super.key,
     required this.claimId,
     required this.auth,
+    this.claimsPath = '/employee/ta-da-claims',
+    this.ratePath = '/employee/ta-da-rate',
   });
 
   final int claimId;
   final AuthController auth;
+  final String claimsPath;
+  final String ratePath;
 
   @override
   State<TaDaClaimDetailScreen> createState() => _TaDaClaimDetailScreenState();
@@ -38,6 +42,8 @@ class _TaDaClaimDetailScreenState extends State<TaDaClaimDetailScreen> {
 
   Future<TaDaClaimDetail> _load() => TaDaClaimApi(
     ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
+    claimsPath: widget.claimsPath,
+    ratePath: widget.ratePath,
   ).getClaim(widget.claimId);
 
   Future<void> _reload() async {
@@ -104,6 +110,8 @@ class _TaDaClaimDetailScreenState extends State<TaDaClaimDetailScreen> {
                         style: Theme.of(context).textTheme.titleMedium,
                       ),
                       const SizedBox(height: AppSpacing.sm),
+                      if (detail.claimNo != null && detail.claimNo!.isNotEmpty)
+                        PgInvoiceRow(label: 'TA Bill No.', value: detail.claimNo!),
                       if (detail.employeeName != null)
                         PgInvoiceRow(
                           label: 'Employee',
@@ -152,7 +160,9 @@ class _TaDaClaimDetailScreenState extends State<TaDaClaimDetailScreen> {
                       if (detail.adminRemark != null &&
                           detail.adminRemark!.isNotEmpty)
                         PgInvoiceRow(
-                          label: 'Admin Remark',
+                          label: detail.status == 'rejected'
+                              ? 'Rejection Remark'
+                              : 'Remark',
                           value: detail.adminRemark!,
                         ),
                     ],

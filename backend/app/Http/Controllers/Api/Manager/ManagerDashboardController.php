@@ -10,6 +10,7 @@ use App\Models\Order;
 use App\Models\TaDaClaim;
 use App\Services\Dashboard\DashboardMetricsService;
 use App\Services\Orders\ManagerOrderAccessService;
+use App\Services\Orders\OrderBillingTransportCalculator;
 use App\Services\PaymentFollowUps\PaymentFollowUpPerformanceService;
 use App\Support\AttendanceCalendar;
 use Illuminate\Http\JsonResponse;
@@ -48,6 +49,7 @@ class ManagerDashboardController extends Controller
         $pendingTaDa = $reportIds === []
             ? 0
             : TaDaClaim::query()
+                ->submittedByEmployee()
                 ->whereIn('employee_id', $reportIds)
                 ->where('status', TaDaClaim::STATUS_PENDING)
                 ->count();
@@ -85,6 +87,7 @@ class ManagerDashboardController extends Controller
                 'approved_claims' => $reportIds === []
                     ? 0
                     : TaDaClaim::query()
+                        ->submittedByEmployee()
                         ->whereIn('employee_id', $reportIds)
                         ->where('status', TaDaClaim::STATUS_APPROVED)
                         ->count(),
@@ -120,7 +123,7 @@ class ManagerDashboardController extends Controller
                     'dealer_name' => $order->dealer?->firm_name,
                     'employee_name' => $order->salesEmployee?->full_name,
                     'employee_code' => $order->salesEmployee?->employee_code,
-                    'grand_total' => \App\Services\Orders\OrderBillingTransportCalculator::finalGrandTotal($order),
+                    'grand_total' => OrderBillingTransportCalculator::finalGrandTotal($order),
                     'status' => $order->status,
                     'status_label' => $order->displayStatusLabel(),
                 ]),
@@ -134,6 +137,7 @@ class ManagerDashboardController extends Controller
             'pending_ta_da_approvals' => $reportIds === []
                 ? []
                 : TaDaClaim::query()
+                    ->submittedByEmployee()
                     ->where('status', TaDaClaim::STATUS_PENDING)
                     ->whereIn('employee_id', $reportIds)
                     ->with('employee:id,full_name')

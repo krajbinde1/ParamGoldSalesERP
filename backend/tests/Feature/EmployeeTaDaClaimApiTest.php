@@ -39,6 +39,7 @@ function seedRouteForAttendance(Attendance $attendance): void
 
     for ($index = 0; $index < 5; $index++) {
         EmployeeRoutePoint::query()->create([
+            'local_uuid' => (string) \Illuminate\Support\Str::uuid(),
             'attendance_id' => $attendance->id,
             'employee_id' => $attendance->employee_id,
             'latitude' => $baseLat + ($index * 0.001),

@@ -450,6 +450,47 @@ class DirectorApi {
     }
   }
 
+  Future<DirectorTaDaApprovalPage> loadTaDaApprovals({String? status}) async {
+    try {
+      final response = await _dio.get(
+        '/director/ta-da-claims',
+        queryParameters: status != null ? {'status': status} : null,
+      );
+      final body = response.data as Map;
+      final counts = body['counts'] as Map? ?? {};
+      return DirectorTaDaApprovalPage(
+        claims: (body['data'] as List?)
+                ?.map((item) => Map<String, dynamic>.from(item as Map))
+                .toList() ??
+            const [],
+        pending: int.tryParse('${counts['pending'] ?? 0}') ?? 0,
+        approved: int.tryParse('${counts['approved'] ?? 0}') ?? 0,
+        rejected: int.tryParse('${counts['rejected'] ?? 0}') ?? 0,
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<void> approveTaDaClaim(int claimId) async {
+    try {
+      await _dio.post('/director/ta-da-claims/$claimId/approve');
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
+  Future<void> rejectTaDaClaim(int claimId, {required String remark}) async {
+    try {
+      await _dio.post(
+        '/director/ta-da-claims/$claimId/reject',
+        data: {'remark': remark},
+      );
+    } on DioException catch (error) {
+      throw mapApiError(error);
+    }
+  }
+
   Future<Map<String, dynamic>> getTaDaClaim(int claimId) async {
     try {
       final response = await _dio.get('/director/ta-da-claims/$claimId');
@@ -814,4 +855,18 @@ class DirectorApi {
       throw mapApiError(error);
     }
   }
+}
+
+class DirectorTaDaApprovalPage {
+  const DirectorTaDaApprovalPage({
+    required this.claims,
+    required this.pending,
+    required this.approved,
+    required this.rejected,
+  });
+
+  final List<Map<String, dynamic>> claims;
+  final int pending;
+  final int approved;
+  final int rejected;
 }

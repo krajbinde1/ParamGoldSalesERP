@@ -56,6 +56,7 @@ import '../../modules/orders/screens/order_detail_screen.dart';
 import '../../modules/orders/screens/order_list_screen.dart';
 import '../../modules/orders/screens/review_order_screen.dart';
 import '../../modules/director/screens/director_dashboard_screen.dart';
+import '../../modules/director/screens/director_ta_da_claim_detail_screen.dart';
 import '../../modules/director/screens/director_dealer_visits_screen.dart';
 import '../../modules/director/screens/director_orders_screen.dart';
 import '../../modules/director/screens/director_outstanding_dealers_screen.dart';
@@ -573,6 +574,38 @@ GoRouter createRouter(
       ],
     ),
     GoRoute(
+      path: '/manager/my-ta-da-claims',
+      builder: (_, _) => TaDaClaimDashboardScreen(
+        auth: auth,
+        title: 'My TA Bills',
+        claimsPath: '/manager/my-ta-da-claims',
+        ratePath: '/manager/my-ta-da-rate',
+        routePrefix: '/manager/my-ta-da-claims',
+      ),
+      routes: [
+        GoRoute(
+          path: 'new',
+          builder: (_, state) => NewTaDaClaimScreen(
+            auth: auth,
+            claimsPath: '/manager/my-ta-da-claims',
+            ratePath: '/manager/my-ta-da-rate',
+            initialClaimDate: state.extra is DateTime
+                ? state.extra as DateTime
+                : null,
+          ),
+        ),
+        GoRoute(
+          path: ':claimId',
+          builder: (_, state) => TaDaClaimDetailScreen(
+            claimId: int.parse(state.pathParameters['claimId']!),
+            auth: auth,
+            claimsPath: '/manager/my-ta-da-claims',
+            ratePath: '/manager/my-ta-da-rate',
+          ),
+        ),
+      ],
+    ),
+    GoRoute(
       path: '/manager/ta-da-claims',
       builder: (_, _) => ManagerTaDaClaimsScreen(auth: auth),
       routes: [
@@ -1070,6 +1103,15 @@ GoRouter createRouter(
     GoRoute(
       path: '/director/ta-da-claims',
       builder: (_, _) => DirectorTaDaClaimsScreen(auth: auth),
+      routes: [
+        GoRoute(
+          path: ':claimId',
+          builder: (_, state) => DirectorTaDaClaimDetailScreen(
+            auth: auth,
+            claimId: int.parse(state.pathParameters['claimId']!),
+          ),
+        ),
+      ],
     ),
     GoRoute(
       path: '/director/payment-requests',

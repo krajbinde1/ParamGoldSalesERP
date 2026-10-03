@@ -14,8 +14,20 @@ import '../models/ta_da_claim_dashboard_data.dart';
 import '../widgets/ta_da_claim_widgets.dart';
 
 class TaDaClaimDashboardScreen extends StatefulWidget {
-  const TaDaClaimDashboardScreen({super.key, required this.auth});
+  const TaDaClaimDashboardScreen({
+    super.key,
+    required this.auth,
+    this.title = 'TA/DA Claim',
+    this.claimsPath = '/employee/ta-da-claims',
+    this.ratePath = '/employee/ta-da-rate',
+    this.routePrefix = '/ta-da-claims',
+  });
+
   final AuthController auth;
+  final String title;
+  final String claimsPath;
+  final String ratePath;
+  final String routePrefix;
 
   @override
   State<TaDaClaimDashboardScreen> createState() =>
@@ -27,6 +39,8 @@ class _TaDaClaimDashboardScreenState extends State<TaDaClaimDashboardScreen> {
 
   TaDaClaimApi get _api => TaDaClaimApi(
     ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
+    claimsPath: widget.claimsPath,
+    ratePath: widget.ratePath,
   );
 
   @override
@@ -43,13 +57,13 @@ class _TaDaClaimDashboardScreenState extends State<TaDaClaimDashboardScreen> {
   }
 
   Future<void> _openClaim(int claimId) async {
-    await context.push('/ta-da-claims/$claimId');
+    await context.push('${widget.routePrefix}/$claimId');
     if (!mounted) return;
     await _reload();
   }
 
   Future<void> _openNewClaim() async {
-    final result = await context.push<bool>('/ta-da-claims/new');
+    final result = await context.push<bool>('${widget.routePrefix}/new');
     if (!mounted) return;
     if (result == true) await _reload();
   }
@@ -64,7 +78,7 @@ class _TaDaClaimDashboardScreenState extends State<TaDaClaimDashboardScreen> {
 
     return PgPageScaffold(
       auth: widget.auth,
-      title: 'TA/DA Claim',
+      title: widget.title,
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _openNewClaim,
         icon: const Icon(Icons.add_rounded),

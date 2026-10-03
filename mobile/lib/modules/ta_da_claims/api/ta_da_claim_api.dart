@@ -7,11 +7,18 @@ import '../models/ta_da_claim_detail.dart';
 import '../models/ta_da_travel_summary.dart';
 
 class TaDaClaimApi {
-  const TaDaClaimApi(this._dio);
+  const TaDaClaimApi(
+    this._dio, {
+    this.claimsPath = '/employee/ta-da-claims',
+    this.ratePath = '/employee/ta-da-rate',
+  });
+
   final Dio _dio;
+  final String claimsPath;
+  final String ratePath;
 
   Future<TaDaClaimDashboardData> loadDashboard() async {
-    final response = await _dio.get('/employee/ta-da-claims');
+    final response = await _dio.get(claimsPath);
     final body = response.data;
     if (body is! Map) {
       throw DioException(
@@ -28,7 +35,7 @@ class TaDaClaimApi {
     required int year,
   }) async {
     final response = await _dio.get(
-      '/employee/ta-da-claims/calendar',
+      '$claimsPath/calendar',
       queryParameters: {'month': month, 'year': year},
     );
     final body = response.data;
@@ -44,7 +51,7 @@ class TaDaClaimApi {
 
   Future<double> fetchPerKmRate() async {
     try {
-      final response = await _dio.get('/employee/ta-da-rate');
+      final response = await _dio.get(ratePath);
       final body = response.data;
       if (body is! Map) {
         throw DioException(
@@ -60,7 +67,7 @@ class TaDaClaimApi {
   }
 
   Future<TaDaClaimDetail> getClaim(int claimId) async {
-    final response = await _dio.get('/employee/ta-da-claims/$claimId');
+    final response = await _dio.get('$claimsPath/$claimId');
     final body = response.data;
     if (body is! Map) {
       throw DioException(
@@ -81,7 +88,7 @@ class TaDaClaimApi {
   }) async {
     try {
       final response = await _dio.get(
-        '/employee/ta-da-claims/travel-summary',
+        '$claimsPath/travel-summary',
         queryParameters: {
           'claim_date': claimDate.toIso8601String().split('T').first,
         },
@@ -125,7 +132,7 @@ class TaDaClaimApi {
       });
 
       final response = await _dio.post(
-        '/employee/ta-da-claims',
+        claimsPath,
         data: formData,
       );
       final body = response.data;

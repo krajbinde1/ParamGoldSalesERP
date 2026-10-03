@@ -598,6 +598,12 @@ class _OverviewGrid extends StatelessWidget {
         onTap: () => onOpen('/director/pending-orders'),
       ),
       _DashTile(
+        label: 'TA Bill Approvals',
+        value: 'Review',
+        icon: Icons.receipt_long_rounded,
+        onTap: () => onOpen('/director/ta-da-claims'),
+      ),
+      _DashTile(
         label: 'Payment Approval',
         value: '${data.myPendingPayments}',
         icon: Icons.payments_outlined,
@@ -2493,7 +2499,7 @@ class _DirectorTeamActivityScreenState
 }
 
 // ---------------------------------------------------------------------------
-// TA/DA Overview (view only — no new approval actions)
+// Director approval queue for manager-submitted TA bills.
 // ---------------------------------------------------------------------------
 
 class DirectorTaDaClaimsScreen extends StatefulWidget {
@@ -2507,16 +2513,14 @@ class DirectorTaDaClaimsScreen extends StatefulWidget {
 
 class _DirectorTaDaClaimsScreenState extends State<DirectorTaDaClaimsScreen>
     with SingleTickerProviderStateMixin {
-  static const _tabs = <({String label, String? status})>[
-    (label: 'All', status: null),
+  static const _tabs = <({String label, String status})>[
     (label: 'Pending', status: 'pending'),
     (label: 'Approved', status: 'approved'),
     (label: 'Rejected', status: 'rejected'),
   ];
 
   late final TabController _tabsCtrl;
-  late Future<List<Map<String, dynamic>>> _listFuture;
-  late Future<DirectorDashboardData> _summaryFuture;
+  late Future<DirectorTaDaApprovalPage> _listFuture;
 
   DirectorApi get _api => DirectorApi(
     ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
@@ -2531,7 +2535,6 @@ class _DirectorTaDaClaimsScreenState extends State<DirectorTaDaClaimsScreen>
       _reloadList();
     });
     _listFuture = _loadList();
-    _summaryFuture = _api.loadDashboard(period: 'month');
   }
 
   @override
@@ -2540,8 +2543,8 @@ class _DirectorTaDaClaimsScreenState extends State<DirectorTaDaClaimsScreen>
     super.dispose();
   }
 
-  Future<List<Map<String, dynamic>>> _loadList() {
-    return _api.listTaDaClaims(status: _tabs[_tabsCtrl.index].status);
+  Future<DirectorTaDaApprovalPage> _loadList() {
+    return _api.loadTaDaApprovals(status: _tabs[_tabsCtrl.index].status);
   }
 
   Future<void> _reloadList() async {
@@ -2553,7 +2556,7 @@ class _DirectorTaDaClaimsScreenState extends State<DirectorTaDaClaimsScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: RoleAppBar(
-        title: 'TA/DA Overview',
+        title: 'TA Bill Approvals',
         auth: widget.auth,
         bottom: TabBar(
           controller: _tabsCtrl,
@@ -2561,104 +2564,92 @@ class _DirectorTaDaClaimsScreenState extends State<DirectorTaDaClaimsScreen>
           tabs: [for (final t in _tabs) Tab(text: t.label)],
         ),
       ),
-      body: Column(
-        children: [
-          FutureBuilder<DirectorDashboardData>(
-            future: _summaryFuture,
-            builder: (context, snapshot) {
-              if (!snapshot.hasData) return const SizedBox.shrink();
-              final d = snapshot.data!;
-              return Padding(
+      body: FutureBuilder<DirectorTaDaApprovalPage>(
+        future: _listFuture,
+        builder: (context, snapshot) {
+          if (snapshot.connectionState == ConnectionState.waiting &&
+              !snapshot.hasData) {
+            return const PgLoadingState();
+          }
+          if (snapshot.hasError) {
+            return PgErrorState(
+              message: 'Unable to load TA bills',
+              onRetry: _reloadList,
+            );
+          }
+          final page = snapshot.data!;
+          final claims = page.claims;
+          return Column(
+            children: [
+              Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                 child: PgCard(
                   padding: const EdgeInsets.all(AppSpacing.md),
                   child: Row(
                     children: [
-                      Expanded(
-                        child: _MiniStat('Pending', '${d.pendingClaims}'),
-                      ),
-                      Expanded(
-                        child: _MiniStat('Approved', '${d.approvedClaims}'),
-                      ),
-                      Expanded(
-                        child: _MiniStat('Rejected', '${d.rejectedClaims}'),
-                      ),
+                      Expanded(child: _MiniStat('Pending', '${page.pending}')),
+                      Expanded(child: _MiniStat('Approved', '${page.approved}')),
+                      Expanded(child: _MiniStat('Rejected', '${page.rejected}')),
                     ],
                   ),
                 ),
-              );
-            },
-          ),
-          Expanded(
-            child: FutureBuilder<List<Map<String, dynamic>>>(
-              future: _listFuture,
-              builder: (context, snapshot) {
-                if (snapshot.connectionState == ConnectionState.waiting &&
-                    !snapshot.hasData) {
-                  return const PgLoadingState();
-                }
-                if (snapshot.hasError) {
-                  return PgErrorState(
-                    message: 'Unable to load dashboard',
-                    onRetry: _reloadList,
-                  );
-                }
-                final claims = snapshot.data ?? const [];
-                if (claims.isEmpty) {
-                  return const PgEmptyState(message: 'No Activity Today');
-                }
-                final totalAmount = claims.fold<double>(
-                  0,
-                  (sum, c) =>
-                      sum + (double.tryParse('${c['total_amount'] ?? 0}') ?? 0),
-                );
-                return RefreshIndicator(
-                  color: AppColors.primary,
-                  onRefresh: _reloadList,
-                  child: ListView.builder(
-                    physics: const AlwaysScrollableScrollPhysics(),
-                    padding: const EdgeInsets.all(AppSpacing.screenPadding),
-                    itemCount: claims.length + 1,
-                    itemBuilder: (context, index) {
-                      if (index == 0) {
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Text(
-                            'Total Amount (list): ${_inr.format(totalAmount)}',
-                            style: Theme.of(context)
-                                .textTheme
-                                .labelLarge
-                                ?.copyWith(fontWeight: FontWeight.w700),
-                          ),
-                        );
-                      }
-                      final claim = claims[index - 1];
-                      return PgCard(
-                        margin: const EdgeInsets.only(bottom: AppSpacing.sm),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              claim['employee_name']?.toString() ?? '-',
-                              style: Theme.of(context).textTheme.titleSmall,
-                            ),
-                            const SizedBox(height: 4),
-                            Text(
-                              '${claim['claim_date'] ?? '-'} • '
-                              '${claim['status_label'] ?? claim['status']}'
-                              ' • ${_inr.format(double.tryParse('${claim['total_amount'] ?? 0}') ?? 0)}',
-                              style: Theme.of(context).textTheme.bodySmall,
-                            ),
-                          ],
+              ),
+              Expanded(
+                child: claims.isEmpty
+                    ? const PgEmptyState(message: 'No manager TA bills in this status.')
+                    : RefreshIndicator(
+                        color: AppColors.primary,
+                        onRefresh: _reloadList,
+                        child: ListView.builder(
+                          physics: const AlwaysScrollableScrollPhysics(),
+                          padding: const EdgeInsets.all(AppSpacing.screenPadding),
+                          itemCount: claims.length,
+                          itemBuilder: (context, index) {
+                            final claim = claims[index];
+                            final claimId = int.tryParse('${claim['id'] ?? ''}') ?? 0;
+                            return PgCard(
+                              margin: const EdgeInsets.only(bottom: AppSpacing.sm),
+                              onTap: claimId == 0
+                                  ? null
+                                  : () {
+                                      context
+                                          .push<bool>(
+                                            '/director/ta-da-claims/$claimId',
+                                          )
+                                          .then((changed) {
+                                        if (changed == true && context.mounted) {
+                                          _reloadList();
+                                        }
+                                      });
+                                    },
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    claim['claim_no']?.toString() ?? 'TA Bill',
+                                    style: Theme.of(context).textTheme.titleSmall,
+                                  ),
+                                  const SizedBox(height: 4),
+                                  Text(
+                                    claim['employee_name']?.toString() ?? '-',
+                                    style: Theme.of(context).textTheme.bodyMedium,
+                                  ),
+                                  Text(
+                                    '${claim['claim_date'] ?? '-'} • '
+                                    '${claim['status_label'] ?? claim['status']}'
+                                    ' • ${_inr.format(double.tryParse('${claim['total_amount'] ?? 0}') ?? 0)}',
+                                    style: Theme.of(context).textTheme.bodySmall,
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
                         ),
-                      );
-                    },
-                  ),
-                );
-              },
-            ),
-          ),
-        ],
+                      ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
@@ -2731,6 +2722,12 @@ class DirectorReportsScreen extends StatelessWidget {
         subtitle: 'Present, visits & field activity',
         icon: Icons.groups_rounded,
         onTap: () => context.push('/director/team-activity'),
+      ),
+      _ModuleItem(
+        title: 'TA Bill Approvals',
+        subtitle: 'Manager bills pending director approval',
+        icon: Icons.receipt_long_outlined,
+        onTap: () => context.push('/director/ta-da-claims'),
       ),
       _ModuleItem(
         title: 'Payment Approvals',

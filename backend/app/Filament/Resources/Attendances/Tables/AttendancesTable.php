@@ -2,10 +2,11 @@
 
 namespace App\Filament\Resources\Attendances\Tables;
 
-use App\Models\Attendance;
 use App\Filament\Support\EmployeeSelect;
+use App\Models\Attendance;
 use App\Services\Attendance\AttendanceStatusCalculator;
 use App\Support\AttendanceCalendar;
+use App\Support\PunchOutCorrectionCutoff;
 use App\Support\PunchOutEnforcementCutoff;
 use Filament\Actions\BulkActionGroup;
 use Filament\Actions\ViewAction;
@@ -134,7 +135,7 @@ class AttendancesTable
                             'late' => $query->where('is_late_punch_out', true),
                             'correction_pending' => $query->whereHas(
                                 'punchOutCorrections',
-                                fn (Builder $corrections): Builder => \App\Support\PunchOutCorrectionCutoff::constrainPending($corrections),
+                                fn (Builder $corrections): Builder => PunchOutCorrectionCutoff::constrainPending($corrections),
                             ),
                             'previous_pending' => PunchOutEnforcementCutoff::constrainEnforced(
                                 $query
@@ -154,6 +155,12 @@ class AttendancesTable
             ])
             ->toolbarActions([
                 BulkActionGroup::make([]),
-            ]);
+            ])
+            ->defaultSort(
+                fn (Builder $query): Builder => $query
+                    ->orderByDesc($query->qualifyColumn('attendance_date'))
+                    ->orderByDesc($query->qualifyColumn('punch_in_time')),
+                'desc',
+            );
     }
 }

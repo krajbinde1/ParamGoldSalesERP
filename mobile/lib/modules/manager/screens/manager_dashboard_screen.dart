@@ -202,6 +202,12 @@ class _ManagerDashboardScreenState extends State<ManagerDashboardScreen> {
                           onTap: () => _open('/manager/employees'),
                         ),
                         _ModuleItem(
+                          title: 'My TA Bills',
+                          subtitle: 'Submit and track your TA bill',
+                          icon: Icons.receipt_outlined,
+                          onTap: () => _open('/manager/my-ta-da-claims'),
+                        ),
+                        _ModuleItem(
                           title: 'TA Approval',
                           subtitle: data.pendingClaims > 0
                               ? '${data.pendingClaims} pending'

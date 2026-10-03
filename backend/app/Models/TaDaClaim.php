@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\SoftDeletes;
@@ -31,6 +32,7 @@ class TaDaClaim extends Model
 
     protected $fillable = [
         'employee_id',
+        'submitter_role',
         'claim_date',
         'from_location',
         'to_location',
@@ -48,6 +50,7 @@ class TaDaClaim extends Model
         'approved_at',
         'rejected_by',
         'rejected_at',
+        'approver_role',
         'paid_by',
         'paid_at',
     ];
@@ -103,6 +106,59 @@ class TaDaClaim extends Model
         return sprintf('%s → %s', $this->from_location, $this->to_location);
     }
 
+    public function claimNumber(): string
+    {
+        $year = $this->claim_date?->format('Y')
+            ?? $this->created_at?->timezone(self::BUSINESS_TIMEZONE)->format('Y')
+            ?? self::businessNow()->format('Y');
+
+        return sprintf('TA-%s-%03d', $year, $this->id);
+    }
+
+    public function requiresDirectorApproval(): bool
+    {
+        return $this->submitter_role === 'manager';
+    }
+
+    public function submitterRoleLabel(): string
+    {
+        return match ($this->submitter_role) {
+            'manager' => 'Manager',
+            'director' => 'Director',
+            default => 'Sales Employee',
+        };
+    }
+
+    public function displayStatusLabel(): string
+    {
+        if ($this->status === self::STATUS_PENDING && $this->requiresDirectorApproval()) {
+            return 'Pending Director Approval';
+        }
+
+        return self::statusLabel($this->status);
+    }
+
+    /**
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeSubmittedByEmployee(Builder $query): Builder
+    {
+        return $query->where(function (Builder $inner): void {
+            $inner->whereNull('submitter_role')
+                ->orWhere('submitter_role', 'employee');
+        });
+    }
+
+    /**
+     * @param  Builder<self>  $query
+     * @return Builder<self>
+     */
+    public function scopeSubmittedByManager(Builder $query): Builder
+    {
+        return $query->where('submitter_role', 'manager');
+    }
+
     public function billPhotoUrl(): ?string
     {
         if (blank($this->bill_photo_path)) {
@@ -127,7 +183,7 @@ class TaDaClaim extends Model
         return $this->status === self::STATUS_APPROVED;
     }
 
-    public function approve(?int $userId = null): void
+    public function approve(?int $userId = null, ?string $approverRole = null): void
     {
         if (! $this->canApprove()) {
             throw ValidationException::withMessages([
@@ -139,10 +195,11 @@ class TaDaClaim extends Model
             'status' => self::STATUS_APPROVED,
             'approved_by' => $userId,
             'approved_at' => self::businessNow(),
+            'approver_role' => $approverRole,
         ]);
     }
 
-    public function reject(string $adminRemark, ?int $userId = null): void
+    public function reject(string $adminRemark, ?int $userId = null, ?string $approverRole = null): void
     {
         if (! $this->canReject()) {
             throw ValidationException::withMessages([
@@ -155,6 +212,7 @@ class TaDaClaim extends Model
             'admin_remark' => trim($adminRemark),
             'rejected_by' => $userId,
             'rejected_at' => self::businessNow(),
+            'approver_role' => $approverRole,
         ]);
     }
 

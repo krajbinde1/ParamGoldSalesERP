@@ -11,6 +11,7 @@ class TaDaClaimItem {
     required this.totalAmount,
     required this.status,
     required this.statusLabel,
+    this.claimNo,
     this.billPhotoUrl,
   });
 
@@ -23,6 +24,7 @@ class TaDaClaimItem {
   final double totalAmount;
   final String status;
   final String statusLabel;
+  final String? claimNo;
   final String? billPhotoUrl;
 
   factory TaDaClaimItem.fromJson(Map<String, dynamic> json) => TaDaClaimItem(
@@ -37,6 +39,7 @@ class TaDaClaimItem {
     totalAmount: double.tryParse('${json['total_amount'] ?? ''}') ?? 0,
     status: json['status']?.toString() ?? 'pending',
     statusLabel: json['status_label']?.toString() ?? 'Pending',
+    claimNo: json['claim_no']?.toString(),
     billPhotoUrl: json['bill_photo_url']?.toString(),
   );
 }

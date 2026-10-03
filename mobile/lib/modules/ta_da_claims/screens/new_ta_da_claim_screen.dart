@@ -22,9 +22,13 @@ class NewTaDaClaimScreen extends StatefulWidget {
     super.key,
     required this.auth,
     this.initialClaimDate,
+    this.claimsPath = '/employee/ta-da-claims',
+    this.ratePath = '/employee/ta-da-rate',
   });
   final AuthController auth;
   final DateTime? initialClaimDate;
+  final String claimsPath;
+  final String ratePath;
 
   @override
   State<NewTaDaClaimScreen> createState() => _NewTaDaClaimScreenState();
@@ -77,6 +81,8 @@ class _NewTaDaClaimScreenState extends State<NewTaDaClaimScreen> {
 
   TaDaClaimApi get _api => TaDaClaimApi(
     ApiClient(SessionStore(), onUnauthorized: widget.auth.sessionExpired).dio,
+    claimsPath: widget.claimsPath,
+    ratePath: widget.ratePath,
   );
 
   @override

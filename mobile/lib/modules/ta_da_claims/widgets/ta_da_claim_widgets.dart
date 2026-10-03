@@ -75,9 +75,16 @@ class RecentTaDaClaimTile extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                DateFormat('d MMM yyyy').format(claim.claimDate),
+                claim.claimNo?.isNotEmpty == true
+                    ? claim.claimNo!
+                    : DateFormat('d MMM yyyy').format(claim.claimDate),
                 style: Theme.of(context).textTheme.titleSmall,
               ),
+              if (claim.claimNo?.isNotEmpty == true)
+                Text(
+                  DateFormat('d MMM yyyy').format(claim.claimDate),
+                  style: Theme.of(context).textTheme.bodySmall,
+                ),
               const SizedBox(height: 4),
               Text(
                 claim.route,

@@ -2,19 +2,19 @@
 
 namespace App\Http\Controllers\Api;
 
+use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\TaDaClaim;
 use App\Models\TaDaSetting;
-use App\Services\TaDaClaimRouteService;
+use App\Services\TaDa\TaDaClaimSubmissionService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Validation\ValidationException;
 
 class EmployeeTaDaClaimController extends Controller
 {
     public function __construct(
-        private readonly TaDaClaimRouteService $routeService,
+        private readonly TaDaClaimSubmissionService $submissions,
     ) {}
 
     public function index(Request $request): JsonResponse
@@ -100,77 +100,18 @@ class EmployeeTaDaClaimController extends Controller
             'claim_date' => ['required', 'date'],
         ]);
 
-        $employee = $request->user()->employee;
-        $claimDate = $this->routeService->claimDateString($validated['claim_date']);
-
-        $this->assertClaimDateAvailable($employee->id, $claimDate);
-
-        $perKmRate = TaDaSetting::resolvePerKmRate($employee);
-        $routeData = $this->routeService->resolveTravelKm($employee, $claimDate);
-        $travelKm = $routeData['travel_km'];
-        $travelAmount = round($travelKm * $perKmRate, 2);
-
-        return response()->json([
-            'claim_date' => $claimDate,
-            'travel_km' => $travelKm,
-            'per_km_rate' => $perKmRate,
-            'travel_amount' => $travelAmount,
-            'route_available' => true,
-            'attendance_id' => $routeData['attendance_id'],
-            'valid_point_count' => $routeData['valid_point_count'],
-        ]);
+        return response()->json(
+            $this->submissions->travelSummary($request->user()->employee, $validated['claim_date']),
+        );
     }
 
     public function store(Request $request): JsonResponse
     {
-        if (! $request->isMethod('POST')) {
-            abort(405, 'TA/DA claims can only be created via POST submit.');
-        }
-
-        $employee = $request->user()->employee;
-
-        $validated = $request->validate([
-            'claim_date' => ['required', 'date'],
-            'from_location' => ['required', 'string', 'max:255'],
-            'to_location' => ['required', 'string', 'max:255'],
-            'da_amount' => ['nullable', 'numeric', 'min:0'],
-            'other_expense' => ['nullable', 'numeric', 'min:0'],
-            'employee_remarks' => ['nullable', 'string', 'max:2000'],
-            'photo' => ['required', 'image', 'mimes:jpeg,jpg,png,webp', 'max:5120'],
-        ]);
-
-        $claimDate = $this->routeService->claimDateString($validated['claim_date']);
-        $this->assertClaimDateAvailable($employee->id, $claimDate);
-
-        $perKmRate = TaDaSetting::resolvePerKmRate($employee);
-        $routeData = $this->routeService->resolveTravelKm($employee, $claimDate);
-        $travelKm = $routeData['travel_km'];
-        $daAmount = round((float) ($validated['da_amount'] ?? 0), 2);
-        $otherExpense = round((float) ($validated['other_expense'] ?? 0), 2);
-        $travelAmount = round($travelKm * $perKmRate, 2);
-        $totalAmount = round($travelAmount + $daAmount + $otherExpense, 2);
-
-        $photoPath = str_replace('\\', '/', $request->file('photo')->store('ta-da-claims', 'public'));
-
-        $claim = TaDaClaim::query()->create([
-            'employee_id' => $employee->id,
-            'claim_date' => $claimDate,
-            'from_location' => trim($validated['from_location']),
-            'to_location' => trim($validated['to_location']),
-            'travel_km' => $travelKm,
-            'per_km_rate' => $perKmRate,
-            'travel_amount' => $travelAmount,
-            'da_amount' => $daAmount,
-            'other_expense' => $otherExpense,
-            'total_amount' => $totalAmount,
-            'bill_photo_path' => $photoPath,
-            'employee_remarks' => filled($validated['employee_remarks'] ?? null)
-                ? trim($validated['employee_remarks'])
-                : null,
-            'status' => TaDaClaim::STATUS_PENDING,
-        ]);
-
-        $claim->load('employee:id,full_name');
+        $claim = $this->submissions->submit(
+            $request->user()->employee,
+            $request,
+            UserRole::Employee->value,
+        );
 
         return response()->json([
             'message' => 'TA/DA claim submitted successfully.',
@@ -201,20 +142,6 @@ class EmployeeTaDaClaimController extends Controller
     {
         if ($claim->employee_id !== $request->user()->employee->id) {
             abort(403, 'You are not allowed to access this TA/DA claim.');
-        }
-    }
-
-    private function assertClaimDateAvailable(int $employeeId, string $claimDate): void
-    {
-        $exists = TaDaClaim::query()
-            ->where('employee_id', $employeeId)
-            ->whereDate('claim_date', $claimDate)
-            ->exists();
-
-        if ($exists) {
-            throw ValidationException::withMessages([
-                'claim_date' => ['A TA/DA claim already exists for this date.'],
-            ]);
         }
     }
 
