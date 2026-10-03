@@ -44,6 +44,7 @@ final class TallyDealerLedgerService
             'source' => 'opening_balance',
             'source_label' => DealerTallyEntry::sourceLabel('opening_balance'),
             'source_id' => null,
+            'erp_reference' => null,
             'can_remove' => false,
         ];
 
@@ -77,6 +78,7 @@ final class TallyDealerLedgerService
                 'source' => (string) $row->source,
                 'source_label' => DealerTallyEntry::sourceLabel((string) $row->source, $row->voucher_type),
                 'source_id' => $row->source_id !== null ? (int) $row->source_id : null,
+                'erp_reference' => $row->erp_reference,
                 'can_remove' => DealerTallyEntry::isRemovableSource((string) $row->source),
             ];
         }

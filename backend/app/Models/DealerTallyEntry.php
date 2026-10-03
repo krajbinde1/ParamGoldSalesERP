@@ -260,6 +260,9 @@ class DealerTallyEntry extends Model
         if ((string) $source === self::SOURCE_COLLECTION) {
             return 'ERP - Collection';
         }
+        if ((string) $source === self::SOURCE_CREDIT_NOTE_ORDER) {
+            return 'ERP - Credit Note';
+        }
         if ((string) $source === self::SOURCE_TALLY_JOURNAL || self::isJournalVoucherType($voucherType)) {
             return self::SOURCE_LABEL_TALLY_JOURNAL;
         }

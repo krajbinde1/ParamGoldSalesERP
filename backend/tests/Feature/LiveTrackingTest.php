@@ -231,6 +231,31 @@ it('keeps four punched-in employees with no GPS and ignores yesterday', function
         ->and(collect($snapshot['employees'])->pluck('employee_id'))->not->toContain($yesterday->employee_id);
 });
 
+it('adds the profile photo and initials without changing today distance', function (): void {
+    $director = liveDirector();
+    $employee = liveEmployee('9710000020');
+    $employee->update([
+        'full_name' => 'Umesh Wagh',
+        'profile_photo_path' => 'employees/photos/umesh.jpg',
+    ]);
+    $attendance = liveAttendance($employee);
+    livePoint($attendance, 18.5204, 73.8567, AttendanceCalendar::now()->subMinute());
+
+    $withoutPhoto = liveEmployee('9710000021');
+    $withoutPhoto->update(['full_name' => 'Asha Patil', 'profile_photo_path' => null]);
+    liveAttendance($withoutPhoto);
+
+    $rows = collect(app(LiveTrackingService::class)->snapshot($director)['employees'])->keyBy('employee_id');
+
+    expect($rows[$employee->id]['employee_name'])->toBe('Umesh Wagh')
+        ->and($rows[$employee->id]['initials'])->toBe('UW')
+        ->and($rows[$employee->id]['profile_photo_url'])->toContain('employees/photos/umesh.jpg')
+        ->and($rows[$employee->id]['today_distance_km'])->toBe(4.2)
+        ->and($rows[$withoutPhoto->id]['initials'])->toBe('AP')
+        ->and($rows[$withoutPhoto->id]['profile_photo_url'])->toBeNull()
+        ->and(EmployeeRoutePoint::query()->where('attendance_id', $attendance->id)->count())->toBe(1);
+});
+
 it('uses the Asia/Kolkata date so late evening still counts as today', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-09-29 23:40:00', AttendanceCalendar::TIMEZONE));
     $director = liveDirector();

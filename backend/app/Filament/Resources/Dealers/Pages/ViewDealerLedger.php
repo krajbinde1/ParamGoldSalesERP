@@ -9,6 +9,7 @@ use App\Filament\Resources\Dealers\DealerResource;
 use App\Models\Dealer;
 use App\Models\DealerTallyEntry;
 use App\Models\TallyConnectorLedger;
+use App\Services\Dealers\DealerLedgerDocumentLinkService;
 use App\Services\TallyLedger\TallyDealerLedgerService;
 use App\Services\TallyLedger\TallyLedgerImportService;
 use App\Services\TallySync\TallyConnectorStatusService;
@@ -201,7 +202,10 @@ class ViewDealerLedger extends ViewRecord
         /** @var Dealer $record */
         $record = $this->getRecord();
 
-        return app(TallyDealerLedgerService::class)->statement($record);
+        $statement = app(TallyDealerLedgerService::class)->statement($record);
+        $statement['ledger'] = app(DealerLedgerDocumentLinkService::class)->enrich($record, $statement['ledger']);
+
+        return $statement;
     }
 
     public function canManageTallyLedger(): bool

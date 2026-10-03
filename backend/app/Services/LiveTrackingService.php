@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Models\Attendance;
+use App\Models\Employee;
 use App\Models\EmployeeRoutePoint;
 use App\Models\User;
 use App\Services\Orders\ManagerOrderAccessService;
@@ -11,6 +12,7 @@ use App\Support\LiveTracking;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Storage;
 
 final class LiveTrackingService
 {
@@ -72,6 +74,8 @@ final class LiveTrackingService
             $employees[] = [
                 'employee_id' => (int) $attendance->employee_id,
                 'employee_name' => $employee?->full_name ?? 'Employee',
+                'initials' => $this->initials($employee?->full_name),
+                'profile_photo_url' => $this->profilePhotoUrl($employee),
                 'designation' => $employee?->designation,
                 'mobile' => $employee?->mobile,
                 'attendance_id' => (int) $attendance->id,
@@ -237,7 +241,7 @@ final class LiveTrackingService
             ->whereDate('attendance_date', $now->timezone(AttendanceCalendar::TIMEZONE)->toDateString())
             ->whereNotNull('punch_in_time')
             ->whereNull('punch_out_time')
-            ->with(['employee:id,full_name,mobile,designation,employee_code'])
+            ->with(['employee:id,full_name,mobile,designation,employee_code,profile_photo_path,updated_at'])
             ->orderBy('employee_id')
             ->get();
     }
@@ -349,5 +353,33 @@ final class LiveTrackingService
         }
 
         return false;
+    }
+
+    private function profilePhotoUrl(?Employee $employee): ?string
+    {
+        if ($employee === null || ! filled($employee->profile_photo_path)) {
+            return null;
+        }
+
+        $url = Storage::disk('public')->url($employee->profile_photo_path);
+        $version = $employee->updated_at?->getTimestamp() ?? time();
+
+        return $url.(str_contains($url, '?') ? '&' : '?').'v='.$version;
+    }
+
+    private function initials(?string $name): string
+    {
+        $parts = preg_split('/\s+/u', trim((string) $name)) ?: [];
+        $parts = array_values(array_filter($parts, fn (string $part): bool => $part !== ''));
+        if ($parts === []) {
+            return 'E';
+        }
+
+        $first = mb_substr($parts[0], 0, 1);
+        $second = count($parts) > 1
+            ? mb_substr($parts[array_key_last($parts)], 0, 1)
+            : mb_substr($parts[0], 1, 1);
+
+        return mb_strtoupper($first.$second);
     }
 }
