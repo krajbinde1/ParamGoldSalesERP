@@ -6,6 +6,7 @@ use App\Enums\BomStatus;
 use App\Enums\PurchaseFreightType;
 use App\Enums\PurchaseMaterialType;
 use App\Enums\PurchaseStatus;
+use App\Enums\StockItemType;
 use App\Enums\StockTransactionType;
 use App\Enums\TransportFreightLedgerType;
 use App\Enums\UserRole;
@@ -18,6 +19,7 @@ use App\Filament\Resources\TransportFreightLedgers\Pages\ListTransportFreightLed
 use App\Models\Bom;
 use App\Models\BomItem;
 use App\Models\PackagingMaterial;
+use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\RawMaterial;
 use App\Models\SemiFinishedMaterial;
@@ -85,6 +87,20 @@ function purchasePackagingMaterial(float $stock = 40, float $avg = 10): Packagin
         'purchase_rate' => $avg,
         'average_rate' => $avg,
         'status' => true,
+    ]);
+}
+
+function purchaseFinishedGood(float $stock = 100, float $avg = 50, bool $active = true): Product
+{
+    return Product::query()->create([
+        'product_name' => 'Finished '.uniqid(),
+        'uom' => 'Kg',
+        'dealer_price' => 100,
+        'status' => $active,
+        'manufacturing_enabled' => true,
+        'current_finished_stock' => $stock,
+        'opening_finished_stock' => 0,
+        'weighted_average_cost' => $avg,
     ]);
 }
 
@@ -1307,4 +1323,218 @@ it('autofills uom on newly added purchase rows on create and edit', function ():
         ->and($editPage->html())->toContain($rawB->material_name)
         ->and(PurchaseForm::rawMaterialOptions())->toHaveKey($rawA->id)
         ->and(PurchaseForm::rawMaterialOptions())->toHaveKey($rawB->id);
+});
+
+it('lists finished goods as a purchase material type', function (): void {
+    expect(PurchaseMaterialType::options())->toBe([
+        PurchaseMaterialType::RawMaterial->value => 'Raw Material',
+        PurchaseMaterialType::PackingMaterial->value => 'Packing Material',
+        PurchaseMaterialType::FinishedGoods->value => 'Finished Goods',
+    ]);
+});
+
+it('confirms a finished goods purchase and increases finished stock with a purchase ledger', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier('FG Supplier');
+    $product = purchaseFinishedGood(100, 50);
+
+    $purchase = app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::FinishedGoods),
+        [[
+            'product_id' => $product->id,
+            'quantity' => 50,
+            'purchase_rate' => 60,
+            'gst_percentage' => 0,
+            'batch_lot_no' => 'FG-LOT-1',
+        ]],
+        $director,
+        confirm: true,
+    );
+
+    $product = $product->fresh();
+    $ledger = StockLedger::query()
+        ->where('product_id', $product->id)
+        ->where('item_type', StockItemType::FinishedProduct)
+        ->where('transaction_type', StockTransactionType::Purchase)
+        ->first();
+
+    // WAVG = (100*50 + 50*60) / 150 = 53.3333
+    expect($purchase->status)->toBe(PurchaseStatus::Confirmed)
+        ->and($purchase->material_type)->toBe(PurchaseMaterialType::FinishedGoods)
+        ->and($purchase->items->first()->product_id)->toBe($product->id)
+        ->and($purchase->items->first()->raw_material_id)->toBeNull()
+        ->and($purchase->items->first()->packaging_material_id)->toBeNull()
+        ->and((float) $product->current_finished_stock)->toBe(150.0)
+        ->and((float) $product->weighted_average_cost)->toBe(53.3333)
+        ->and((float) $product->dealer_price)->toBe(100.0)
+        ->and($ledger)->not->toBeNull()
+        ->and((float) $ledger->quantity_in)->toBe(50.0)
+        ->and((float) $ledger->rate)->toBe(60.0)
+        ->and($ledger->reference_number)->toBe($purchase->purchase_number);
+});
+
+it('saves a finished goods purchase as draft without changing finished stock', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $product = purchaseFinishedGood(100, 50);
+
+    $purchase = app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::FinishedGoods),
+        [[
+            'product_id' => $product->id,
+            'quantity' => 20,
+            'purchase_rate' => 60,
+            'gst_percentage' => 18,
+        ]],
+        $director,
+    );
+
+    expect($purchase->status)->toBe(PurchaseStatus::Draft)
+        ->and((float) $product->fresh()->current_finished_stock)->toBe(100.0)
+        ->and(StockLedger::query()->where('product_id', $product->id)->where('transaction_type', StockTransactionType::Purchase)->count())->toBe(0);
+});
+
+it('cancels a confirmed finished goods purchase and restores finished stock', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $product = purchaseFinishedGood(100, 50);
+
+    $purchase = app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::FinishedGoods),
+        [[
+            'product_id' => $product->id,
+            'quantity' => 20,
+            'purchase_rate' => 80,
+            'gst_percentage' => 0,
+        ]],
+        $director,
+        confirm: true,
+    );
+
+    expect((float) $product->fresh()->current_finished_stock)->toBe(120.0);
+
+    $cancelled = app(PurchaseService::class)->cancel($purchase, $director, 'Wrong invoice');
+    $product = $product->fresh();
+
+    expect($cancelled->status)->toBe(PurchaseStatus::Cancelled)
+        ->and((float) $product->current_finished_stock)->toBe(100.0)
+        ->and((float) $product->weighted_average_cost)->toBe(50.0)
+        ->and(StockLedger::query()->where('reference_id', $purchase->id)->where('transaction_type', StockTransactionType::Purchase)->count())->toBe(1)
+        ->and(StockLedger::query()->where('reference_id', $purchase->id)->where('transaction_type', StockTransactionType::PurchaseReturn)->count())->toBe(1);
+});
+
+it('shows only finished goods in the purchase material name list', function (): void {
+    $director = purchaseDirector();
+    $raw = purchaseRawMaterial();
+    $pack = purchasePackagingMaterial();
+    $product = purchaseFinishedGood();
+    $inactive = purchaseFinishedGood(active: false);
+    $inactive->update(['product_name' => 'Inactive Finished '.uniqid()]);
+
+    $page = Livewire::actingAs($director)
+        ->test(CreatePurchase::class)
+        ->fillForm([
+            'material_type' => PurchaseMaterialType::FinishedGoods->value,
+        ]);
+
+    $html = $page->html();
+
+    expect($html)->toContain('Finished Goods')
+        ->and($html)->toContain($product->product_name)
+        ->and($html)->not->toContain($raw->material_name)
+        ->and($html)->not->toContain($pack->packaging_name)
+        ->and($html)->not->toContain($inactive->product_name)
+        ->and(PurchaseForm::finishedGoodsOptions())->toHaveKey($product->id)
+        ->and(PurchaseForm::finishedGoodsOptions())->not->toHaveKey($inactive->id);
+});
+
+it('autofills uom from the selected finished good', function (): void {
+    $director = purchaseDirector();
+    $product = purchaseFinishedGood(10, 25);
+
+    $page = Livewire::actingAs($director)
+        ->test(CreatePurchase::class)
+        ->fillForm([
+            'material_type' => PurchaseMaterialType::FinishedGoods->value,
+        ]);
+
+    $itemKey = array_key_first($page->get('data.items') ?? []);
+    $page->set("data.items.{$itemKey}.product_id", $product->id);
+
+    expect($page->get("data.items.{$itemKey}.unit"))->toBe($product->uom)
+        ->and((float) $page->get("data.items.{$itemKey}.purchase_rate"))->toBe(25.0)
+        ->and($page->get("data.items.{$itemKey}.raw_material_id"))->toBeNull()
+        ->and($page->get("data.items.{$itemKey}.packaging_material_id"))->toBeNull();
+});
+
+it('clears the selected finished good when purchase material type changes', function (): void {
+    $director = purchaseDirector();
+    $product = purchaseFinishedGood();
+
+    $page = Livewire::actingAs($director)
+        ->test(CreatePurchase::class)
+        ->fillForm([
+            'material_type' => PurchaseMaterialType::FinishedGoods->value,
+            'items' => [[
+                'product_id' => $product->id,
+                'quantity' => 5,
+                'purchase_rate' => 10,
+                'gst_percentage' => '0',
+            ]],
+        ]);
+
+    expect(collect($page->get('data.items'))->pluck('product_id')->filter()->values()->all())->toContain($product->id);
+
+    $page->set('data.material_type', PurchaseMaterialType::RawMaterial->value);
+
+    $items = collect($page->get('data.items'));
+    expect($items->pluck('product_id')->filter()->all())->toBeEmpty()
+        ->and($items->pluck('raw_material_id')->filter()->all())->toBeEmpty()
+        ->and($page->html())->not->toContain($product->product_name);
+});
+
+it('does not save a raw material on a finished goods purchase', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $raw = purchaseRawMaterial();
+
+    expect(fn () => app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::FinishedGoods),
+        [[
+            'raw_material_id' => $raw->id,
+            'quantity' => 2,
+            'purchase_rate' => 10,
+            'gst_percentage' => 0,
+        ]],
+        $director,
+    ))->toThrow(ValidationException::class);
+
+    expect(Purchase::query()->count())->toBe(0)
+        ->and((float) $raw->fresh()->current_stock)->toBe(100.0);
+});
+
+it('keeps finished goods names when editing a finished goods purchase', function (): void {
+    $director = purchaseDirector();
+    $supplier = purchaseSupplier();
+    $raw = purchaseRawMaterial();
+    $product = purchaseFinishedGood();
+
+    $purchase = app(PurchaseService::class)->create(
+        purchaseHeader($supplier, PurchaseMaterialType::FinishedGoods),
+        [[
+            'product_id' => $product->id,
+            'quantity' => 3,
+            'purchase_rate' => 8,
+            'gst_percentage' => 0,
+        ]],
+        $director,
+    );
+
+    $html = Livewire::actingAs($director)
+        ->test(EditPurchase::class, ['record' => $purchase->getKey()])
+        ->assertSuccessful()
+        ->html();
+
+    expect($html)->toContain($product->product_name)
+        ->and($html)->not->toContain($raw->material_name);
 });

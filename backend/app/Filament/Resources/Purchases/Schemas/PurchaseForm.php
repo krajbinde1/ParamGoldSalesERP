@@ -6,6 +6,7 @@ use App\Enums\PurchaseFreightType;
 use App\Enums\PurchaseMaterialType;
 use App\Filament\Resources\Products\Schemas\ProductForm;
 use App\Models\PackagingMaterial;
+use App\Models\Product;
 use App\Models\RawMaterial;
 use App\Models\Supplier;
 use App\Services\Inventory\PurchaseFreightAllocator;
@@ -208,6 +209,34 @@ class PurchaseForm
                                             ->live()
                                             ->afterStateUpdated(function ($state, Set $set, Get $get): void {
                                                 self::applyPackingMaterialSelection($state, $set, $get);
+                                            })
+                                            ->extraFieldWrapperAttributes(['class' => 'paramgold-purchase-material'])
+                                            ->columnSpan(['default' => 1, 'md' => 2, 'lg' => 4]),
+                                        Select::make('product_id')
+                                            ->label('Material Name')
+                                            ->options(function (Get $get): array {
+                                                return self::headerMaterialType($get) === PurchaseMaterialType::FinishedGoods
+                                                    ? self::finishedGoodsOptions()
+                                                    : [];
+                                            })
+                                            ->getSearchResultsUsing(function (Get $get, string $search): array {
+                                                return self::headerMaterialType($get) === PurchaseMaterialType::FinishedGoods
+                                                    ? self::finishedGoodsOptions($search)
+                                                    : [];
+                                            })
+                                            ->getOptionLabelUsing(fn ($value): ?string => self::finishedGoodsLabel($value))
+                                            ->searchable()
+                                            ->preload()
+                                            ->optionsLimit(2000)
+                                            ->dynamicOptions()
+                                            ->wrapOptionLabels(false)
+                                            ->placeholder('Select a finished good')
+                                            ->required(fn (Get $get): bool => self::headerMaterialType($get) === PurchaseMaterialType::FinishedGoods)
+                                            ->visible(fn (Get $get): bool => self::headerMaterialType($get) === PurchaseMaterialType::FinishedGoods)
+                                            ->dehydrated(fn (Get $get): bool => self::headerMaterialType($get) === PurchaseMaterialType::FinishedGoods)
+                                            ->live()
+                                            ->afterStateUpdated(function ($state, Set $set, Get $get): void {
+                                                self::applyFinishedGoodsSelection($state, $set, $get);
                                             })
                                             ->extraFieldWrapperAttributes(['class' => 'paramgold-purchase-material'])
                                             ->columnSpan(['default' => 1, 'md' => 2, 'lg' => 4]),
@@ -486,6 +515,33 @@ class PurchaseForm
     /**
      * @return array<int|string, string>
      */
+    public static function finishedGoodsOptions(?string $search = null): array
+    {
+        $query = Product::query()
+            ->where('status', true)
+            ->orderBy('product_name');
+
+        $term = trim((string) $search);
+        if ($term !== '') {
+            $like = '%'.$term.'%';
+            $query->where(function (Builder $builder) use ($like): void {
+                $builder->where('product_name', 'like', $like)
+                    ->orWhere('product_code', 'like', $like);
+            });
+        }
+
+        return $query
+            ->limit(2000)
+            ->get()
+            ->mapWithKeys(fn (Product $product): array => [
+                $product->id => self::finishedGoodsLabel($product) ?? (string) $product->id,
+            ])
+            ->all();
+    }
+
+    /**
+     * @return array<int|string, string>
+     */
     public static function supplierOptions(?string $search = null): array
     {
         $query = Supplier::query()
@@ -559,10 +615,27 @@ class PurchaseForm
         return trim($material->packaging_code.' — '.$material->packaging_name);
     }
 
+    public static function finishedGoodsLabel(mixed $product): ?string
+    {
+        if (! $product instanceof Product) {
+            if (blank($product)) {
+                return null;
+            }
+            $product = Product::query()->find($product);
+        }
+
+        if (! $product instanceof Product) {
+            return null;
+        }
+
+        return trim($product->product_code.' — '.$product->product_name);
+    }
+
     private static function applyRawMaterialSelection(mixed $state, Set $set, Get $get): void
     {
         $material = RawMaterial::query()->where('status', true)->find($state);
         $set('packaging_material_id', null);
+        $set('product_id', null);
         $set('unit', $material?->unit);
         $set('purchase_rate', $material?->purchase_rate ?: null);
         self::recalculateLine($set, $get);
@@ -573,8 +646,21 @@ class PurchaseForm
     {
         $material = PackagingMaterial::query()->where('status', true)->find($state);
         $set('raw_material_id', null);
+        $set('product_id', null);
         $set('unit', $material?->unit);
         $set('purchase_rate', $material?->purchase_rate ?: null);
+        self::recalculateLine($set, $get);
+        self::recalculateFreightAllocation($set, $get);
+    }
+
+    private static function applyFinishedGoodsSelection(mixed $state, Set $set, Get $get): void
+    {
+        $product = Product::query()->where('status', true)->find($state);
+        $set('raw_material_id', null);
+        $set('packaging_material_id', null);
+        $rate = (float) ($product?->weighted_average_cost ?? 0);
+        $set('unit', $product?->uom);
+        $set('purchase_rate', $rate > 0 ? $rate : null);
         self::recalculateLine($set, $get);
         self::recalculateFreightAllocation($set, $get);
     }
@@ -614,6 +700,7 @@ class PurchaseForm
         foreach (array_keys($items) as $key) {
             $set("items.{$key}.raw_material_id", null);
             $set("items.{$key}.packaging_material_id", null);
+            $set("items.{$key}.product_id", null);
             $set("items.{$key}.unit", null);
             $set("items.{$key}.purchase_rate", null);
             $set("items.{$key}.taxable_amount", null);

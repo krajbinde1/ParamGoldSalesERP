@@ -23,11 +23,12 @@ class EditPurchase extends EditRecord
     {
         /** @var Purchase $record */
         $record = $this->getRecord();
-        $record->loadMissing(['items.rawMaterial', 'items.packagingMaterial']);
+        $record->loadMissing(['items.rawMaterial', 'items.packagingMaterial', 'items.product']);
 
         $data['items'] = $record->items->map(fn ($item): array => [
             'raw_material_id' => $item->raw_material_id,
             'packaging_material_id' => $item->packaging_material_id,
+            'product_id' => $item->product_id,
             'quantity' => (float) $item->quantity,
             'unit' => $item->unit,
             'purchase_rate' => (float) $item->purchase_rate,

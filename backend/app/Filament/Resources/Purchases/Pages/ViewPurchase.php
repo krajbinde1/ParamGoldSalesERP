@@ -20,7 +20,7 @@ class ViewPurchase extends ViewRecord
     public function mount(int|string $record): void
     {
         parent::mount($record);
-        $this->getRecord()->loadMissing(['items.rawMaterial', 'items.packagingMaterial', 'supplier']);
+        $this->getRecord()->loadMissing(['items.rawMaterial', 'items.packagingMaterial', 'items.product', 'supplier']);
     }
 
     public function form(Schema $schema): Schema

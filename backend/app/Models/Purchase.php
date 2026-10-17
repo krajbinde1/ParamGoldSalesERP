@@ -175,6 +175,19 @@ class Purchase extends Model
                     ->where('reference_id', $this->id)
                     ->where('transaction_type', StockTransactionType::Purchase)
                     ->max('id');
+            } elseif ($item->product_id) {
+                $product = Product::query()->find($item->product_id);
+                if ($product === null || (float) $product->current_finished_stock + 0.0001 < $qty) {
+                    return true;
+                }
+
+                $maxLedgerId = StockLedger::query()
+                    ->where('item_type', StockItemType::FinishedProduct)
+                    ->where('product_id', $item->product_id)
+                    ->where('reference_type', self::class)
+                    ->where('reference_id', $this->id)
+                    ->where('transaction_type', StockTransactionType::Purchase)
+                    ->max('id');
             } else {
                 $material = PackagingMaterial::query()->find($item->packaging_material_id);
                 if ($material === null || (float) $material->current_stock + 0.0001 < $qty) {
@@ -194,13 +207,17 @@ class Purchase extends Model
                 return true;
             }
 
-            $itemType = $item->raw_material_id ? StockItemType::RawMaterial : StockItemType::PackagingMaterial;
+            $itemType = $item->raw_material_id
+                ? StockItemType::RawMaterial
+                : ($item->product_id ? StockItemType::FinishedProduct : StockItemType::PackagingMaterial);
             $hasLater = StockLedger::query()
                 ->where('item_type', $itemType)
                 ->when(
                     $item->raw_material_id,
                     fn ($q) => $q->where('raw_material_id', $item->raw_material_id),
-                    fn ($q) => $q->where('packaging_material_id', $item->packaging_material_id),
+                    fn ($q) => $item->product_id
+                        ? $q->where('product_id', $item->product_id)
+                        : $q->where('packaging_material_id', $item->packaging_material_id),
                 )
                 ->where('id', '>', $maxLedgerId)
                 ->exists();

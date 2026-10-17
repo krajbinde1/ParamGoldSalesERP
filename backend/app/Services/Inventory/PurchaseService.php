@@ -7,6 +7,7 @@ use App\Enums\PurchaseMaterialType;
 use App\Enums\PurchaseStatus;
 use App\Enums\StockTransactionType;
 use App\Models\PackagingMaterial;
+use App\Models\Product;
 use App\Models\Purchase;
 use App\Models\PurchaseItem;
 use App\Models\RawMaterial;
@@ -241,6 +242,9 @@ final class PurchaseService
             if ((int) ($item['packaging_material_id'] ?? 0) !== (int) ($row->packaging_material_id ?? 0)) {
                 return false;
             }
+            if ((int) ($item['product_id'] ?? 0) !== (int) ($row->product_id ?? 0)) {
+                return false;
+            }
 
             $calculated = $this->costing->calculateItemAmounts([
                 'inward_quantity' => $item['quantity'] ?? 0,
@@ -305,6 +309,9 @@ final class PurchaseService
         if ($purchase->material_type === PurchaseMaterialType::RawMaterial) {
             $material = $this->inventoryService->lockRawMaterial((int) $item->raw_material_id);
             $this->applyInwardToMaterial($purchase, $item, $user, $material, $qty, $landedRate);
+        } elseif ($purchase->material_type === PurchaseMaterialType::FinishedGoods) {
+            $product = $this->inventoryService->lockProduct((int) $item->product_id);
+            $this->applyInwardToFinishedProduct($purchase, $item, $user, $product, $qty, $landedRate);
         } else {
             $material = $this->inventoryService->lockPackagingMaterial((int) $item->packaging_material_id);
             $this->applyInwardToMaterial($purchase, $item, $user, $material, $qty, $landedRate);
@@ -356,6 +363,44 @@ final class PurchaseService
         $material->save();
     }
 
+    private function applyInwardToFinishedProduct(
+        Purchase $purchase,
+        PurchaseItem $item,
+        User $user,
+        Product $product,
+        float $qty,
+        float $landedRate,
+    ): void {
+        $oldStock = (float) $product->current_finished_stock;
+        $oldAvg = (float) $product->weighted_average_cost;
+        $stockAfter = round($oldStock + $qty, 3);
+        $newAvg = $qty > 0
+            ? $this->weightedAverage->newAverageRate($oldStock, $oldAvg, $qty, $landedRate)
+            : $oldAvg;
+        $inwardValue = $this->weightedAverage->stockValue($qty, $landedRate);
+        $purchaseRate = (float) $item->purchase_rate;
+
+        $item->fill([
+            'stock_before' => $oldStock,
+            'stock_after' => $stockAfter,
+            'old_average_rate' => $oldAvg,
+            'new_average_rate' => $newAvg,
+        ]);
+        $item->save();
+
+        if ($qty <= 0) {
+            return;
+        }
+
+        $meta = $this->ledgerMeta($purchase, $item, $oldAvg, $newAvg, $purchaseRate, $landedRate, $inwardValue);
+        $this->ledgerService->postFinishedProductMovement($product, $qty, 0, $landedRate, $meta, $user);
+
+        $product->refresh();
+        $product->weighted_average_cost = $newAvg;
+        $product->current_finished_stock = $stockAfter;
+        $product->save();
+    }
+
     private function reverseConfirmedPostings(Purchase $locked, User $user, string $remarks): void
     {
         $this->reverseConfirmedStock($locked, $user, $remarks);
@@ -401,6 +446,27 @@ final class PurchaseService
                 $meta['old_average_rate'] = (float) $material->average_rate;
                 $meta['new_average_rate'] = $restoreAvg ?? (float) $material->average_rate;
                 $this->ledgerService->postRawMaterialMovement($material, 0, $qty, $landedRate, $meta, $user);
+                $material->refresh();
+                $restoredAvg = $restoreAvg ?? (float) $material->average_rate;
+                $material->average_rate = $restoredAvg;
+                $material->current_stock_value = $this->weightedAverage->stockValue(
+                    (float) $material->current_stock,
+                    $restoredAvg,
+                );
+                $material->save();
+            } elseif ($item->product_id) {
+                $product = $this->inventoryService->lockProduct((int) $item->product_id);
+                if ((float) $product->current_finished_stock + 0.0001 < $qty) {
+                    throw ValidationException::withMessages([
+                        'status' => 'Cannot reverse this purchase because subsequent stock transactions exist.',
+                    ]);
+                }
+                $meta['old_average_rate'] = (float) $product->weighted_average_cost;
+                $meta['new_average_rate'] = $restoreAvg ?? (float) $product->weighted_average_cost;
+                $this->ledgerService->postFinishedProductMovement($product, 0, $qty, $landedRate, $meta, $user);
+                $product->refresh();
+                $product->weighted_average_cost = $restoreAvg ?? (float) $product->weighted_average_cost;
+                $product->save();
             } else {
                 $material = $this->inventoryService->lockPackagingMaterial((int) $item->packaging_material_id);
                 if ((float) $material->current_stock + 0.0001 < $qty) {
@@ -411,16 +477,15 @@ final class PurchaseService
                 $meta['old_average_rate'] = (float) $material->average_rate;
                 $meta['new_average_rate'] = $restoreAvg ?? (float) $material->average_rate;
                 $this->ledgerService->postPackagingMaterialMovement($material, 0, $qty, $landedRate, $meta, $user);
+                $material->refresh();
+                $restoredAvg = $restoreAvg ?? (float) $material->average_rate;
+                $material->average_rate = $restoredAvg;
+                $material->current_stock_value = $this->weightedAverage->stockValue(
+                    (float) $material->current_stock,
+                    $restoredAvg,
+                );
+                $material->save();
             }
-
-            $material->refresh();
-            $restoredAvg = $restoreAvg ?? (float) $material->average_rate;
-            $material->average_rate = $restoredAvg;
-            $material->current_stock_value = $this->weightedAverage->stockValue(
-                (float) $material->current_stock,
-                $restoredAvg,
-            );
-            $material->save();
         }
     }
 
@@ -439,6 +504,7 @@ final class PurchaseService
         foreach ($items as $index => $item) {
             $rawId = isset($item['raw_material_id']) ? (int) $item['raw_material_id'] : 0;
             $packId = isset($item['packaging_material_id']) ? (int) $item['packaging_material_id'] : 0;
+            $productId = isset($item['product_id']) ? (int) $item['product_id'] : 0;
 
             if ($type === PurchaseMaterialType::RawMaterial) {
                 if ($packId > 0 && $rawId <= 0) {
@@ -459,6 +525,27 @@ final class PurchaseService
                 }
                 $unit = $material->unit;
                 $packId = null;
+                $productId = null;
+            } elseif ($type === PurchaseMaterialType::FinishedGoods) {
+                if (($rawId > 0 || $packId > 0) && $productId <= 0) {
+                    throw ValidationException::withMessages([
+                        'items' => 'Material Type is Finished Goods. Select a finished good, not a raw or packing material.',
+                    ]);
+                }
+                if ($productId <= 0) {
+                    throw ValidationException::withMessages([
+                        'items' => 'Select a finished good from the existing master.',
+                    ]);
+                }
+                $product = Product::query()->where('status', true)->find($productId);
+                if ($product === null) {
+                    throw ValidationException::withMessages([
+                        'items' => 'Purchase items must be selected from active finished goods.',
+                    ]);
+                }
+                $unit = $product->uom;
+                $rawId = null;
+                $packId = null;
             } else {
                 if ($rawId > 0 && $packId <= 0) {
                     throw ValidationException::withMessages([
@@ -478,6 +565,7 @@ final class PurchaseService
                 }
                 $unit = $material->unit;
                 $rawId = null;
+                $productId = null;
             }
 
             $calculated = $this->costing->calculateItemAmounts([
@@ -491,8 +579,9 @@ final class PurchaseService
 
             PurchaseItem::query()->create([
                 'purchase_id' => $purchase->id,
-                'raw_material_id' => $rawId,
-                'packaging_material_id' => $packId,
+                'raw_material_id' => $rawId ?: null,
+                'packaging_material_id' => $packId ?: null,
+                'product_id' => $productId ?: null,
                 'unit' => $unit,
                 'quantity' => $qty,
                 'purchase_rate' => $calculated['basic_rate'],
@@ -573,7 +662,7 @@ final class PurchaseService
         }
         if ($type === null) {
             throw ValidationException::withMessages([
-                'material_type' => 'Select Raw Material or Packing Material.',
+                'material_type' => 'Select Raw Material, Packing Material, or Finished Goods.',
             ]);
         }
 

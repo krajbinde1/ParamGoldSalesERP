@@ -11,6 +11,7 @@ class PurchaseItem extends Model
         'purchase_id',
         'raw_material_id',
         'packaging_material_id',
+        'product_id',
         'unit',
         'quantity',
         'purchase_rate',
@@ -64,10 +65,16 @@ class PurchaseItem extends Model
         return $this->belongsTo(PackagingMaterial::class);
     }
 
+    public function product(): BelongsTo
+    {
+        return $this->belongsTo(Product::class);
+    }
+
     public function materialName(): string
     {
         return $this->rawMaterial?->material_name
             ?? $this->packagingMaterial?->packaging_name
+            ?? $this->product?->product_name
             ?? '—';
     }
 }
