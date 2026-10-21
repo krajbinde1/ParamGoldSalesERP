@@ -584,37 +584,18 @@ final class TallyOutboundEnqueueService
         $payload = is_array($voucher->payload) ? $voucher->payload : [];
         $collection = is_array($payload['collection'] ?? null) ? $payload['collection'] : [];
         $current = trim((string) ($collection['debit_ledger'] ?? ''));
-        $needsLedger = $current !== $target;
-        $cashFailure = $this->isCashLedgerFailure($voucher->last_error);
-
-        if (! $needsLedger && ! $cashFailure) {
+        if ($current === $target) {
             return $voucher;
         }
 
-        if ($needsLedger) {
-            $collection['debit_ledger'] = $target;
-            $payload['collection'] = $collection;
-            $voucher->payload = $payload;
-        }
-
-        if ($cashFailure && $voucher->isFailed()) {
-            $voucher->status = TallyOutboundVoucher::STATUS_PENDING;
-            $voucher->last_error = null;
-            $voucher->claimed_at = null;
-            $voucher->claimed_until = null;
-            $voucher->claimed_by = null;
-        }
-
+        // Status and last_error stay as they are. A failed receipt is not
+        // reopened, because posting it again can alter a voucher already in Tally.
+        $collection['debit_ledger'] = $target;
+        $payload['collection'] = $collection;
+        $voucher->payload = $payload;
         $voucher->save();
 
         return $voucher;
-    }
-
-    private function isCashLedgerFailure(?string $error): bool
-    {
-        $text = strtolower(trim((string) $error));
-
-        return $text !== '' && str_contains($text, 'ledger cash');
     }
 
     /**

@@ -2,7 +2,8 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
+from xml.sax.saxutils import escape
 
 import requests
 
@@ -57,6 +58,76 @@ class TallyResult:
             )
             if match.strip()
         ]
+
+
+@dataclass(frozen=True)
+class TallyReceiptSnapshot:
+    reference: str
+    voucher_number: str
+    party_ledger: str
+    lines: tuple[tuple[str, float], ...]
+
+
+def parse_receipt_vouchers(xml: str) -> list[TallyReceiptSnapshot]:
+    snapshots: list[TallyReceiptSnapshot] = []
+    for block in re.findall(r"<VOUCHER\s.*?</VOUCHER>", xml, flags=re.DOTALL | re.IGNORECASE):
+        entries = re.findall(
+            r"<(?:ALLLEDGERENTRIES|LEDGERENTRIES)\.LIST>(.*?)</(?:ALLLEDGERENTRIES|LEDGERENTRIES)\.LIST>",
+            block,
+            flags=re.DOTALL | re.IGNORECASE,
+        )
+        lines: list[tuple[str, float]] = []
+        for entry in entries:
+            name = _text_tag(entry, "LEDGERNAME")
+            if name == "":
+                continue
+            amount_text = _text_tag(entry, "AMOUNT")
+            try:
+                amount = round(float(amount_text), 2) if amount_text else 0.0
+            except ValueError:
+                amount = 0.0
+            if amount == 0.0:
+                deemed = _text_tag(entry, "ISDEEMEDPOSITIVE").casefold()
+                if deemed == "yes":
+                    amount = -0.01
+                elif deemed == "no":
+                    amount = 0.01
+            lines.append((name, amount))
+        snapshots.append(
+            TallyReceiptSnapshot(
+                reference=_text_tag(block, "REFERENCE"),
+                voucher_number=_text_tag(block, "VOUCHERNUMBER"),
+                party_ledger=_text_tag(block, "PARTYLEDGERNAME"),
+                lines=tuple(lines),
+            )
+        )
+    return snapshots
+
+
+def receipt_ledger_problem(
+    snapshot: TallyReceiptSnapshot,
+    debit_ledger: str,
+    credit_ledger: str,
+    amount: float,
+) -> str | None:
+    debit_names = [name for name, line_amount in snapshot.lines if line_amount < 0]
+    credit_names = [name for name, line_amount in snapshot.lines if line_amount > 0]
+    if any(name.casefold() == "cash" for name, _line_amount in snapshot.lines):
+        return "Tally stored Cash as a ledger on this receipt"
+    if debit_ledger not in debit_names:
+        found = ", ".join(debit_names) or "(none)"
+        return f"Debit ledger is {found}, expected {debit_ledger}"
+    if credit_ledger not in credit_names:
+        found = ", ".join(credit_names) or "(none)"
+        return f"Credit ledger is {found}, expected {credit_ledger}"
+    debit_amount = sum(
+        abs(line_amount)
+        for name, line_amount in snapshot.lines
+        if name == debit_ledger and line_amount < 0
+    )
+    if abs(debit_amount - abs(amount)) > 0.05:
+        return f"Amount is {debit_amount:.2f}, expected {abs(amount):.2f}"
+    return None
 
 
 class TallyClient:
@@ -173,6 +244,40 @@ class TallyClient:
         raw = self._post_xml(xml, max(self.timeout, 180))
         return parse_journal_vouchers(raw)
 
+    def find_receipts_by_reference(self, reference: str) -> list[TallyReceiptSnapshot]:
+        ref = reference.strip()
+        if ref == "":
+            return []
+        company_xml = ""
+        if self.company:
+            company_xml = f"<SVCURRENTCOMPANY>{escape(self.company)}</SVCURRENTCOMPANY>"
+        start = "20250401"
+        end = (date.today() + timedelta(days=370)).strftime("%Y%m%d")
+        xml = (
+            "<ENVELOPE>"
+            "<HEADER><VERSION>1</VERSION><TALLYREQUEST>Export</TALLYREQUEST>"
+            "<TYPE>Collection</TYPE><ID>ReceiptByReference</ID></HEADER>"
+            "<BODY><DESC><STATICVARIABLES>"
+            "<SVEXPORTFORMAT>$$SysName:XML</SVEXPORTFORMAT>"
+            f"<SVFROMDATE>{start}</SVFROMDATE>"
+            f"<SVTODATE>{end}</SVTODATE>"
+            f"{company_xml}"
+            "</STATICVARIABLES>"
+            "<TDL><TDLMESSAGE>"
+            '<COLLECTION NAME="ReceiptByReference" ISMODIFY="No">'
+            "<TYPE>Voucher</TYPE>"
+            "<FILTER>MatchReceiptReference</FILTER>"
+            "<FETCH>Date, VoucherNumber, VoucherTypeName, PartyLedgerName, Reference, "
+            "AllLedgerEntries.LedgerName, AllLedgerEntries.Amount, AllLedgerEntries.IsDeemedPositive"
+            "</FETCH>"
+            "</COLLECTION>"
+            '<SYSTEM TYPE="Formulae" NAME="MatchReceiptReference">'
+            f"$$IsEqual:$Reference:&quot;{escape(ref)}&quot;"
+            "</SYSTEM>"
+            "</TDLMESSAGE></TDL>"
+            "</DESC></BODY></ENVELOPE>"
+        )
+        return parse_receipt_vouchers(self._post_xml(xml, self.timeout))
 
     def _post_xml(self, xml: str, timeout: int) -> str:
         try:

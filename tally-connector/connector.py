@@ -8,7 +8,7 @@ from typing import Any
 from config import Settings, load_settings
 from erp_client import ErpApiError, ErpClient
 from logutil import log
-from tally_client import TallyClient, TallyError
+from tally_client import TallyClient, TallyError, receipt_ledger_problem
 from vouchers import VoucherBuildError, build_voucher_xml, receipt_debit_ledger
 
 
@@ -323,10 +323,25 @@ def process_voucher(
             party = str(
                 (claimed_payload.get("payload") or {}).get("party", {}).get("tally_ledger_name") or ""
             )
+            amount = float(collection.get("amount") or 0)
             log(
                 "Syncing",
                 f"{reference}  account={debit}  debit={debit}  credit={party}",
             )
+            log("TraceXML", xml)
+            _post_receipt_or_keep_existing(
+                erp,
+                tally,
+                voucher_id,
+                reference,
+                claimed_payload,
+                xml,
+                debit,
+                party,
+                amount,
+            )
+            return
+
         result = tally.import_voucher(xml)
         if not result.succeeded:
             raise TallyError(result.error_message())
@@ -340,6 +355,66 @@ def process_voucher(
         _mark_failed(erp, voucher_id, reference, str(exc))
     except ErpApiError as exc:
         log("Failed", f"{reference}  ERP: {exc}")
+
+
+def _post_receipt_or_keep_existing(
+    erp: ErpClient,
+    tally: TallyClient,
+    voucher_id: int,
+    reference: str,
+    claimed_payload: dict[str, Any],
+    xml: str,
+    debit: str,
+    party: str,
+    amount: float,
+) -> None:
+    existing = tally.find_receipts_by_reference(reference)
+    if existing:
+        problem = _receipt_problem(existing, debit, party, amount)
+        if problem:
+            raise TallyError(
+                f"Receipt {reference} already exists in Tally ({problem}). "
+                "It was not altered or reposted. Manual review required."
+            )
+        display_no = existing[0].voucher_number or _display_voucher_no(claimed_payload, "")
+        erp.synced(voucher_id, display_no, None)
+        log("Synced", f"{reference}  already in Tally as {display_no}. Not altered.")
+        return
+
+    result = tally.import_voucher(xml)
+    if not result.succeeded:
+        raise TallyError(result.error_message())
+
+    stored = tally.find_receipts_by_reference(reference)
+    problem = _receipt_problem(stored, debit, party, amount)
+    if not stored or problem:
+        detail = problem or "the voucher could not be read back"
+        raise TallyError(
+            "Tally accepted the import but the stored receipt is not "
+            f"Dr {debit} / Cr {party} ({detail}). "
+            "The voucher was not posted again. Manual review required."
+        )
+
+    display_no = stored[0].voucher_number or _display_voucher_no(claimed_payload, result.last_vch_id)
+    erp.synced(voucher_id, display_no, result.last_vch_id or None)
+    log(
+        "Synced",
+        f"{reference}  Tally voucher={display_no or result.last_vch_id or 'created'}  "
+        f"debit={debit}  credit={party}",
+    )
+
+
+def _receipt_problem(
+    snapshots: list[Any],
+    debit: str,
+    party: str,
+    amount: float,
+) -> str | None:
+    if len(snapshots) > 1:
+        return f"{len(snapshots)} vouchers share this reference"
+    if len(snapshots) == 0:
+        return "no voucher was found"
+    return receipt_ledger_problem(snapshots[0], debit, party, amount)
 
 
 def _mark_failed(erp: ErpClient, voucher_id: int, reference: str, error: str) -> None:

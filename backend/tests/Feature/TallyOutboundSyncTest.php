@@ -781,7 +781,7 @@ it('rewrites an unsynced cash receipt payload to state bank of india without dup
     Carbon::setTestNow();
 });
 
-it('retries a failed cash-ledger receipt on the same outbox row after rewriting the debit ledger', function (): void {
+it('keeps a failed receipt failed while correcting its debit ledger', function (): void {
     Carbon::setTestNow(Carbon::parse('2026-09-27 16:10:00', 'Asia/Kolkata'));
 
     $employee = tallySyncEmployee('9813000303');
@@ -802,8 +802,8 @@ it('retries a failed cash-ledger receipt on the same outbox row after rewriting 
     app(TallyOutboundEnqueueService::class)->queueReceivedCollection($collection->fresh());
 
     expect(TallyOutboundVoucher::query()->where('source_type', TallyOutboundVoucher::SOURCE_COLLECTION)->where('source_id', $collection->id)->count())->toBe(1)
-        ->and($voucher->fresh()->status)->toBe(TallyOutboundVoucher::STATUS_PENDING)
-        ->and($voucher->fresh()->last_error)->toBeNull()
+        ->and($voucher->fresh()->status)->toBe(TallyOutboundVoucher::STATUS_FAILED)
+        ->and($voucher->fresh()->last_error)->toBe('Could not find ledger Cash')
         ->and($voucher->fresh()->payload['collection']['debit_ledger'])->toBe('State Bank of India')
         ->and($voucher->fresh()->payload['collection']['amount'])->toEqual(5000.0);
 

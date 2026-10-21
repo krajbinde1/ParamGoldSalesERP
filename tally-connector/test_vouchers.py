@@ -1,5 +1,7 @@
+import hashlib
 import re
 import unittest
+import uuid
 
 from config import Settings
 from vouchers import build_voucher_xml
@@ -199,10 +201,9 @@ class ReceiptVoucherLedgerTest(unittest.TestCase):
         self.assertIn("<VOUCHERTYPENAME>Receipt</VOUCHERTYPENAME>", xml)
         self.assertEqual(_tag(xml, "PARTYLEDGERNAME"), credit_ledger)
         self.assertEqual(_tag(xml, "BASICBASEPARTYNAME"), credit_ledger)
-        self.assertEqual(_tag(xml, "VCHENTRYMODE"), "Accounting Voucher")
+        self.assertNotIn("<VCHENTRYMODE>", xml)
         self.assertEqual(_tag(xml, "PERSISTEDVIEW"), "Accounting Voucher View")
         self.assertEqual(_tag(xml, "ISINVOICE"), "No")
-        self.assertEqual(_tag(xml, "CHANGEVCHMODE"), "No")
         self.assertNotIn("<LEDGERNAME>Cash</LEDGERNAME>", xml)
         self.assertNotIn("<PARTYLEDGERNAME>Cash</PARTYLEDGERNAME>", xml)
         self.assertNotIn("<LEDGERNAME>Bank</LEDGERNAME>", xml)
@@ -210,28 +211,37 @@ class ReceiptVoucherLedgerTest(unittest.TestCase):
         blocks = _ledger_blocks(xml)
         self.assertEqual(len(blocks), 2, xml)
 
-        debit, credit = blocks
-        self.assertEqual(_tag(debit, "LEDGERNAME"), debit_ledger)
-        self.assertEqual(_tag(debit, "ISDEEMEDPOSITIVE"), "Yes")
-        self.assertEqual(_tag(debit, "ISLASTDEEMEDPOSITIVE"), "Yes")
-        self.assertEqual(_tag(debit, "ISPARTYLEDGER"), "No")
-        self.assertEqual(_tag(debit, "AMOUNT"), f"-{amount}")
-        self.assertIn("<BANKALLOCATIONS.LIST>", debit)
-        self.assertNotIn("<BANKALLOCATIONS.LIST>", credit)
-        self.assertEqual(_tag(debit, "NAME"), remote_id)
-        self.assertEqual(_tag(debit, "TRANSACTIONTYPE"), transaction_type)
-        self.assertEqual(_tag(debit, "PAYMENTMODE"), "Transacted")
-        self.assertEqual(_tag(debit, "PAYMENTFAVOURING"), credit_ledger)
-        self.assertEqual(_tag(debit, "BANKPARTYNAME"), credit_ledger)
-        self.assertEqual(_tag(debit, "INSTRUMENTNUMBER"), instrument_number)
-        bank_amount = _tag(debit[debit.index("<BANKALLOCATIONS.LIST>") :], "AMOUNT")
-        self.assertEqual(bank_amount, f"-{amount}")
-
+        credit, debit = blocks
         self.assertEqual(_tag(credit, "LEDGERNAME"), credit_ledger)
         self.assertEqual(_tag(credit, "ISDEEMEDPOSITIVE"), "No")
         self.assertEqual(_tag(credit, "ISLASTDEEMEDPOSITIVE"), "No")
         self.assertEqual(_tag(credit, "ISPARTYLEDGER"), "Yes")
         self.assertEqual(_tag(credit, "AMOUNT"), amount)
+        self.assertNotIn("<BANKALLOCATIONS.LIST>", credit)
+
+        self.assertEqual(_tag(debit, "LEDGERNAME"), debit_ledger)
+        self.assertEqual(_tag(debit, "ISDEEMEDPOSITIVE"), "Yes")
+        self.assertEqual(_tag(debit, "ISLASTDEEMEDPOSITIVE"), "Yes")
+        self.assertEqual(_tag(debit, "ISPARTYLEDGER"), "Yes")
+        self.assertEqual(_tag(debit, "AMOUNT"), f"-{amount}")
+        self.assertIn("<BANKALLOCATIONS.LIST>", debit)
+        allocation_name = str(uuid.uuid5(uuid.NAMESPACE_URL, f"paramgold-receipt:{remote_id}"))
+        self.assertEqual(_tag(debit, "NAME"), allocation_name)
+        self.assertEqual(_tag(debit, "TRANSACTIONTYPE"), transaction_type)
+        self.assertEqual(_tag(debit, "PAYMENTMODE"), "Transacted")
+        self.assertEqual(_tag(debit, "PAYMENTFAVOURING"), credit_ledger)
+        self.assertEqual(_tag(debit, "BANKPARTYNAME"), credit_ledger)
+        self.assertEqual(_tag(debit, "INSTRUMENTNUMBER"), instrument_number)
+        self.assertEqual(
+            _tag(debit, "UNIQUEREFERENCENUMBER"),
+            hashlib.sha1(remote_id.encode("utf-8")).hexdigest()[:16],
+        )
+        if transaction_type == "Inter Bank Transfer":
+            self.assertEqual(_tag(debit, "TRANSFERMODE"), "NEFT")
+        else:
+            self.assertNotIn("<TRANSFERMODE>", debit)
+        bank_amount = _tag(debit[debit.index("<BANKALLOCATIONS.LIST>") :], "AMOUNT")
+        self.assertEqual(bank_amount, f"-{amount}")
 
         signed = [float(_tag(block, "AMOUNT")) for block in blocks]
         self.assertEqual(round(sum(signed), 2), 0.0)

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import uuid
 from datetime import datetime
 from typing import Any
 from xml.sax.saxutils import escape
@@ -116,11 +118,11 @@ def _receipt_voucher(payload: dict[str, Any], remote_id: str, party_name: str, s
     voucher_no = str(collection.get("receipt_no") or remote_id).strip()
     narration = _receipt_narration(collection, remote_id)
 
-    # Receipt voucher types default the single-entry Account to Cash.
-    # PARTYLEDGERNAME is the party (credit), not that Account. Naming the bank
-    # there, or sending a bank allocation Tally cannot keep, makes Tally drop
-    # the bank line and store Cash. Accounting Voucher mode posts the configured
-    # debit ledger and the dealer from ALLLEDGERENTRIES instead.
+    # Live receipts that Tally keeps on State Bank of India use this shape:
+    # PARTYLEDGERNAME is the dealer, the dealer is the positive credit line,
+    # and the bank is the negative debit line with a complete bank allocation.
+    # An Inter Bank Transfer allocation without TRANSFERMODE is dropped, and
+    # the Receipt voucher then keeps its default Account, Cash.
     return (
         f"<DATE>{date_xml}</DATE>"
         f"<VOUCHERTYPENAME>{_x(settings.voucher_type_receipt)}</VOUCHERTYPENAME>"
@@ -129,14 +131,12 @@ def _receipt_voucher(payload: dict[str, Any], remote_id: str, party_name: str, s
         f"<PARTYLEDGERNAME>{_x(party_name)}</PARTYLEDGERNAME>"
         f"<BASICBASEPARTYNAME>{_x(party_name)}</BASICBASEPARTYNAME>"
         "<PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>"
-        "<VCHENTRYMODE>Accounting Voucher</VCHENTRYMODE>"
         f"<EFFECTIVEDATE>{date_xml}</EFFECTIVEDATE>"
         "<ISINVOICE>No</ISINVOICE>"
         "<HASCASHFLOW>Yes</HASCASHFLOW>"
-        "<CHANGEVCHMODE>No</CHANGEVCHMODE>"
         f"<NARRATION>{_x(narration)}</NARRATION>"
-        f"{_ledger_entry(debit_ledger, debit=amount, is_party=False, receipt_flags=True, extra=_bank_allocation(date_xml, amount, party_name, collection, remote_id))}"
         f"{_ledger_entry(party_name, credit=amount, is_party=True, receipt_flags=True)}"
+        f"{_ledger_entry(debit_ledger, debit=amount, is_party=True, receipt_flags=True, extra=_bank_allocation(date_xml, amount, party_name, collection, remote_id))}"
     )
 
 
@@ -230,26 +230,44 @@ def _bank_allocation(
 ) -> str:
     mode = str(collection.get("payment_mode") or "").strip().casefold()
     txn = str(collection.get("transaction_number") or "").strip()
-    # "Cheque" is not a Tally transaction type. An invalid or nameless allocation
-    # is dropped with the bank ledger, and the Receipt default Account (Cash) remains.
+    # Cheque/DD is the Tally transaction type. "Cheque" alone is rejected.
+    # Inter Bank Transfer on this company also requires TRANSFERMODE. The
+    # receipts already corrected onto State Bank of India use NEFT.
     if mode in {"cheque", "dd", "demand draft"}:
         txn_type = "Cheque/DD"
+        transfer_mode = ""
+    elif mode == "rtgs":
+        txn_type = "Inter Bank Transfer"
+        transfer_mode = "RTGS"
+    elif mode == "upi":
+        txn_type = "Inter Bank Transfer"
+        transfer_mode = "UPI"
     else:
         txn_type = "Inter Bank Transfer"
+        transfer_mode = "NEFT"
+
+    transfer_xml = f"<TRANSFERMODE>{_x(transfer_mode)}</TRANSFERMODE>" if transfer_mode else ""
+    allocation_name = str(uuid.uuid5(uuid.NAMESPACE_URL, f"paramgold-receipt:{remote_id}"))
+    unique_ref = hashlib.sha1(remote_id.encode("utf-8")).hexdigest()[:16]
 
     return (
         "<BANKALLOCATIONS.LIST>"
         f"<DATE>{date_xml}</DATE>"
         f"<INSTRUMENTDATE>{date_xml}</INSTRUMENTDATE>"
-        f"<NAME>{_x(remote_id)}</NAME>"
+        f"<NAME>{_x(allocation_name)}</NAME>"
         f"<TRANSACTIONTYPE>{_x(txn_type)}</TRANSACTIONTYPE>"
+        f"{transfer_xml}"
         f"<PAYMENTFAVOURING>{_x(party_name)}</PAYMENTFAVOURING>"
         f"<BANKPARTYNAME>{_x(party_name)}</BANKPARTYNAME>"
         f"<INSTRUMENTNUMBER>{_x(txn)}</INSTRUMENTNUMBER>"
+        f"<UNIQUEREFERENCENUMBER>{_x(unique_ref)}</UNIQUEREFERENCENUMBER>"
         "<PAYMENTMODE>Transacted</PAYMENTMODE>"
         "<STATUS>No</STATUS>"
         "<ISCONNECTEDPAYMENT>No</ISCONNECTEDPAYMENT>"
         "<ISSPLIT>No</ISSPLIT>"
+        "<ISCONTRACTUSED>No</ISCONTRACTUSED>"
+        "<ISACCEPTEDWITHWARNING>No</ISACCEPTEDWITHWARNING>"
+        "<ISTRANSFORCED>No</ISTRANSFORCED>"
         f"<AMOUNT>{_amount(-abs(amount))}</AMOUNT>"
         "</BANKALLOCATIONS.LIST>"
     )

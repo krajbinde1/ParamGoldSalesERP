@@ -4,6 +4,8 @@ from tally_client import (
     interpret_closing_balance,
     parse_journal_vouchers,
     parse_ledger_closing_balances,
+    parse_receipt_vouchers,
+    receipt_ledger_problem,
 )
 
 
@@ -260,6 +262,75 @@ class JournalVoucherParseTest(unittest.TestCase):
         self.assertEqual(rows[0]["voucher_no"], "BD-7")
         self.assertEqual(rows[0]["credit"], 700.0)
         self.assertEqual(rows[0]["narration"], "Bad debt written off")
+
+
+class ReceiptReadBackTest(unittest.TestCase):
+    def test_accepts_state_bank_debit_and_dealer_credit(self) -> None:
+        xml = """
+        <VOUCHER VCHTYPE="Receipt">
+          <VOUCHERNUMBER>411</VOUCHERNUMBER>
+          <REFERENCE>ERP-COL-118</REFERENCE>
+          <PARTYLEDGERNAME>Yeotikar Krushi Seva Kendra Nanded</PARTYLEDGERNAME>
+          <ALLLEDGERENTRIES.LIST>
+            <LEDGERNAME>Yeotikar Krushi Seva Kendra Nanded</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>No</ISDEEMEDPOSITIVE>
+            <AMOUNT>70000.00</AMOUNT>
+          </ALLLEDGERENTRIES.LIST>
+          <ALLLEDGERENTRIES.LIST>
+            <LEDGERNAME>State Bank of India</LEDGERNAME>
+            <ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>
+            <AMOUNT>-70000.00</AMOUNT>
+          </ALLLEDGERENTRIES.LIST>
+        </VOUCHER>
+        """
+        rows = parse_receipt_vouchers(xml)
+        self.assertEqual(len(rows), 1)
+        self.assertIsNone(
+            receipt_ledger_problem(rows[0], "State Bank of India", "Yeotikar Krushi Seva Kendra Nanded", 70000)
+        )
+
+    def test_ignores_company_info_voucher_count_tag(self) -> None:
+        xml = """
+        <CMPINFO><VOUCHER>6</VOUCHER></CMPINFO>
+        <VOUCHER VCHTYPE="Receipt">
+          <VOUCHERNUMBER>411</VOUCHERNUMBER>
+          <REFERENCE>ERP-COL-118</REFERENCE>
+          <PARTYLEDGERNAME>Dealer</PARTYLEDGERNAME>
+          <ALLLEDGERENTRIES.LIST>
+            <LEDGERNAME>Dealer</LEDGERNAME>
+            <AMOUNT>10.00</AMOUNT>
+          </ALLLEDGERENTRIES.LIST>
+          <ALLLEDGERENTRIES.LIST>
+            <LEDGERNAME>State Bank of India</LEDGERNAME>
+            <AMOUNT>-10.00</AMOUNT>
+          </ALLLEDGERENTRIES.LIST>
+        </VOUCHER>
+        """
+        rows = parse_receipt_vouchers(xml)
+        self.assertEqual(len(rows), 1)
+        self.assertEqual(rows[0].voucher_number, "411")
+        self.assertIsNone(receipt_ledger_problem(rows[0], "State Bank of India", "Dealer", 10))
+
+    def test_rejects_cash_account_ledger(self) -> None:
+        xml = """
+        <VOUCHER VCHTYPE="Receipt">
+          <VOUCHERNUMBER>9</VOUCHERNUMBER>
+          <REFERENCE>ERP-COL-9</REFERENCE>
+          <PARTYLEDGERNAME>Dealer</PARTYLEDGERNAME>
+          <ALLLEDGERENTRIES.LIST>
+            <LEDGERNAME>Dealer</LEDGERNAME>
+            <AMOUNT>1000.00</AMOUNT>
+          </ALLLEDGERENTRIES.LIST>
+          <ALLLEDGERENTRIES.LIST>
+            <LEDGERNAME>Cash</LEDGERNAME>
+            <AMOUNT>-1000.00</AMOUNT>
+          </ALLLEDGERENTRIES.LIST>
+        </VOUCHER>
+        """
+        rows = parse_receipt_vouchers(xml)
+        problem = receipt_ledger_problem(rows[0], "State Bank of India", "Dealer", 1000)
+        self.assertIsNotNone(problem)
+        self.assertIn("Cash", problem or "")
 
 
 if __name__ == "__main__":
