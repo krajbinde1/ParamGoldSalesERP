@@ -116,21 +116,27 @@ def _receipt_voucher(payload: dict[str, Any], remote_id: str, party_name: str, s
     voucher_no = str(collection.get("receipt_no") or remote_id).strip()
     narration = _receipt_narration(collection, remote_id)
 
-    # Tally Receipt single-entry "Account" is PARTYLEDGERNAME. That must be the
-    # bank ledger. Using the dealer here leaves the voucher-type default Cash.
+    # Receipt voucher types default the single-entry Account to Cash.
+    # PARTYLEDGERNAME is the party (credit), not that Account. Naming the bank
+    # there, or sending a bank allocation Tally cannot keep, makes Tally drop
+    # the bank line and store Cash. Accounting Voucher mode posts the configured
+    # debit ledger and the dealer from ALLLEDGERENTRIES instead.
     return (
         f"<DATE>{date_xml}</DATE>"
         f"<VOUCHERTYPENAME>{_x(settings.voucher_type_receipt)}</VOUCHERTYPENAME>"
         f"<VOUCHERNUMBER>{_x(voucher_no)}</VOUCHERNUMBER>"
         f"<REFERENCE>{_x(remote_id)}</REFERENCE>"
-        f"<PARTYLEDGERNAME>{_x(debit_ledger)}</PARTYLEDGERNAME>"
-        f"<BASICBASEPARTYNAME>{_x(debit_ledger)}</BASICBASEPARTYNAME>"
+        f"<PARTYLEDGERNAME>{_x(party_name)}</PARTYLEDGERNAME>"
+        f"<BASICBASEPARTYNAME>{_x(party_name)}</BASICBASEPARTYNAME>"
         "<PERSISTEDVIEW>Accounting Voucher View</PERSISTEDVIEW>"
+        "<VCHENTRYMODE>Accounting Voucher</VCHENTRYMODE>"
         f"<EFFECTIVEDATE>{date_xml}</EFFECTIVEDATE>"
+        "<ISINVOICE>No</ISINVOICE>"
         "<HASCASHFLOW>Yes</HASCASHFLOW>"
+        "<CHANGEVCHMODE>No</CHANGEVCHMODE>"
         f"<NARRATION>{_x(narration)}</NARRATION>"
-        f"{_ledger_entry(debit_ledger, debit=amount, is_party=True, extra=_bank_allocation(date_xml, amount, party_name, collection))}"
-        f"{_ledger_entry(party_name, credit=amount, is_party=True)}"
+        f"{_ledger_entry(debit_ledger, debit=amount, is_party=False, receipt_flags=True, extra=_bank_allocation(date_xml, amount, party_name, collection, remote_id))}"
+        f"{_ledger_entry(party_name, credit=amount, is_party=True, receipt_flags=True)}"
     )
 
 
@@ -181,6 +187,7 @@ def _ledger_entry(
     debit: float | None = None,
     credit: float | None = None,
     is_party: bool = False,
+    receipt_flags: bool = False,
     extra: str = "",
 ) -> str:
     if debit is not None:
@@ -193,12 +200,21 @@ def _ledger_entry(
         raise VoucherBuildError("Ledger entry is missing debit/credit.")
 
     party = "Yes" if is_party else "No"
+    # Receipt lines need the same flags Tally writes on a saved voucher.
+    # Without them, import re-opens the Receipt type and fills its default Cash account.
+    receipt_xml = ""
+    if receipt_flags:
+        receipt_xml = (
+            "<REMOVEZEROENTRIES>No</REMOVEZEROENTRIES>"
+            f"<ISLASTDEEMEDPOSITIVE>{deemed}</ISLASTDEEMEDPOSITIVE>"
+        )
     return (
         "<ALLLEDGERENTRIES.LIST>"
         f"<LEDGERNAME>{_x(name)}</LEDGERNAME>"
         f"<ISDEEMEDPOSITIVE>{deemed}</ISDEEMEDPOSITIVE>"
         f"<ISPARTYLEDGER>{party}</ISPARTYLEDGER>"
         "<LEDGERFROMITEM>No</LEDGERFROMITEM>"
+        f"{receipt_xml}"
         f"<AMOUNT>{_amount(amount)}</AMOUNT>"
         f"{extra}"
         "</ALLLEDGERENTRIES.LIST>"
@@ -210,11 +226,14 @@ def _bank_allocation(
     amount: float,
     party_name: str,
     collection: dict[str, Any],
+    remote_id: str,
 ) -> str:
     mode = str(collection.get("payment_mode") or "").strip().casefold()
     txn = str(collection.get("transaction_number") or "").strip()
+    # "Cheque" is not a Tally transaction type. An invalid or nameless allocation
+    # is dropped with the bank ledger, and the Receipt default Account (Cash) remains.
     if mode in {"cheque", "dd", "demand draft"}:
-        txn_type = "Cheque"
+        txn_type = "Cheque/DD"
     else:
         txn_type = "Inter Bank Transfer"
 
@@ -222,9 +241,15 @@ def _bank_allocation(
         "<BANKALLOCATIONS.LIST>"
         f"<DATE>{date_xml}</DATE>"
         f"<INSTRUMENTDATE>{date_xml}</INSTRUMENTDATE>"
+        f"<NAME>{_x(remote_id)}</NAME>"
         f"<TRANSACTIONTYPE>{_x(txn_type)}</TRANSACTIONTYPE>"
         f"<PAYMENTFAVOURING>{_x(party_name)}</PAYMENTFAVOURING>"
+        f"<BANKPARTYNAME>{_x(party_name)}</BANKPARTYNAME>"
         f"<INSTRUMENTNUMBER>{_x(txn)}</INSTRUMENTNUMBER>"
+        "<PAYMENTMODE>Transacted</PAYMENTMODE>"
+        "<STATUS>No</STATUS>"
+        "<ISCONNECTEDPAYMENT>No</ISCONNECTEDPAYMENT>"
+        "<ISSPLIT>No</ISSPLIT>"
         f"<AMOUNT>{_amount(-abs(amount))}</AMOUNT>"
         "</BANKALLOCATIONS.LIST>"
     )

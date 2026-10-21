@@ -122,9 +122,12 @@ def trace_receipt_xml(erp: ErpClient, settings: Settings, tally_voucher_no: str)
         log("TraceXML", xml)
         log(
             "Trace",
-            "xml_party={party}  xml_has_sbi={sbi}  xml_has_cash_ledger={cash}".format(
+            "xml_party={party}  xml_debit={debit}  xml_mode={mode}  "
+            "xml_has_sbi={sbi}  xml_has_cash_ledger={cash}".format(
                 party=_xml_tag(xml, "PARTYLEDGERNAME"),
-                sbi="State Bank of India" in xml,
+                debit=_xml_tag(xml, "LEDGERNAME"),
+                mode=_xml_tag(xml, "VCHENTRYMODE"),
+                sbi="<LEDGERNAME>State Bank of India</LEDGERNAME>" in xml,
                 cash="<LEDGERNAME>Cash</LEDGERNAME>" in xml,
             ),
         )
